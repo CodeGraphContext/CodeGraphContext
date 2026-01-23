@@ -133,6 +133,7 @@ class GraphBuilder:
                 session.run("CREATE CONSTRAINT macro_unique IF NOT EXISTS FOR (m:Macro) REQUIRE (m.name, m.file_path, m.line_number) IS UNIQUE")
                 session.run("CREATE CONSTRAINT variable_unique IF NOT EXISTS FOR (v:Variable) REQUIRE (v.name, v.file_path, v.line_number) IS UNIQUE")
                 session.run("CREATE CONSTRAINT module_name IF NOT EXISTS FOR (m:Module) REQUIRE m.name IS UNIQUE")
+                session.run("CREATE CONSTRAINT export_unique IF NOT EXISTS FOR (e:Export) REQUIRE (e.name, e.module_name, e.file_path) IS UNIQUE")
                 session.run("CREATE CONSTRAINT struct_cpp IF NOT EXISTS FOR (cstruct: Struct) REQUIRE (cstruct.name, cstruct.file_path, cstruct.line_number) IS UNIQUE")
                 session.run("CREATE CONSTRAINT enum_cpp IF NOT EXISTS FOR (cenum: Enum) REQUIRE (cenum.name, cenum.file_path, cenum.line_number) IS UNIQUE")
                 session.run("CREATE CONSTRAINT union_cpp IF NOT EXISTS FOR (cunion: Union) REQUIRE (cunion.name, cunion.file_path, cunion.line_number) IS UNIQUE")
@@ -252,7 +253,6 @@ class GraphBuilder:
 
     # First pass to add file and its contents
     def add_file_to_graph(self, file_data: Dict, repo_name: str, imports_map: dict):
-        info_logger("Executing add_file_to_graph with my change!")
         """Adds a file and its contents within a single, unified session."""
         file_path_str = str(Path(file_data['file_path']).resolve())
         file_name = Path(file_path_str).name
@@ -399,6 +399,43 @@ class GraphBuilder:
                         MERGE (f)-[r:IMPORTS]->(m)
                         SET r += $rel_props
                     """, file_path=file_path_str, rel_props=rel_props, **imp)
+
+            # Handle exports for JavaScript modules
+            exports_list = file_data.get('exports', [])
+            lang = file_data.get('lang')
+            
+            for export in exports_list:
+                if lang == 'javascript':
+                    # Use relative path as module name to match how imports reference modules
+                    # E.g., './exporter.js' instead of 'C:\full\path\exporter.js'
+                    try:
+                        file_obj = Path(file_path_str)
+                        repo_obj = Path(repo_result['path'])
+                        rel_path = file_obj.relative_to(repo_obj)
+                        # Convert to forward slashes and prepend './' for relative imports
+                        module_name = './' + str(rel_path).replace('\\', '/')
+                    except (ValueError, KeyError, TypeError):
+                        # Fallback to just the filename
+                        module_name = './' + Path(file_path_str).name
+                    
+                    session.run("""
+                        MATCH (f:File {path: $file_path})
+                        MERGE (m:Module {name: $module_name})
+                        MERGE (e:Export {name: $export_name, module_name: $module_name, file_path: $file_path})
+                        SET e.original_name = $original_name,
+                            e.is_default = $is_default,
+                            e.line_number = $line_number,
+                            e.lang = $lang
+                        MERGE (m)-[:EXPORTS]->(e)
+                        MERGE (f)-[:CONTAINS]->(e)
+                    """, 
+                    file_path=file_path_str,
+                    module_name=module_name,
+                    export_name=export.get('name'),
+                    original_name=export.get('original_name'),
+                    is_default=export.get('is_default', False),
+                    line_number=export.get('line_number'),
+                    lang=export.get('lang'))
 
 
             # Handle CONTAINS relationship between class to their children like variables

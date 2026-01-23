@@ -96,6 +96,9 @@ JS_QUERIES = {
             function: (identifier) @require_call (#eq? @require_call "require")
         ) @import
     """,
+    "exports": """
+        (export_statement) @export
+    """,
     "calls": """
         (call_expression function: (identifier) @name)
         (call_expression function: (member_expression property: (property_identifier) @name))
@@ -177,6 +180,7 @@ class JavascriptTreeSitterParser:
         functions = self._find_functions(root_node)
         classes = self._find_classes(root_node)
         imports = self._find_imports(root_node)
+        exports = self._find_exports(root_node)
         function_calls = self._find_calls(root_node)
         variables = self._find_variables(root_node)
 
@@ -186,6 +190,7 @@ class JavascriptTreeSitterParser:
             "classes": classes,
             "variables": variables,
             "imports": imports,
+            "exports": exports,
             "function_calls": function_calls,
             "is_dependency": is_dependency,
             "lang": self.language_name,
@@ -458,6 +463,114 @@ class JavascriptTreeSitterParser:
                                 'lang': self.language_name})
 
         return imports
+
+
+    def _find_exports(self, root_node):
+        """Extract export statements from JavaScript code."""
+        exports = []
+        query_str = JS_QUERIES['exports']
+        
+        for node, capture_name in execute_query(self.language, query_str, root_node):
+            if capture_name != 'export':
+                continue
+            
+            line_number = node.start_point[0] + 1
+            
+            # Check if this is a default export
+            has_default = any(child.type == 'default' for child in node.children)
+            
+            # Handle different export types
+            for child in node.children:
+                # export default ...
+                if child.type == 'default':
+                    # Find what comes after 'default'
+                    default_export_node = None
+                    for sibling in node.children:
+                        if sibling.type in ('function_declaration', 'class_declaration', 'identifier', 
+                                           'arrow_function', 'function_expression'):
+                            default_export_node = sibling
+                            break
+                    
+                    export_name = 'default'
+                    original_name = None
+                    
+                    if default_export_node:
+                        if default_export_node.type == 'function_declaration':
+                            name_node = default_export_node.child_by_field_name('name')
+                            original_name = self._get_node_text(name_node) if name_node else 'default'
+                        elif default_export_node.type == 'class_declaration':
+                            name_node = default_export_node.child_by_field_name('name')
+                            original_name = self._get_node_text(name_node) if name_node else 'default'
+                        elif default_export_node.type == 'identifier':
+                            original_name = self._get_node_text(default_export_node)
+                    
+                    exports.append({
+                        'name': export_name,
+                        'original_name': original_name or 'default',
+                        'is_default': True,
+                        'line_number': line_number,
+                        'lang': self.language_name
+                    })
+                
+                # export function/class declaration (but not if it's a default export)
+                elif child.type == 'function_declaration' and not has_default:
+                    name_node = child.child_by_field_name('name')
+                    if name_node:
+                        export_name = self._get_node_text(name_node)
+                        exports.append({
+                            'name': export_name,
+                            'original_name': export_name,
+                            'is_default': False,
+                            'line_number': line_number,
+                            'lang': self.language_name
+                        })
+                
+                elif child.type == 'class_declaration' and not has_default:
+                    name_node = child.child_by_field_name('name')
+                    if name_node:
+                        export_name = self._get_node_text(name_node)
+                        exports.append({
+                            'name': export_name,
+                            'original_name': export_name,
+                            'is_default': False,
+                            'line_number': line_number,
+                            'lang': self.language_name
+                        })
+                
+                # export const/let/var ...
+                elif child.type == 'lexical_declaration' or child.type == 'variable_declaration':
+                    for declarator in child.children:
+                        if declarator.type == 'variable_declarator':
+                            name_node = declarator.child_by_field_name('name')
+                            if name_node and name_node.type == 'identifier':
+                                export_name = self._get_node_text(name_node)
+                                exports.append({
+                                    'name': export_name,
+                                    'original_name': export_name,
+                                    'is_default': False,
+                                    'line_number': line_number,
+                                    'lang': self.language_name
+                                })
+                
+                # export { name1, name2 as alias }
+                elif child.type == 'export_clause':
+                    for specifier in child.children:
+                        if specifier.type == 'export_specifier':
+                            name_node = specifier.child_by_field_name('name')
+                            alias_node = specifier.child_by_field_name('alias')
+                            
+                            if name_node:
+                                original_name = self._get_node_text(name_node)
+                                export_name = self._get_node_text(alias_node) if alias_node else original_name
+                                exports.append({
+                                    'name': export_name,
+                                    'original_name': original_name,
+                                    'is_default': False,
+                                    'line_number': line_number,
+                                    'lang': self.language_name
+                                })
+        
+        return exports
 
 
     def _find_calls(self, root_node):
