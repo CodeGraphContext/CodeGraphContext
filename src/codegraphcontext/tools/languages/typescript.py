@@ -2,6 +2,11 @@ from pathlib import Path
 from typing import Dict
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger, debug_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
+# NOTE:
+# .d.ts files only contain declaration-level information.
+# We intentionally index only interfaces, type aliases, enums,
+# and function signatures, and skip all runtime-specific constructs.
+
 
 TS_QUERIES = {
     "functions": """
@@ -140,20 +145,20 @@ class TypescriptTreeSitterParser:
 
     def _get_docstring(self, body_node):
         return None
-
+    
     def parse(self, file_path: Path, is_dependency: bool = False) -> Dict:
+        is_dts = str(file_path).endswith(".d.ts")
         with open(file_path, "r", encoding="utf-8") as f:
             source_code = f.read()
         tree = self.parser.parse(bytes(source_code, "utf8"))
         root_node = tree.root_node
-
-        functions = self._find_functions(root_node)
+        functions = [] if is_dts else self._find_functions(root_node)
         classes = self._find_classes(root_node)
         interfaces = self._find_interfaces(root_node)
         type_aliases = self._find_type_aliases(root_node)
         imports = self._find_imports(root_node)
-        function_calls = self._find_calls(root_node)
-        variables = self._find_variables(root_node)
+        function_calls = [] if is_dts else self._find_calls(root_node)
+        variables = [] if is_dts else self._find_variables(root_node)
 
         return {
             "file_path": str(file_path),

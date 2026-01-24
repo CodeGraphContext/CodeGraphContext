@@ -97,6 +97,7 @@ class GraphBuilder:
             '.cjs': TreeSitterParser('javascript'),
             '.go': TreeSitterParser('go'),
             '.ts': TreeSitterParser('typescript'),
+            '.d.ts': TreeSitterParser('typescript'),
             '.tsx': TreeSitterParser('typescript'),
             '.cpp': TreeSitterParser('cpp'),
             '.h': TreeSitterParser('cpp'),
@@ -189,9 +190,9 @@ class GraphBuilder:
         if '.go' in files_by_lang:
              from .languages import go as go_lang_module
              imports_map.update(go_lang_module.pre_scan_go(files_by_lang['.go'], self.parsers['.go']))
-        if '.ts' in files_by_lang:
-            from .languages import typescript as ts_lang_module
-            imports_map.update(ts_lang_module.pre_scan_typescript(files_by_lang['.ts'], self.parsers['.ts']))
+        from .languages import typescript as ts_lang_module
+        for ext in ('.ts', '.d.ts'):
+            if ext in files_by_lang:imports_map.update(ts_lang_module.pre_scan_typescript(files_by_lang[ext],self.parsers[ext]))
         if '.tsx' in files_by_lang:
             from .languages import typescriptjsx as tsx_lang_module
             imports_map.update(tsx_lang_module.pre_scan_typescript(files_by_lang['.tsx'], self.parsers['.tsx']))
