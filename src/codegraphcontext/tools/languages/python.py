@@ -111,11 +111,12 @@ class PythonTreeSitterParser:
                     return self._get_node_text(first_child.children[0])
         return None
 
-    def parse(self, file_path: Path, is_dependency: bool = False, is_notebook: bool = False) -> Dict:
+    def parse(self, file_path: Path, is_dependency: bool = False, is_notebook: bool = False, index_source: bool = False) -> Dict:
         """Parses a file and returns its structure in a standardized dictionary format."""
         original_file_path = file_path
         temp_py_file = None
         source_code = None
+        self.index_source = index_source
 
         try:
             if is_notebook:
@@ -140,7 +141,7 @@ class PythonTreeSitterParser:
             root_node = tree.root_node
 
             functions = self._find_functions(root_node)
-            functions.extend(self._find_lambda_assignments(root_node))
+            functions.extend(self._find_lambda_assignments(root_node, index_source))
             classes = self._find_classes(root_node)
             imports = self._find_imports(root_node)
             function_calls = self._find_calls(root_node)
@@ -164,7 +165,7 @@ class PythonTreeSitterParser:
                 os.remove(temp_py_file)
                 info_logger(f"Removed temporary file: {temp_py_file}")
 
-    def _find_lambda_assignments(self, root_node):
+    def _find_lambda_assignments(self, root_node, index_source: bool = False):
         functions = []
         query_str = PY_QUERIES.get('lambda_assignments')
         if not query_str: return []
@@ -187,9 +188,6 @@ class PythonTreeSitterParser:
                     "line_number": node.start_point[0] + 1,
                     "end_line": assignment_node.end_point[0] + 1,
                     "args": [p for p in [self._get_node_text(p) for p in params_node.children if p.type == 'identifier'] if p] if params_node else [],
-                    "source": self._get_node_text(assignment_node),
-
-                    "docstring": None,
                     "cyclomatic_complexity": 1,
                     "context": context,
                     "context_type": context_type,
@@ -198,10 +196,14 @@ class PythonTreeSitterParser:
                     "lang": self.language_name,
                     "is_dependency": False,
                 }
+                if self.index_source:
+                    func_data["source"] = self._get_node_text(assignment_node)
+                    func_data["docstring"] = None
+
                 functions.append(func_data)
         return functions
 
-    def _find_functions(self, root_node):
+    def _find_functions(self, root_node, index_source: bool = False):
         functions = []
         query_str = PY_QUERIES['functions']
         for match in execute_query(self.language, query_str, root_node):
@@ -253,9 +255,6 @@ class PythonTreeSitterParser:
                     "line_number": node.start_point[0] + 1,
                     "end_line": func_node.end_point[0] + 1,
                     "args": args,
-                    "source": self._get_node_text(func_node),
-
-                    "docstring": self._get_docstring(body_node),
                     "cyclomatic_complexity": self._calculate_complexity(func_node),
                     "context": context,
                     "context_type": context_type,
@@ -264,10 +263,15 @@ class PythonTreeSitterParser:
                     "lang": self.language_name,
                     "is_dependency": False,
                 }
+
+                if self.index_source:
+                    func_data["source"] = self._get_node_text(func_node)
+                    func_data["docstring"] = self._get_docstring(body_node)
+
                 functions.append(func_data)
         return functions
 
-    def _find_classes(self, root_node):
+    def _find_classes(self, root_node, index_source: bool = False):
         classes = []
         query_str = PY_QUERIES['classes']
         for match in execute_query(self.language, query_str, root_node):
@@ -293,13 +297,15 @@ class PythonTreeSitterParser:
                     "line_number": node.start_point[0] + 1,
                     "end_line": class_node.end_point[0] + 1,
                     "bases": [b for b in bases if b],
-                    "source": self._get_node_text(class_node),
-                    "docstring": self._get_docstring(body_node),
                     "context": context,
                     "decorators": [d for d in decorators if d],
                     "lang": self.language_name,
                     "is_dependency": False,
                 }
+                if self.index_source:
+                    class_data["source"] = self._get_node_text(class_node)
+                    class_data["docstring"] = self._get_docstring(body_node)
+
                 classes.append(class_data)
         return classes
 

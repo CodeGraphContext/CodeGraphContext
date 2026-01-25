@@ -38,6 +38,7 @@ DEFAULT_CONFIG = {
     "PARALLEL_WORKERS": "4",
     "CACHE_ENABLED": "true",
     "IGNORE_DIRS": "node_modules,venv,.venv,env,.env,dist,build,target,out,.git,.idea,.vscode,__pycache__",
+    "INDEX_SOURCE": "false",
 }
 
 # Configuration key descriptions
@@ -60,6 +61,7 @@ CONFIG_DESCRIPTIONS = {
     "PARALLEL_WORKERS": "Number of parallel indexing workers",
     "CACHE_ENABLED": "Enable caching for faster re-indexing",
     "IGNORE_DIRS": "Comma-separated list of directory names to ignore during indexing",
+    "INDEX_SOURCE": "Store full source code in graph database (recommended false)",
 }
 
 # Valid values for each config key
@@ -73,6 +75,7 @@ CONFIG_VALIDATORS = {
     "IGNORE_HIDDEN_FILES": ["true", "false"],
     "ENABLE_AUTO_WATCH": ["true", "false"],
     "CACHE_ENABLED": ["true", "false"],
+    "INDEX_SOURCE": ["true", "false"],
 }
 
 

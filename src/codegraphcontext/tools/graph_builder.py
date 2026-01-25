@@ -15,6 +15,7 @@ from tree_sitter import Language, Parser
 from ..utils.tree_sitter_manager import get_tree_sitter_manager
 from ..cli.config_manager import get_config_value
 
+
 class TreeSitterParser:
     """A generic parser wrapper for a specific language using tree-sitter."""
 
@@ -147,7 +148,7 @@ class GraphBuilder:
                 session.run("""
                     CREATE FULLTEXT INDEX code_search_index IF NOT EXISTS 
                     FOR (n:Function|Class|Variable) 
-                    ON EACH [n.name, n.source, n.docstring]
+                    ON EACH [n.name, coalesce(n.source, ''), coalesce(n.docstring, '')]
                 """ )
                 
                 info_logger("Database schema verified/created successfully")
@@ -329,6 +330,7 @@ class GraphBuilder:
                         SET n += $props
                         MERGE (f)-[:CONTAINS]->(n)
                     """
+
                     session.run(query, file_path=file_path_str, name=item['name'], line_number=item['line_number'], props=item)
                     
                     if label == 'Function':
@@ -798,15 +800,23 @@ class GraphBuilder:
 
         debug_log(f"[parse_file] Starting parsing for: {file_path} with {parser.language_name} parser")
         try:
+            index_source = (get_config_value("INDEX_SOURCE") or "false").lower() == "true"
             if parser.language_name == 'python':
                 is_notebook = file_path.suffix == '.ipynb'
-                file_data = parser.parse(file_path, is_dependency, is_notebook=is_notebook)
+                file_data = parser.parse(
+                    file_path,
+                    is_dependency,
+                    is_notebook=is_notebook,
+                    index_source=index_source
+                )
             else:
-                file_data = parser.parse(file_path, is_dependency)
+                file_data = parser.parse(
+                    file_path,
+                    is_dependency,
+                    index_source=index_source
+                )
             file_data['repo_path'] = str(repo_path)
-            debug_log(f"[parse_file] Successfully parsed: {file_path}")
             return file_data
-            
         except Exception as e:
             error_logger(f"Error parsing {file_path} with {parser.language_name} parser: {e}")
             debug_log(f"[parse_file] Error parsing {file_path}: {e}")
