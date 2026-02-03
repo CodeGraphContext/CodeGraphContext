@@ -89,8 +89,8 @@ TS_QUERIES = {
     """,
 }
 
-def is_typescript_file(file_path: Path) -> bool:
-    return file_path.suffix in {".ts", ".tsx"}
+def is_typescript_file(path: Path) -> bool:
+    return path.suffix in {".ts", ".tsx"}
 
 class TypescriptTreeSitterParser:
     """A TypeScript-specific parser using tree-sitter, encapsulating language-specific logic."""
@@ -141,8 +141,9 @@ class TypescriptTreeSitterParser:
     def _get_docstring(self, body_node):
         return None
 
-    def parse(self, file_path: Path, is_dependency: bool = False) -> Dict:
-        with open(file_path, "r", encoding="utf-8") as f:
+    def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict:
+        self.index_source = index_source
+        with open(path, "r", encoding="utf-8") as f:
             source_code = f.read()
         tree = self.parser.parse(bytes(source_code, "utf8"))
         root_node = tree.root_node
@@ -156,7 +157,7 @@ class TypescriptTreeSitterParser:
         variables = self._find_variables(root_node)
 
         return {
-            "file_path": str(file_path),
+            "path": str(path),
             "functions": functions,
             "classes": classes,
             "interfaces": interfaces,
@@ -238,9 +239,7 @@ class TypescriptTreeSitterParser:
                 "line_number": func_node.start_point[0] + 1,
                 "end_line": func_node.end_point[0] + 1,
                 "args": args,
-                "source": self._get_node_text(func_node),
-
-                "docstring": docstring,
+                "args": args,
                 "cyclomatic_complexity": self._calculate_complexity(func_node),
                 "context": context,
                 "context_type": context_type,
@@ -249,6 +248,10 @@ class TypescriptTreeSitterParser:
                 "lang": self.language_name,
                 "is_dependency": False,
             }
+
+            if self.index_source:
+                func_data["source"] = self._get_node_text(func_node)
+                func_data["docstring"] = docstring
             functions.append(func_data)
         return functions
 
@@ -310,13 +313,15 @@ class TypescriptTreeSitterParser:
                     "line_number": class_node.start_point[0] + 1,
                     "end_line": class_node.end_point[0] + 1,
                     "bases": bases,
-                    "source": self._get_node_text(class_node),
-                    "docstring": self._get_docstring(class_node),
+                    "bases": bases,
                     "context": None,
                     "decorators": [],
                     "lang": self.language_name,
                     "is_dependency": False,
                 }
+                if self.index_source:
+                    class_data["source"] = self._get_node_text(class_node)
+                    class_data["docstring"] = self._get_docstring(class_node)
                 classes.append(class_data)
         return classes
     
@@ -333,8 +338,10 @@ class TypescriptTreeSitterParser:
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": node.end_point[0] + 1,
-                    "source": self._get_node_text(node),
+                    "end_line": node.end_point[0] + 1,
                 }
+                if self.index_source:
+                    interface_data["source"] = self._get_node_text(node)
                 interfaces.append(interface_data)
         return interfaces
 
@@ -351,8 +358,10 @@ class TypescriptTreeSitterParser:
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": node.end_point[0] + 1,
-                    "source": self._get_node_text(node),
+                    "end_line": node.end_point[0] + 1,
                 }
+                if self.index_source:
+                    type_alias_data["source"] = self._get_node_text(node)
                 type_aliases.append(type_alias_data)
         return type_aliases
 
@@ -504,9 +513,9 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
         "(type_alias_declaration) @type_alias",
     ]
     
-    for file_path in files:
+    for path in files:
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 source_code = f.read()
                 tree = parser_wrapper.parser.parse(bytes(source_code, "utf8"))
             
@@ -555,7 +564,7 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
                         if name:
                             if name not in imports_map:
                                 imports_map[name] = []
-                            file_path_str = str(file_path.resolve())
+                            file_path_str = str(path.resolve())
                             if file_path_str not in imports_map[name]:
                                 imports_map[name].append(file_path_str)
                                 
@@ -563,6 +572,6 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
                     warning_logger(f"Query failed for pattern '{query_str}': {query_error}")
                     
         except Exception as e:
-            warning_logger(f"Tree-sitter pre-scan failed for {file_path}: {e}")
+            warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     
     return imports_map

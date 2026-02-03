@@ -42,8 +42,8 @@ numpy.cgc
 
 #### nodes.jsonl (excerpt)
 ```jsonl
-{"_id": "4:abc123", "_labels": ["Function"], "name": "array", "file_path": "/numpy/core/array.py", "line_number": 42}
-{"_id": "4:def456", "_labels": ["Class"], "name": "ndarray", "file_path": "/numpy/core/multiarray.py", "line_number": 100}
+{"_id": "4:abc123", "_labels": ["Function"], "name": "array", "path": "/numpy/core/array.py", "line_number": 42}
+{"_id": "4:def456", "_labels": ["Class"], "name": "ndarray", "path": "/numpy/core/multiarray.py", "line_number": 100}
 ```
 
 #### edges.jsonl (excerpt)

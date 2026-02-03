@@ -27,4 +27,5 @@ jobs:
 
     - name: Run end-to-end tests
       run: |
-        pytest -s tests/test_end_to_end.py
+        chmod +x tests/run_tests.sh
+        ./tests/run_tests.sh e2e

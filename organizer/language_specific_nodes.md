@@ -70,14 +70,14 @@ In the parser's main `parse` method, call your new function and add its results 
 
 ```python
 # In GoTreeSitterParser.parse()
-def parse(self, file_path: Path, is_dependency: bool = False) -> Dict:
+def parse(self, path: Path, is_dependency: bool = False) -> Dict:
     # This comment explains the pattern for future developers.
     # This method orchestrates the parsing of a single file.
     # It calls specialized `_find_*` methods for each language construct.
     # The returned dictionary should map a specific key (e.g., 'functions', 'interfaces')
     # to a list of dictionaries, where each dictionary represents a single code construct.
     # The GraphBuilder will then use these keys to create nodes with corresponding labels.
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as f:
         source_code = f.read()
 
     tree = self.parser.parse(bytes(source_code, "utf8"))
@@ -89,7 +89,7 @@ def parse(self, file_path: Path, is_dependency: bool = False) -> Dict:
     # ... find other constructs
 
     return {
-        "file_path": str(file_path),
+        "path": str(path),
         "functions": functions,
         "classes": structs,      # Structs are mapped to the generic :Class label
         "interfaces": interfaces, # The new key-value pair
@@ -120,11 +120,11 @@ def create_schema(self):
     with self.driver.session() as session:
         try:
             # ... existing constraints
-            session.run("CREATE CONSTRAINT class_unique IF NOT EXISTS FOR (c:Class) REQUIRE (c.name, c.file_path, c.line_number) IS UNIQUE")
+            session.run("CREATE CONSTRAINT class_unique IF NOT EXISTS FOR (c:Class) REQUIRE (c.name, c.path, c.line_number) IS UNIQUE")
             
             # Add constraints for the new types
-            session.run("CREATE CONSTRAINT interface_unique IF NOT EXISTS FOR (i:Interface) REQUIRE (i.name, i.file_path, i.line_number) IS UNIQUE")
-            session.run("CREATE CONSTRAINT macro_unique IF NOT EXISTS FOR (m:Macro) REQUIRE (m.name, m.file_path, m.line_number) IS UNIQUE")
+            session.run("CREATE CONSTRAINT interface_unique IF NOT EXISTS FOR (i:Interface) REQUIRE (i.name, i.path, i.line_number) IS UNIQUE")
+            session.run("CREATE CONSTRAINT macro_unique IF NOT EXISTS FOR (m:Macro) REQUIRE (m.name, m.path, m.line_number) IS UNIQUE")
             
             # ... other schema items
 ```

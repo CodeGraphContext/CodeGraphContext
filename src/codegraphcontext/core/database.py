@@ -121,6 +121,11 @@ class DatabaseManager:
             return True
         except Exception:
             return False
+    
+    def get_backend_type(self) -> str:
+        """Returns the database backend type."""
+        return 'neo4j'
+
 
     @staticmethod
     def validate_config(uri: str, username: str, password: str) -> Tuple[bool, Optional[str]]:

@@ -26,20 +26,17 @@ debug_mode = 1
 
 ## Running Tests
 
-Tests are located in the `tests/` directory and are run using `pytest`.
+Please refer to [TESTING.md](TESTING.md) for detailed instructions on running the test suite, adding new tests, and understanding the test architecture.
 
-1.  Navigate to the root of the `CodeGraphContext` directory.
-2.  Run all tests using the command: `pytest`
-3.  To run specific tests, you can provide the path to the test file, for example: `pytest tests/test_tools.py`
-4.  **Skipping Re-indexing:** To speed up test runs, especially during development, you can set the `CGC_SKIP_REINDEX` environment variable to `true`. This will prevent the test suite from re-indexing the sample project if it's already indexed.
-    ```bash
-    CGC_SKIP_REINDEX=true pytest
-    ```
+Quick summary:
+```bash
+./tests/run_tests.sh fast   # Run unit + integration tests
+```
 
 ## Submitting Changes
 
 1.  Write your code and add corresponding tests in the `tests/` directory.
-2.  Ensure all tests pass and your code lints without errors.
+2.  Ensure `fast` tests pass locally (`./tests/run_tests.sh fast`).
 3.  Commit your changes with a descriptive commit message.
 4.  Submit a pull request to the `main` branch.
 

@@ -1,0 +1,34 @@
+name: Deploy Docs to Root GitHub Pages
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-root-docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout CodeGraphContext
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install MkDocs
+        run: |
+          pip install mkdocs mkdocs-material
+
+      - name: Build docs
+        working-directory: docs
+        run: mkdocs build --clean
+
+      - name: Deploy to codegraphcontext.github.io
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+          external_repository: CodeGraphContext/codegraphcontext.github.io
+          publish_dir: docs/site
+          publish_branch: main

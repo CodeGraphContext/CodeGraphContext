@@ -120,7 +120,7 @@ const CookbookSection = () => {
       description: "Find all function definitions in the codebase.",
       tool: "execute_cypher_query",
       args: `{
-    "cypher_query": "MATCH (n:Function) RETURN n.name, n.file_path, n.line_number LIMIT 50"
+    "cypher_query": "MATCH (n:Function) RETURN n.name, n.path, n.line_number LIMIT 50"
 }`
     },
     {
@@ -129,7 +129,7 @@ const CookbookSection = () => {
       description: "Show me all the classes in the codebase.",
       tool: "execute_cypher_query",
       args: `{
-    "cypher_query": "MATCH (n:Class) RETURN n.name, n.file_path, n.line_number LIMIT 50"
+    "cypher_query": "MATCH (n:Class) RETURN n.name, n.path, n.line_number LIMIT 50"
 }`
     },
     {
@@ -138,7 +138,7 @@ const CookbookSection = () => {
       description: "Find all dataclasses in the codebase.",
       tool: "execute_cypher_query",
       args: `{
-    "cypher_query": "MATCH (c:Class) WHERE 'dataclass' IN c.decorators RETURN c.name, c.file_path"
+    "cypher_query": "MATCH (c:Class) WHERE 'dataclass' IN c.decorators RETURN c.name, c.path"
 }`
     },
     {

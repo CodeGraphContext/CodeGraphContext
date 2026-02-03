@@ -44,6 +44,21 @@ class CGCBundle:
         """
         self.db_manager = db_manager
     
+    def _get_id_function(self) -> str:
+        """
+        Get the appropriate ID function based on the database backend.
+        
+        Returns:
+            str: 'elementId' for Neo4j, 'id' for FalkorDB
+        """
+        # Check if we're using Neo4j or FalkorDB
+        backend = self.db_manager.get_backend_type()
+        if backend == 'neo4j':
+            return 'elementId'
+        else:  # FalkorDB or other backends
+            return 'id'
+
+    
     def export_to_bundle(
         self,
         output_path: Path,
@@ -164,10 +179,21 @@ class CGCBundle:
                 info_logger(f"Loading bundle: {metadata.get('repo', 'unknown')}")
                 info_logger(f"Bundle version: {metadata.get('cgc_version', 'unknown')}")
                 
-                # Step 4: Clear existing data if requested
+                # Step 4: Handle existing data
+                repo_name = metadata.get('repo', 'unknown')
+                repo_path = metadata.get('repo_path')
+                
                 if clear_existing:
-                    info_logger("Clearing existing graph data...")
+                    # User explicitly wants to clear - remove everything
+                    info_logger("Clearing all existing graph data...")
                     self._clear_graph()
+                else:
+                    # Check if this repository already exists (only when NOT clearing)
+                    existing_repo = self._check_existing_repository(repo_name, repo_path)
+                    
+                    if existing_repo:
+                        return False, f"Repository '{repo_name}' already exists in the database. Use clear_existing=True to replace it."
+                
                 
                 # Step 5: Create schema
                 info_logger("Creating schema...")
@@ -336,7 +362,7 @@ class CGCBundle:
             if repo_path:
                 query = """
                     MATCH (n)
-                    WHERE n.path STARTS WITH $repo_path OR n.file_path STARTS WITH $repo_path
+                    WHERE n.path STARTS WITH $repo_path OR n.path STARTS WITH $repo_path
                     RETURN n, labels(n) as labels
                 """
                 params = {"repo_path": str(repo_path.resolve())}
@@ -389,8 +415,8 @@ class CGCBundle:
             if repo_path:
                 query = """
                     MATCH (n)-[r]->(m)
-                    WHERE (n.path STARTS WITH $repo_path OR n.file_path STARTS WITH $repo_path)
-                       OR (m.path STARTS WITH $repo_path OR m.file_path STARTS WITH $repo_path)
+                    WHERE (n.path STARTS WITH $repo_path OR n.path STARTS WITH $repo_path)
+                       OR (m.path STARTS WITH $repo_path OR m.path STARTS WITH $repo_path)
                     RETURN n, r, m, type(r) as rel_type
                 """
                 params = {"repo_path": str(repo_path.resolve())}
@@ -541,10 +567,10 @@ cgc import <bundle-file>.cgc
     def _create_zip(self, source_dir: Path, output_file: Path):
         """Create a ZIP archive from the bundle directory."""
         with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for file_path in source_dir.rglob('*'):
-                if file_path.is_file():
-                    arcname = file_path.relative_to(source_dir)
-                    zipf.write(file_path, arcname)
+            for path in source_dir.rglob('*'):
+                if path.is_file():
+                    arcname = path.relative_to(source_dir)
+                    zipf.write(path, arcname)
     
     # ========================================================================
     # IMPORT HELPERS
@@ -568,6 +594,63 @@ cgc import <bundle-file>.cgc
             return False, f"Invalid metadata.json: {e}"
         
         return True, "Valid bundle"
+    
+    def _check_existing_repository(self, repo_name: str, repo_path: Optional[str]) -> bool:
+        """Check if a repository already exists in the database."""
+        with self.db_manager.get_driver().session() as session:
+            # Try to find by name first
+            result = session.run(
+                "MATCH (r:Repository {name: $name}) RETURN r LIMIT 1",
+                name=repo_name
+            )
+            if result.single():
+                return True
+            
+            # If repo_path is provided, also check by path
+            if repo_path:
+                result = session.run(
+                    "MATCH (r:Repository {path: $path}) RETURN r LIMIT 1",
+                    path=repo_path
+                )
+                if result.single():
+                    return True
+        
+        return False
+    
+    def _delete_repository(self, repo_identifier: str):
+        """Delete a specific repository and all its related nodes from the graph."""
+        with self.db_manager.get_driver().session() as session:
+            # First, try to find the repository by name or path
+            result = session.run("""
+                MATCH (r:Repository)
+                WHERE r.name = $identifier OR r.path = $identifier
+                RETURN r.path as path
+                LIMIT 1
+            """, identifier=repo_identifier)
+            
+            record = result.single()
+            if not record:
+                warning_logger(f"Repository '{repo_identifier}' not found for deletion")
+                return
+            
+            repo_path = record['path']
+            
+            # Delete all nodes that belong to this repository
+            # Files, Functions, Classes, Modules all have paths that start with repo_path
+            session.run("""
+                MATCH (n)
+                WHERE n.path STARTS WITH $repo_path
+                DETACH DELETE n
+            """, repo_path=repo_path)
+            
+            # Delete the repository node itself
+            session.run("""
+                MATCH (r:Repository)
+                WHERE r.path = $repo_path
+                DELETE r
+            """, repo_path=repo_path)
+            
+            info_logger(f"Deleted repository: {repo_identifier}")
     
     def _clear_graph(self):
         """Clear all nodes and relationships from the graph."""
@@ -622,13 +705,16 @@ cgc import <bundle-file>.cgc
     
     def _import_node_batch(self, session, batch: List[Tuple], id_mapping: Dict) -> int:
         """Import a batch of nodes."""
+        # Detect database backend to use appropriate ID function
+        id_function = self._get_id_function()
+        
         for labels, properties, old_id in batch:
             if not labels:
                 continue
             
             # Create node with labels
             label_str = ':'.join(labels)
-            query = f"CREATE (n:{label_str}) SET n = $props RETURN elementId(n) as new_id"
+            query = f"CREATE (n:{label_str}) SET n = $props RETURN {id_function}(n) as new_id"
             
             result = session.run(query, props=properties)
             record = result.single()
@@ -663,6 +749,8 @@ cgc import <bundle-file>.cgc
     def _import_edge_batch(self, session, batch: List[Dict]) -> int:
         """Import a batch of edges."""
         id_mapping = getattr(self, '_id_mapping', {})
+        # Detect database backend to use appropriate ID function
+        id_function = self._get_id_function()
         
         for edge in batch:
             old_from = edge.get('from')
@@ -681,7 +769,7 @@ cgc import <bundle-file>.cgc
             # Create relationship
             query = f"""
                 MATCH (a), (b)
-                WHERE elementId(a) = $from_id AND elementId(b) = $to_id
+                WHERE {id_function}(a) = $from_id AND {id_function}(b) = $to_id
                 CREATE (a)-[r:{rel_type}]->(b)
                 SET r = $props
             """
@@ -689,3 +777,4 @@ cgc import <bundle-file>.cgc
             session.run(query, from_id=new_from, to_id=new_to, props=properties)
         
         return len(batch)
+

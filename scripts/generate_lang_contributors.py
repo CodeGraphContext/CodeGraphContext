@@ -106,9 +106,9 @@ def generate_markdown_table(lang, stats, repo_url, files):
             author_for_link = email
 
         contribution_links = []
-        for file_path in files:
-            file_name = os.path.basename(file_path)
-            link = f"[{file_name}]({repo_url}/commits/main/{file_path}?author={author_for_link})"
+        for path in files:
+            file_name = os.path.basename(path)
+            link = f"[{file_name}]({repo_url}/commits/main/{path}?author={author_for_link})"
             contribution_links.append(link)
         
         links_str = ", ".join(contribution_links)

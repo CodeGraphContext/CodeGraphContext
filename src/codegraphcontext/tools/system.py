@@ -114,8 +114,8 @@ class SystemTools:
                     WHERE caller.is_dependency = false
                     WITH func, count(caller) as caller_count
                     WHERE caller_count = 0
-                    RETURN func.name as function_name, func.file_path as file_path, func.line_number as line_number
-                    ORDER BY func.file_path, func.line_number
+                    RETURN func.name as function_name, func.path as path, func.line_number as line_number
+                    ORDER BY func.path, func.line_number
                     LIMIT 50
                 """)
                 return {

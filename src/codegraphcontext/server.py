@@ -164,6 +164,16 @@ class MCPServer:
             **args
         )
 
+    def load_bundle_tool(self, **args) -> Dict[str, Any]:
+        return management_handlers.load_bundle(self.code_finder, **args)
+    
+    def search_registry_bundles_tool(self, **args) -> Dict[str, Any]:
+        return management_handlers.search_registry_bundles(self.code_finder, **args)
+    
+    def get_repository_stats_tool(self, **args) -> Dict[str, Any]:
+        return management_handlers.get_repository_stats(self.code_finder, **args)
+
+
     async def handle_tool_call(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Routes a tool call from the AI assistant to the appropriate handler function. 
@@ -184,7 +194,10 @@ class MCPServer:
             "delete_repository": self.delete_repository_tool,
             "visualize_graph_query": self.visualize_graph_query_tool,
             "list_watched_paths": self.list_watched_paths_tool,
-            "unwatch_directory": self.unwatch_directory_tool
+            "unwatch_directory": self.unwatch_directory_tool,
+            "load_bundle": self.load_bundle_tool,
+            "search_registry_bundles": self.search_registry_bundles_tool,
+            "get_repository_stats": self.get_repository_stats_tool
         }
         handler = tool_map.get(tool_name)
         if handler:

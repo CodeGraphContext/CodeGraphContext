@@ -1,16 +1,19 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Github, Download, ExternalLink } from "lucide-react";
+import { Github, ExternalLink, Copy, Check } from "lucide-react";
 import heroGraph from "@/assets/hero-graph.jpg";
 import { useState, useEffect } from "react";
 import ShowDownloads from "@/components/ShowDownloads";
 import ShowStarGraph from "@/components/ShowStarGraph";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { toast } from "sonner";
 
 const HeroSection = () => {
   const [stars, setStars] = useState(null);
   const [forks, setForks] = useState(null);
   const [version, setVersion] = useState("");
+  const [copied, setCopied] = useState(false);
+
   useEffect(() => {
     async function fetchVersion() {
       try {
@@ -32,6 +35,7 @@ const HeroSection = () => {
 
     fetchVersion();
   }, []);
+
   useEffect(() => {
     fetch("https://api.github.com/repos/CodeGraphContext/CodeGraphContext")
       .then((response) => response.json())
@@ -41,6 +45,17 @@ const HeroSection = () => {
       })
       .catch((error) => console.error("Error fetching GitHub stats:", error));
   }, []);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText("pip install codegraphcontext");
+      setCopied(true);
+      toast.success("Copied to clipboard!");
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      toast.error("Failed to copy");
+    }
+  };
 
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
@@ -82,22 +97,29 @@ const HeroSection = () => {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12" data-aos="fade-up" data-aos-delay="200">
-            <Button size="lg" className="bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-800 text-primary-foreground hover:opacity-90 transition-all duration-300 shadow-glow ring-1 ring-primary/20 dark:bg-gradient-primary" asChild>
-              <a href="https://pypi.org/project/codegraphcontext/" target="_blank" rel="noopener noreferrer">
-                <Download className="mr-2 h-5 w-5" />
-                pip install codegraphcontext
-              </a>
+            <Button 
+              size="lg" 
+              className="bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-800 text-primary-foreground hover:opacity-90 transition-all duration-300 shadow-glow ring-1 ring-primary/20 dark:bg-gradient-primary cursor-pointer w-full sm:w-auto min-w-[280px]"
+              onClick={handleCopy}
+              title="Click to copy install command"
+            >
+              {copied ? (
+                <Check className="mr-2 h-5 w-5 animate-in zoom-in duration-300" />
+              ) : (
+                <Copy className="mr-2 h-5 w-5" />
+              )}
+              pip install codegraphcontext
             </Button>
 
-            <Button variant="outline" size="lg" asChild className="border-gray-300 hover:border-primary/60 bg-white/80 backdrop-blur-sm shadow-sm transition-smooth text-gray-900 dark:bg-transparent dark:text-foreground dark:border-primary/30">
+            <Button variant="outline" size="lg" asChild className="border-gray-300 hover:border-primary/60 bg-white/80 backdrop-blur-sm shadow-sm transition-smooth text-gray-900 dark:bg-transparent dark:text-foreground dark:border-primary/30 w-full sm:w-auto">
               <a href="https://github.com/CodeGraphContext/CodeGraphContext" target="_blank" rel="noopener noreferrer">
                 <Github className="mr-2 h-5 w-5" />
                 View on GitHub
                 <ExternalLink className="ml-2 h-4 w-4" />
               </a>
             </Button>
-            <Button variant="ghost" size="lg" asChild>
-              <a href="https://codegraphcontext.github.io/CodeGraphContext/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+            <Button variant="ghost" size="lg" asChild className="w-full sm:w-auto">
+              <a href="https://codegraphcontext.github.io/CodeGraphContext/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 justify-center">
                 <ExternalLink className="h-5 w-5" />
                 Documentation
               </a>
@@ -132,4 +154,3 @@ const HeroSection = () => {
 };
 
 export default HeroSection;
-

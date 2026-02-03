@@ -1,19 +1,48 @@
-const CommandBlock = ({ children }: { children: string }) => {
-  return (
-    <pre className="bg-muted/80 px-4 py-2 rounded font-mono text-accent shadow-inner max-w-full overflow-x-auto">
-      <code className="whitespace-pre-wrap break-words">
-        {children}
-      </code>
-    </pre>
-  );
-};
-
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Terminal, Play, Settings, Bot } from "lucide-react";
+import { Copy, Check, Terminal, Play, Settings, Bot } from "lucide-react";
 import { toast } from "sonner";
 import ShowStarGraph from "@/components/ShowStarGraph";
+
+const CommandBlock = ({ children }: { children: string }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      // Check if text starts with '$ ' and strip it for clipboard only
+      const textToCopy = children.startsWith("$ ") ? children.slice(2) : children;
+      await navigator.clipboard.writeText(textToCopy);
+      setCopied(true);
+      toast.success("Copied to clipboard!");
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      toast.error("Failed to copy");
+    }
+  };
+
+  return (
+    <div 
+      className="relative group cursor-pointer" 
+      onClick={handleCopy}
+      title="Click to copy"
+    >
+      <pre className="bg-muted/80 px-4 py-2 pr-10 rounded font-mono text-accent shadow-inner max-w-full overflow-x-auto hover:bg-muted/90 transition-colors">
+        <code className="whitespace-pre-wrap break-words">
+          {children}
+        </code>
+      </pre>
+      <div className="absolute top-2.5 right-2">
+        {copied ? (
+          <Check className="h-4 w-4 text-green-500" />
+        ) : (
+          <Copy className="h-4 w-4 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors" />
+        )}
+      </div>
+    </div>
+  );
+};
 
 const installSteps = [
   {
@@ -282,4 +311,3 @@ const InstallationSection = () => {
 };
 
 export default InstallationSection;
-

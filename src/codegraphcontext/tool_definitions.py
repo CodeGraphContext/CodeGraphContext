@@ -59,7 +59,7 @@ TOOLS = {
     },
     "execute_cypher_query": {
         "name": "execute_cypher_query",
-        "description": "Fallback tool to run a direct, read-only Cypher query against the code graph. Use this for complex questions not covered by other tools. The graph contains nodes representing code structures and relationships between them. **Schema Overview:**\n- **Nodes:** `Repository`, `File`, `Module`, `Class`, `Function`.\n- **Properties:** Nodes have properties like `name`, `path`, `cyclomatic_complexity` (on Function nodes), and `code`.\n- **Relationships:** `CONTAINS` (e.g., File-[:CONTAINS]->Function), `CALLS` (Function-[:CALLS]->Function or File-[:CALLS]->Function), `IMPORTS` (File-[:IMPORTS]->Module), `INHERITS` (Class-[:INHERITS]->Class).",
+        "description": "Fallback tool to run a direct, read-only Cypher query against the code graph. Use this for complex questions not covered by other tools. The graph contains nodes representing code structures and relationships between them. **Schema Overview:**\n- **Nodes:** `Repository`, `File`, `Module`, `Class`, `Function`.\n- **Properties:** Nodes have properties like `name`, `path`, `cyclomatic_complexity` (on Function nodes), and `source`.\n- **Relationships:** `CONTAINS` (e.g., File-[:CONTAINS]->Function), `CALLS` (Function-[:CALLS]->Function or File-[:CALLS]->Function), `IMPORTS` (File-[:IMPORTS]->Module), `INHERITS` (Class-[:INHERITS]->Class).",
         "inputSchema": {
             "type": "object",
             "properties": { "cypher_query": {"type": "string", "description": "The read-only Cypher query to execute."} },
@@ -96,7 +96,7 @@ TOOLS = {
             "type": "object",
             "properties": {
                 "function_name": {"type": "string", "description": "The name of the function to analyze."},
-                "file_path": {"type": "string", "description": "Optional: The full path to the file containing the function for a more specific query."} 
+                "path": {"type": "string", "description": "Optional: The full path to the file containing the function for a more specific query."} 
             },
             "required": ["function_name"]
         }
@@ -155,6 +155,39 @@ TOOLS = {
                 "path": {"type": "string", "description": "The absolute path of the directory to stop watching."}
             },
             "required": ["path"]
+        }
+    },
+    "load_bundle": {
+        "name": "load_bundle",
+        "description": "Load a pre-indexed .cgc bundle into the database. Can load from local file or automatically download from registry if not found locally. Bundles are portable snapshots of indexed code that load instantly without re-indexing.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "bundle_name": {"type": "string", "description": "Name of the bundle to load (e.g., 'flask', 'pandas', 'flask-main-2579ce9.cgc'). Can be a full filename or just the package name."},
+                "clear_existing": {"type": "boolean", "description": "Whether to clear existing data before loading. Use with caution.", "default": False}
+            },
+            "required": ["bundle_name"]
+        }
+    },
+    "search_registry_bundles": {
+        "name": "search_registry_bundles",
+        "description": "Search for available pre-indexed bundles in the registry. Returns bundles matching the search query with details like repository, version, size, and download information.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query to find bundles (searches in name, repository, and description). Leave empty to list all bundles."},
+                "unique_only": {"type": "boolean", "description": "If true, show only the most recent version of each package. If false, show all versions.", "default": False}
+            }
+        }
+    },
+    "get_repository_stats": {
+        "name": "get_repository_stats",
+        "description": "Get statistics about indexed repositories, including counts of files, functions, classes, and modules. Can show overall database statistics or stats for a specific repository.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {"type": "string", "description": "Optional: Path to a specific repository. If not provided, returns overall database statistics."}
+            }
         }
     }
 }

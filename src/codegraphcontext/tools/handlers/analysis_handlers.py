@@ -21,19 +21,19 @@ def find_dead_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
 def calculate_cyclomatic_complexity(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """Tool to calculate cyclomatic complexity for a given function."""
     function_name = args.get("function_name")
-    file_path = args.get("file_path")
+    path = args.get("path")
 
     try:
         debug_log(f"Calculating cyclomatic complexity for function: {function_name}")
-        results = code_finder.get_cyclomatic_complexity(function_name, file_path)
+        results = code_finder.get_cyclomatic_complexity(function_name, path)
         
         response = {
             "success": True,
             "function_name": function_name,
             "results": results
         }
-        if file_path:
-            response["file_path"] = file_path
+        if path:
+            response["path"] = path
         
         return response
     except Exception as e:

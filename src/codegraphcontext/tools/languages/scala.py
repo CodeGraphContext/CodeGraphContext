@@ -45,15 +45,16 @@ class ScalaTreeSitterParser:
         self.language = generic_parser_wrapper.language
         self.parser = generic_parser_wrapper.parser
 
-    def parse(self, file_path: Path, is_dependency: bool = False) -> Dict[str, Any]:
+    def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict[str, Any]:
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            self.index_source = index_source
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 source_code = f.read()
 
             if not source_code.strip():
-                warning_logger(f"Empty or whitespace-only file: {file_path}")
+                warning_logger(f"Empty or whitespace-only file: {path}")
                 return {
-                    "file_path": str(file_path),
+                    "path": str(path),
                     "functions": [],
                     "classes": [],
                     "variables": [],
@@ -75,9 +76,9 @@ class ScalaTreeSitterParser:
             if "variables" in SCALA_QUERIES:
                  try:
                      results = execute_query(self.language, SCALA_QUERIES["variables"], tree.root_node)
-                     parsed_variables.extend(self._parse_variables(results, source_code, file_path))
+                     parsed_variables.extend(self._parse_variables(results, source_code, path))
                  except Exception as e:
-                     error_logger(f"Error parsing Scala variables in {file_path}: {e}")
+                     error_logger(f"Error parsing Scala variables in {path}: {e}")
 
             for capture_name, query in SCALA_QUERIES.items():
                 if capture_name == "variables": continue 
@@ -86,16 +87,16 @@ class ScalaTreeSitterParser:
                     results = execute_query(self.language, query, tree.root_node)
 
                     if capture_name == "functions":
-                        parsed_functions.extend(self._parse_functions(results, source_code, file_path))
+                        parsed_functions.extend(self._parse_functions(results, source_code, path))
                     elif capture_name == "classes":
-                        parsed_classes.extend(self._parse_classes(results, source_code, file_path))
+                        parsed_classes.extend(self._parse_classes(results, source_code, path))
                     elif capture_name == "imports":
                         parsed_imports.extend(self._parse_imports(results, source_code))
                     elif capture_name == "calls":
-                        parsed_calls.extend(self._parse_calls(results, source_code, file_path, parsed_variables))
+                        parsed_calls.extend(self._parse_calls(results, source_code, path, parsed_variables))
                 except Exception as e:
                     # Some queries might fail if the grammar differs slightly, catch and log
-                    error_logger(f"Error executing Scala query '{capture_name}' in {file_path}: {e}")
+                    error_logger(f"Error executing Scala query '{capture_name}' in {path}: {e}")
 
             # Separate classes, traits, objects
             final_classes = []
@@ -112,7 +113,7 @@ class ScalaTreeSitterParser:
                      final_classes.append(item)
 
             return {
-                "file_path": str(file_path),
+                "path": str(path),
                 "functions": parsed_functions,
                 "classes": final_classes,
                 "traits": final_traits,
@@ -124,9 +125,9 @@ class ScalaTreeSitterParser:
             }
 
         except Exception as e:
-            error_logger(f"Error parsing Scala file {file_path}: {e}")
+            error_logger(f"Error parsing Scala file {path}: {e}")
             return {
-                "file_path": str(file_path),
+                "path": str(path),
                 "functions": [],
                 "classes": [],
                 "variables": [],
@@ -160,7 +161,7 @@ class ScalaTreeSitterParser:
         if not node: return ""
         return node.text.decode("utf-8")
 
-    def _parse_functions(self, captures: list, source_code: str, file_path: Path) -> List[Dict[str, Any]]:
+    def _parse_functions(self, captures: list, source_code: str, path: Path) -> List[Dict[str, Any]]:
         functions = []
         seen_nodes = set()
 
@@ -189,26 +190,30 @@ class ScalaTreeSitterParser:
                         
                         context_name, context_type, context_line = self._get_parent_context(node)
 
-                        functions.append({
+                        func_data = {
                             "name": func_name,
                             "parameters": parameters,
                             "args": parameters, # 'args' is sometimes used instead of 'parameters'
                             "line_number": start_line,
                             "end_line": end_line,
-                            "source": source_text,
-                            "file_path": str(file_path),
+                            "path": str(path),
                             "lang": self.language_name,
                             "context": context_name,
                             "class_context": context_name if context_type and "class" in str(context_type) or "object" in str(context_type) or "trait" in str(context_type) else None
-                        })
+                        }
+
+                        if self.index_source:
+                            func_data["source"] = source_text
+                        
+                        functions.append(func_data)
                         
                 except Exception as e:
-                    error_logger(f"Error parsing function in {file_path}: {e}")
+                    error_logger(f"Error parsing function in {path}: {e}")
                     continue
 
         return functions
 
-    def _parse_classes(self, captures: list, source_code: str, file_path: Path) -> List[Dict[str, Any]]:
+    def _parse_classes(self, captures: list, source_code: str, path: Path) -> List[Dict[str, Any]]:
         classes = []
         seen_nodes = set()
 
@@ -248,24 +253,28 @@ class ScalaTreeSitterParser:
                         # Note: parsing bases in Scala can be complex (mixins with 'with' keyword).
                         # Using text based regex backup might be safer for now if tree query is hard.
                         
-                        classes.append({
+                        class_data = {
                             "name": class_name,
                             "line_number": start_line,
                             "end_line": end_line,
                             "bases": bases,
-                            "source": source_text,
-                            "file_path": str(file_path),
+                            "path": str(path),
                             "lang": self.language_name,
                             "type": node.type.replace("_definition", "") # class, object, trait
-                        })
+                        }
+
+                        if self.index_source:
+                            class_data["source"] = source_text
+                        
+                        classes.append(class_data)
                         
                 except Exception as e:
-                    error_logger(f"Error parsing class in {file_path}: {e}")
+                    error_logger(f"Error parsing class in {path}: {e}")
                     continue
 
         return classes
 
-    def _parse_variables(self, captures: list, source_code: str, file_path: Path) -> List[Dict[str, Any]]:
+    def _parse_variables(self, captures: list, source_code: str, path: Path) -> List[Dict[str, Any]]:
         variables = []
         seen_vars = set()
         
@@ -320,7 +329,7 @@ class ScalaTreeSitterParser:
                         "name": var_name,
                         "type": var_type,
                         "line_number": start_line,
-                        "file_path": str(file_path),
+                        "path": str(path),
                         "lang": self.language_name,
                         "context": ctx_name,
                         "class_context": ctx_name if ctx_type and ("class" in str(ctx_type) or "object" in str(ctx_type)) else None
@@ -360,7 +369,7 @@ class ScalaTreeSitterParser:
 
         return imports
 
-    def _parse_calls(self, captures: list, source_code: str, file_path: Path, variables: List[Dict] = []) -> List[Dict]:
+    def _parse_calls(self, captures: list, source_code: str, path: Path, variables: List[Dict] = []) -> List[Dict]:
         calls = []
         seen_calls = set()
         
@@ -475,9 +484,9 @@ class ScalaTreeSitterParser:
 def pre_scan_scala(files: list[Path], parser_wrapper) -> dict:
     name_to_files = {}
     
-    for file_path in files:
+    for path in files:
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             
             # package matches
@@ -495,16 +504,16 @@ def pre_scan_scala(files: list[Path], parser_wrapper) -> dict:
                 # Simple mapping
                 if name not in name_to_files:
                     name_to_files[name] = []
-                name_to_files[name].append(str(file_path))
+                name_to_files[name].append(str(path))
                 
                 # FQN mapping
                 if package_name:
                     fqn = f"{package_name}.{name}"
                     if fqn not in name_to_files:
                         name_to_files[fqn] = []
-                    name_to_files[fqn].append(str(file_path))
+                    name_to_files[fqn].append(str(path))
                 
         except Exception as e:
-            error_logger(f"Error pre-scanning Scala file {file_path}: {e}")
+            error_logger(f"Error pre-scanning Scala file {path}: {e}")
             
     return name_to_files

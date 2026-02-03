@@ -486,13 +486,13 @@ def visualize_call_graph(
         if direction == "outgoing":
             # calls: function_name -> called_function
             func_name = result.get("called_function", f"unknown_{idx}")
-            file_path = result.get("called_file_path", "")
+            path = result.get("called_file_path", "")
             line_num = result.get("called_line_number", "")
             is_dep = result.get("called_is_dependency", False)
         else:
             # callers: caller_function -> function_name
             func_name = result.get("caller_function", f"unknown_{idx}")
-            file_path = result.get("caller_file_path", "")
+            path = result.get("caller_file_path", "")
             line_num = result.get("caller_line_number", "")
             is_dep = result.get("caller_is_dependency", False)
 
@@ -507,7 +507,7 @@ def visualize_call_graph(
                 "id": node_id,
                 "label": func_name,
                 "group": node_type,
-                "title": f"{func_name}\nFile: {file_path}\nLine: {line_num}",
+                "title": f"{func_name}\nFile: {path}\nLine: {line_num}",
                 "color": color
             })
             seen_nodes.add(node_id)
@@ -563,7 +563,7 @@ def visualize_call_chain(
         
         for idx, func in enumerate(functions):
             func_name = func.get("name", f"unknown_{idx}")
-            file_path = func.get("file_path", "")
+            path = func.get("path", "")
             line_num = func.get("line_number", "")
             
             node_id = f"chain{chain_idx}_{func_name}_{idx}"
@@ -582,7 +582,7 @@ def visualize_call_chain(
                     "id": node_id,
                     "label": func_name,
                     "group": node_type,
-                    "title": f"{func_name}\nFile: {file_path}\nLine: {line_num}",
+                    "title": f"{func_name}\nFile: {path}\nLine: {line_num}",
                     "color": color,
                     "level": idx  # For hierarchical layout
                 })
@@ -647,8 +647,8 @@ def visualize_dependencies(
 
     # Files that import this module
     for idx, imp in enumerate(importers):
-        file_path = imp.get("importer_file_path", f"file_{idx}")
-        file_name = Path(file_path).name if file_path else f"file_{idx}"
+        path = imp.get("importer_file_path", f"file_{idx}")
+        file_name = Path(path).name if path else f"file_{idx}"
         node_id = f"importer_{idx}"
         
         if node_id not in seen_nodes:
@@ -657,7 +657,7 @@ def visualize_dependencies(
                 "id": node_id,
                 "label": file_name,
                 "group": "Importer",
-                "title": f"File: {file_path}\nLine: {imp.get('import_line_number', '')}",
+                "title": f"File: {path}\nLine: {imp.get('import_line_number', '')}",
                 "color": color
             })
             seen_nodes.add(node_id)
@@ -747,7 +747,7 @@ def visualize_inheritance_tree(
     # Parent classes (above)
     for idx, parent in enumerate(parents):
         parent_name = parent.get("parent_class", f"Parent_{idx}")
-        file_path = parent.get("parent_file_path", "")
+        path = parent.get("parent_file_path", "")
         node_id = f"parent_{idx}"
         
         if node_id not in seen_nodes:
@@ -756,7 +756,7 @@ def visualize_inheritance_tree(
                 "id": node_id,
                 "label": parent_name,
                 "group": "Parent",
-                "title": f"Parent: {parent_name}\nFile: {file_path}",
+                "title": f"Parent: {parent_name}\nFile: {path}",
                 "color": color,
                 "level": 0  # Top level
             })
@@ -772,7 +772,7 @@ def visualize_inheritance_tree(
     # Child classes (below)
     for idx, child in enumerate(children):
         child_name = child.get("child_class", f"Child_{idx}")
-        file_path = child.get("child_file_path", "")
+        path = child.get("child_file_path", "")
         node_id = f"child_{idx}"
         
         if node_id not in seen_nodes:
@@ -781,7 +781,7 @@ def visualize_inheritance_tree(
                 "id": node_id,
                 "label": child_name,
                 "group": "Child",
-                "title": f"Child: {child_name}\nFile: {file_path}",
+                "title": f"Child: {child_name}\nFile: {path}",
                 "color": color,
                 "level": 2  # Bottom level
             })
@@ -839,7 +839,7 @@ def visualize_overrides(
     # Classes implementing this method
     for idx, res in enumerate(results):
         class_name = res.get("class_name", f"Class_{idx}")
-        file_path = res.get("class_file_path", "")
+        path = res.get("class_file_path", "")
         line_num = res.get("function_line_number", "")
         node_id = f"class_{idx}"
         
@@ -849,7 +849,7 @@ def visualize_overrides(
                 "id": node_id,
                 "label": class_name,
                 "group": "Class",
-                "title": f"Class: {class_name}\nFile: {file_path}\nLine: {line_num}",
+                "title": f"Class: {class_name}\nFile: {path}\nLine: {line_num}",
                 "color": color
             })
             seen_nodes.add(node_id)
@@ -877,7 +877,7 @@ def visualize_search_results(
     Visualize search/find results as a cluster of nodes.
     
     Args:
-        results: List of search results with name, type, file_path, etc.
+        results: List of search results with name, type, path, etc.
         search_term: The search term used
         search_type: Type of search (name, pattern, type)
     
@@ -908,7 +908,7 @@ def visualize_search_results(
     for idx, res in enumerate(results):
         name = res.get("name", f"result_{idx}")
         node_type = res.get("type", "Unknown")
-        file_path = res.get("file_path", "")
+        path = res.get("path", "")
         line_num = res.get("line_number", "")
         is_dep = res.get("is_dependency", False)
         
@@ -920,7 +920,7 @@ def visualize_search_results(
                 "id": node_id,
                 "label": name,
                 "group": node_type,
-                "title": f"{node_type}: {name}\nFile: {file_path}\nLine: {line_num}",
+                "title": f"{node_type}: {name}\nFile: {path}\nLine: {line_num}",
                 "color": color
             })
             seen_nodes.add(node_id)

@@ -116,9 +116,10 @@ class CppTreeSitterParser:
     def _get_node_text(self, node) -> str:
         return node.text.decode('utf-8')
 
-    def parse(self, file_path: Path, is_dependency: bool = False, **kwargs) -> Dict:
+    def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False, **kwargs) -> Dict:
         """Parses a C++ file and returns its structure."""
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        self.index_source = index_source
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
             source_code = f.read()
 
         tree = self.parser.parse(bytes(source_code, "utf8"))
@@ -136,7 +137,7 @@ class CppTreeSitterParser:
         variables = self._find_variables(root_node)
         
         return {
-            "file_path": str(file_path),
+            "path": str(path),
             "functions": functions,
             "classes": classes,
             "structs": structs,
@@ -177,13 +178,17 @@ class CppTreeSitterParser:
                 
                 params = self._extract_function_params(func_node)
                 
-                functions.append({
+                func_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": func_node.end_point[0] + 1,
-                    "source": self._get_node_text(func_node),
                     "args": params,
-                })
+                }
+                
+                if self.index_source:
+                    func_data["source"] = self._get_node_text(func_node)
+                
+                functions.append(func_data)
         return functions
 
     def _extract_function_params(self, func_node) -> list[str]:
@@ -233,13 +238,15 @@ class CppTreeSitterParser:
             if capture_name == 'name':
                 class_node = node.parent
                 name = self._get_node_text(node)
-                classes.append({
+                class_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": class_node.end_point[0] + 1,
-                    "source": self._get_node_text(class_node),
                     "bases": [], # Placeholder
-                })
+                }
+                if self.index_source:
+                    class_data["source"] = self._get_node_text(class_node)
+                classes.append(class_data)
         return classes
 
     def _find_imports(self, root_node):
@@ -263,14 +270,15 @@ class CppTreeSitterParser:
         query_str = CPP_QUERIES['enums']
         for node, capture_name in execute_query(self.language, query_str, root_node):
             if capture_name == 'name':
-                name = self._get_node_text(node)
                 enum_node = node.parent
-                enums.append({
+                enum_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": enum_node.end_point[0] + 1,
-                    "source": self._get_node_text(enum_node),
-                })
+                }
+                if self.index_source:
+                    enum_data["source"] = self._get_node_text(enum_node)
+                enums.append(enum_data)
         return enums
  
     def _find_structs(self, root_node):
@@ -280,12 +288,14 @@ class CppTreeSitterParser:
             if capture_name == 'name':
                 name = self._get_node_text(node)
                 struct_node = node.parent
-                structs.append({
+                struct_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": struct_node.end_point[0] + 1,
-                    "source": self._get_node_text(struct_node),
-                })
+                }
+                if self.index_source:
+                    struct_data["source"] = self._get_node_text(struct_node)
+                structs.append(struct_data)
         return structs
 
     def _find_unions(self, root_node):
@@ -295,12 +305,14 @@ class CppTreeSitterParser:
             if capture_name == 'name':
                 name = self._get_node_text(node)
                 union_node = node.parent
-                unions.append({
+                union_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": union_node.end_point[0] + 1,
-                    "source": self._get_node_text(union_node),
-                })
+                }
+                if self.index_source:
+                    union_data["source"] = self._get_node_text(union_node)
+                unions.append(union_data)
         return unions
 
     def _find_macros(self, root_node):
@@ -312,12 +324,14 @@ class CppTreeSitterParser:
             if capture_name == 'name':
                 macro_node = node.parent
                 name = self._get_node_text(node)
-                macros.append({
+                macro_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": macro_node.end_point[0] + 1,
-                    "source": self._get_node_text(macro_node),
-                })
+                }
+                if self.index_source:
+                    macro_data["source"] = self._get_node_text(macro_node)
+                macros.append(macro_data)
         return macros
     
     def _find_lambda_assignments(self, root_node):
@@ -349,8 +363,7 @@ class CppTreeSitterParser:
                     "line_number": node.start_point[0] + 1,
                     "end_line": assignment_node.end_point[0] + 1,
                     "args": [p for p in [self._get_node_text(p) for p in params_node.children if p.type == 'identifier'] if p] if params_node else [],
-                    "source": self._get_node_text(assignment_node),
-
+                    
                     "docstring": None,
                     "cyclomatic_complexity": 1,
                     "context": context,
@@ -360,6 +373,10 @@ class CppTreeSitterParser:
                     "lang": self.language_name,
                     "is_dependency": False,
                 }
+
+                if self.index_source:
+                    func_data["source"] = self._get_node_text(assignment_node)
+
                 functions.append(func_data)
         return functions
     
@@ -518,17 +535,17 @@ def pre_scan_cpp(files: list[Path], parser_wrapper) -> dict:
     """
     
 
-    for file_path in files:
+    for path in files:
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 source_bytes = f.read().encode("utf-8")
                 tree = parser_wrapper.parser.parse(source_bytes)
 
             for node, capture_name in execute_query(parser_wrapper.language, query_str, tree.root_node):
                 if capture_name == "name":
                     name = node.text.decode("utf-8")
-                    imports_map.setdefault(name, []).append(str(file_path.resolve()))
+                    imports_map.setdefault(name, []).append(str(path.resolve()))
         except Exception as e:
-            warning_logger(f"Tree-sitter pre-scan failed for {file_path}: {e}")
+            warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
 
     return imports_map

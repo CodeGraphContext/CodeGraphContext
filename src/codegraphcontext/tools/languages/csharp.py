@@ -84,15 +84,16 @@ class CSharpTreeSitterParser:
         self.language = generic_parser_wrapper.language
         self.parser = generic_parser_wrapper.parser
 
-    def parse(self, file_path: Path, is_dependency: bool = False) -> Dict[str, Any]:
+    def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict[str, Any]:
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            self.index_source = index_source
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 source_code = f.read()
 
             if not source_code.strip():
-                warning_logger(f"Empty or whitespace-only file: {file_path}")
+                warning_logger(f"Empty or whitespace-only file: {path}")
                 return {
-                    "file_path": str(file_path),
+                    "path": str(path),
                     "functions": [],
                     "classes": [],
                     "interfaces": [],
@@ -123,26 +124,26 @@ class CSharpTreeSitterParser:
                 captures = execute_query(self.language, query_str, tree.root_node)
 
                 if capture_name == "functions":
-                    parsed_functions = self._parse_functions(captures, source_code, file_path, tree.root_node)
+                    parsed_functions = self._parse_functions(captures, source_code, path, tree.root_node)
                 elif capture_name == "classes":
-                    parsed_classes = self._parse_type_declarations(captures, source_code, file_path, "Class")
+                    parsed_classes = self._parse_type_declarations(captures, source_code, path, "Class")
                 elif capture_name == "interfaces":
-                    parsed_interfaces = self._parse_type_declarations(captures, source_code, file_path, "Interface")
+                    parsed_interfaces = self._parse_type_declarations(captures, source_code, path, "Interface")
                 elif capture_name == "structs":
-                    parsed_structs = self._parse_type_declarations(captures, source_code, file_path, "Struct")
+                    parsed_structs = self._parse_type_declarations(captures, source_code, path, "Struct")
                 elif capture_name == "enums":
-                    parsed_enums = self._parse_type_declarations(captures, source_code, file_path, "Enum")
+                    parsed_enums = self._parse_type_declarations(captures, source_code, path, "Enum")
                 elif capture_name == "records":
-                    parsed_records = self._parse_type_declarations(captures, source_code, file_path, "Record")
+                    parsed_records = self._parse_type_declarations(captures, source_code, path, "Record")
                 elif capture_name == "properties":
-                    parsed_properties = self._parse_properties(captures, source_code, file_path, tree.root_node)
+                    parsed_properties = self._parse_properties(captures, source_code, path, tree.root_node)
                 elif capture_name == "imports":
                     parsed_imports = self._parse_imports(captures, source_code)
                 elif capture_name == "calls":
                     parsed_calls = self._parse_calls(captures, source_code)
 
             return {
-                "file_path": str(file_path),
+                "path": str(path),
                 "functions": parsed_functions,
                 "classes": parsed_classes,
                 "interfaces": parsed_interfaces,
@@ -158,9 +159,9 @@ class CSharpTreeSitterParser:
             }
 
         except Exception as e:
-            error_logger(f"Error parsing C# file {file_path}: {e}")
+            error_logger(f"Error parsing C# file {path}: {e}")
             return {
-                "file_path": str(file_path),
+                "path": str(path),
                 "functions": [],
                 "classes": [],
                 "interfaces": [],
@@ -175,7 +176,7 @@ class CSharpTreeSitterParser:
                 "lang": self.language_name,
             }
 
-    def _parse_functions(self, captures: list, source_code: str, file_path: Path, root_node) -> list[Dict[str, Any]]:
+    def _parse_functions(self, captures: list, source_code: str, path: Path, root_node) -> list[Dict[str, Any]]:
         functions = []
         source_lines = source_code.splitlines()
 
@@ -221,24 +222,26 @@ class CSharpTreeSitterParser:
                             "attributes": attributes,
                             "line_number": start_line,
                             "end_line": end_line,
-                            "source": source_text,
-                            "file_path": str(file_path),
+                            "path": str(path),
                             "lang": self.language_name,
                         }
                         
                         # Add class context if found
                         if class_context:
                             func_data["class_context"] = class_context
+
+                        if self.index_source:
+                            func_data["source"] = source_text
                         
                         functions.append(func_data)
                         
                 except Exception as e:
-                    error_logger(f"Error parsing function in {file_path}: {e}")
+                    error_logger(f"Error parsing function in {path}: {e}")
                     continue
 
         return functions
 
-    def _parse_type_declarations(self, captures: list, source_code: str, file_path: Path, type_label: str) -> list[Dict[str, Any]]:
+    def _parse_type_declarations(self, captures: list, source_code: str, path: Path, type_label: str) -> list[Dict[str, Any]]:
         """Parse class, interface, struct, enum, or record declarations with inheritance info."""
         types = []
         
@@ -288,19 +291,21 @@ class CSharpTreeSitterParser:
                             "name": type_name,
                             "line_number": start_line,
                             "end_line": end_line,
-                            "source": source_text,
-                            "file_path": str(file_path),
+                            "path": str(path),
                             "lang": self.language_name,
                         }
                         
                         # Add bases if found
                         if bases:
                             type_data["bases"] = bases
+
+                        if self.index_source:
+                            type_data["source"] = source_text
                         
                         types.append(type_data)
                         
                 except Exception as e:
-                    error_logger(f"Error parsing {type_label} in {file_path}: {e}")
+                    error_logger(f"Error parsing {type_label} in {path}: {e}")
                     continue
 
         return types
@@ -430,7 +435,7 @@ class CSharpTreeSitterParser:
             current = current.parent
         return None
 
-    def _parse_properties(self, captures: list, source_code: str, file_path: Path, root_node) -> list[Dict[str, Any]]:
+    def _parse_properties(self, captures: list, source_code: str, path: Path, root_node) -> list[Dict[str, Any]]:
         """Parse C# properties."""
         properties = []
         
@@ -467,18 +472,20 @@ class CSharpTreeSitterParser:
                             "type": prop_type,
                             "line_number": start_line,
                             "end_line": end_line,
-                            "source": source_text,
-                            "file_path": str(file_path),
+                            "path": str(path),
                             "lang": self.language_name,
                         }
                         
                         if class_context:
                             prop_data["class_context"] = class_context
+                            
+                        if self.index_source:
+                            prop_data["source"] = source_text
                         
                         properties.append(prop_data)
                         
                 except Exception as e:
-                    error_logger(f"Error parsing property in {file_path}: {e}")
+                    error_logger(f"Error parsing property in {path}: {e}")
                     continue
         
         return properties
@@ -489,9 +496,9 @@ def pre_scan_csharp(files: list[Path], parser_wrapper) -> dict:
     """Pre-scan C# files to build a name-to-files mapping."""
     name_to_files = {}
     
-    for file_path in files:
+    for path in files:
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             
             # Match class declarations
@@ -503,7 +510,7 @@ def pre_scan_csharp(files: list[Path], parser_wrapper) -> dict:
                 class_name = match.group(1)
                 if class_name not in name_to_files:
                     name_to_files[class_name] = []
-                name_to_files[class_name].append(str(file_path))
+                name_to_files[class_name].append(str(path))
             
             # Match interface declarations
             interface_matches = re.finditer(
@@ -514,7 +521,7 @@ def pre_scan_csharp(files: list[Path], parser_wrapper) -> dict:
                 interface_name = match.group(1)
                 if interface_name not in name_to_files:
                     name_to_files[interface_name] = []
-                name_to_files[interface_name].append(str(file_path))
+                name_to_files[interface_name].append(str(path))
             
             # Match struct declarations
             struct_matches = re.finditer(
@@ -525,7 +532,7 @@ def pre_scan_csharp(files: list[Path], parser_wrapper) -> dict:
                 struct_name = match.group(1)
                 if struct_name not in name_to_files:
                     name_to_files[struct_name] = []
-                name_to_files[struct_name].append(str(file_path))
+                name_to_files[struct_name].append(str(path))
             
             # Match record declarations
             record_matches = re.finditer(
@@ -536,9 +543,9 @@ def pre_scan_csharp(files: list[Path], parser_wrapper) -> dict:
                 record_name = match.group(1)
                 if record_name not in name_to_files:
                     name_to_files[record_name] = []
-                name_to_files[record_name].append(str(file_path))
+                name_to_files[record_name].append(str(path))
                 
         except Exception as e:
-            error_logger(f"Error pre-scanning C# file {file_path}: {e}")
+            error_logger(f"Error pre-scanning C# file {path}: {e}")
             
     return name_to_files

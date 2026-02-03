@@ -44,9 +44,11 @@ from .cli_helpers import (
     list_watching_helper,
 )
 
-# Set the log level for the noisy neo4j and asyncio logger to WARNING to keep the output clean.
+# Set the log level for the noisy neo4j, asyncio, and urllib3 loggers to WARNING to keep the output clean.
 logging.getLogger("neo4j").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
 
 # Import visualization module
 from .visualizer import (
@@ -474,30 +476,57 @@ def bundle_load(
     
     This is a convenience command that will:
     1. Check if the bundle exists locally
-    2. Download from registry if not found (future feature)
+    2. Download from registry if not found
     3. Import the bundle into the database
     
     Examples:
         cgc load numpy
         cgc load numpy.cgc --clear
+        cgc load /path/to/bundle.cgc
     """
     _load_credentials()
     
-    # For now, this is just an alias for import
-    # In the future, this will support downloading from a registry
-    
     bundle_path = Path(bundle_name)
+    
+    # If it's an absolute path or has .cgc extension and exists, use it directly
+    if bundle_path.is_absolute() or (bundle_path.suffix == '.cgc' and bundle_path.exists()):
+        bundle_import(str(bundle_path), clear=clear)
+        return
+    
+    # Add .cgc extension if not present
     if not bundle_path.suffix:
         bundle_path = Path(f"{bundle_name}.cgc")
     
-    if not bundle_path.exists():
-        console.print(f"[yellow]Bundle '{bundle_name}' not found locally.[/yellow]")
-        console.print("[dim]Registry download not yet implemented. Please provide a local .cgc file.[/dim]")
-        console.print(f"[dim]Usage: cgc bundle load /path/to/{bundle_path.name}[/dim]")
-        raise typer.Exit(code=1)
+    # Check if exists locally
+    if bundle_path.exists():
+        console.print(f"[dim]Found local bundle: {bundle_path}[/dim]")
+        bundle_import(str(bundle_path), clear=clear)
+        return
     
-    # Call import
-    bundle_import(str(bundle_path), clear=clear)
+    # Try to download from registry
+    console.print(f"[yellow]Bundle '{bundle_name}' not found locally.[/yellow]")
+    console.print(f"[cyan]Attempting to download from registry...[/cyan]")
+    
+    try:
+        from .registry_commands import download_bundle
+        
+        # Extract just the name (without .cgc extension)
+        name = bundle_path.stem
+        
+        # Download the bundle
+        downloaded_path = download_bundle(name, output_dir=None, auto_load=True)
+        
+        if downloaded_path:
+            # Import the downloaded bundle
+            bundle_import(downloaded_path, clear=clear)
+        else:
+            console.print(f"[bold red]Failed to download bundle '{name}'[/bold red]")
+            raise typer.Exit(code=1)
+    
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        console.print(f"[dim]Use 'cgc registry list' to see available bundles[/dim]")
+        raise typer.Exit(code=1)
 
 # Shortcut commands at root level
 @app.command("export", rich_help_panel="Bundle Shortcuts")
@@ -515,6 +544,92 @@ def load_shortcut(
 ):
     """Shortcut for 'cgc bundle load'"""
     bundle_load(bundle_name, clear)
+
+# ============================================================================
+# REGISTRY COMMAND GROUP - Browse and Download Bundles
+# ============================================================================
+
+registry_app = typer.Typer(help="Browse and download bundles from the registry")
+app.add_typer(registry_app, name="registry")
+
+@registry_app.command("list")
+def registry_list(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed information including download URLs"),
+    unique: bool = typer.Option(False, "--unique", "-u", help="Show only one version per package (most recent)")
+):
+    """
+    List all available bundles in the registry.
+    
+    Shows bundles from both weekly pre-indexed releases and on-demand generations.
+    By default, shows all versions. Use --unique to see only the most recent version per package.
+    
+    Examples:
+        cgc registry list
+        cgc registry list --verbose
+        cgc registry list --unique
+    """
+    from .registry_commands import list_bundles
+    list_bundles(verbose=verbose, unique=unique)
+
+@registry_app.command("search")
+def registry_search(
+    query: str = typer.Argument(..., help="Search query (matches name, repository, or description)")
+):
+    """
+    Search for bundles in the registry.
+    
+    Searches bundle names, repositories, and descriptions for matches.
+    
+    Examples:
+        cgc registry search numpy
+        cgc registry search web
+        cgc registry search http
+    """
+    from .registry_commands import search_bundles
+    search_bundles(query)
+
+@registry_app.command("download")
+def registry_download(
+    name: str = typer.Argument(..., help="Bundle name to download (e.g., 'numpy')"),
+    output_dir: Optional[str] = typer.Option(None, "--output", "-o", help="Output directory (default: current directory)"),
+    load: bool = typer.Option(False, "--load", "-l", help="Automatically load the bundle after downloading")
+):
+    """
+    Download a bundle from the registry.
+    
+    Downloads the specified bundle to the current directory or specified output directory.
+    Use --load to automatically import the bundle after downloading.
+    
+    Examples:
+        cgc registry download numpy
+        cgc registry download pandas --output ./bundles
+        cgc registry download fastapi --load
+    """
+    from .registry_commands import download_bundle
+    
+    bundle_path = download_bundle(name, output_dir, auto_load=load)
+    
+    if load and bundle_path:
+        console.print(f"\n[cyan]Loading bundle...[/cyan]")
+        bundle_import(bundle_path, clear=False)
+
+@registry_app.command("request")
+def registry_request(
+    repo_url: str = typer.Argument(..., help="GitHub repository URL to index"),
+    wait: bool = typer.Option(False, "--wait", "-w", help="Wait for generation to complete (not yet implemented)")
+):
+    """
+    Request on-demand generation of a bundle.
+    
+    Submits a request to generate a bundle for the specified GitHub repository.
+    The bundle will be available in the registry after 5-10 minutes.
+    
+    Examples:
+        cgc registry request https://github.com/encode/httpx
+        cgc registry request https://github.com/pallets/flask
+    """
+    from .registry_commands import request_bundle
+    request_bundle(repo_url, wait=wait)
 
 # ============================================================================
 # DOCTOR DIAGNOSTIC COMMAND
@@ -934,7 +1049,7 @@ def find_by_name(
             for f in funcs: f['type'] = 'Function'
             for c in classes: c['type'] = 'Class'
             for v in variables: v['type'] = 'Variable'
-            for m in modules: m['type'] = 'Module'; m['file_path'] = m.get('name', 'External') # Modules might differ
+            for m in modules: m['type'] = 'Module'; m['path'] = m.get('name', 'External') # Modules might differ
             for i in imports: 
                 i['type'] = 'Import'
                 i['name'] = i.get('alias') or i.get('imported_name')
@@ -961,12 +1076,12 @@ def find_by_name(
             results = code_finder.find_by_module_name(name)
             for r in results: 
                 r['type'] = 'Module'
-                r['file_path'] = r.get('name')
+                r['path'] = r.get('name')
             
         elif type.lower() == 'file':
             # Quick query for file
             with db_manager.get_driver().session() as session:
-                res = session.run("MATCH (n:File) WHERE n.name = $name RETURN n.name as name, n.path as file_path, n.is_dependency as is_dependency", name=name)
+                res = session.run("MATCH (n:File) WHERE n.name = $name RETURN n.name as name, n.path as path, n.is_dependency as is_dependency", name=name)
                 results = [dict(record) for record in res]
                 for r in results: r['type'] = 'File'
         
@@ -985,9 +1100,9 @@ def find_by_name(
         table.add_column("Location", style="dim", overflow="fold")
         
         for res in results:
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('name', ''),
@@ -1033,7 +1148,7 @@ def find_by_pattern(
                     RETURN 
                         labels(n)[0] as type,
                         n.name as name,
-                        n.file_path as file_path,
+                        n.path as path,
                         n.line_number as line_number,
                         n.is_dependency as is_dependency
                     ORDER BY n.is_dependency ASC, n.name
@@ -1046,7 +1161,7 @@ def find_by_pattern(
                     RETURN 
                         labels(n)[0] as type,
                         n.name as name,
-                        n.file_path as file_path,
+                        n.path as path,
                         n.line_number as line_number,
                         n.is_dependency as is_dependency
                     ORDER BY n.is_dependency ASC, n.name
@@ -1076,9 +1191,9 @@ def find_by_pattern(
         table.add_column("Source", style="yellow")
         
         for res in results:
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', '') if res.get('line_number') is not None else '')
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('name', ''),
@@ -1135,9 +1250,9 @@ def find_by_type(
         table.add_column("Source", style="yellow")
         
         for res in results:
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
             
             table.add_row(
                 res.get('name', ''),
@@ -1180,9 +1295,9 @@ def find_by_variable(
         table.add_column("Context", style="yellow")
         
         for res in results:
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('name', ''),
@@ -1240,9 +1355,9 @@ def find_by_content_search(
         table.add_column("Location", style="dim", overflow="fold")
         
         for res in results:
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('name', ''),
@@ -1287,9 +1402,9 @@ def find_by_decorator_search(
         
         for res in results:
             decorators_str = ", ".join(res.get('decorators', []))
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('function_name', ''),
@@ -1332,9 +1447,9 @@ def find_by_argument_search(
         table.add_column("Location", style="dim", overflow="fold")
         
         for res in results:
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('function_name', ''),
@@ -1393,9 +1508,9 @@ def analyze_calls(
         table.add_column("Type", style="yellow")
         
         for result in results:
-            file_path = result.get("called_file_path", "")
+            path = result.get("called_file_path", "")
             line_str = str(result.get("called_line_number", ""))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 result.get("called_function", ""),
@@ -1449,10 +1564,10 @@ def analyze_callers(
 
         
         for result in results:
-            file_path = result.get("caller_file_path", "")
+            path = result.get("caller_file_path", "")
             line_number = result.get("caller_line_number")
 
-            location = f"{file_path}:{line_number}" if line_number else file_path
+            location = f"{path}:{line_number}" if line_number else path
 
             table.add_row(
                 result.get("caller_function", ""),
@@ -1512,7 +1627,7 @@ def analyze_chain(
                 indent = "  " * i
                 
                 # Print function
-                console.print(f"{indent}[cyan]{func.get('name', 'Unknown')}[/cyan] [dim]({func.get('file_path', '')}:{func.get('line_number', '')})[/dim]")
+                console.print(f"{indent}[cyan]{func.get('name', 'Unknown')}[/cyan] [dim]({func.get('path', '')}:{func.get('line_number', '')})[/dim]")
                 
                 # If there is a next step, print the connecting call detail
                 if i < len(functions) - 1 and i < len(call_details):
@@ -1579,9 +1694,9 @@ def analyze_dependencies(
             table.add_column("Location", style="cyan", overflow="fold")
             
             for imp in results['importers']:
-                file_path = imp.get('importer_file_path', '')
+                path = imp.get('importer_file_path', '')
                 line_str = str(imp.get('import_line_number', ''))
-                location_str = f"{file_path}:{line_str}" if line_str else file_path
+                location_str = f"{path}:{line_str}" if line_str else path
 
                 table.add_row(
                     location_str
@@ -1684,7 +1799,7 @@ def analyze_complexity(
             if result:
                 console.print(f"\n[bold cyan]Complexity for '{path}':[/bold cyan]")
                 console.print(f"  Cyclomatic Complexity: [yellow]{result.get('complexity', 'N/A')}[/yellow]")
-                console.print(f"  File: [dim]{result.get('file_path', '')}[/dim]")
+                console.print(f"  File: [dim]{result.get('path', '')}[/dim]")
                 console.print(f"  Line: [dim]{result.get('line_number', '')}[/dim]")
             else:
                 console.print(f"[yellow]Function '{path}' not found or has no complexity data[/yellow]")
@@ -1704,9 +1819,9 @@ def analyze_complexity(
             for func in results:
                 complexity = func.get('complexity', 0)
                 color = "red" if complexity > threshold else "yellow" if complexity > threshold/2 else "green"
-                file_path = func.get('file_path', '')
+                path = func.get('path', '')
                 line_str = str(func.get('line_number', ''))
-                location_str = f"{file_path}:{line_str}" if line_str else file_path
+                location_str = f"{path}:{line_str}" if line_str else path
 
                 table.add_row(
                     func.get('function_name', ''),
@@ -1753,9 +1868,9 @@ def analyze_dead_code(
         table.add_column("Location", style="dim", overflow="fold")
         
         for func in unused_funcs:
-            file_path = func.get('file_path', '')
+            path = func.get('path', '')
             line_str = str(func.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 func.get('function_name', ''),
@@ -1809,9 +1924,9 @@ def analyze_overrides(
         table.add_column("Location", style="dim", overflow="fold")
         
         for res in results:
-            file_path = res.get('class_file_path', '')
+            path = res.get('class_file_path', '')
             line_str = str(res.get('function_line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('class_name', ''),
@@ -1874,9 +1989,9 @@ def analyze_variable_usage(
             table.add_column("Value", style="yellow")
             
             for item in items:
-                file_path = item.get('file_path', '')
+                path = item.get('path', '')
                 line_str = str(item.get('line_number', ''))
-                location_str = f"{file_path}:{line_str}" if line_str else file_path
+                location_str = f"{path}:{line_str}" if line_str else path
 
                 table.add_row(
                     item.get('scope_name', ''),

@@ -18,7 +18,7 @@ COPY src/ ./src/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -e .
+    pip install --no-cache-dir .
 
 # Production stage
 FROM python:3.12-slim
