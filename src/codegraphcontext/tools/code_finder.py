@@ -897,7 +897,11 @@ class CodeFinder:
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (r:Repository)
-                RETURN r.name as name, r.path as path, r.is_dependency as is_dependency
+                RETURN
+                  r.name AS name,
+                  r.path AS path,
+                  coalesce(r.is_dependency, false) AS is_dependency
+
                 ORDER BY r.name
             """)
             return result.data()

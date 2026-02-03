@@ -4,11 +4,21 @@ import json
 import urllib.parse
 from pathlib import Path
 import time
+import threading  # ← NEW: Added for background indexing
 from rich.console import Console
 from rich.table import Table
+from rich.progress import (  # ← NEW: Added for progress bar
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+    TimeRemainingColumn,
+    MofNCompleteColumn,
+)
 
 from ..core import get_database_manager
-from ..core.jobs import JobManager
+from ..core.jobs import JobManager, JobStatus  # ← MODIFIED: Added JobStatus import
 from ..tools.code_finder import CodeFinder
 from ..tools.graph_builder import GraphBuilder
 from ..tools.package_resolver import get_local_package_path
@@ -45,8 +55,11 @@ def _initialize_services():
     return db_manager, graph_builder, code_finder
 
 
+# ============================================================================
+# FIXED FUNCTION: index_helper (with correct thread-safe event loop handling)
+# ============================================================================
 def index_helper(path: str):
-    """Synchronously indexes a repository."""
+    """Synchronously indexes a repository with live progress display."""
     time_start = time.time()
     services = _initialize_services()
     if not all(services):
@@ -60,11 +73,11 @@ def index_helper(path: str):
         db_manager.close_driver()
         return
 
+    # Check if already indexed
     indexed_repos = code_finder.list_indexed_repositories()
     repo_exists = any(Path(repo["path"]).resolve() == path_obj for repo in indexed_repos)
     
     if repo_exists:
-        # Check if the repository actually has files (not just an empty node from interrupted indexing)
         try:
             with db_manager.get_driver().session() as session:
                 result = session.run(
@@ -84,17 +97,134 @@ def index_helper(path: str):
         except Exception as e:
             console.print(f"[yellow]Warning: Could not check file count: {e}. Proceeding with indexing...[/yellow]")
 
-    console.print(f"Starting indexing for: {path_obj}")
-    console.print("[yellow]This may take a few minutes for large repositories...[/yellow]")
-
-    async def do_index():
-        await graph_builder.build_graph_from_path_async(path_obj, is_dependency=False)
-
-    try:
-        asyncio.run(do_index())
-        time_end = time.time()
-        elapsed = time_end - time_start
-        console.print(f"[green]Successfully finished indexing: {path} in {elapsed:.2f} seconds[/green]")
+    console.print(f"[bold cyan]Starting indexing for:[/bold cyan] {path_obj}")
+    
+    # ========================================================================
+    # Create a job for tracking progress
+    # ========================================================================
+    job_id = graph_builder.job_manager.create_job(str(path_obj), is_dependency=False)
+    
+    # ========================================================================
+    # CRITICAL FIX: Each thread must own its own event loop
+    # ========================================================================
+    indexing_error = None
+    
+    def run_indexing():
+        """Run indexing in background thread with its own event loop"""
+        nonlocal indexing_error
+        try:
+            # ✅ FIXED: Create a NEW loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(
+                graph_builder.build_graph_from_path_async(
+                    path_obj, 
+                    is_dependency=False, 
+                    job_id=job_id
+                )
+            )
+            loop.close()
+        except Exception as e:
+            indexing_error = e
+    
+    indexing_thread = threading.Thread(target=run_indexing, daemon=True)
+    indexing_thread.start()
+    
+    # ========================================================================
+    # Display progress bar in main thread
+    # ========================================================================
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(bar_width=40),
+        TaskProgressColumn(),
+        MofNCompleteColumn(),
+        TimeRemainingColumn(),
+        console=console,
+        transient=False,  # Keep visible after completion
+    ) as progress:
+        
+        task = progress.add_task("Initializing...", total=None)
+        poll_interval = 0.2  # Poll every 200ms
+        
+        # ========================================================================
+        # Progress tracking loop with clean exit condition
+        # ========================================================================
+        while True:
+            try:
+                # Poll JobManager for current progress
+                job = graph_builder.job_manager.get_job(job_id)
+                
+                if job is None:
+                    progress.update(task, description="[red]Job disappeared")
+                    break
+                
+                # Update total if we now know it (with safety check)
+                if job.total_files and job.total_files > 0:
+                    if progress.tasks[task].total != job.total_files:
+                        progress.update(task, total=job.total_files)
+                
+                # Update description with current file
+                if job.current_file:
+                    current_file_name = Path(job.current_file).name
+                    progress.update(
+                        task,
+                        description=f"Processing [cyan]{current_file_name}[/cyan]",
+                        completed=job.processed_files
+                    )
+                else:
+                    status_text = job.status.value.capitalize()
+                    progress.update(
+                        task,
+                        description=f"{status_text}...",
+                        completed=job.processed_files
+                    )
+                
+                # ✅ Clean exit condition - check job status only
+                if job.status == JobStatus.COMPLETED:
+                    progress.update(
+                        task,
+                        description="[green]✓ Indexing completed",
+                        completed=job.total_files
+                    )
+                    break
+                elif job.status == JobStatus.FAILED:
+                    error_msg = job.errors[0] if job.errors else "Unknown error"
+                    progress.update(
+                        task,
+                        description=f"[red]✗ Indexing failed: {error_msg}"
+                    )
+                    break
+                elif job.status == JobStatus.CANCELLED:
+                    progress.update(
+                        task,
+                        description="[yellow]⚠ Indexing cancelled"
+                    )
+                    break
+                
+            except Exception as e:
+                console.print(f"[red]Error polling job status: {e}[/red]")
+                break
+            
+            time.sleep(poll_interval)
+        
+        # Wait for thread to finish
+        indexing_thread.join(timeout=5.0)
+    
+    # ========================================================================
+    # Report results
+    # ========================================================================
+    time_end = time.time()
+    elapsed = time_end - time_start
+    
+    if indexing_error:
+        console.print(f"\n[bold red]An error occurred during indexing:[/bold red] {indexing_error}")
+        db_manager.close_driver()
+        return
+    
+    final_job = graph_builder.job_manager.get_job(job_id)
+    if final_job and final_job.status == JobStatus.COMPLETED:
+        console.print(f"\n[green]✓ Successfully indexed {final_job.processed_files} files in {elapsed:.2f}s[/green]")
         
         # Check if auto-watch is enabled
         try:
@@ -102,17 +232,23 @@ def index_helper(path: str):
             auto_watch = get_config_value('ENABLE_AUTO_WATCH')
             if auto_watch and str(auto_watch).lower() == 'true':
                 console.print("\n[cyan]🔍 ENABLE_AUTO_WATCH is enabled. Starting watcher...[/cyan]")
-                db_manager.close_driver()  # Close before starting watcher
-                watch_helper(path)  # This will block the terminal
-                return  # watch_helper handles its own cleanup
+                db_manager.close_driver()
+                watch_helper(path)
+                return
         except Exception as e:
             console.print(f"[yellow]Warning: Could not check ENABLE_AUTO_WATCH: {e}[/yellow]")
-            
-    except Exception as e:
-        console.print(f"[bold red]An error occurred during indexing:[/bold red] {e}")
-    finally:
-        db_manager.close_driver()
+    elif final_job and final_job.status == JobStatus.FAILED:
+        error_msg = final_job.errors[0] if final_job.errors else "Unknown error"
+        console.print(f"\n[bold red]Indexing failed:[/bold red] {error_msg}")
+    elif final_job and final_job.status == JobStatus.CANCELLED:
+        console.print(f"\n[yellow]Indexing was cancelled[/yellow]")
+    
+    db_manager.close_driver()
 
+
+# ============================================================================
+# ALL OTHER FUNCTIONS REMAIN UNCHANGED
+# ============================================================================
 
 def add_package_helper(package_name: str, language: str):
     """Synchronously indexes a package."""
@@ -541,7 +677,6 @@ def stats_helper(path: str = None):
                     console.print(f"[red]Repository not found: {path_obj}[/red]")
                     return
                 
-                # Get stats
                 # Get stats using separate queries to handle depth and avoid Cartesian products
                 # 1. Files
                 file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as c"
