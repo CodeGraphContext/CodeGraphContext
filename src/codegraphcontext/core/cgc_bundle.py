@@ -35,7 +35,7 @@ class CGCBundle:
     
     VERSION = "0.1.0"  # CGC bundle format version
     
-    def __init__(self, db_manager):
+    def __init__(self, db_manager,antigravity: bool = False):
         """
         Initialize the CGC Bundle handler.
         
@@ -43,6 +43,7 @@ class CGCBundle:
             db_manager: DatabaseManager instance for graph queries
         """
         self.db_manager = db_manager
+        self.antigravity=antigravity
     
     def _get_id_function(self) -> str:
         """
@@ -90,6 +91,8 @@ class CGCBundle:
                 # Step 1: Extract metadata
                 info_logger("Extracting metadata...")
                 metadata = self._extract_metadata(repo_path)
+                # Add antigravity flag into metadata
+                metadata["antigravity_enabled"] = self.antigravity
                 with open(temp_path / "metadata.json", 'w') as f:
                     json.dump(metadata, f, indent=2)
                 
@@ -111,6 +114,7 @@ class CGCBundle:
                 if include_stats:
                     info_logger("Generating statistics...")
                     stats = self._generate_stats(repo_path, node_count, edge_count)
+                    stats["antigravity_mode"] = self.antigravity
                     with open(temp_path / "stats.json", 'w') as f:
                         json.dump(stats, f, indent=2)
                 
@@ -175,7 +179,11 @@ class CGCBundle:
                 # Step 3: Load metadata
                 with open(temp_path / "metadata.json", 'r') as f:
                     metadata = json.load(f)
-                
+                # Restore antigravity flag from metadata
+                self.antigravity = metadata.get("antigravity_enabled", False)
+                info_logger(f"Antigravity mode: {self.antigravity}")
+
+
                 info_logger(f"Loading bundle: {metadata.get('repo', 'unknown')}")
                 info_logger(f"Bundle version: {metadata.get('cgc_version', 'unknown')}")
                 
