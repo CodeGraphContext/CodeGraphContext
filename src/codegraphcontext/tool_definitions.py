@@ -1,3 +1,7 @@
+from codegraphcontext.tools.graph_builder import GraphBuilder
+from codegraphcontext.tools.code_finder import CodeFinder
+from codegraphcontext.tools.antigravity import AntigravityProvider
+
 
 TOOLS = {
     "add_code_to_graph": {
@@ -190,4 +194,21 @@ TOOLS = {
             }
         }
     }
-}
+    ,
+     "graph_builder": {
+        "provider": GraphBuilder,
+        "handlers": ["analysis_handlers"]
+    },
+    "code_finder": {
+        "provider": CodeFinder,
+        "handlers": ["query_handlers"]
+    },
+    "antigravity": {
+        "provider": AntigravityProvider,
+        "handlers": ["query_handlers"]
+    }
+
+
+
+        }
+ 

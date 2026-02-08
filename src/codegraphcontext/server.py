@@ -60,7 +60,7 @@ class MCPServer:
             # Initialize the database manager (Neo4j or FalkorDB Lite based on env var)
             # to fail fast if credentials/configuration are wrong.
             self.db_manager = get_database_manager()
-            self.db_manager.get_driver() 
+            #self.db_manager.get_driver() 
         except ValueError as e:
             raise ValueError(f"Database configuration error: {e}")
 
@@ -297,3 +297,4 @@ class MCPServer:
         debug_logger("Shutting down server...")
         self.code_watcher.stop()
         self.db_manager.close_driver()
+
