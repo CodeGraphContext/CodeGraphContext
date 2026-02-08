@@ -14,7 +14,7 @@ from dataclasses import asdict
 
 from typing import Any, Dict, Coroutine, Optional, List
 
-from .prompts import LLM_SYSTEM_PROMPT
+from .prompts import build_system_prompt
 from .core import get_database_manager
 from .core.jobs import JobManager, JobStatus
 from .core.watcher import CodeWatcher
@@ -232,13 +232,16 @@ class MCPServer:
                 response = {}
                 # Route the request based on the JSON-RPC method.
                 if method == 'initialize':
+                    # Build system prompt with custom prompts if any
+                    system_prompt = build_system_prompt()
+                    
                     response = {
                         "jsonrpc": "2.0", "id": request_id,
                         "result": {
                             "protocolVersion": "2025-03-26",
                             "serverInfo": {
                                 "name": "CodeGraphContext", "version": "0.1.0",
-                                "systemPrompt": LLM_SYSTEM_PROMPT
+                                "systemPrompt": system_prompt
                             },
                             "capabilities": {"tools": {"listTools": True}},
                         }
