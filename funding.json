@@ -21,7 +21,7 @@
                 "url": "https://codegraphcontext.vercel.app/"
             },
             "repositoryUrl": {
-                "url": "https://github.com/Shashankss1205/CodeGraphContext"
+                "url": "https://github.com/CodeGraphContext/CodeGraphContext"
             },
             "licenses": [
                 "spdx:MIT"
@@ -54,12 +54,12 @@
         ],
         "plans": [
             {
-                "guid": "hosting",
+                "guid": "core-maintenance",
                 "status": "active",
-                "name": "Open Source Infrastructure & Industry Tooling Deployment",
-                "description": "This will cover the monthly server hosting costs for the projects.",
-                "amount": 10000,
-                "currency": "INR",
+                "name": "Core Maintenance & Reliability (Tier 1)",
+                "description": "Ensures CodeGraphContext stays stable and up-to-date with rapid changes in the AI ecosystem (MCP updates, new language CLIs). Covers CI/CD costs for graph testing and critical bug fixes.",
+                "amount": 1000,
+                "currency": "USD",
                 "frequency": "monthly",
                 "channels": [
                     "bank-transfer",
@@ -67,25 +67,25 @@
                 ]
             },
             {
-                "guid": "development",
+                "guid": "feature-velocity",
                 "status": "active",
-                "name": "Open Source Infrastructure & Industry Tooling Development",
-                "description": "Funding to improve usability, reliability, performance, and ecosystem readiness of CodeGraphContext as an industry-grade open-source developer tool.",
-                "amount": 50000,
-                "currency": "INR",
-                "frequency": "one-time",
+                "name": "Feature Velocity & Growth (Tier 2)",
+                "description": "Accelerates development of Semantic Search (GraphRAG) and high-priority Roadmap items like SCIP indexing for Python. Enables adding support for 5+ new languages/frameworks per year.",
+                "amount": 2000,
+                "currency": "USD",
+                "frequency": "monthly",
                 "channels": [
                     "bank-transfer",
                     "github-sponsors"
                 ]
             },
             {
-                "guid": "developer-time",
+                "guid": "ecosystem-scaling",
                 "status": "active",
-                "name": "Developer compensation",
-                "description": "This will cover the cost of one developer working part-time on the projects.",
-                "amount": 40000,
-                "currency": "INR",
+                "name": "Ecosystem Scaling & Infrastructure (Stretch)",
+                "description": "Builds the 'CGC Cloud' infrastructure for shared team contexts and scales contributor programs (bounties for complex issues). Positions CGC as essential AI infrastructure.",
+                "amount": 4000,
+                "currency": "USD",
                 "frequency": "monthly",
                 "channels": [
                     "bank-transfer",

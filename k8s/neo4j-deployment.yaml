@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neo4j
+  labels:
+    app: neo4j
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neo4j
+  template:
+    metadata:
+      labels:
+        app: neo4j
+    spec:
+      containers:
+      - name: neo4j
+        image: neo4j:5.15.0
+        ports:
+        - containerPort: 7474
+          name: http
+        - containerPort: 7687
+          name: bolt
+        env:
+        - name: NEO4J_AUTH
+          value: "neo4j/codegraph123"
+        - name: NEO4J_PLUGINS
+          value: '["apoc"]'
+        - name: NEO4J_dbms_security_procedures_unrestricted
+          value: "apoc.*"
+        - name: NEO4J_dbms_memory_heap_max__size
+          value: "2G"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: neo4j-data
+          mountPath: /data
+        - name: neo4j-logs
+          mountPath: /logs
+        livenessProbe:
+          tcpSocket:
+            port: 7687
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          tcpSocket:
+            port: 7687
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: neo4j-data
+        persistentVolumeClaim:
+          claimName: neo4j-data-pvc
+      - name: neo4j-logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j
+  labels:
+    app: neo4j
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 7474
+    targetPort: 7474
+    protocol: TCP
+    name: http
+  - port: 7687
+    targetPort: 7687
+    protocol: TCP
+    name: bolt
+  selector:
+    app: neo4j
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: neo4j-data-pvc
+  labels:
+    app: neo4j
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: standard

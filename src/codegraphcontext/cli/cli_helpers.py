@@ -227,6 +227,39 @@ def cypher_helper(query: str):
         db_manager.close_driver()
 
 
+def cypher_helper_visual(query: str):
+    """Executes a read-only Cypher query and visualizes the results."""
+    from .visualizer import visualize_cypher_results
+    
+    services = _initialize_services()
+    if not all(services):
+        return
+
+    db_manager, _, _ = services
+    
+    # Replicating safety checks from MCPServer
+    forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
+    if any(keyword in query.upper() for keyword in forbidden_keywords):
+        console.print("[bold red]Error: This command only supports read-only queries.[/bold red]")
+        db_manager.close_driver()
+        return
+
+    try:
+        with db_manager.get_driver().session() as session:
+            result = session.run(query)
+            records = [record.data() for record in result]
+            
+            if not records:
+                console.print("[yellow]No results to visualize.[/yellow]")
+                return  # finally block will close driver
+            
+            visualize_cypher_results(records, query)
+    except Exception as e:
+        console.print(f"[bold red]An error occurred while executing query:[/bold red] {e}")
+    finally:
+        db_manager.close_driver()
+
+
 import webbrowser
 
 def visualize_helper(query: str):
@@ -421,25 +454,54 @@ def clean_helper():
     console.print("[cyan]🧹 Cleaning database (removing orphaned nodes)...[/cyan]")
     
     try:
+        # Determine if we're using FalkorDB or Neo4j for query optimization
+        db_type = db_manager.__class__.__name__
+        is_falkordb = "Falkor" in db_type
+        
+        total_deleted = 0
+        batch_size = 1000
+        
         with db_manager.get_driver().session() as session:
-            # Find and delete orphaned nodes (nodes not connected to any repository)
-            # Using OPTIONAL MATCH for FalkorDB compatibility
-            query = """
-            MATCH (n)
-            WHERE NOT (n:Repository)
-            OPTIONAL MATCH path = (n)-[*]-(r:Repository)
-            WITH n, path
-            WHERE path IS NULL
-            WITH n LIMIT 1000
-            DETACH DELETE n
-            RETURN count(n) as deleted
-            """
-            result = session.run(query)
-            record = result.single()
-            deleted_count = record["deleted"] if record else 0
+            # Keep deleting orphaned nodes in batches until none are found
+            while True:
+                if is_falkordb:
+                    # FalkorDB-compatible query using OPTIONAL MATCH
+                    query = """
+                    MATCH (n)
+                    WHERE NOT (n:Repository)
+                    OPTIONAL MATCH path = (n)-[*..10]-(r:Repository)
+                    WITH n, path
+                    WHERE path IS NULL
+                    WITH n LIMIT $batch_size
+                    DETACH DELETE n
+                    RETURN count(n) as deleted
+                    """
+                else:
+                    # Neo4j optimized query using NOT EXISTS with bounded path
+                    # This is much faster than OPTIONAL MATCH with variable-length paths
+                    query = """
+                    MATCH (n)
+                    WHERE NOT (n:Repository)
+                      AND NOT EXISTS {
+                        MATCH (n)-[*..10]-(r:Repository)
+                      }
+                    WITH n LIMIT $batch_size
+                    DETACH DELETE n
+                    RETURN count(n) as deleted
+                    """
+                
+                result = session.run(query, batch_size=batch_size)
+                record = result.single()
+                deleted_count = record["deleted"] if record else 0
+                total_deleted += deleted_count
+                
+                if deleted_count == 0:
+                    break
+                    
+                console.print(f"[dim]Deleted {deleted_count} orphaned nodes (batch)...[/dim]")
             
-            if deleted_count > 0:
-                console.print(f"[green]✓[/green] Deleted {deleted_count} orphaned nodes")
+            if total_deleted > 0:
+                console.print(f"[green]✓[/green] Deleted {total_deleted} orphaned nodes total")
             else:
                 console.print("[green]✓[/green] No orphaned nodes found")
             
@@ -480,29 +542,32 @@ def stats_helper(path: str = None):
                     return
                 
                 # Get stats
-                stats_query = """
-                MATCH (r:Repository {path: $path})-[:CONTAINS]->(f:File)
-                WITH r, count(f) as file_count, f
-                OPTIONAL MATCH (f)-[:CONTAINS]->(func:Function)
-                OPTIONAL MATCH (f)-[:CONTAINS]->(cls:Class)
-                OPTIONAL MATCH (f)-[:IMPORTS]->(m:Module)
-                RETURN 
-                    file_count,
-                    count(DISTINCT func) as function_count,
-                    count(DISTINCT cls) as class_count,
-                    count(DISTINCT m) as module_count
-                """
-                result = session.run(stats_query, path=str(path_obj))
-                record = result.single()
+                # Get stats using separate queries to handle depth and avoid Cartesian products
+                # 1. Files
+                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as c"
+                file_count = session.run(file_query, path=str(path_obj)).single()["c"]
                 
+                # 2. Functions (including methods in classes)
+                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(func) as c"
+                func_count = session.run(func_query, path=str(path_obj)).single()["c"]
+                
+                # 3. Classes
+                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(c:Class) RETURN count(c) as c"
+                class_count = session.run(class_query, path=str(path_obj)).single()["c"]
+                
+                # 4. Modules (imported) - Note: Module nodes are outside the repo structure usually, connected via IMPORTS
+                # We need to traverse from files to modules
+                module_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File)-[:IMPORTS]->(m:Module) RETURN count(DISTINCT m) as c"
+                module_count = session.run(module_query, path=str(path_obj)).single()["c"]
+
                 table = Table(show_header=True, header_style="bold magenta")
                 table.add_column("Metric", style="cyan")
                 table.add_column("Count", style="green", justify="right")
                 
-                table.add_row("Files", str(record["file_count"] if record else 0))
-                table.add_row("Functions", str(record["function_count"] if record else 0))
-                table.add_row("Classes", str(record["class_count"] if record else 0))
-                table.add_row("Imported Modules", str(record["module_count"] if record else 0))
+                table.add_row("Files", str(file_count))
+                table.add_row("Functions", str(func_count))
+                table.add_row("Classes", str(class_count))
+                table.add_row("Imported Modules", str(module_count))
                 
                 console.print(table)
         else:
@@ -510,37 +575,24 @@ def stats_helper(path: str = None):
             console.print("[cyan]📊 Overall Database Statistics[/cyan]\n")
             
             with db_manager.get_driver().session() as session:
-                # Get overall counts
-                stats_query = """
-                MATCH (r:Repository)
-                WITH count(r) as repo_count
-                MATCH (f:File)
-                WITH repo_count, count(f) as file_count
-                MATCH (func:Function)
-                WITH repo_count, file_count, count(func) as function_count
-                MATCH (cls:Class)
-                WITH repo_count, file_count, function_count, count(cls) as class_count
-                MATCH (m:Module)
-                RETURN 
-                    repo_count,
-                    file_count,
-                    function_count,
-                    class_count,
-                    count(m) as module_count
-                """
-                result = session.run(stats_query)
-                record = result.single()
+                # Get overall counts using separate O(1) queries
+                repo_count = session.run("MATCH (r:Repository) RETURN count(r) as c").single()["c"]
                 
-                if record:
+                if repo_count > 0:
+                    file_count = session.run("MATCH (f:File) RETURN count(f) as c").single()["c"]
+                    func_count = session.run("MATCH (f:Function) RETURN count(f) as c").single()["c"]
+                    class_count = session.run("MATCH (c:Class) RETURN count(c) as c").single()["c"]
+                    module_count = session.run("MATCH (m:Module) RETURN count(m) as c").single()["c"]
+                    
                     table = Table(show_header=True, header_style="bold magenta")
                     table.add_column("Metric", style="cyan")
                     table.add_column("Count", style="green", justify="right")
                     
-                    table.add_row("Repositories", str(record["repo_count"]))
-                    table.add_row("Files", str(record["file_count"]))
-                    table.add_row("Functions", str(record["function_count"]))
-                    table.add_row("Classes", str(record["class_count"]))
-                    table.add_row("Modules", str(record["module_count"]))
+                    table.add_row("Repositories", str(repo_count))
+                    table.add_row("Files", str(file_count))
+                    table.add_row("Functions", str(func_count))
+                    table.add_row("Classes", str(class_count))
+                    table.add_row("Modules", str(module_count))
                     
                     console.print(table)
                 else:

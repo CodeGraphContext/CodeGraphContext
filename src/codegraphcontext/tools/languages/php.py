@@ -63,15 +63,16 @@ class PhpTreeSitterParser:
         self.language = generic_parser_wrapper.language
         self.parser = generic_parser_wrapper.parser
 
-    def parse(self, file_path: Path, is_dependency: bool = False) -> Dict[str, Any]:
+    def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict[str, Any]:
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            self.index_source = index_source
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 source_code = f.read()
 
             if not source_code.strip():
-                warning_logger(f"Empty or whitespace-only file: {file_path}")
+                warning_logger(f"Empty or whitespace-only file: {path}")
                 return {
-                    "file_path": str(file_path),
+                    "path": str(path),
                     "functions": [],
                     "classes": [],
                     "interfaces": [],
@@ -97,22 +98,22 @@ class PhpTreeSitterParser:
                 results = execute_query(self.language, query, tree.root_node)
 
                 if capture_name == "functions":
-                    parsed_functions = self._parse_functions(results, source_code, file_path)
+                    parsed_functions = self._parse_functions(results, source_code, path)
                 elif capture_name == "classes":
                     # We group classes, interfaces, traits here, but separating them is cleaner
                     # Wait, my query combines them. I should verify results.
                     # execute_query returns (node, capture_name)
                     # I can filter inside _parse_classes
-                    parsed_classes, parsed_interfaces, parsed_traits = self._parse_types(results, source_code, file_path)
+                    parsed_classes, parsed_interfaces, parsed_traits = self._parse_types(results, source_code, path)
                 elif capture_name == "imports":
                     parsed_imports = self._parse_imports(results, source_code)
                 elif capture_name == "calls":
                     parsed_calls = self._parse_calls(results, source_code)
                 elif capture_name == "variables":
-                    parsed_variables = self._parse_variables(results, source_code, file_path)
+                    parsed_variables = self._parse_variables(results, source_code, path)
 
             return {
-                "file_path": str(file_path),
+                "path": str(path),
                 "functions": parsed_functions,
                 "classes": parsed_classes,
                 "interfaces": parsed_interfaces,
@@ -125,9 +126,9 @@ class PhpTreeSitterParser:
             }
 
         except Exception as e:
-            error_logger(f"Error parsing PHP file {file_path}: {e}")
+            error_logger(f"Error parsing PHP file {path}: {e}")
             return {
-                "file_path": str(file_path),
+                "path": str(path),
                 "functions": [],
                 "classes": [],
                 "interfaces": [],
@@ -156,7 +157,7 @@ class PhpTreeSitterParser:
         if not node: return ""
         return node.text.decode("utf-8")
 
-    def _parse_functions(self, captures: list, source_code: str, file_path: Path) -> list[Dict[str, Any]]:
+    def _parse_functions(self, captures: list, source_code: str, path: Path) -> list[Dict[str, Any]]:
         functions = []
         seen_nodes = set()
 
@@ -191,26 +192,30 @@ class PhpTreeSitterParser:
                         # Get class context
                         context_name, context_type, context_line = self._get_parent_context(node)
 
-                        functions.append({
+                        func_data = {
                             "name": func_name,
                             "parameters": parameters,
                             "line_number": start_line,
                             "end_line": end_line,
-                            "source": source_text,
-                            "file_path": str(file_path),
+                            "path": str(path),
                             "lang": self.language_name,
                             "context": context_name,
                             "context_type": context_type,
                             "class_context": context_name if context_type and ("class" in context_type or "interface" in context_type or "trait" in context_type) else None
-                        })
+                        }
+                        
+                        if self.index_source:
+                            func_data["source"] = source_text
+                        
+                        functions.append(func_data)
                         
                 except Exception as e:
-                    error_logger(f"Error parsing function in {file_path}: {e}")
+                    error_logger(f"Error parsing function in {path}: {e}")
                     continue
 
         return functions
 
-    def _parse_types(self, captures: list, source_code: str, file_path: Path) -> Tuple[list, list, list]:
+    def _parse_types(self, captures: list, source_code: str, path: Path) -> Tuple[list, list, list]:
         classes = []
         interfaces = []
         traits = []
@@ -253,10 +258,11 @@ class PhpTreeSitterParser:
                             "line_number": start_line,
                             "end_line": end_line,
                             "bases": bases,
-                            "source": source_text,
-                            "file_path": str(file_path),
+                            "path": str(path),
                             "lang": self.language_name,
                         }
+                        if self.index_source:
+                            type_data["source"] = source_text
                         
                         if capture_name == "class":
                             classes.append(type_data)
@@ -266,12 +272,12 @@ class PhpTreeSitterParser:
                             traits.append(type_data)
                         
                 except Exception as e:
-                    error_logger(f"Error parsing type in {file_path}: {e}")
+                    error_logger(f"Error parsing type in {path}: {e}")
                     continue
 
         return classes, interfaces, traits
 
-    def _parse_variables(self, captures: list, source_code: str, file_path: Path) -> list[Dict[str, Any]]:
+    def _parse_variables(self, captures: list, source_code: str, path: Path) -> list[Dict[str, Any]]:
         variables = []
         seen_vars = set()
         
@@ -308,7 +314,7 @@ class PhpTreeSitterParser:
                         "name": var_name,
                         "type": inferred_type,
                         "line_number": start_line,
-                        "file_path": str(file_path),
+                        "path": str(path),
                         "lang": self.language_name,
                         "context": ctx_name,
                         "class_context": ctx_name if ctx_type and ("class" in ctx_type or "interface" in ctx_type or "trait" in ctx_type) else None

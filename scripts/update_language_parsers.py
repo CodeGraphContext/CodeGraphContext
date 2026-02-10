@@ -111,11 +111,11 @@ def get_query_dict_name(content: str) -> str:
     return "QUERIES"
 
 
-def update_language_file(file_path: Path):
+def update_language_file(path: Path):
     """Update a single language file."""
-    print(f"Updating {file_path.name}...")
+    print(f"Updating {path.name}...")
     
-    content = file_path.read_text()
+    content = path.read_text()
     original_content = content
     
     # Detect query dictionary name
@@ -129,10 +129,10 @@ def update_language_file(file_path: Path):
     
     # Write back if changed
     if content != original_content:
-        file_path.write_text(content)
-        print(f"  ✓ Updated {file_path.name}")
+        path.write_text(content)
+        print(f"  ✓ Updated {path.name}")
     else:
-        print(f"  - No changes needed for {file_path.name}")
+        print(f"  - No changes needed for {path.name}")
 
 
 def main():
@@ -140,10 +140,10 @@ def main():
     print("Updating language parsers for tree-sitter 0.25+ compatibility\n")
     
     for lang_file in LANGUAGE_FILES:
-        file_path = LANGUAGES_DIR / lang_file
-        if file_path.exists():
+        path = LANGUAGES_DIR / lang_file
+        if path.exists():
             try:
-                update_language_file(file_path)
+                update_language_file(path)
             except Exception as e:
                 print(f"  ✗ Error updating {lang_file}: {e}")
         else:

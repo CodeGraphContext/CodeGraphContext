@@ -33,6 +33,7 @@ from .cli_helpers import (
     list_repos_helper,
     delete_helper,
     cypher_helper,
+    cypher_helper_visual,
     visualize_helper,
     reindex_helper,
     clean_helper,
@@ -43,14 +44,27 @@ from .cli_helpers import (
     list_watching_helper,
 )
 
-# Set the log level for the noisy neo4j and asyncio logger to WARNING to keep the output clean.
+# Set the log level for the noisy neo4j, asyncio, and urllib3 loggers to WARNING to keep the output clean.
 logging.getLogger("neo4j").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+
+# Import visualization module
+from .visualizer import (
+    visualize_call_graph,
+    visualize_call_chain,
+    visualize_dependencies,
+    visualize_inheritance_tree,
+    visualize_overrides,
+    visualize_search_results,
+    check_visual_flag,
+)
 
 # Initialize the Typer app and Rich console for formatted output.
 app = typer.Typer(
     name="cgc",
-    help="CodeGraphContext: An MCP server for AI-powered code analysis.",
+    help="CodeGraphContext: An MCP server for AI-powered code analysis.\n\n[DEPRECATED] 'cgc start' is deprecated. Use 'cgc mcp start' instead.",
     add_completion=True,
 )
 console = Console(stderr=True)
@@ -342,6 +356,282 @@ def config_db(backend: str = typer.Argument(..., help="Database backend: 'neo4j'
     console.print(f"[green]✔ Default database switched to {backend}[/green]")
 
 # ============================================================================
+# BUNDLE COMMAND GROUP - Pre-indexed Graph Snapshots
+# ============================================================================
+
+bundle_app = typer.Typer(help="Create and load pre-indexed graph bundles")
+app.add_typer(bundle_app, name="bundle")
+
+@bundle_app.command("export")
+def bundle_export(
+    output: str = typer.Argument(..., help="Output path for the .cgc bundle file"),
+    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Specific repository path to export (default: export all)"),
+    no_stats: bool = typer.Option(False, "--no-stats", help="Skip statistics generation")
+):
+    """
+    Export the current graph to a portable .cgc bundle.
+    
+    Creates a pre-indexed graph snapshot that can be distributed and loaded
+    instantly without re-indexing. Perfect for sharing famous repositories.
+    
+    Examples:
+        cgc bundle export numpy.cgc --repo /path/to/numpy
+        cgc bundle export my-project.cgc
+        cgc bundle export all-repos.cgc --no-stats
+    """
+    _load_credentials()
+    from codegraphcontext.core.cgc_bundle import CGCBundle
+    
+    services = _initialize_services()
+    if not all(services):
+        return
+    db_manager, graph_builder, code_finder = services
+    
+    try:
+        output_path = Path(output)
+        repo_path = Path(repo).resolve() if repo else None
+        
+        console.print(f"[cyan]Exporting graph to {output_path}...[/cyan]")
+        if repo_path:
+            console.print(f"[dim]Repository: {repo_path}[/dim]")
+        else:
+            console.print(f"[dim]Exporting all repositories[/dim]")
+        
+        bundle = CGCBundle(db_manager)
+        success, message = bundle.export_to_bundle(
+            output_path,
+            repo_path=repo_path,
+            include_stats=not no_stats
+        )
+        
+        if success:
+            console.print(f"[bold green]{message}[/bold green]")
+        else:
+            console.print(f"[bold red]Export failed: {message}[/bold red]")
+            raise typer.Exit(code=1)
+    
+    finally:
+        db_manager.close_driver()
+
+@bundle_app.command("import")
+def bundle_import(
+    bundle_file: str = typer.Argument(..., help="Path to the .cgc bundle file to import"),
+    clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before importing")
+):
+    """
+    Import a .cgc bundle into the current database.
+    
+    Loads a pre-indexed graph snapshot into your database. Use --clear to
+    replace all existing data with the bundle contents.
+    
+    Examples:
+        cgc bundle import numpy.cgc
+        cgc bundle import my-project.cgc --clear
+    """
+    _load_credentials()
+    from codegraphcontext.core.cgc_bundle import CGCBundle
+    
+    services = _initialize_services()
+    if not all(services):
+        return
+    db_manager, graph_builder, code_finder = services
+    
+    try:
+        bundle_path = Path(bundle_file)
+        
+        if not bundle_path.exists():
+            console.print(f"[bold red]Bundle file not found: {bundle_path}[/bold red]")
+            raise typer.Exit(code=1)
+        
+        if clear:
+            console.print("[yellow]⚠️  Warning: This will clear all existing graph data![/yellow]")
+            if not typer.confirm("Are you sure you want to continue?", default=False):
+                console.print("[yellow]Import cancelled[/yellow]")
+                return
+        
+        console.print(f"[cyan]Importing bundle from {bundle_path}...[/cyan]")
+        
+        bundle = CGCBundle(db_manager)
+        success, message = bundle.import_from_bundle(
+            bundle_path,
+            clear_existing=clear
+        )
+        
+        if success:
+            console.print(f"[bold green]{message}[/bold green]")
+        else:
+            console.print(f"[bold red]Import failed: {message}[/bold red]")
+            raise typer.Exit(code=1)
+    
+    finally:
+        db_manager.close_driver()
+
+@bundle_app.command("load")
+def bundle_load(
+    bundle_name: str = typer.Argument(..., help="Bundle name or path to load (e.g., 'numpy' or 'numpy.cgc')"),
+    clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before loading")
+):
+    """
+    Load a pre-indexed bundle (download if needed, then import).
+    
+    This is a convenience command that will:
+    1. Check if the bundle exists locally
+    2. Download from registry if not found
+    3. Import the bundle into the database
+    
+    Examples:
+        cgc load numpy
+        cgc load numpy.cgc --clear
+        cgc load /path/to/bundle.cgc
+    """
+    _load_credentials()
+    
+    bundle_path = Path(bundle_name)
+    
+    # If it's an absolute path or has .cgc extension and exists, use it directly
+    if bundle_path.is_absolute() or (bundle_path.suffix == '.cgc' and bundle_path.exists()):
+        bundle_import(str(bundle_path), clear=clear)
+        return
+    
+    # Add .cgc extension if not present
+    if not bundle_path.suffix:
+        bundle_path = Path(f"{bundle_name}.cgc")
+    
+    # Check if exists locally
+    if bundle_path.exists():
+        console.print(f"[dim]Found local bundle: {bundle_path}[/dim]")
+        bundle_import(str(bundle_path), clear=clear)
+        return
+    
+    # Try to download from registry
+    console.print(f"[yellow]Bundle '{bundle_name}' not found locally.[/yellow]")
+    console.print(f"[cyan]Attempting to download from registry...[/cyan]")
+    
+    try:
+        from .registry_commands import download_bundle
+        
+        # Extract just the name (without .cgc extension)
+        name = bundle_path.stem
+        
+        # Download the bundle
+        downloaded_path = download_bundle(name, output_dir=None, auto_load=True)
+        
+        if downloaded_path:
+            # Import the downloaded bundle
+            bundle_import(downloaded_path, clear=clear)
+        else:
+            console.print(f"[bold red]Failed to download bundle '{name}'[/bold red]")
+            raise typer.Exit(code=1)
+    
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        console.print(f"[dim]Use 'cgc registry list' to see available bundles[/dim]")
+        raise typer.Exit(code=1)
+
+# Shortcut commands at root level
+@app.command("export", rich_help_panel="Bundle Shortcuts")
+def export_shortcut(
+    output: str = typer.Argument(..., help="Output path for the .cgc bundle file"),
+    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Specific repository path to export")
+):
+    """Shortcut for 'cgc bundle export'"""
+    bundle_export(output, repo, False)
+
+@app.command("load", rich_help_panel="Bundle Shortcuts")
+def load_shortcut(
+    bundle_name: str = typer.Argument(..., help="Bundle name or path to load"),
+    clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before loading")
+):
+    """Shortcut for 'cgc bundle load'"""
+    bundle_load(bundle_name, clear)
+
+# ============================================================================
+# REGISTRY COMMAND GROUP - Browse and Download Bundles
+# ============================================================================
+
+registry_app = typer.Typer(help="Browse and download bundles from the registry")
+app.add_typer(registry_app, name="registry")
+
+@registry_app.command("list")
+def registry_list(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed information including download URLs"),
+    unique: bool = typer.Option(False, "--unique", "-u", help="Show only one version per package (most recent)")
+):
+    """
+    List all available bundles in the registry.
+    
+    Shows bundles from both weekly pre-indexed releases and on-demand generations.
+    By default, shows all versions. Use --unique to see only the most recent version per package.
+    
+    Examples:
+        cgc registry list
+        cgc registry list --verbose
+        cgc registry list --unique
+    """
+    from .registry_commands import list_bundles
+    list_bundles(verbose=verbose, unique=unique)
+
+@registry_app.command("search")
+def registry_search(
+    query: str = typer.Argument(..., help="Search query (matches name, repository, or description)")
+):
+    """
+    Search for bundles in the registry.
+    
+    Searches bundle names, repositories, and descriptions for matches.
+    
+    Examples:
+        cgc registry search numpy
+        cgc registry search web
+        cgc registry search http
+    """
+    from .registry_commands import search_bundles
+    search_bundles(query)
+
+@registry_app.command("download")
+def registry_download(
+    name: str = typer.Argument(..., help="Bundle name to download (e.g., 'numpy')"),
+    output_dir: Optional[str] = typer.Option(None, "--output", "-o", help="Output directory (default: current directory)"),
+    load: bool = typer.Option(False, "--load", "-l", help="Automatically load the bundle after downloading")
+):
+    """
+    Download a bundle from the registry.
+    
+    Downloads the specified bundle to the current directory or specified output directory.
+    Use --load to automatically import the bundle after downloading.
+    
+    Examples:
+        cgc registry download numpy
+        cgc registry download pandas --output ./bundles
+        cgc registry download fastapi --load
+    """
+    from .registry_commands import download_bundle
+    
+    bundle_path = download_bundle(name, output_dir, auto_load=load)
+    
+    if load and bundle_path:
+        console.print(f"\n[cyan]Loading bundle...[/cyan]")
+        bundle_import(bundle_path, clear=False)
+
+@registry_app.command("request")
+def registry_request(
+    repo_url: str = typer.Argument(..., help="GitHub repository URL to index"),
+    wait: bool = typer.Option(False, "--wait", "-w", help="Wait for generation to complete (not yet implemented)")
+):
+    """
+    Request on-demand generation of a bundle.
+    
+    Submits a request to generate a bundle for the specified GitHub repository.
+    The bundle will be available in the registry after 5-10 minutes.
+    
+    Examples:
+        cgc registry request https://github.com/encode/httpx
+        cgc registry request https://github.com/pallets/flask
+    """
+    from .registry_commands import request_bundle
+    request_bundle(repo_url, wait=wait)
+
+# ============================================================================
 # DOCTOR DIAGNOSTIC COMMAND
 # ============================================================================
 
@@ -493,10 +783,7 @@ def doctor():
 @app.command()
 def start():
     """
-    Start the MCP server.
-    
-    [yellow]⚠️  Deprecated: Use 'cgc mcp start' instead.[/yellow]
-    This command will be removed in a future version.
+    [DEPRECATED] Use 'cgc mcp start' instead. This command will be removed in a future version.
     """
     console.print("[yellow]⚠️  'cgc start' is deprecated. Use 'cgc mcp start' instead.[/yellow]")
     mcp_start()
@@ -729,8 +1016,10 @@ app.add_typer(find_app, name="find")
 
 @find_app.command("name")
 def find_by_name(
+    ctx: typer.Context,
     name: str = typer.Argument(..., help="Exact name to search for"),
-    type: Optional[str] = typer.Option(None, "--type", "-t", help="Filter by type (function, class, file, module)")
+    type: Optional[str] = typer.Option(None, "--type", "-t", help="Filter by type (function, class, file, module)"),
+    visual: bool = typer.Option(False, "--visual", "--viz", "-V", help="Show results as interactive graph visualization")
 ):
     """
     Find code elements by exact name.
@@ -738,6 +1027,7 @@ def find_by_name(
     Examples:
         cgc find name MyClass
         cgc find name calculate --type function
+        cgc find name MyClass --visual
     """
     _load_credentials()
     services = _initialize_services()
@@ -759,7 +1049,7 @@ def find_by_name(
             for f in funcs: f['type'] = 'Function'
             for c in classes: c['type'] = 'Class'
             for v in variables: v['type'] = 'Variable'
-            for m in modules: m['type'] = 'Module'; m['file_path'] = m.get('name', 'External') # Modules might differ
+            for m in modules: m['type'] = 'Module'; m['path'] = m.get('name', 'External') # Modules might differ
             for i in imports: 
                 i['type'] = 'Import'
                 i['name'] = i.get('alias') or i.get('imported_name')
@@ -786,17 +1076,22 @@ def find_by_name(
             results = code_finder.find_by_module_name(name)
             for r in results: 
                 r['type'] = 'Module'
-                r['file_path'] = r.get('name')
+                r['path'] = r.get('name')
             
         elif type.lower() == 'file':
             # Quick query for file
             with db_manager.get_driver().session() as session:
-                res = session.run("MATCH (n:File) WHERE n.name = $name RETURN n.name as name, n.path as file_path, n.is_dependency as is_dependency", name=name)
+                res = session.run("MATCH (n:File) WHERE n.name = $name RETURN n.name as name, n.path as path, n.is_dependency as is_dependency", name=name)
                 results = [dict(record) for record in res]
                 for r in results: r['type'] = 'File'
         
         if not results:
             console.print(f"[yellow]No code elements found with name '{name}'[/yellow]")
+            return
+        
+        # Check if visual mode is enabled
+        if check_visual_flag(ctx, visual):
+            visualize_search_results(results, name, search_type="name")
             return
             
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
@@ -805,9 +1100,9 @@ def find_by_name(
         table.add_column("Location", style="dim", overflow="fold")
         
         for res in results:
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('name', ''),
@@ -822,8 +1117,10 @@ def find_by_name(
 
 @find_app.command("pattern")
 def find_by_pattern(
+    ctx: typer.Context,
     pattern: str = typer.Argument(..., help="Substring pattern to search (fuzzy search fallback)"),
-    case_sensitive: bool = typer.Option(False, "--case-sensitive", "-c", help="Case-sensitive search")
+    case_sensitive: bool = typer.Option(False, "--case-sensitive", "-c", help="Case-sensitive search"),
+    visual: bool = typer.Option(False, "--visual", "--viz", "-V", help="Show results as interactive graph visualization")
 ):
     """
     Find code elements using substring matching.
@@ -831,6 +1128,7 @@ def find_by_pattern(
     Examples:
         cgc find pattern "Auth"       # Finds Auth, Authentication, Authorize...
         cgc find pattern "process_"   # Finds process_data, process_request...
+        cgc find pattern "Auth" --visual
     """
     _load_credentials()
     services = _initialize_services()
@@ -850,7 +1148,7 @@ def find_by_pattern(
                     RETURN 
                         labels(n)[0] as type,
                         n.name as name,
-                        n.file_path as file_path,
+                        n.path as path,
                         n.line_number as line_number,
                         n.is_dependency as is_dependency
                     ORDER BY n.is_dependency ASC, n.name
@@ -863,7 +1161,7 @@ def find_by_pattern(
                     RETURN 
                         labels(n)[0] as type,
                         n.name as name,
-                        n.file_path as file_path,
+                        n.path as path,
                         n.line_number as line_number,
                         n.is_dependency as is_dependency
                     ORDER BY n.is_dependency ASC, n.name
@@ -877,6 +1175,11 @@ def find_by_pattern(
         if not results:
             console.print(f"[yellow]No matches found for pattern '{pattern}'[/yellow]")
             return
+        
+        # Check if visual mode is enabled
+        if check_visual_flag(ctx, visual):
+            visualize_search_results(results, pattern, search_type="pattern")
+            return
             
         if not case_sensitive and any(c in pattern for c in "*?["):
              console.print("[yellow]Note: Wildcards/Regex are not fully supported in this mode. Performing substring search.[/yellow]")
@@ -888,9 +1191,9 @@ def find_by_pattern(
         table.add_column("Source", style="yellow")
         
         for res in results:
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', '') if res.get('line_number') is not None else '')
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('name', ''),
@@ -906,8 +1209,10 @@ def find_by_pattern(
 
 @find_app.command("type")
 def find_by_type(
+    ctx: typer.Context,
     element_type: str = typer.Argument(..., help="Type to search for (function, class, file, module)"),
-    limit: int = typer.Option(50, "--limit", "-l", help="Maximum results to return")
+    limit: int = typer.Option(50, "--limit", "-l", help="Maximum results to return"),
+    visual: bool = typer.Option(False, "--visual", "--viz", "-V", help="Show results as interactive graph visualization")
 ):
     """
     Find all elements of a specific type.
@@ -915,6 +1220,7 @@ def find_by_type(
     Examples:
         cgc find type class
         cgc find type function --limit 100
+        cgc find type class --visual
     """
     _load_credentials()
     services = _initialize_services()
@@ -928,6 +1234,15 @@ def find_by_type(
         if not results:
             console.print(f"[yellow]No elements found of type '{element_type}'[/yellow]")
             return
+        
+        # Add type to results for visualization
+        for r in results:
+            r['type'] = element_type.capitalize()
+        
+        # Check if visual mode is enabled
+        if check_visual_flag(ctx, visual):
+            visualize_search_results(results, element_type, search_type="type")
+            return
             
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
         table.add_column("Name", style="cyan")
@@ -935,9 +1250,9 @@ def find_by_type(
         table.add_column("Source", style="yellow")
         
         for res in results:
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
             
             table.add_row(
                 res.get('name', ''),
@@ -980,9 +1295,9 @@ def find_by_variable(
         table.add_column("Context", style="yellow")
         
         for res in results:
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('name', ''),
@@ -1017,7 +1332,7 @@ def find_by_content_search(
             results = code_finder.find_by_content(query)
         except Exception as e:
             error_msg = str(e).lower()
-            if 'fulltext' in error_msg or 'db.index.fulltext' in error_msg:
+            if ('fulltext' in error_msg or 'db.index.fulltext' in error_msg) and "Falkor" in db_manager.__class__.__name__:
                 console.print("\n[bold red]❌ Full-text search is not supported on FalkorDB[/bold red]\n")
                 console.print("[yellow]💡 You have two options:[/yellow]\n")
                 console.print("  1. [cyan]Switch to Neo4j:[/cyan]")
@@ -1040,9 +1355,9 @@ def find_by_content_search(
         table.add_column("Location", style="dim", overflow="fold")
         
         for res in results:
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('name', ''),
@@ -1087,9 +1402,9 @@ def find_by_decorator_search(
         
         for res in results:
             decorators_str = ", ".join(res.get('decorators', []))
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('function_name', ''),
@@ -1132,9 +1447,9 @@ def find_by_argument_search(
         table.add_column("Location", style="dim", overflow="fold")
         
         for res in results:
-            file_path = res.get('file_path', '') or ''
+            path = res.get('path', '') or ''
             line_str = str(res.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('function_name', ''),
@@ -1156,8 +1471,10 @@ app.add_typer(analyze_app, name="analyze")
 
 @analyze_app.command("calls")
 def analyze_calls(
+    ctx: typer.Context,
     function: str = typer.Argument(..., help="Function name to analyze"),
-    file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path")
+    file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path"),
+    visual: bool = typer.Option(False, "--visual", "--viz", "-V", help="Show results as interactive graph visualization")
 ):
     """
     Show what functions this function calls (callees).
@@ -1165,6 +1482,7 @@ def analyze_calls(
     Example:
         cgc analyze calls process_data
         cgc analyze calls process_data --file src/main.py
+        cgc analyze calls process_data --visual
     """
     _load_credentials()
     services = _initialize_services()
@@ -1179,15 +1497,20 @@ def analyze_calls(
             console.print(f"[yellow]No function calls found for '{function}'[/yellow]")
             return
         
+        # Check if visual mode is enabled
+        if check_visual_flag(ctx, visual):
+            visualize_call_graph(results, function, direction="outgoing")
+            return
+        
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
         table.add_column("Called Function", style="cyan")
         table.add_column("Location", style="dim", overflow="fold")
         table.add_column("Type", style="yellow")
         
         for result in results:
-            file_path = result.get("called_file_path", "")
+            path = result.get("called_file_path", "")
             line_str = str(result.get("called_line_number", ""))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 result.get("called_function", ""),
@@ -1203,8 +1526,10 @@ def analyze_calls(
 
 @analyze_app.command("callers")
 def analyze_callers(
+    ctx: typer.Context,
     function: str = typer.Argument(..., help="Function name to analyze"),
-    file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path")
+    file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path"),
+    visual: bool = typer.Option(False, "--visual", "--viz", "-V", help="Show results as interactive graph visualization")
 ):
     """
     Show what functions call this function.
@@ -1212,6 +1537,7 @@ def analyze_callers(
     Example:
         cgc analyze callers process_data
         cgc analyze callers process_data --file src/main.py
+        cgc analyze callers process_data --visual
     """
     _load_credentials()
     services = _initialize_services()
@@ -1226,6 +1552,11 @@ def analyze_callers(
             console.print(f"[yellow]No callers found for '{function}'[/yellow]")
             return
         
+        # Check if visual mode is enabled
+        if check_visual_flag(ctx, visual):
+            visualize_call_graph(results, function, direction="incoming")
+            return
+        
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
         table.add_column("Caller Function", style="cyan")
         table.add_column("Location", style="green")
@@ -1233,10 +1564,10 @@ def analyze_callers(
 
         
         for result in results:
-            file_path = result.get("caller_file_path", "")
+            path = result.get("caller_file_path", "")
             line_number = result.get("caller_line_number")
 
-            location = f"{file_path}:{line_number}" if line_number else file_path
+            location = f"{path}:{line_number}" if line_number else path
 
             table.add_row(
                 result.get("caller_function", ""),
@@ -1252,11 +1583,13 @@ def analyze_callers(
 
 @analyze_app.command("chain")
 def analyze_chain(
+    ctx: typer.Context,
     from_func: str = typer.Argument(..., help="Starting function"),
     to_func: str = typer.Argument(..., help="Target function"),
     max_depth: int = typer.Option(5, "--depth", "-d", help="Maximum call chain depth"),
     from_file: Optional[str] = typer.Option(None, "--from-file", help="File for starting function"),
-    to_file: Optional[str] = typer.Option(None, "--to-file", help="File for target function")
+    to_file: Optional[str] = typer.Option(None, "--to-file", help="File for target function"),
+    visual: bool = typer.Option(False, "--visual", "--viz", "-V", help="Show results as interactive graph visualization")
 ):
     """
     Show call chain between two functions.
@@ -1264,6 +1597,7 @@ def analyze_chain(
     Example:
         cgc analyze chain main process_data --depth 10
         cgc analyze chain main process --from-file main.py --to-file utils.py
+        cgc analyze chain main process_data --visual
     """
     _load_credentials()
     services = _initialize_services()
@@ -1278,6 +1612,11 @@ def analyze_chain(
             console.print(f"[yellow]No call chain found between '{from_func}' and '{to_func}' within depth {max_depth}[/yellow]")
             return
         
+        # Check if visual mode is enabled
+        if check_visual_flag(ctx, visual):
+            visualize_call_chain(results, from_func, to_func)
+            return
+        
         for idx, chain in enumerate(results, 1):
             console.print(f"\n[bold cyan]Call Chain #{idx} (length: {chain.get('chain_length', 0)}):[/bold cyan]")
             
@@ -1288,7 +1627,7 @@ def analyze_chain(
                 indent = "  " * i
                 
                 # Print function
-                console.print(f"{indent}[cyan]{func.get('name', 'Unknown')}[/cyan] [dim]({func.get('file_path', '')}:{func.get('line_number', '')})[/dim]")
+                console.print(f"{indent}[cyan]{func.get('name', 'Unknown')}[/cyan] [dim]({func.get('path', '')}:{func.get('line_number', '')})[/dim]")
                 
                 # If there is a next step, print the connecting call detail
                 if i < len(functions) - 1 and i < len(call_details):
@@ -1317,8 +1656,10 @@ def analyze_chain(
 
 @analyze_app.command("deps")
 def analyze_dependencies(
+    ctx: typer.Context,
     target: str = typer.Argument(..., help="Module name"),
-    show_external: bool = typer.Option(True, "--external/--no-external", help="Show external dependencies")
+    show_external: bool = typer.Option(True, "--external/--no-external", help="Show external dependencies"),
+    visual: bool = typer.Option(False, "--visual", "--viz", "-V", help="Show results as interactive graph visualization")
 ):
     """
     Show dependencies and imports for a module.
@@ -1326,6 +1667,7 @@ def analyze_dependencies(
     Example:
         cgc analyze deps numpy
         cgc analyze deps mymodule --no-external
+        cgc analyze deps mymodule --visual
     """
     _load_credentials()
     services = _initialize_services()
@@ -1340,6 +1682,11 @@ def analyze_dependencies(
             console.print(f"[yellow]No dependency information found for '{target}'[/yellow]")
             return
         
+        # Check if visual mode is enabled
+        if check_visual_flag(ctx, visual):
+            visualize_dependencies(results, target)
+            return
+        
         # Show who imports this module
         if results.get('importers'):
             console.print(f"\n[bold cyan]Files that import '{target}':[/bold cyan]")
@@ -1347,9 +1694,9 @@ def analyze_dependencies(
             table.add_column("Location", style="cyan", overflow="fold")
             
             for imp in results['importers']:
-                file_path = imp.get('importer_file_path', '')
+                path = imp.get('importer_file_path', '')
                 line_str = str(imp.get('import_line_number', ''))
-                location_str = f"{file_path}:{line_str}" if line_str else file_path
+                location_str = f"{path}:{line_str}" if line_str else path
 
                 table.add_row(
                     location_str
@@ -1360,8 +1707,10 @@ def analyze_dependencies(
 
 @analyze_app.command("tree")
 def analyze_inheritance_tree(
+    ctx: typer.Context,
     class_name: str = typer.Argument(..., help="Class name"),
-    file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path")
+    file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path"),
+    visual: bool = typer.Option(False, "--visual", "--viz", "-V", help="Show results as interactive graph visualization")
 ):
     """
     Show inheritance hierarchy for a class.
@@ -1369,6 +1718,7 @@ def analyze_inheritance_tree(
     Example:
         cgc analyze tree MyClass
         cgc analyze tree MyClass --file src/models.py
+        cgc analyze tree MyClass --visual
     """
     _load_credentials()
     services = _initialize_services()
@@ -1378,6 +1728,15 @@ def analyze_inheritance_tree(
     
     try:
         results = code_finder.find_class_hierarchy(class_name, file)
+        
+        # Check if visual mode is enabled (check for any hierarchy data)
+        has_hierarchy = results.get('parent_classes') or results.get('child_classes')
+        if check_visual_flag(ctx, visual):
+            if has_hierarchy:
+                visualize_inheritance_tree(results, class_name)
+            else:
+                console.print(f"[yellow]No inheritance hierarchy to visualize for '{class_name}'[/yellow]")
+            return
         
         console.print(f"\n[bold cyan]Class Hierarchy for '{class_name}':[/bold cyan]\n")
         
@@ -1440,7 +1799,7 @@ def analyze_complexity(
             if result:
                 console.print(f"\n[bold cyan]Complexity for '{path}':[/bold cyan]")
                 console.print(f"  Cyclomatic Complexity: [yellow]{result.get('complexity', 'N/A')}[/yellow]")
-                console.print(f"  File: [dim]{result.get('file_path', '')}[/dim]")
+                console.print(f"  File: [dim]{result.get('path', '')}[/dim]")
                 console.print(f"  Line: [dim]{result.get('line_number', '')}[/dim]")
             else:
                 console.print(f"[yellow]Function '{path}' not found or has no complexity data[/yellow]")
@@ -1460,9 +1819,9 @@ def analyze_complexity(
             for func in results:
                 complexity = func.get('complexity', 0)
                 color = "red" if complexity > threshold else "yellow" if complexity > threshold/2 else "green"
-                file_path = func.get('file_path', '')
+                path = func.get('path', '')
                 line_str = str(func.get('line_number', ''))
-                location_str = f"{file_path}:{line_str}" if line_str else file_path
+                location_str = f"{path}:{line_str}" if line_str else path
 
                 table.add_row(
                     func.get('function_name', ''),
@@ -1509,9 +1868,9 @@ def analyze_dead_code(
         table.add_column("Location", style="dim", overflow="fold")
         
         for func in unused_funcs:
-            file_path = func.get('file_path', '')
+            path = func.get('path', '')
             line_str = str(func.get('line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 func.get('function_name', ''),
@@ -1527,7 +1886,9 @@ def analyze_dead_code(
 
 @analyze_app.command("overrides")
 def analyze_overrides(
-    function_name: str = typer.Argument(..., help="Function/method name to find implementations of")
+    ctx: typer.Context,
+    function_name: str = typer.Argument(..., help="Function/method name to find implementations of"),
+    visual: bool = typer.Option(False, "--visual", "--viz", "-V", help="Show results as interactive graph visualization")
 ):
     """
     Find all implementations of a function across different classes.
@@ -1537,6 +1898,7 @@ def analyze_overrides(
     Example:
         cgc analyze overrides area
         cgc analyze overrides process
+        cgc analyze overrides area --visual
     """
     _load_credentials()
     services = _initialize_services()
@@ -1551,15 +1913,20 @@ def analyze_overrides(
             console.print(f"[yellow]No implementations found for function '{function_name}'[/yellow]")
             return
         
+        # Check if visual mode is enabled
+        if check_visual_flag(ctx, visual):
+            visualize_overrides(results, function_name)
+            return
+        
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
         table.add_column("Class", style="cyan")
         table.add_column("Function", style="green")
         table.add_column("Location", style="dim", overflow="fold")
         
         for res in results:
-            file_path = res.get('class_file_path', '')
+            path = res.get('class_file_path', '')
             line_str = str(res.get('function_line_number', ''))
-            location_str = f"{file_path}:{line_str}" if line_str else file_path
+            location_str = f"{path}:{line_str}" if line_str else path
 
             table.add_row(
                 res.get('class_name', ''),
@@ -1622,9 +1989,9 @@ def analyze_variable_usage(
             table.add_column("Value", style="yellow")
             
             for item in items:
-                file_path = item.get('file_path', '')
+                path = item.get('path', '')
                 line_str = str(item.get('line_number', ''))
-                location_str = f"{file_path}:{line_str}" if line_str else file_path
+                location_str = f"{path}:{line_str}" if line_str else path
 
                 table.add_row(
                     item.get('scope_name', ''),
@@ -1645,16 +2012,26 @@ def analyze_variable_usage(
 # ============================================================================
 
 @app.command("query")
-def query_graph(query: str = typer.Argument(..., help="Cypher query to execute (read-only)")):
+def query_graph(
+    ctx: typer.Context,
+    query: str = typer.Argument(..., help="Cypher query to execute (read-only)"),
+    visual: bool = typer.Option(False, "--visual", "--viz", "-V", help="Show results as interactive graph visualization")
+):
     """
     Execute a custom Cypher query on the code graph.
     
     Examples:
         cgc query "MATCH (f:Function) RETURN f.name LIMIT 10"
         cgc query "MATCH (c:Class)-[:CONTAINS]->(m) RETURN c.name, count(m)"
+        cgc query "MATCH (n)-[r]->(m) RETURN n,r,m LIMIT 50" --visual
     """
     _load_credentials()
-    cypher_helper(query)
+    
+    # Check if visual mode is enabled
+    if check_visual_flag(ctx, visual):
+        cypher_helper_visual(query)
+    else:
+        cypher_helper(query)
 
 # Keep old 'cypher' as alias for backward compatibility
 @app.command("cypher", hidden=True)
@@ -1670,9 +2047,12 @@ def cypher_legacy(query: str = typer.Argument(..., help="The read-only Cypher qu
 # ============================================================================
 
 @app.command("i", rich_help_panel="Shortcuts")
-def index_abbrev(path: Optional[str] = typer.Argument(None, help="Path to index")):
+def index_abbrev(
+    path: Optional[str] = typer.Argument(None, help="Path to index"),
+    force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)")
+):
     """Shortcut for 'cgc index'"""
-    index(path)
+    index(path, force=force)
 
 @app.command("ls", rich_help_panel="Shortcuts")
 def list_abbrev():
@@ -1724,6 +2104,13 @@ def main(
         "-db", 
         help="[Global] Temporarily override database backend (falkordb or neo4j) for any command"
     ),
+    visual: bool = typer.Option(
+        False,
+        "--visual",
+        "--viz",
+        "-V",
+        help="[Global] Show results as interactive graph visualization in browser"
+    ),
     version_: bool = typer.Option(
         None,
         "--version",
@@ -1743,8 +2130,15 @@ def main(
     Main entry point for the cgc CLI application.
     If no subcommand is provided, it displays a welcome message with instructions.
     """
+    # Initialize context object for sharing state with subcommands
+    ctx.ensure_object(dict)
+    
     if database:
         os.environ["CGC_RUNTIME_DB_TYPE"] = database
+
+    # Store visual flag in context for subcommands to access
+    if visual:
+        ctx.obj["visual"] = True
 
     if version_:
         console.print(f"CodeGraphContext [bold cyan]{get_version()}[/bold cyan]")
@@ -1761,6 +2155,8 @@ def main(
         console.print("   • [cyan]cgc list[/cyan] - List indexed repositories\n")
         console.print("📊 [bold]Using Neo4j instead of FalkorDB?[/bold]")
         console.print("     Run [cyan]cgc neo4j setup[/cyan] (or [cyan]cgc n[/cyan]) to configure Neo4j\n")
+        console.print("📈 [bold]Want visual graph output?[/bold]")
+        console.print("     Add [cyan]-V[/cyan] or [cyan]--visual[/cyan] to any analyze/find command\n")
         console.print("👉 Run [cyan]cgc help[/cyan] to see all available commands")
         console.print("👉 Run [cyan]cgc --version[/cyan] to check the version\n")
         console.print("👉 Running [green]codegraphcontext[/green] works the same as using [green]cgc[/green]")

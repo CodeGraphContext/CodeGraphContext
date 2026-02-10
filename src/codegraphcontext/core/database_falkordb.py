@@ -225,6 +225,11 @@ class FalkorDBManager:
             return True
         except Exception:
             return False
+    
+    def get_backend_type(self) -> str:
+        """Returns the database backend type."""
+        return 'falkordb'
+
 
     @staticmethod
     def validate_config(db_path: str = None) -> Tuple[bool, Optional[str]]:

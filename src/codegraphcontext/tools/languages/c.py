@@ -96,9 +96,10 @@ class CTreeSitterParser:
     def _get_node_text(self, node: Any) -> str:
         return node.text.decode("utf-8")
 
-    def parse(self, file_path: Path, is_dependency: bool = False) -> Dict[str, Any]:
+    def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict[str, Any]:
         """Parses a C file and returns its structure."""
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        self.index_source = index_source
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
             source_code = f.read()
 
         tree = self.parser.parse(bytes(source_code, "utf8"))
@@ -112,7 +113,7 @@ class CTreeSitterParser:
         macros = self._find_macros(root_node)
 
         return {
-            "file_path": str(file_path),
+            "path": str(path),
             "functions": functions,
             "classes": classes,
             "variables": variables,
@@ -238,13 +239,11 @@ class CTreeSitterParser:
                 args = self._parse_function_args(params_node) if params_node else []
                 context, context_type, _ = self._get_parent_context(func_node)
 
-                functions.append({
+                func_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": func_node.end_point[0] + 1,
                     "args": [arg["name"] for arg in args if arg["name"]],  # Simplified args for compatibility
-                    "source": self._get_node_text(func_node),
-
                     "docstring": self._get_docstring(func_node),
                     "cyclomatic_complexity": self._calculate_complexity(func_node),
                     "context": context,
@@ -254,7 +253,12 @@ class CTreeSitterParser:
                     "lang": self.language_name,
                     "is_dependency": False,
                     "detailed_args": args,  # Keep detailed args for future use
-                })
+                }
+
+                if self.index_source:
+                    func_data["source"] = self._get_node_text(func_node)
+                
+                functions.append(func_data)
         return functions
 
     def _find_structs_unions_enums(self, root_node: Any) -> list[Dict[str, Any]]:
@@ -271,19 +275,23 @@ class CTreeSitterParser:
                 name = self._get_node_text(node)
                 context, context_type, _ = self._get_parent_context(struct_node)
                 
-                classes.append({
+                struct_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": struct_node.end_point[0] + 1,
                     "bases": [],  # C doesn't have inheritance
-                    "source": self._get_node_text(struct_node),
                     "docstring": self._get_docstring(struct_node),
                     "context": context,
                     "decorators": [],
                     "lang": self.language_name,
                     "is_dependency": False,
                     "type": "struct",
-                })
+                }
+
+                if self.index_source:
+                    struct_data["source"] = self._get_node_text(struct_node)
+                
+                classes.append(struct_data)
 
         # Find unions
         query_str = C_QUERIES["unions"]
@@ -295,19 +303,23 @@ class CTreeSitterParser:
                 name = self._get_node_text(node)
                 context, context_type, _ = self._get_parent_context(union_node)
                 
-                classes.append({
+                union_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": union_node.end_point[0] + 1,
                     "bases": [],
-                    "source": self._get_node_text(union_node),
                     "docstring": self._get_docstring(union_node),
                     "context": context,
                     "decorators": [],
                     "lang": self.language_name,
                     "is_dependency": False,
                     "type": "union",
-                })
+                }
+
+                if self.index_source:
+                    union_data["source"] = self._get_node_text(union_node)
+                
+                classes.append(union_data)
 
         # Find enums
         query_str = C_QUERIES["enums"]
@@ -319,19 +331,23 @@ class CTreeSitterParser:
                 name = self._get_node_text(node)
                 context, context_type, _ = self._get_parent_context(enum_node)
                 
-                classes.append({
+                enum_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": enum_node.end_point[0] + 1,
                     "bases": [],
-                    "source": self._get_node_text(enum_node),
                     "docstring": self._get_docstring(enum_node),
                     "context": context,
                     "decorators": [],
                     "lang": self.language_name,
                     "is_dependency": False,
                     "type": "enum",
-                })
+                }
+
+                if self.index_source:
+                    enum_data["source"] = self._get_node_text(enum_node)
+                
+                classes.append(enum_data)
 
         return classes
 
@@ -474,17 +490,21 @@ class CTreeSitterParser:
                 
                 context, context_type, _ = self._get_parent_context(macro_node)
                 
-                macros.append({
+                macro_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": macro_node.end_point[0] + 1,
-                    "source": self._get_node_text(macro_node),
                     "value": value,
                     "params": params,
                     "context": context,
                     "lang": self.language_name,
                     "is_dependency": False,
-                })
+                }
+
+                if self.index_source:
+                    macro_data["source"] = self._get_node_text(macro_node)
+                
+                macros.append(macro_data)
         return macros
 
 
@@ -528,16 +548,16 @@ def pre_scan_c(files: list[Path], parser_wrapper) -> dict:
     """
     
     
-    for file_path in files:
+    for path in files:
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 tree = parser_wrapper.parser.parse(bytes(f.read(), "utf8"))
             
             for capture, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(file_path.resolve()))
+                imports_map[name].append(str(path.resolve()))
         except Exception as e:
-            warning_logger(f"Tree-sitter pre-scan failed for {file_path}: {e}")
+            warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     return imports_map

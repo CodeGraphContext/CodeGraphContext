@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # CodeGraphContext with FalkorDB Lite (default)
+  codegraphcontext:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: codegraphcontext
+    volumes:
+      # Mount your code directory here
+      - ./:/workspace
+      # Persist database and config
+      - cgc-data:/root/.codegraphcontext
+    environment:
+      - PYTHONUNBUFFERED=1
+    stdin_open: true
+    tty: true
+    command: bash
+    networks:
+      - cgc-network
+
+  # Optional: Neo4j database (if you prefer Neo4j over FalkorDB Lite)
+  neo4j:
+    image: neo4j:5.15.0
+    container_name: cgc-neo4j
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/codegraph123
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_dbms_memory_heap_max__size=2G
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    networks:
+      - cgc-network
+    profiles:
+      - neo4j  # Only start when explicitly requested
+
+volumes:
+  cgc-data:
+    driver: local
+  neo4j-data:
+    driver: local
+  neo4j-logs:
+    driver: local
+
+networks:
+  cgc-network:
+    driver: bridge

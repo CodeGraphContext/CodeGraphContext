@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cgc-config
+  labels:
+    app: codegraphcontext
+data:
+  CGC_HOME: "/root/.codegraphcontext"
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"

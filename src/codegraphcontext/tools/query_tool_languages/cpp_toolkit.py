@@ -21,17 +21,17 @@ class CppToolkit:
         if query == "functions":
             return """
                 MATCH (f:Function)
-                RETURN f.name AS name, f.file_path AS file_path, 
+                RETURN f.name AS name, f.path AS path, 
                     f.line_number AS line_number, f.docstring AS docstring
-                ORDER BY f.file_path, f.line_number
+                ORDER BY f.path, f.line_number
             """
 
         elif query == "classes":
             return """
                 MATCH (c:Class)
-                RETURN c.name AS name, c.file_path AS file_path, 
+                RETURN c.name AS name, c.path AS path, 
                     c.line_number AS line_number, c.docstring AS docstring
-                ORDER BY c.file_path, c.line_number
+                ORDER BY c.path, c.line_number
             """
 
         elif query == "imports":
@@ -45,42 +45,42 @@ class CppToolkit:
         elif query == "structs":
             return """
                 MATCH (s:Struct)
-                RETURN s.name AS name, s.file_path AS file_path, 
+                RETURN s.name AS name, s.path AS path, 
                     s.line_number AS line_number, s.fields AS fields
-                ORDER BY s.file_path, s.line_number
+                ORDER BY s.path, s.line_number
             """
 
         elif query == "enums":
             return """
                 MATCH (e:Enum)
-                RETURN e.name AS name, e.file_path AS file_path, 
+                RETURN e.name AS name, e.path AS path, 
                     e.line_number AS line_number, e.values AS values
-                ORDER BY e.file_path, e.line_number
+                ORDER BY e.path, e.line_number
             """
 
         elif query == "unions":
             return """
                 MATCH (u:Union)
-                RETURN u.name AS name, u.file_path AS file_path, 
+                RETURN u.name AS name, u.path AS path, 
                     u.line_number AS line_number, u.members AS members
-                ORDER BY u.file_path, u.line_number
+                ORDER BY u.path, u.line_number
             """
 
         elif query == "macros":
             return """
                 MATCH (m:Macro)
-                RETURN m.name AS name, m.file_path AS file_path, 
+                RETURN m.name AS name, m.path AS path, 
                     m.line_number AS line_number, m.value AS value
-                ORDER BY m.file_path, m.line_number
+                ORDER BY m.path, m.line_number
             """
 
         elif query == "variables":
             return """
                 MATCH (v:Variable)
-                RETURN v.name AS name, v.file_path AS file_path, 
+                RETURN v.name AS name, v.path AS path, 
                     v.line_number AS line_number, v.value AS value, 
                     v.context AS context
-                ORDER BY v.file_path, v.line_number
+                ORDER BY v.path, v.line_number
             """
 
         else:

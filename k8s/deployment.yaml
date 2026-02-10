@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codegraphcontext
+  labels:
+    app: codegraphcontext
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: codegraphcontext
+  template:
+    metadata:
+      labels:
+        app: codegraphcontext
+    spec:
+      containers:
+      - name: codegraphcontext
+        image: ghcr.io/CodeGraphContext/codegraphcontext:latest
+        imagePullPolicy: Always
+        command: ["/bin/bash"]
+        args: ["-c", "while true; do sleep 30; done"]
+        envFrom:
+        - configMapRef:
+            name: cgc-config
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: cgc-data
+          mountPath: /root/.codegraphcontext
+        - name: workspace
+          mountPath: /workspace
+        livenessProbe:
+          exec:
+            command:
+            - cgc
+            - --version
+          initialDelaySeconds: 30
+          periodSeconds: 60
+        readinessProbe:
+          exec:
+            command:
+            - cgc
+            - --version
+          initialDelaySeconds: 10
+          periodSeconds: 30
+      volumes:
+      - name: cgc-data
+        persistentVolumeClaim:
+          claimName: cgc-data-pvc
+      - name: workspace
+        emptyDir: {}

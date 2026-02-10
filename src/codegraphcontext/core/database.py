@@ -121,6 +121,11 @@ class DatabaseManager:
             return True
         except Exception:
             return False
+    
+    def get_backend_type(self) -> str:
+        """Returns the database backend type."""
+        return 'neo4j'
+
 
     @staticmethod
     def validate_config(uri: str, username: str, password: str) -> Tuple[bool, Optional[str]]:
@@ -131,7 +136,8 @@ class DatabaseManager:
             Tuple[bool, Optional[str]]: (is_valid, error_message)
         """
         # Validate URI format
-        uri_pattern = r'^(neo4j|neo4j\+s|neo4j\+ssc|bolt|bolt\+s|bolt\+ssc)://[^:]+:\d+$'
+        # Modified regex to make port optional "(:\\d+)?"
+        uri_pattern = r'^(neo4j|neo4j\+s|neo4j\+ssc|bolt|bolt\+s|bolt\+ssc)://[^:]+(:\d+)?$'
         if not re.match(uri_pattern, uri):
             return False, (
                 "Invalid Neo4j URI format.\n"
@@ -172,8 +178,12 @@ class DatabaseManager:
             try:
                 # Extract host and port from URI
                 host_port = uri.split('://')[1]
-                host = host_port.split(':')[0]
-                port = int(host_port.split(':')[1])
+                if ':' in host_port:
+                    host = host_port.split(':')[0]
+                    port = int(host_port.split(':')[1])
+                else:
+                    host = host_port
+                    port = 7687 # Default Neo4j port
                 
                 # Test socket connection
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

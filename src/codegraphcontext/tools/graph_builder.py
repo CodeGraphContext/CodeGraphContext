@@ -15,6 +15,7 @@ from tree_sitter import Language, Parser
 from ..utils.tree_sitter_manager import get_tree_sitter_manager
 from ..cli.config_manager import get_config_value
 
+
 class TreeSitterParser:
     """A generic parser wrapper for a specific language using tree-sitter."""
 
@@ -70,13 +71,16 @@ class TreeSitterParser:
         elif self.language_name == 'swift':
             from .languages.swift import SwiftTreeSitterParser
             self.language_specific_parser = SwiftTreeSitterParser(self)
+        elif self.language_name == 'haskell':
+            from .languages.haskell import HaskellTreeSitterParser
+            self.language_specific_parser = HaskellTreeSitterParser(self)
 
 
 
-    def parse(self, file_path: Path, is_dependency: bool = False, **kwargs) -> Dict:
+    def parse(self, path: Path, is_dependency: bool = False, **kwargs) -> Dict:
         """Dispatches parsing to the language-specific parser."""
         if self.language_specific_parser:
-            return self.language_specific_parser.parse(file_path, is_dependency, **kwargs)
+            return self.language_specific_parser.parse(path, is_dependency, **kwargs)
         else:
             raise NotImplementedError(f"No language-specific parser implemented for {self.language_name}")
 
@@ -115,6 +119,7 @@ class GraphBuilder:
             '.scala': TreeSitterParser('scala'),
             '.sc': TreeSitterParser('scala'),
             '.swift': TreeSitterParser('swift'),
+            '.hs': TreeSitterParser('haskell'),
         }
         self.create_schema()
 
@@ -125,21 +130,21 @@ class GraphBuilder:
         with self.driver.session() as session:
             try:
                 session.run("CREATE CONSTRAINT repository_path IF NOT EXISTS FOR (r:Repository) REQUIRE r.path IS UNIQUE")
-                session.run("CREATE CONSTRAINT file_path IF NOT EXISTS FOR (f:File) REQUIRE f.path IS UNIQUE")
+                session.run("CREATE CONSTRAINT path IF NOT EXISTS FOR (f:File) REQUIRE f.path IS UNIQUE")
                 session.run("CREATE CONSTRAINT directory_path IF NOT EXISTS FOR (d:Directory) REQUIRE d.path IS UNIQUE")
-                session.run("CREATE CONSTRAINT function_unique IF NOT EXISTS FOR (f:Function) REQUIRE (f.name, f.file_path, f.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT class_unique IF NOT EXISTS FOR (c:Class) REQUIRE (c.name, c.file_path, c.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT trait_unique IF NOT EXISTS FOR (t:Trait) REQUIRE (t.name, t.file_path, t.line_number) IS UNIQUE") # Added trait constraint
-                session.run("CREATE CONSTRAINT interface_unique IF NOT EXISTS FOR (i:Interface) REQUIRE (i.name, i.file_path, i.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT macro_unique IF NOT EXISTS FOR (m:Macro) REQUIRE (m.name, m.file_path, m.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT variable_unique IF NOT EXISTS FOR (v:Variable) REQUIRE (v.name, v.file_path, v.line_number) IS UNIQUE")
+                session.run("CREATE CONSTRAINT function_unique IF NOT EXISTS FOR (f:Function) REQUIRE (f.name, f.path, f.line_number) IS UNIQUE")
+                session.run("CREATE CONSTRAINT class_unique IF NOT EXISTS FOR (c:Class) REQUIRE (c.name, c.path, c.line_number) IS UNIQUE")
+                session.run("CREATE CONSTRAINT trait_unique IF NOT EXISTS FOR (t:Trait) REQUIRE (t.name, t.path, t.line_number) IS UNIQUE") # Added trait constraint
+                session.run("CREATE CONSTRAINT interface_unique IF NOT EXISTS FOR (i:Interface) REQUIRE (i.name, i.path, i.line_number) IS UNIQUE")
+                session.run("CREATE CONSTRAINT macro_unique IF NOT EXISTS FOR (m:Macro) REQUIRE (m.name, m.path, m.line_number) IS UNIQUE")
+                session.run("CREATE CONSTRAINT variable_unique IF NOT EXISTS FOR (v:Variable) REQUIRE (v.name, v.path, v.line_number) IS UNIQUE")
                 session.run("CREATE CONSTRAINT module_name IF NOT EXISTS FOR (m:Module) REQUIRE m.name IS UNIQUE")
-                session.run("CREATE CONSTRAINT struct_cpp IF NOT EXISTS FOR (cstruct: Struct) REQUIRE (cstruct.name, cstruct.file_path, cstruct.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT enum_cpp IF NOT EXISTS FOR (cenum: Enum) REQUIRE (cenum.name, cenum.file_path, cenum.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT union_cpp IF NOT EXISTS FOR (cunion: Union) REQUIRE (cunion.name, cunion.file_path, cunion.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT annotation_unique IF NOT EXISTS FOR (a:Annotation) REQUIRE (a.name, a.file_path, a.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT record_unique IF NOT EXISTS FOR (r:Record) REQUIRE (r.name, r.file_path, r.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT property_unique IF NOT EXISTS FOR (p:Property) REQUIRE (p.name, p.file_path, p.line_number) IS UNIQUE")
+                session.run("CREATE CONSTRAINT struct_cpp IF NOT EXISTS FOR (cstruct: Struct) REQUIRE (cstruct.name, cstruct.path, cstruct.line_number) IS UNIQUE")
+                session.run("CREATE CONSTRAINT enum_cpp IF NOT EXISTS FOR (cenum: Enum) REQUIRE (cenum.name, cenum.path, cenum.line_number) IS UNIQUE")
+                session.run("CREATE CONSTRAINT union_cpp IF NOT EXISTS FOR (cunion: Union) REQUIRE (cunion.name, cunion.path, cunion.line_number) IS UNIQUE")
+                session.run("CREATE CONSTRAINT annotation_unique IF NOT EXISTS FOR (a:Annotation) REQUIRE (a.name, a.path, a.line_number) IS UNIQUE")
+                session.run("CREATE CONSTRAINT record_unique IF NOT EXISTS FOR (r:Record) REQUIRE (r.name, r.path, r.line_number) IS UNIQUE")
+                session.run("CREATE CONSTRAINT property_unique IF NOT EXISTS FOR (p:Property) REQUIRE (p.name, p.path, p.line_number) IS UNIQUE")
                 
                 # Indexes for language attribute
                 session.run("CREATE INDEX function_lang IF NOT EXISTS FOR (f:Function) ON (f.lang)")
@@ -148,7 +153,7 @@ class GraphBuilder:
                 session.run("""
                     CREATE FULLTEXT INDEX code_search_index IF NOT EXISTS 
                     FOR (n:Function|Class|Variable) 
-                    ON EACH [n.name, n.source, n.docstring]
+                    ON EACH [n.name, coalesce(n.source, ''), coalesce(n.docstring, '')]
                 """ )
                 
                 info_logger("Database schema verified/created successfully")
@@ -255,7 +260,7 @@ class GraphBuilder:
     def add_file_to_graph(self, file_data: Dict, repo_name: str, imports_map: dict):
         info_logger("Executing add_file_to_graph with my change!")
         """Adds a file and its contents within a single, unified session."""
-        file_path_str = str(Path(file_data['file_path']).resolve())
+        file_path_str = str(Path(file_data['path']).resolve())
         file_name = Path(file_path_str).name
         is_dependency = file_data.get('is_dependency', False)
 
@@ -273,7 +278,12 @@ class GraphBuilder:
             """, path=file_path_str, name=file_name, relative_path=relative_path, is_dependency=is_dependency)
 
             file_path_obj = Path(file_path_str)
-            repo_path_obj = Path(repo_result['path'])
+            if repo_result:
+                repo_path_obj = Path(repo_result['path'])
+            else:
+                # Fallback to the path we queried for
+                warning_logger(f"Repository node not found for {file_data['repo_path']} during indexing of {file_name}. Using original path.")
+                repo_path_obj = Path(file_data['repo_path']).resolve()
             
             relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
             
@@ -296,9 +306,9 @@ class GraphBuilder:
 
             session.run(f"""
                 MATCH (p:{parent_label} {{path: $parent_path}})
-                MATCH (f:File {{path: $file_path}})
+                MATCH (f:File {{path: $path}})
                 MERGE (p)-[:CONTAINS]->(f)
-            """, parent_path=parent_path, file_path=file_path_str)
+            """, parent_path=parent_path, path=file_path_str)
 
             # CONTAINS relationships for functions, classes, and variables
             # To add a new language-specific node type (e.g., 'Trait' for Rust):
@@ -325,20 +335,21 @@ class GraphBuilder:
                         item['cyclomatic_complexity'] = 1 # Default value
 
                     query = f"""
-                        MATCH (f:File {{path: $file_path}})
-                        MERGE (n:{label} {{name: $name, file_path: $file_path, line_number: $line_number}})
+                        MATCH (f:File {{path: $path}})
+                        MERGE (n:{label} {{name: $name, path: $path, line_number: $line_number}})
                         SET n += $props
                         MERGE (f)-[:CONTAINS]->(n)
                     """
-                    session.run(query, file_path=file_path_str, name=item['name'], line_number=item['line_number'], props=item)
+
+                    session.run(query, path=file_path_str, name=item['name'], line_number=item['line_number'], props=item)
                     
                     if label == 'Function':
                         for arg_name in item.get('args', []):
                             session.run("""
-                                MATCH (fn:Function {name: $func_name, file_path: $file_path, line_number: $line_number})
-                                MERGE (p:Parameter {name: $arg_name, file_path: $file_path, function_line_number: $line_number})
+                                MATCH (fn:Function {name: $func_name, path: $path, line_number: $line_number})
+                                MERGE (p:Parameter {name: $arg_name, path: $path, function_line_number: $line_number})
                                 MERGE (fn)-[:HAS_PARAMETER]->(p)
-                            """, func_name=item['name'], file_path=file_path_str, line_number=item['line_number'], arg_name=arg_name)
+                            """, func_name=item['name'], path=file_path_str, line_number=item['line_number'], arg_name=arg_name)
 
             # --- NEW: persist Ruby Modules ---
             for m in file_data.get('modules', []):
@@ -352,10 +363,10 @@ class GraphBuilder:
             for item in file_data.get('functions', []):
                 if item.get("context_type") == "function_definition":
                     session.run("""
-                        MATCH (outer:Function {name: $context, file_path: $file_path})
-                        MATCH (inner:Function {name: $name, file_path: $file_path, line_number: $line_number})
+                        MATCH (outer:Function {name: $context, path: $path})
+                        MATCH (inner:Function {name: $name, path: $path, line_number: $line_number})
                         MERGE (outer)-[:CONTAINS]->(inner)
-                    """, context=item["context"], file_path=file_path_str, name=item["name"], line_number=item["line_number"])
+                    """, context=item["context"], path=file_path_str, name=item["name"], line_number=item["line_number"])
 
             # Handle imports and create IMPORTS relationships
             for imp in file_data.get('imports', []):
@@ -374,11 +385,11 @@ class GraphBuilder:
                         rel_props['line_number'] = imp.get('line_number')
 
                     session.run("""
-                        MATCH (f:File {path: $file_path})
+                        MATCH (f:File {path: $path})
                         MERGE (m:Module {name: $module_name})
                         MERGE (f)-[r:IMPORTS]->(m)
                         SET r += $props
-                    """, file_path=file_path_str, module_name=module_name, props=rel_props)
+                    """, path=file_path_str, module_name=module_name, props=rel_props)
                 else:
                     # Existing logic for Python (and other languages)
                     set_clauses = ["m.alias = $alias"]
@@ -394,36 +405,36 @@ class GraphBuilder:
                         rel_props['alias'] = imp.get('alias')
 
                     session.run(f"""
-                        MATCH (f:File {{path: $file_path}})
+                        MATCH (f:File {{path: $path}})
                         MERGE (m:Module {{name: $name}})
                         SET {set_clause_str}
                         MERGE (f)-[r:IMPORTS]->(m)
                         SET r += $rel_props
-                    """, file_path=file_path_str, rel_props=rel_props, **imp)
+                    """, path=file_path_str, rel_props=rel_props, **imp)
 
 
             # Handle CONTAINS relationship between class to their children like variables
             for func in file_data.get('functions', []):
                 if func.get('class_context'):
                     session.run("""
-                        MATCH (c:Class {name: $class_name, file_path: $file_path})
-                        MATCH (fn:Function {name: $func_name, file_path: $file_path, line_number: $func_line})
+                        MATCH (c:Class {name: $class_name, path: $path})
+                        MATCH (fn:Function {name: $func_name, path: $path, line_number: $func_line})
                         MERGE (c)-[:CONTAINS]->(fn)
                     """, 
                     class_name=func['class_context'],
-                    file_path=file_path_str,
+                    path=file_path_str,
                     func_name=func['name'],
                     func_line=func['line_number'])
 
             # --- NEW: Class INCLUDES Module (Ruby mixins) ---
             for inc in file_data.get('module_inclusions', []):
                 session.run("""
-                    MATCH (c:Class {name: $class_name, file_path: $file_path})
+                    MATCH (c:Class {name: $class_name, path: $path})
                     MERGE (m:Module {name: $module_name})
                     MERGE (c)-[:INCLUDES]->(m)
                 """,
                 class_name=inc["class"],
-                file_path=file_path_str,
+                path=file_path_str,
                 module_name=inc["module"])
 
             # Class inheritance is handled in a separate pass after all files are processed.
@@ -432,7 +443,7 @@ class GraphBuilder:
     # Second pass to create relationships that depend on all files being present like call functions and class inheritance
     def _create_function_calls(self, session, file_data: Dict, imports_map: dict):
         """Create CALLS relationships with a unified, prioritized logic flow for all call types."""
-        caller_file_path = str(Path(file_data['file_path']).resolve())
+        caller_file_path = str(Path(file_data['path']).resolve())
         local_names = {f['name'] for f in file_data.get('functions', [])} | \
                       {c['name'] for c in file_data.get('classes', [])}
         local_imports = {imp.get('alias') or imp['name'].split('.')[-1]: imp['name'] 
@@ -539,11 +550,11 @@ class GraphBuilder:
                 session.run("""
                     MATCH (caller) WHERE (caller:Function OR caller:Class) 
                       AND caller.name = $caller_name 
-                      AND caller.file_path = $caller_file_path 
+                      AND caller.path = $caller_file_path 
                       AND caller.line_number = $caller_line_number
                     MATCH (called) WHERE (called:Function OR called:Class)
                       AND called.name = $called_name 
-                      AND called.file_path = $called_file_path
+                      AND called.path = $called_file_path
                     
                     WITH caller, called
                     OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
@@ -565,7 +576,7 @@ class GraphBuilder:
                     MATCH (caller:File {path: $caller_file_path})
                     MATCH (called) WHERE (called:Function OR called:Class)
                       AND called.name = $called_name 
-                      AND called.file_path = $called_file_path
+                      AND called.path = $called_file_path
                     
                     WITH caller, called
                     OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
@@ -589,7 +600,7 @@ class GraphBuilder:
 
     def _create_inheritance_links(self, session, file_data: Dict, imports_map: dict):
         """Create INHERITS relationships with a more robust resolution logic."""
-        caller_file_path = str(Path(file_data['file_path']).resolve())
+        caller_file_path = str(Path(file_data['path']).resolve())
         local_class_names = {c['name'] for c in file_data.get('classes', [])}
         # Create a map of local import aliases/names to full import names
         local_imports = {imp.get('alias') or imp['name'].split('.')[-1]: imp['name']
@@ -642,12 +653,12 @@ class GraphBuilder:
                 # If a path was found, create the relationship
                 if resolved_path:
                     session.run("""
-                        MATCH (child:Class {name: $child_name, file_path: $file_path})
-                        MATCH (parent:Class {name: $parent_name, file_path: $resolved_parent_file_path})
+                        MATCH (child:Class {name: $child_name, path: $path})
+                        MATCH (parent:Class {name: $parent_name, path: $resolved_parent_file_path})
                         MERGE (child)-[:INHERITS]->(parent)
                     """,
                     child_name=class_item['name'],
-                    file_path=caller_file_path,
+                    path=caller_file_path,
                     parent_name=target_class_name,
                     resolved_parent_file_path=resolved_path)
 
@@ -657,7 +668,7 @@ class GraphBuilder:
         if file_data.get('lang') != 'c_sharp':
             return
             
-        caller_file_path = str(Path(file_data['file_path']).resolve())
+        caller_file_path = str(Path(file_data['path']).resolve())
         
         # Collect all local type names
         local_type_names = set()
@@ -697,25 +708,25 @@ class GraphBuilder:
                     if is_interface or (base_index > 0 and type_label == 'Class'):
                         # This is an IMPLEMENTS relationship
                         session.run("""
-                            MATCH (child {name: $child_name, file_path: $file_path})
+                            MATCH (child {name: $child_name, path: $path})
                             WHERE child:Class OR child:Struct OR child:Record
                             MATCH (iface:Interface {name: $interface_name})
                             MERGE (child)-[:IMPLEMENTS]->(iface)
                         """,
                         child_name=type_item['name'],
-                        file_path=caller_file_path,
+                        path=caller_file_path,
                         interface_name=base_name)
                     else:
                         # This is an INHERITS relationship
                         session.run("""
-                            MATCH (child {name: $child_name, file_path: $file_path})
+                            MATCH (child {name: $child_name, path: $path})
                             WHERE child:Class OR child:Record OR child:Interface
                             MATCH (parent {name: $parent_name})
                             WHERE parent:Class OR parent:Record OR parent:Interface
                             MERGE (child)-[:INHERITS]->(parent)
                         """,
                         child_name=type_item['name'],
-                        file_path=caller_file_path,
+                        path=caller_file_path,
                         parent_name=base_name)
 
     def _create_all_inheritance_links(self, all_file_data: list[Dict], imports_map: dict):
@@ -728,9 +739,9 @@ class GraphBuilder:
                 else:
                     self._create_inheritance_links(session, file_data, imports_map)
                 
-    def delete_file_from_graph(self, file_path: str):
+    def delete_file_from_graph(self, path: str):
         """Deletes a file and all its contained elements and relationships."""
-        file_path_str = str(Path(file_path).resolve())
+        file_path_str = str(Path(path).resolve())
         with self.driver.session() as session:
             parents_res = session.run("""
                 MATCH (f:File {path: $path})<-[:CONTAINS*]-(d:Directory)
@@ -771,15 +782,15 @@ class GraphBuilder:
             info_logger(f"Deleted repository and its contents from graph: {repo_path_str}")
             return True
 
-    def update_file_in_graph(self, file_path: Path, repo_path: Path, imports_map: dict):
+    def update_file_in_graph(self, path: Path, repo_path: Path, imports_map: dict):
         """Updates a single file's nodes in the graph."""
-        file_path_str = str(file_path.resolve())
+        file_path_str = str(path.resolve())
         repo_name = repo_path.name
         
         self.delete_file_from_graph(file_path_str)
 
-        if file_path.exists():
-            file_data = self.parse_file(repo_path, file_path)
+        if path.exists():
+            file_data = self.parse_file(repo_path, path)
             
             if "error" not in file_data:
                 self.add_file_to_graph(file_data, repo_name, imports_map)
@@ -790,28 +801,36 @@ class GraphBuilder:
         else:
             return {"deleted": True, "path": file_path_str}
 
-    def parse_file(self, repo_path: Path, file_path: Path, is_dependency: bool = False) -> Dict:
+    def parse_file(self, repo_path: Path, path: Path, is_dependency: bool = False) -> Dict:
         """Parses a file with the appropriate language parser and extracts code elements."""
-        parser = self.parsers.get(file_path.suffix)
+        parser = self.parsers.get(path.suffix)
         if not parser:
-            warning_logger(f"No parser found for file extension {file_path.suffix}. Skipping {file_path}")
-            return {"file_path": str(file_path), "error": f"No parser for {file_path.suffix}"}
+            warning_logger(f"No parser found for file extension {path.suffix}. Skipping {path}")
+            return {"path": str(path), "error": f"No parser for {path.suffix}"}
 
-        debug_log(f"[parse_file] Starting parsing for: {file_path} with {parser.language_name} parser")
+        debug_log(f"[parse_file] Starting parsing for: {path} with {parser.language_name} parser")
         try:
+            index_source = (get_config_value("INDEX_SOURCE") or "false").lower() == "true"
             if parser.language_name == 'python':
-                is_notebook = file_path.suffix == '.ipynb'
-                file_data = parser.parse(file_path, is_dependency, is_notebook=is_notebook)
+                is_notebook = path.suffix == '.ipynb'
+                file_data = parser.parse(
+                    path,
+                    is_dependency,
+                    is_notebook=is_notebook,
+                    index_source=index_source
+                )
             else:
-                file_data = parser.parse(file_path, is_dependency)
+                file_data = parser.parse(
+                    path,
+                    is_dependency,
+                    index_source=index_source
+                )
             file_data['repo_path'] = str(repo_path)
-            debug_log(f"[parse_file] Successfully parsed: {file_path}")
             return file_data
-            
         except Exception as e:
-            error_logger(f"Error parsing {file_path} with {parser.language_name} parser: {e}")
-            debug_log(f"[parse_file] Error parsing {file_path}: {e}")
-            return {"file_path": str(file_path), "error": str(e)}
+            error_logger(f"Error parsing {path} with {parser.language_name} parser: {e}")
+            debug_log(f"[parse_file] Error parsing {path}: {e}")
+            return {"path": str(path), "error": str(e)}
 
     def estimate_processing_time(self, path: Path) -> Optional[Tuple[int, float]]:
         """Estimate processing time and file count"""

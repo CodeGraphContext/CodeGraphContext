@@ -23,7 +23,7 @@ const Footer = () => {
     async function fetchVersion() {
       try {
         const res = await fetch(
-          "https://raw.githubusercontent.com/Shashankss1205/CodeGraphContext/main/README.md"
+          "https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/README.md"
         );
         if (!res.ok) throw new Error("Failed to fetch README");
 
@@ -111,7 +111,7 @@ const Footer = () => {
                   className="social-btn social-github social-float"
                 >
                   <a
-                    href="https://github.com/Shashankss1205/CodeGraphContext"
+                    href="https://github.com/CodeGraphContext/CodeGraphContext"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center"
@@ -171,7 +171,7 @@ const Footer = () => {
                   className="social-btn social-docs social-float"
                 >
                   <a
-                    href="https://shashankss1205.github.io/CodeGraphContext/"
+                    href="https://codegraphcontext.github.io/CodeGraphContext/"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center"
@@ -192,7 +192,7 @@ const Footer = () => {
               <ul className="space-y-3 text-muted-foreground">
                 <li>
                   <a
-                    href="https://shashankss1205.github.io/CodeGraphContext/"
+                    href="https://codegraphcontext.github.io/CodeGraphContext/"
                     className="hover:text-foreground transition-smooth"
                     target="_blank"
                     rel="noopener noreferrer"
@@ -202,7 +202,7 @@ const Footer = () => {
                 </li>
                 <li>
                   <a
-                    href="https://github.com/Shashankss1205/CodeGraphContext/blob/main/docs/docs/cookbook.md"
+                    href="https://github.com/CodeGraphContext/CodeGraphContext/blob/main/docs/docs/cookbook.md"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="hover:text-foreground transition-smooth"
@@ -212,7 +212,7 @@ const Footer = () => {
                 </li>
                 <li>
                   <a
-                    href="https://github.com/Shashankss1205/CodeGraphContext/blob/main/CONTRIBUTING.md"
+                    href="https://github.com/CodeGraphContext/CodeGraphContext/blob/main/CONTRIBUTING.md"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="hover:text-foreground transition-smooth"
@@ -222,7 +222,7 @@ const Footer = () => {
                 </li>
                 <li>
                   <a
-                    href="https://github.com/Shashankss1205/CodeGraphContext/issues"
+                    href="https://github.com/CodeGraphContext/CodeGraphContext/issues"
                     className="hover:text-foreground transition-smooth"
                     target="_blank"
                     rel="noopener noreferrer"

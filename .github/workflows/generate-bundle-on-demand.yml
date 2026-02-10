@@ -1,0 +1,240 @@
+name: Generate Bundle On-Demand
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo_url:
+        description: 'GitHub Repository URL (e.g., https://github.com/owner/repo)'
+        required: true
+        type: string
+      repo_owner:
+        description: 'Repository Owner (auto-filled by API)'
+        required: false
+        type: string
+      repo_name:
+        description: 'Repository Name (auto-filled by API)'
+        required: false
+        type: string
+
+permissions:
+  contents: write  # Required to create/update releases
+
+jobs:
+  generate-bundle:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout CodeGraphContext
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      
+      - name: Install CodeGraphContext
+        run: |
+          uv pip install --system -e .
+          uv pip install --system tree-sitter tree-sitter-language-pack
+      
+      - name: Parse repository URL
+        id: parse-url
+        run: |
+          REPO_URL="${{ github.event.inputs.repo_url }}"
+          
+          # Extract owner and repo name from URL
+          if [[ "$REPO_URL" =~ github\.com/([^/]+)/([^/]+) ]]; then
+            OWNER="${BASH_REMATCH[1]}"
+            REPO="${BASH_REMATCH[2]}"
+            # Remove .git suffix if present
+            REPO="${REPO%.git}"
+          else
+            echo "Error: Invalid GitHub URL format"
+            exit 1
+          fi
+          
+          echo "owner=$OWNER" >> $GITHUB_OUTPUT
+          echo "repo=$REPO" >> $GITHUB_OUTPUT
+          echo "Parsed: $OWNER/$REPO"
+      
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.parse-url.outputs.owner }}/${{ steps.parse-url.outputs.repo }}
+          path: ${{ steps.parse-url.outputs.repo }}
+          fetch-depth: 1
+      
+      - name: Get repository metadata
+        id: repo-meta
+        run: |
+          cd ${{ steps.parse-url.outputs.repo }}
+          
+          # Get commit SHA
+          COMMIT_SHA=$(git rev-parse HEAD)
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+          echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
+          echo "commit_short=$COMMIT_SHORT" >> $GITHUB_OUTPUT
+          
+          # Try to get the latest tag
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "main")
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          
+          # Get current date
+          DATE=$(date +%Y%m%d)
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+          
+          # Get repository size
+          REPO_SIZE=$(du -sh . | cut -f1)
+          echo "repo_size=$REPO_SIZE" >> $GITHUB_OUTPUT
+      
+      - name: Cache CGC Index
+        uses: actions/cache@v4
+        with:
+          path: ~/.codegraphcontext
+          key: cgc-index-${{ steps.parse-url.outputs.owner }}-${{ steps.parse-url.outputs.repo }}-${{ steps.repo-meta.outputs.commit_sha }}
+          restore-keys: |
+            cgc-index-${{ steps.parse-url.outputs.owner }}-${{ steps.parse-url.outputs.repo }}-
+
+      - name: Index repository
+        id: index
+        run: |
+          cd ${{ steps.parse-url.outputs.repo }}
+          echo "🔍 Indexing ${{ steps.parse-url.outputs.owner }}/${{ steps.parse-url.outputs.repo }}..."
+          
+          # Run indexing with timeout (30 minutes max)
+          timeout 30m cgc index . || {
+            echo "Error: Indexing timed out or failed"
+            exit 1
+          }
+          
+          echo "✅ Indexing complete"
+      
+      - name: Export to .cgc bundle
+        id: export
+        run: |
+          BUNDLE_NAME="${{ steps.parse-url.outputs.repo }}-${{ steps.repo-meta.outputs.tag }}-${{ steps.repo-meta.outputs.commit_short }}.cgc"
+          echo "📦 Creating bundle: $BUNDLE_NAME"
+          
+          cgc bundle export "$BUNDLE_NAME" --repo "$(pwd)/${{ steps.parse-url.outputs.repo }}"
+          
+          # Get bundle size
+          BUNDLE_SIZE=$(du -h "$BUNDLE_NAME" | cut -f1)
+          echo "bundle_name=$BUNDLE_NAME" >> $GITHUB_OUTPUT
+          echo "bundle_size=$BUNDLE_SIZE" >> $GITHUB_OUTPUT
+          
+          echo "✅ Bundle created: $BUNDLE_SIZE"
+      
+      - name: Generate bundle metadata
+        run: |
+          cat > bundle-metadata.json <<EOF
+          {
+            "repository": "${{ steps.parse-url.outputs.owner }}/${{ steps.parse-url.outputs.repo }}",
+            "commit": "${{ steps.repo-meta.outputs.commit_sha }}",
+            "commit_short": "${{ steps.repo-meta.outputs.commit_short }}",
+            "tag": "${{ steps.repo-meta.outputs.tag }}",
+            "generated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "bundle_name": "${{ steps.export.outputs.bundle_name }}",
+            "bundle_size": "${{ steps.export.outputs.bundle_size }}",
+            "repo_size": "${{ steps.repo-meta.outputs.repo_size }}",
+            "workflow_run_id": "${{ github.run_id }}",
+            "workflow_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          }
+          EOF
+          
+          cat bundle-metadata.json
+      
+      - name: Upload bundle as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.parse-url.outputs.repo }}-bundle
+          path: |
+            ${{ steps.export.outputs.bundle_name }}
+            bundle-metadata.json
+          retention-days: 30
+      
+      - name: Create or update on-demand release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: on-demand-bundles
+          name: On-Demand Generated Bundles
+          body: |
+            # On-Demand Generated Bundles
+            
+            This release contains bundles generated on-demand by users.
+            
+            ## Latest Bundle
+            
+            - **Repository**: ${{ steps.parse-url.outputs.owner }}/${{ steps.parse-url.outputs.repo }}
+            - **Commit**: ${{ steps.repo-meta.outputs.commit_short }}
+            - **Tag/Version**: ${{ steps.repo-meta.outputs.tag }}
+            - **Generated**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+            - **Bundle Size**: ${{ steps.export.outputs.bundle_size }}
+            
+            ## Usage
+            
+            ```bash
+            # Download the bundle
+            wget https://github.com/${{ github.repository }}/releases/download/on-demand-bundles/${{ steps.export.outputs.bundle_name }}
+            
+            # Load into your database
+            cgc load ${{ steps.export.outputs.bundle_name }}
+            ```
+            
+            ---
+            
+            **Note**: Bundles are kept for 30 days. Popular bundles may be moved to the weekly pre-indexed releases.
+          files: |
+            ${{ steps.export.outputs.bundle_name }}
+            bundle-metadata.json
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Update manifest
+        run: |
+          echo "📝 Updating bundle manifest..."
+          
+          # Download existing manifest if it exists
+          wget https://github.com/${{ github.repository }}/releases/download/on-demand-bundles/manifest.json -O manifest.json 2>/dev/null || echo '{"bundles":[]}' > manifest.json
+          
+          # Add new bundle to manifest
+          cat manifest.json | jq --argjson new '{
+            "repo": "${{ steps.parse-url.outputs.owner }}/${{ steps.parse-url.outputs.repo }}",
+            "bundle_name": "${{ steps.export.outputs.bundle_name }}",
+            "commit": "${{ steps.repo-meta.outputs.commit_short }}",
+            "tag": "${{ steps.repo-meta.outputs.tag }}",
+            "generated_at": "'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'",
+            "download_url": "https://github.com/${{ github.repository }}/releases/download/on-demand-bundles/${{ steps.export.outputs.bundle_name }}",
+            "size": "${{ steps.export.outputs.bundle_size }}",
+            "status": "ready"
+          }' '.bundles += [$new]' > manifest-updated.json
+          
+          mv manifest-updated.json manifest.json
+          
+          echo "✅ Manifest updated"
+      
+      - name: Upload updated manifest
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: on-demand-bundles
+          files: manifest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Summary
+        run: |
+          echo "## 🎉 Bundle Generation Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository**: ${{ steps.parse-url.outputs.owner }}/${{ steps.parse-url.outputs.repo }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Bundle**: ${{ steps.export.outputs.bundle_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Size**: ${{ steps.export.outputs.bundle_size }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Download" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "wget https://github.com/${{ github.repository }}/releases/download/on-demand-bundles/${{ steps.export.outputs.bundle_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "cgc load ${{ steps.export.outputs.bundle_name }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

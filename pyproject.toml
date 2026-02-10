@@ -1,6 +1,6 @@
 [project]
 name = "codegraphcontext"
-version = "0.1.32"
+version = "0.2.1"
 description = "An MCP server that indexes local code into a graph database to provide context to AI assistants."
 authors = [{ name = "Shashank Shekhar Singh", email = "shashankshekharsingh1205@gmail.com" }]
 readme = "README.md"
@@ -57,3 +57,13 @@ package-dir = { "" = "src" }
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["codegraphcontext*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+norecursedirs = ["tests/fixtures", "tests/e2e/sample_projects", "venv", ".git", "__pycache__"]
+markers = [
+    "integration: mark a test as an integration test.",
+    "e2e: mark a test as an end-to-end test.",
+    "slow: mark test as slow."
+]

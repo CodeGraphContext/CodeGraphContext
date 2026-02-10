@@ -59,15 +59,16 @@ class SwiftTreeSitterParser:
         self.language = generic_parser_wrapper.language
         self.parser = generic_parser_wrapper.parser
 
-    def parse(self, file_path: Path, is_dependency: bool = False) -> Dict[str, Any]:
+    def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict[str, Any]:
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            self.index_source = index_source
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 source_code = f.read()
 
             if not source_code.strip():
-                warning_logger(f"Empty or whitespace-only file: {file_path}")
+                warning_logger(f"Empty or whitespace-only file: {path}")
                 return {
-                    "file_path": str(file_path),
+                    "path": str(path),
                     "functions": [],
                     "classes": [],
                     "structs": [],
@@ -94,16 +95,16 @@ class SwiftTreeSitterParser:
             # Parse Variables first to populate for inference
             if 'variables' in SWIFT_QUERIES:
                 results = execute_query(self.language, SWIFT_QUERIES['variables'], tree.root_node)
-                parsed_variables = self._parse_variables(results, source_code, file_path)
+                parsed_variables = self._parse_variables(results, source_code, path)
 
             for capture_name, query in SWIFT_QUERIES.items():
                 if capture_name == 'variables': continue  # Already done
                 results = execute_query(self.language, query, tree.root_node)
 
                 if capture_name == "functions":
-                    parsed_functions.extend(self._parse_functions(results, source_code, file_path))
+                    parsed_functions.extend(self._parse_functions(results, source_code, path))
                 elif capture_name == "classes":
-                    classes, structs, enums, protocols = self._parse_classes(results, source_code, file_path)
+                    classes, structs, enums, protocols = self._parse_classes(results, source_code, path)
                     parsed_classes.extend(classes)
                     parsed_structs.extend(structs)
                     parsed_enums.extend(enums)
@@ -111,10 +112,10 @@ class SwiftTreeSitterParser:
                 elif capture_name == "imports":
                     parsed_imports.extend(self._parse_imports(results, source_code))
                 elif capture_name == "calls":
-                    parsed_calls.extend(self._parse_calls(results, source_code, file_path, parsed_variables))
+                    parsed_calls.extend(self._parse_calls(results, source_code, path, parsed_variables))
 
             return {
-                "file_path": str(file_path),
+                "path": str(path),
                 "functions": parsed_functions,
                 "classes": parsed_classes,
                 "structs": parsed_structs,
@@ -128,9 +129,9 @@ class SwiftTreeSitterParser:
             }
 
         except Exception as e:
-            error_logger(f"Error parsing Swift file {file_path}: {e}")
+            error_logger(f"Error parsing Swift file {path}: {e}")
             return {
-                "file_path": str(file_path),
+                "path": str(path),
                 "functions": [],
                 "classes": [],
                 "structs": [],
@@ -186,7 +187,7 @@ class SwiftTreeSitterParser:
         if not node: return ""
         return node.text.decode("utf-8")
 
-    def _parse_functions(self, captures: list, source_code: str, file_path: Path) -> list[Dict[str, Any]]:
+    def _parse_functions(self, captures: list, source_code: str, path: Path) -> list[Dict[str, Any]]:
         functions = []
         seen_nodes = set()
 
@@ -223,25 +224,29 @@ class SwiftTreeSitterParser:
                     source_text = self._get_node_text(node)
                     context_name, context_type, context_line = self._get_parent_context(node)
 
-                    functions.append({
+                    func_data = {
                         "name": func_name,
                         "args": parameters,
                         "line_number": start_line,
                         "end_line": end_line,
-                        "source": source_text,
-                        "file_path": str(file_path),
+                        "path": str(path),
                         "lang": self.language_name,
                         "context": context_name,
                         "class_context": context_name if context_type and ("class" in context_type or "struct" in context_type) else None
-                    })
+                    }
+                    
+                    if self.index_source:
+                         func_data["source"] = source_text
+
+                    functions.append(func_data)
                     
                 except Exception as e:
-                    error_logger(f"Error parsing function in {file_path}: {e}")
+                    error_logger(f"Error parsing function in {path}: {e}")
                     continue
 
         return functions
 
-    def _parse_classes(self, captures: list, source_code: str, file_path: Path) -> Tuple[list, list, list, list]:
+    def _parse_classes(self, captures: list, source_code: str, path: Path) -> Tuple[list, list, list, list]:
         classes = []
         structs = []
         enums = []
@@ -281,10 +286,12 @@ class SwiftTreeSitterParser:
                         "line_number": start_line,
                         "end_line": end_line,
                         "bases": bases,
-                        "source": source_text,
-                        "file_path": str(file_path),
+                        "path": str(path),
                         "lang": self.language_name,
                     }
+
+                    if self.index_source:
+                        type_data["source"] = source_text
                     
                     if capture_name == "class":
                         classes.append(type_data)
@@ -296,12 +303,12 @@ class SwiftTreeSitterParser:
                         protocols.append(type_data)
                         
                 except Exception as e:
-                    error_logger(f"Error parsing type in {file_path}: {e}")
+                    error_logger(f"Error parsing type in {path}: {e}")
                     continue
 
         return classes, structs, enums, protocols
 
-    def _parse_variables(self, captures: list, source_code: str, file_path: Path) -> list[Dict[str, Any]]:
+    def _parse_variables(self, captures: list, source_code: str, path: Path) -> list[Dict[str, Any]]:
         variables = []
         seen_vars = set()
         
@@ -344,7 +351,7 @@ class SwiftTreeSitterParser:
                                 "name": var_name,
                                 "type": var_type,
                                 "line_number": start_line,
-                                "file_path": str(file_path),
+                                "path": str(path),
                                 "lang": self.language_name,
                                 "context": ctx_name,
                                 "class_context": ctx_name if ctx_type and ("class" in ctx_type or "struct" in ctx_type) else None
@@ -381,7 +388,7 @@ class SwiftTreeSitterParser:
 
         return imports
 
-    def _parse_calls(self, captures: list, source_code: str, file_path: Path, variables: list[Dict[str, Any]] = []) -> list[Dict[str, Any]]:
+    def _parse_calls(self, captures: list, source_code: str, path: Path, variables: list[Dict[str, Any]] = []) -> list[Dict[str, Any]]:
         calls = []
         seen_calls = set()
         
@@ -460,9 +467,9 @@ class SwiftTreeSitterParser:
 def pre_scan_swift(files: list[Path], parser_wrapper) -> dict:
     """Pre-scan Swift files to build a map of class/struct/enum/protocol names to file paths."""
     name_to_files = {}
-    for file_path in files:
+    for path in files:
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             
             # Extract classes, structs, enums, protocols
@@ -472,7 +479,7 @@ def pre_scan_swift(files: list[Path], parser_wrapper) -> dict:
                 name = match.group(2)
                 if name not in name_to_files:
                     name_to_files[name] = []
-                name_to_files[name].append(str(file_path))
+                name_to_files[name].append(str(path))
                     
         except Exception:
             pass

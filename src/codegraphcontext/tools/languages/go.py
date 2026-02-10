@@ -127,14 +127,15 @@ class GoTreeSitterParser:
             prev_sibling = prev_sibling.prev_sibling
         return None
 
-    def parse(self, file_path: Path, is_dependency: bool = False) -> Dict:
+    def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict:
         """Parses a file and returns its structure in a standardized dictionary format."""
         # This method orchestrates the parsing of a single file.
         # It calls specialized `_find_*` methods for each language construct.
         # The returned dictionary should map a specific key (e.g., 'functions', 'interfaces')
         # to a list of dictionaries, where each dictionary represents a single code construct.
         # The GraphBuilder will then use these keys to create nodes with corresponding labels.
-        with open(file_path, "r", encoding="utf-8") as f:
+        self.index_source = index_source
+        with open(path, "r", encoding="utf-8") as f:
             source_code = f.read()
 
         tree = self.parser.parse(bytes(source_code, "utf8"))
@@ -148,7 +149,7 @@ class GoTreeSitterParser:
         variables = self._find_variables(root_node)
 
         return {
-            "file_path": str(file_path),
+            "path": str(path),
             "functions": functions,
             "classes": structs,
             "interfaces": interfaces,
@@ -235,17 +236,16 @@ class GoTreeSitterParser:
                     "line_number": func_node.start_point[0] + 1,
                     "end_line": func_node.end_point[0] + 1,
                     "args": args,
-                    "source": self._get_node_text(func_node),
-
-                    "docstring": docstring,
-                    "cyclomatic_complexity": self._calculate_complexity(func_node),
-                    "context": context,
-                    "context_type": context_type,
                     "class_context": class_context,
                     "decorators": [],
                     "lang": self.language_name,
                     "is_dependency": False,
                 }
+                
+                if self.index_source:
+                    func_data["source"] = self._get_node_text(func_node)
+                    func_data["docstring"] = docstring
+                    
                 functions.append(func_data)
 
         return functions
@@ -306,13 +306,14 @@ class GoTreeSitterParser:
                         "line_number": struct_node.start_point[0] + 1,
                         "end_line": struct_node.end_point[0] + 1,
                         "bases": [],
-                        "source": self._get_node_text(struct_node),
-                        "docstring": self._get_docstring(struct_node),
-                        "context": None,
                         "decorators": [],
                         "lang": self.language_name,
                         "is_dependency": False,
                     }
+                    if self.index_source:
+                        class_data["source"] = self._get_node_text(struct_node)
+                        class_data["docstring"] = self._get_docstring(struct_node)
+
                     structs.append(class_data)
         return structs
 
@@ -329,13 +330,14 @@ class GoTreeSitterParser:
                         "line_number": interface_node.start_point[0] + 1,
                         "end_line": interface_node.end_point[0] + 1,
                         "bases": [],
-                        "source": self._get_node_text(interface_node),
-                        "docstring": self._get_docstring(interface_node),
-                        "context": None,
                         "decorators": [],
                         "lang": self.language_name,
                         "is_dependency": False,
                     }
+                    if self.index_source:
+                        class_data["source"] = self._get_node_text(interface_node)
+                        class_data["docstring"] = self._get_docstring(interface_node)
+                        
                     interfaces.append(class_data)
         return interfaces
 
@@ -453,17 +455,17 @@ def pre_scan_go(files: list[Path], parser_wrapper) -> dict:
     """
     
 
-    for file_path in files:
+    for path in files:
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 tree = parser_wrapper.parser.parse(bytes(f.read(), "utf8"))
 
             for capture, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(file_path.resolve()))
+                imports_map[name].append(str(path.resolve()))
         except Exception as e:
-            warning_logger(f"Tree-sitter pre-scan failed for {file_path}: {e}")
+            warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     
     return imports_map

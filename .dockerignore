@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Git
+.git/
+.gitignore
+.github/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Test files
+tests/
+*.test.py
+
+# Temporary files
+Temp/
+*.log
+*.tmp
+
+# Images and media
+images/
+*.png
+*.jpg
+*.gif
+
+# Visualizations
+visualizations/
+*.html
+!src/**/*.html
+
+# Website
+website/
+
+# Other
+.cgcignore
+contributors.md
+funding.json
+windows_setup_guide.md
+CLI_Commands.md
+CONTRIBUTING.md
+SECURITY.md
+organizer/
+scripts/

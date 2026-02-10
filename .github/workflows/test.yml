@@ -30,3 +30,8 @@ jobs:
 
       - name: Build package
         run: python -m build
+
+      - name: Run Unit and Integration Tests
+        run: |
+          chmod +x tests/run_tests.sh
+          ./tests/run_tests.sh fast

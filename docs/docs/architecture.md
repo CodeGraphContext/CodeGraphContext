@@ -1,60 +1,60 @@
-# Architecture Documentation
+# System Architecture
 
-This document provides a detailed overview of the architecture of the CodeGraphContext project.
+CodeGraphContext (CGC) is a **context-aware code intelligence engine** that bridges the gap between your source code and your AI tools.
 
-## High-Level Overview
+It operates primarily as a background service (MCP Server) backed by a graph database, with a CLI for management.
 
-The project is a client-server application designed to analyze and visualize codebases. It consists of:
+## High-Level Diagram
 
-*   **A Python backend:** This is the core of the application, responsible for parsing and analyzing code, building a graph representation of the codebase, and exposing this data through an API.
-*   **A web-based frontend:** A user interface for interacting with the backend, visualizing the code graph, and exploring the codebase.
-*   **A command-line interface (CLI):** For managing the backend and performing analysis from the terminal.
+```mermaid
+graph TD
+    Client[AI Client / CLI]
+    Server[MCP Server]
+    Graph[Graph Builder]
+    DB[(Graph Database)]
+    FS[File System]
 
-## Backend Architecture
+    Client -- "1. Query (MCP/CLI)" --> Server
+    Server -- "2. Read Graph" --> DB
+    Server -- "3. Trigger Index" --> Graph
+    Graph -- "4. Scan Code" --> FS
+    Graph -- "5. Store Nodes" --> DB
+```
 
-The backend is a Python application located in the `src/codegraphcontext` directory.
+## 1. The Core (Backend)
 
-### Core Components
+The "brain" of the operation lives in `src/codegraphcontext`. It is a pure Python application.
 
-The `src/codegraphcontext/core` directory contains the fundamental building blocks of the backend:
+| Component | Responsibility |
+| :--- | :--- |
+| **Server (`server.py`)** | Acts as the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) host. It translates JSON requests from Claude/Cursor into database queries. |
+| **Graph Builder** | The "indexer". It parses your code using **Tree-sitter**, extracts dependencies, and builds the knowledge graph. |
+| **Database Layer** | An abstraction layer that talks to either **FalkorDB** (embedded) or **Neo4j** (production). |
+| **Background Jobs** | Handles long-running tasks like "Index the entire repo" or "Watch for file changes" without blocking the AI. |
+| **Watcher** | A file system monitor that triggers incremental re-indexing when you save a file. |
 
-*   **Database:** A graph database is used to store the code graph. This allows for efficient querying of relationships between code elements (e.g., function calls, class inheritance).
-*   **Jobs:** Asynchronous jobs are used for long-running tasks like indexing a new codebase. This prevents the application from becoming unresponsive.
-*   **Watcher:** A file system watcher monitors the codebase for changes and triggers re-indexing, keeping the code graph up-to-date.
+## 2. No "Frontend" Application
 
-### Tools
+**Important:** CodeGraphContext does **not** have a traditional web application frontend.
+The `website/` folder you see in the repository is strictly for **documentation** (this site).
 
-The `src/codegraphcontext/tools` directory contains the logic for code analysis:
+Instead of a custom UI, we rely on:
 
-*   **Graph Builder:** This component is responsible for parsing the code and building the graph representation that is stored in the database.
-*   **Code Finder:** Provides functionality to search for specific code elements within the indexed codebase.
-*   **Import Extractor:** This tool analyzes the import statements in the code to understand dependencies between modules.
+1.  **AI Chat Interfaces:** Your existing IDE chat (Cursor, VS Code) is the UI.
+2.  **Neo4j Browser:** For advanced users wanting a raw visual exploration of the graph (available at `localhost:7474` if using Neo4j).
+3.  **Visualizer Tool:** The CLI can generate standalone HTML files (`cgc visualize`) using Vis.js for quick inspections.
 
-### Server
+## 3. Data Flow
 
-The `src/codegraphcontext/server.py` file implements the API server. It exposes the functionality of the backend to the frontend through a JSON-RPC API.
+1.  **Indexing:**
+    *   `cgc index .` -> Scans files -> Parses AST -> Creates Nodes (Functions, Classes) and Edges (CALLS, INHERITS) -> Saves to DB.
+2.  **Querying (Natural Language):**
+    *   User asks "Who calls function X?" -> MCP Server receives request -> Runs Cypher Query (`MATCH (n)-[:CALLS]->(m)...`) -> Returns context to LLM.
 
-### CLI
+## 4. Key Technologies
 
-The `src/codegraphcontext/cli` directory contains the implementation of the command-line interface. It allows users to:
-
-*   Start and stop the backend server.
-*   Index new projects.
-*   Run analysis tools from the command line.
-
-## Frontend Architecture
-
-The frontend is a modern web application located in the `website/` directory.
-
-*   **Framework:** It is built using React and TypeScript.
-*   **Build Tool:** Vite is used for fast development and building the application.
-*   **Component-Based:** The UI is organized into reusable components, located in `website/src/components`. This includes UI elements like buttons and dialogs, as well as higher-level components for different sections of the application.
-*   **Styling:** Tailwind CSS is used for styling the application.
-
-## Testing
-
-The `tests/` directory contains the test suite for the project.
-
-*   **Integration Tests:** `test_cgc_integration.py` contains tests that verify the interaction between different components of the backend.
-*   **Unit Tests:** Other files in this directory contain unit tests for specific modules and functions.
-*   **Sample Project:** The `tests/sample_project` directory contains a variety of Python files used as input for testing the code analysis tools.
+*   **Language:** Python 3.10+
+*   **Parsing:** Tree-sitter (for robust, multi-language support)
+*   **Protocol:** Model Context Protocol (MCP)
+*   **Database:** FalkorDB (via Redis) or Neo4j
+*   **CLI:** Typer / Click 

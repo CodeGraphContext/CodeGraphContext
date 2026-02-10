@@ -1,19 +1,48 @@
-const CommandBlock = ({ children }: { children: string }) => {
-  return (
-    <pre className="bg-muted/80 px-4 py-2 rounded font-mono text-accent shadow-inner max-w-full overflow-x-auto">
-      <code className="whitespace-pre-wrap break-words">
-        {children}
-      </code>
-    </pre>
-  );
-};
-
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Terminal, Play, Settings, Bot } from "lucide-react";
+import { Copy, Check, Terminal, Play, Settings, Bot } from "lucide-react";
 import { toast } from "sonner";
 import ShowStarGraph from "@/components/ShowStarGraph";
+
+const CommandBlock = ({ children }: { children: string }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      // Check if text starts with '$ ' and strip it for clipboard only
+      const textToCopy = children.startsWith("$ ") ? children.slice(2) : children;
+      await navigator.clipboard.writeText(textToCopy);
+      setCopied(true);
+      toast.success("Copied to clipboard!");
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      toast.error("Failed to copy");
+    }
+  };
+
+  return (
+    <div 
+      className="relative group cursor-pointer" 
+      onClick={handleCopy}
+      title="Click to copy"
+    >
+      <pre className="bg-muted/80 px-4 py-2 pr-10 rounded font-mono text-accent shadow-inner max-w-full overflow-x-auto hover:bg-muted/90 transition-colors">
+        <code className="whitespace-pre-wrap break-words">
+          {children}
+        </code>
+      </pre>
+      <div className="absolute top-2.5 right-2">
+        {copied ? (
+          <Check className="h-4 w-4 text-green-500" />
+        ) : (
+          <Copy className="h-4 w-4 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors" />
+        )}
+      </div>
+    </div>
+  );
+};
 
 const installSteps = [
   {
@@ -96,8 +125,8 @@ const InstallationSection = () => {
               </Card>
             ))}
           </div>
-              
-           
+
+
           <Card className="mb-10">
             <CardHeader>
               <CardTitle className="text-xl font-semibold">Installation (Both Modes)</CardTitle>
@@ -200,81 +229,81 @@ const InstallationSection = () => {
                     <CardTitle className="text-base font-semibold text-left">See all commands</CardTitle>
                   </CardHeader>
                   <CardContent>
-                   <CommandBlock>cgc help</CommandBlock>
+                    <CommandBlock>cgc help</CommandBlock>
 
                   </CardContent>
                 </Card>
               </div>
             </CardContent>
             <div className="mt-4 text-left max-w-lg ml-8 mb-8">
-                  <span className="font-semibold text-muted-foreground">Ex:</span>
-                  <CommandBlock>cgc analyze callers my_function</CommandBlock>
+              <span className="font-semibold text-muted-foreground">Ex:</span>
+              <CommandBlock>cgc analyze callers my_function</CommandBlock>
 
+            </div>
+
+            <div className="mt-3 mb-6">
+
+
+              <a href="https://codegraphcontext.github.io/CodeGraphContext/cli/" target="_blank" rel="noopener noreferrer" className="underline text-primary font-medium">
+                See the full CLI Commands Guide for all available commands and usage scenarios.
+              </a>
+            </div>
+          </Card>
+
+
+        </div>
+
+        <div className="w-full my-10">
+          <div className="h-1 w-full rounded-full bg-gradient-to-r from-primary via-blue-500 to-green-400 opacity-80" />
+        </div>
+
+        <div>
+          <div className="mb-12">
+            <div className="text-center mb-10">
+              <h3 className="text-xl text-muted-foreground max-w-3xl mx-auto">For MCP Server Mode</h3>
+            </div>
+            <Card className="mb-4">
+              <CardHeader>
+                <div className="flex items-center gap-3 mb-1">
+                  <Bot className="h-6 w-6 text-primary" />
+                  <CardTitle className="text-2xl font-bold">Configure your AI assistant to use CodeGraphContext:</CardTitle>
                 </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col gap-4">
+                  {/* Card 1 */}
+                  <Card className="bg-muted/40">
+                    <CardHeader>
+                      <CardTitle className="text-base font-semibold text-left"> Run the MCP setup wizard to configure:</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <CommandBlock>cgc mcp setup</CommandBlock>
 
-            <div className="mt-3 mb-6">
-           
-                
-                 <a href="https://shashankss1205.github.io/CodeGraphContext/cli/" target="_blank" rel="noopener noreferrer" className="underline text-primary font-medium">
-              See the full CLI Commands Guide for all available commands and usage scenarios.
-            </a>
-          </div>
-          </Card>
 
-          
-        </div>
+                    </CardContent>
+                  </Card>
 
-          <div className="w-full my-10">
-            <div className="h-1 w-full rounded-full bg-gradient-to-r from-primary via-blue-500 to-green-400 opacity-80" />
-          </div>
+                  {/* Card 2 */}
+                  <Card className="bg-muted/40">
+                    <CardHeader>
+                      <CardTitle className="text-base font-semibold text-left">Launch the MCP server:</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <CommandBlock>cgc mcp start</CommandBlock>
 
-          <div> 
-            <div className="mb-12">
-          <div className="text-center mb-10">
-            <h3 className="text-xl text-muted-foreground max-w-3xl mx-auto">For MCP Server Mode</h3>
-          </div>
-          <Card className="mb-4">
-            <CardHeader>
-              <div className="flex items-center gap-3 mb-1">
-                <Bot className="h-6 w-6 text-primary" />
-                <CardTitle className="text-2xl font-bold">Configure your AI assistant to use CodeGraphContext:</CardTitle>
+                    </CardContent>
+                  </Card>
+                </div>
+              </CardContent>
+              <div className="mt-3 mb-6">
+                <a href="https://codegraphcontext.github.io/CodeGraphContext/cookbook/" target="_blank" rel="noopener noreferrer" className="underline text-primary font-medium">
+                  Now interact with your codebase through your AI assistant using natural language! See full cookbook.
+                </a>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-4">
-                {/* Card 1 */}
-                <Card className="bg-muted/40">
-                  <CardHeader>
-                    <CardTitle className="text-base font-semibold text-left"> Run the MCP setup wizard to configure:</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <CommandBlock>cgc mcp setup</CommandBlock>
+            </Card>
 
-
-                  </CardContent>
-                </Card>
-                  
-                {/* Card 2 */}
-                <Card className="bg-muted/40">
-                  <CardHeader>
-                    <CardTitle className="text-base font-semibold text-left">Launch the MCP server:</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <CommandBlock>cgc mcp start</CommandBlock>
-
-                  </CardContent>
-                </Card>
-              </div>
-            </CardContent>
-            <div className="mt-3 mb-6">
-                 <a href="https://shashankss1205.github.io/CodeGraphContext/cookbook/" target="_blank" rel="noopener noreferrer" className="underline text-primary font-medium">
-              Now interact with your codebase through your AI assistant using natural language! See full cookbook.
-            </a>
           </div>
-          </Card>
-           
         </div>
-          </div>
 
       </div>
     </section>
@@ -282,4 +311,3 @@ const InstallationSection = () => {
 };
 
 export default InstallationSection;
-

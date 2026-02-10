@@ -53,7 +53,7 @@ This class (e.g., `TypescriptTreeSitterParser`) will encapsulate the language-sp
     *   `_get_parent_context(self, node, types=...)`: (Language-specific node types for context).
     *   `_calculate_complexity(self, node)`: (Language-specific complexity nodes).
     *   `_get_docstring(self, body_node)`: (Language-specific docstring extraction).
-3.  **`parse(self, file_path: Path, is_dependency: bool = False) -> Dict`**:
+3.  **`parse(self, path: Path, is_dependency: bool = False) -> Dict`**:
     *   Reads the file, parses it with `self.parser`.
     *   Calls its own `_find_*` methods (`_find_functions`, `_find_classes`, etc.).
     *   Returns a standardized dictionary format (as seen in `python.py` and `javascript.py`).
@@ -147,18 +147,18 @@ Use Cypher queries to inspect the generated graph.
 *   **Check for Function Calls:**
     ```cypher
     MATCH (caller:Function)-[:CALLS]->(callee:Function)
-    WHERE caller.file_path STARTS WITH '/path/to/your/sample_project'
+    WHERE caller.path STARTS WITH '/path/to/your/sample_project'
       AND caller.lang = '<your_language_name>'
-    RETURN caller.name AS Caller, callee.name AS Callee, caller.file_path AS CallerFile, callee.file_path AS CalleeFile
+    RETURN caller.name AS Caller, callee.name AS Callee, caller.path AS CallerFile, callee.path AS CalleeFile
     ```
     *Expected:* All function calls should be correctly linked.
 
 *   **Check for Class Inheritance:**
     ```cypher
     MATCH (child:Class)-[:INHERITS]->(parent:Class)
-    WHERE child.file_path STARTS WITH '/path/to/your/sample_project'
+    WHERE child.path STARTS WITH '/path/to/your/sample_project'
       AND child.lang = '<your_language_name>'
-    RETURN child.name AS ChildClass, parent.name AS ParentClass, child.file_path AS ChildFile, parent.file_path AS ParentFile
+    RETURN child.name AS ChildClass, parent.name AS ParentClass, child.path AS ChildFile, parent.path AS ParentFile
     ```
     *Expected:* All inheritance relationships should be correctly linked.
 

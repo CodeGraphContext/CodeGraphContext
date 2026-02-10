@@ -21,7 +21,7 @@ class CodeFinder:
             CALL db.index.fulltext.queryNodes("code_search_index", $search_term) YIELD node, score
                 WITH node, score
                 WHERE node:{find_by} {'AND node.name CONTAINS $search_term' if not fuzzy_search else ''}
-                RETURN node.name as name, node.file_path as file_path, node.line_number as line_number,
+                RETURN node.name as name, node.path as path, node.line_number as line_number,
                     node.source as source, node.docstring as docstring, node.is_dependency as is_dependency
                 ORDER BY score DESC
                 LIMIT 20
@@ -34,7 +34,7 @@ class CodeFinder:
                 # Use simple match for exact search to avoid fulltext index dependency
                 result = session.run("""
                     MATCH (node:Function {name: $name})
-                    RETURN node.name as name, node.file_path as file_path, node.line_number as line_number,
+                    RETURN node.name as name, node.path as path, node.line_number as line_number,
                            node.source as source, node.docstring as docstring, node.is_dependency as is_dependency
                     LIMIT 20
                 """, name=search_term)
@@ -52,7 +52,7 @@ class CodeFinder:
                 # Use simple match for exact search to avoid fulltext index dependency
                 result = session.run("""
                     MATCH (node:Class {name: $name})
-                    RETURN node.name as name, node.file_path as file_path, node.line_number as line_number,
+                    RETURN node.name as name, node.path as path, node.line_number as line_number,
                            node.source as source, node.docstring as docstring, node.is_dependency as is_dependency
                     LIMIT 20
                 """, name=search_term)
@@ -69,7 +69,7 @@ class CodeFinder:
             result = session.run("""
                 MATCH (v:Variable)
                 WHERE v.name CONTAINS $search_term
-                RETURN v.name as name, v.file_path as file_path, v.line_number as line_number,
+                RETURN v.name as name, v.path as path, v.line_number as line_number,
                        v.value as value, v.context as context, v.is_dependency as is_dependency
                 ORDER BY v.is_dependency ASC, v.name
                 LIMIT 20
@@ -84,13 +84,14 @@ class CodeFinder:
                 CALL db.index.fulltext.queryNodes("code_search_index", $search_term) YIELD node, score
                 WITH node, score
                 WHERE node:Function OR node:Class OR node:Variable
+                MATCH (node)<-[:CONTAINS]-(f:File)
                 RETURN
                     CASE 
                         WHEN node:Function THEN 'function'
                         WHEN node:Class THEN 'class'
                         ELSE 'variable' 
                     END as type,
-                    node.name as name, node.file_path as file_path,
+                    node.name as name, f.path as path,
                     node.line_number as line_number, node.source as source,
                     node.docstring as docstring, node.is_dependency as is_dependency
                 ORDER BY score DESC
@@ -120,7 +121,7 @@ class CodeFinder:
                     r.alias as alias, 
                     r.imported_name as imported_name, 
                     m.name as module_name, 
-                    f.path as file_path, 
+                    f.path as path, 
                     r.line_number as line_number
                 ORDER BY f.path
                 LIMIT 20
@@ -171,76 +172,76 @@ class CodeFinder:
         
         return results
     
-    def find_functions_by_argument(self, argument_name: str, file_path: str = None) -> List[Dict]:
+    def find_functions_by_argument(self, argument_name: str, path: str = None) -> List[Dict]:
         """Find functions that take a specific argument name."""
         with self.driver.session() as session:
-            if file_path:
+            if path:
                 query = """
                     MATCH (f:Function)-[:HAS_PARAMETER]->(p:Parameter)
-                    WHERE p.name = $argument_name AND f.file_path = $file_path
-                    RETURN f.name AS function_name, f.file_path AS file_path, f.line_number AS line_number,
+                    WHERE p.name = $argument_name AND f.path = $path
+                    RETURN f.name AS function_name, f.path AS path, f.line_number AS line_number,
                            f.docstring AS docstring, f.is_dependency AS is_dependency
-                    ORDER BY f.is_dependency ASC, f.file_path, f.line_number
+                    ORDER BY f.is_dependency ASC, f.path, f.line_number
                     LIMIT 20
                 """
-                result = session.run(query, argument_name=argument_name, file_path=file_path)
+                result = session.run(query, argument_name=argument_name, path=path)
             else:
                 query = """
                     MATCH (f:Function)-[:HAS_PARAMETER]->(p:Parameter)
                     WHERE p.name = $argument_name
-                    RETURN f.name AS function_name, f.file_path AS file_path, f.line_number AS line_number,
+                    RETURN f.name AS function_name, f.path AS path, f.line_number AS line_number,
                            f.docstring AS docstring, f.is_dependency AS is_dependency
-                    ORDER BY f.is_dependency ASC, f.file_path, f.line_number
+                    ORDER BY f.is_dependency ASC, f.path, f.line_number
                     LIMIT 20
                 """
                 result = session.run(query, argument_name=argument_name)
             return result.data()
 
-    def find_functions_by_decorator(self, decorator_name: str, file_path: str = None) -> List[Dict]:
+    def find_functions_by_decorator(self, decorator_name: str, path: str = None) -> List[Dict]:
         """Find functions that have a specific decorator applied to them."""
         with self.driver.session() as session:
-            if file_path:
+            if path:
                 query = """
                     MATCH (f:Function)
-                    WHERE f.file_path = $file_path AND $decorator_name IN f.decorators
-                    RETURN f.name AS function_name, f.file_path AS file_path, f.line_number AS line_number,
+                    WHERE f.path = $path AND $decorator_name IN f.decorators
+                    RETURN f.name AS function_name, f.path AS path, f.line_number AS line_number,
                            f.docstring AS docstring, f.is_dependency AS is_dependency, f.decorators AS decorators
-                    ORDER BY f.is_dependency ASC, f.file_path, f.line_number
+                    ORDER BY f.is_dependency ASC, f.path, f.line_number
                     LIMIT 20
                 """
-                result = session.run(query, decorator_name=decorator_name, file_path=file_path)
+                result = session.run(query, decorator_name=decorator_name, path=path)
             else:
                 query = """
                     MATCH (f:Function)
                     WHERE $decorator_name IN f.decorators
-                    RETURN f.name AS function_name, f.file_path AS file_path, f.line_number AS line_number,
+                    RETURN f.name AS function_name, f.path AS path, f.line_number AS line_number,
                            f.docstring AS docstring, f.is_dependency AS is_dependency, f.decorators AS decorators
-                    ORDER BY f.is_dependency ASC, f.file_path, f.line_number
+                    ORDER BY f.is_dependency ASC, f.path, f.line_number
                     LIMIT 20
                 """
                 result = session.run(query, decorator_name=decorator_name)
             return result.data()
     
-    def who_calls_function(self, function_name: str, file_path: str = None) -> List[Dict]:
+    def who_calls_function(self, function_name: str, path: str = None) -> List[Dict]:
         """Find what functions call a specific function using CALLS relationships with improved matching"""
         with self.driver.session() as session:
-            if file_path:
+            if path:
                 result = session.run("""
-                    MATCH (caller:Function)-[call:CALLS]->(target:Function {name: $function_name, file_path: $file_path})
+                    MATCH (caller:Function)-[call:CALLS]->(target:Function {name: $function_name, path: $path})
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
-                        caller.file_path as caller_file_path,
+                        caller.path as caller_file_path,
                         caller.line_number as caller_line_number,
                         caller.docstring as caller_docstring,
                         caller.is_dependency as caller_is_dependency,
                         call.line_number as call_line_number,
                         call.args as call_args,
                         call.full_call_name as full_call_name,
-                        target.file_path as target_file_path
-                    ORDER BY caller.is_dependency ASC, caller.file_path, caller.line_number
+                        target.path as target_file_path
+                    ORDER BY caller.is_dependency ASC, caller.path, caller.line_number
                     LIMIT 20
-                """, function_name=function_name, file_path=file_path)
+                """, function_name=function_name, path=path)
                 
                 results = [dict(record) for record in result]
                 if not results:
@@ -250,15 +251,15 @@ class CodeFinder:
                         OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                         RETURN DISTINCT
                             caller.name as caller_function,
-                            caller.file_path as caller_file_path,
+                            caller.path as caller_file_path,
                             caller.line_number as caller_line_number,
                             caller.docstring as caller_docstring,
                             caller.is_dependency as caller_is_dependency,
                             call.line_number as call_line_number,
                             call.args as call_args,
                             call.full_call_name as full_call_name,
-                            target.file_path as target_file_path
-                        ORDER BY caller.is_dependency ASC, caller.file_path, caller.line_number
+                            target.path as target_file_path
+                        ORDER BY caller.is_dependency ASC, caller.path, caller.line_number
                         LIMIT 20
                     """, function_name=function_name)
                     results = [dict(record) for record in result]
@@ -269,34 +270,34 @@ class CodeFinder:
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
-                        caller.file_path as caller_file_path,
+                        caller.path as caller_file_path,
                         caller.line_number as caller_line_number,
                         caller.docstring as caller_docstring,
                         caller.is_dependency as caller_is_dependency,
                         call.line_number as call_line_number,
                         call.args as call_args,
                         call.full_call_name as full_call_name,
-                        target.file_path as target_file_path
-                    ORDER BY caller.is_dependency ASC, caller.file_path, caller.line_number
+                        target.path as target_file_path
+                    ORDER BY caller.is_dependency ASC, caller.path, caller.line_number
                     LIMIT 20
                 """, function_name=function_name)
                 results = [dict(record) for record in result]
             
             return results
     
-    def what_does_function_call(self, function_name: str, file_path: str = None) -> List[Dict]:
+    def what_does_function_call(self, function_name: str, path: str = None) -> List[Dict]:
         """Find what functions a specific function calls using CALLS relationships"""
         with self.driver.session() as session:
-            if file_path:
-                # Convert file_path to absolute path
-                absolute_file_path = str(Path(file_path).resolve())
+            if path:
+                # Convert path to absolute path
+                absolute_file_path = str(Path(path).resolve())
                 result = session.run("""
-                    MATCH (caller:Function {name: $function_name, file_path: $absolute_file_path})
+                    MATCH (caller:Function {name: $function_name, path: $absolute_file_path})
                     MATCH (caller)-[call:CALLS]->(called:Function)
                     OPTIONAL MATCH (called_file:File)-[:CONTAINS]->(called)
                     RETURN DISTINCT
                         called.name as called_function,
-                        called.file_path as called_file_path,
+                        called.path as called_file_path,
                         called.line_number as called_line_number,
                         called.docstring as called_docstring,
                         called.is_dependency as called_is_dependency,
@@ -313,7 +314,7 @@ class CodeFinder:
                     OPTIONAL MATCH (called_file:File)-[:CONTAINS]->(called)
                     RETURN DISTINCT
                         called.name as called_function,
-                        called.file_path as called_file_path,
+                        called.path as called_file_path,
                         called.line_number as called_line_number,
                         called.docstring as called_docstring,
                         called.is_dependency as called_is_dependency,
@@ -340,7 +341,7 @@ class CodeFinder:
                 }) AS imports
                 RETURN
                     file.name AS file_name,
-                    file.path AS file_path,
+                    file.path AS path,
                     file.relative_path AS file_relative_path,
                     file.is_dependency AS file_is_dependency,
                     repo.name AS repository_name,
@@ -370,23 +371,23 @@ class CodeFinder:
                         WHEN container:Class THEN 'class'
                         ELSE 'file'
                     END as container_type,
-                    COALESCE(container.file_path, file.path) as file_path,
+                    COALESCE(container.path, file.path) as path,
                     container.line_number as container_line_number,
                     var.line_number as variable_line_number,
                     var.value as variable_value,
                     var.context as variable_context,
                     COALESCE(container.is_dependency, file.is_dependency, false) as is_dependency
-                ORDER BY is_dependency ASC, file_path, variable_line_number
+                ORDER BY is_dependency ASC, path, variable_line_number
                 LIMIT 20
             """, variable_name=variable_name)
             
             return result.data()
     
-    def find_class_hierarchy(self, class_name: str, file_path: str = None) -> Dict[str, Any]:
+    def find_class_hierarchy(self, class_name: str, path: str = None) -> Dict[str, Any]:
         """Find class inheritance relationships using INHERITS relationships"""
         with self.driver.session() as session:
-            if file_path:
-                match_clause = "MATCH (child:Class {name: $class_name, file_path: $file_path})"
+            if path:
+                match_clause = "MATCH (child:Class {name: $class_name, path: $path})"
             else:
                 match_clause = "MATCH (child:Class {name: $class_name})"
 
@@ -396,13 +397,13 @@ class CodeFinder:
                 OPTIONAL MATCH (parent_file:File)-[:CONTAINS]->(parent)
                 RETURN DISTINCT
                     parent.name as parent_class,
-                    parent.file_path as parent_file_path,
+                    parent.path as parent_file_path,
                     parent.line_number as parent_line_number,
                     parent.docstring as parent_docstring,
                     parent.is_dependency as parent_is_dependency
                 ORDER BY parent.is_dependency ASC, parent.name
             """
-            parents_result = session.run(parents_query, class_name=class_name, file_path=file_path)
+            parents_result = session.run(parents_query, class_name=class_name, path=path)
             
             children_query = f"""
                 {match_clause}
@@ -410,27 +411,27 @@ class CodeFinder:
                 OPTIONAL MATCH (child_file:File)-[:CONTAINS]->(grandchild)
                 RETURN DISTINCT
                     grandchild.name as child_class,
-                    grandchild.file_path as child_file_path,
+                    grandchild.path as child_file_path,
                     grandchild.line_number as child_line_number,
                     grandchild.docstring as child_docstring,
                     grandchild.is_dependency as child_is_dependency
                 ORDER BY grandchild.is_dependency ASC, grandchild.name
             """
-            children_result = session.run(children_query, class_name=class_name, file_path=file_path)
+            children_result = session.run(children_query, class_name=class_name, path=path)
             
             methods_query = f"""
                 {match_clause}
                 MATCH (child)-[:CONTAINS]->(method:Function)
                 RETURN DISTINCT
                     method.name as method_name,
-                    method.file_path as method_file_path,
+                    method.path as method_file_path,
                     method.line_number as method_line_number,
                     method.args as method_args,
                     method.docstring as method_docstring,
                     method.is_dependency as method_is_dependency
                 ORDER BY method.is_dependency ASC, method.line_number
             """
-            methods_result = session.run(methods_query, class_name=class_name, file_path=file_path)
+            methods_result = session.run(methods_query, class_name=class_name, path=path)
             
             return {
                 "class_name": class_name,
@@ -447,7 +448,7 @@ class CodeFinder:
                 OPTIONAL MATCH (file:File)-[:CONTAINS]->(class)
                 RETURN DISTINCT
                     class.name as class_name,
-                    class.file_path as class_file_path,
+                    class.path as class_file_path,
                     func.name as function_name,
                     func.line_number as function_line_number,
                     func.args as function_args,
@@ -481,12 +482,12 @@ class CodeFinder:
                 OPTIONAL MATCH (file:File)-[:CONTAINS]->(func)
                 RETURN
                     func.name as function_name,
-                    func.file_path as file_path,
+                    func.path as path,
                     func.line_number as line_number,
                     func.docstring as docstring,
                     func.context as context,
                     file.name as file_name
-                ORDER BY func.file_path, func.line_number
+                ORDER BY func.path, func.line_number
                 LIMIT 50
             """, exclude_decorated_with=exclude_decorated_with)
             
@@ -495,47 +496,47 @@ class CodeFinder:
                 "note": "These functions might be unused, but could be entry points, callbacks, or called dynamically"
             }
     
-    def find_all_callers(self, function_name: str, file_path: str = None) -> List[Dict]:
+    def find_all_callers(self, function_name: str, path: str = None) -> List[Dict]:
         """Find all direct and indirect callers of a specific function."""
         with self.driver.session() as session:
-            if file_path:
-                # Find functions within the specified file_path that call the target function
+            if path:
+                # Find functions within the specified path that call the target function
                 query = """
-                    MATCH (f:Function)-[:CALLS*]->(target:Function {name: $function_name, file_path: $file_path})
-                    RETURN DISTINCT f.name AS caller_name, f.file_path AS caller_file_path, f.line_number AS caller_line_number, f.is_dependency AS caller_is_dependency
-                    ORDER BY f.is_dependency ASC, f.file_path, f.line_number
+                    MATCH (f:Function)-[:CALLS*]->(target:Function {name: $function_name, path: $path})
+                    RETURN DISTINCT f.name AS caller_name, f.path AS caller_file_path, f.line_number AS caller_line_number, f.is_dependency AS caller_is_dependency
+                    ORDER BY f.is_dependency ASC, f.path, f.line_number
                     LIMIT 50
                 """
-                result = session.run(query, function_name=function_name, file_path=file_path)
+                result = session.run(query, function_name=function_name, path=path)
             else:
-                # If no file_path (context) is provided, find all callers of the function by name
+                # If no path (context) is provided, find all callers of the function by name
                 query = """
                     MATCH (f:Function)-[:CALLS*]->(target:Function {name: $function_name})
-                    RETURN DISTINCT f.name AS caller_name, f.file_path AS caller_file_path, f.line_number AS caller_line_number, f.is_dependency AS caller_is_dependency
-                    ORDER BY f.is_dependency ASC, f.file_path, f.line_number
+                    RETURN DISTINCT f.name AS caller_name, f.path AS caller_file_path, f.line_number AS caller_line_number, f.is_dependency AS caller_is_dependency
+                    ORDER BY f.is_dependency ASC, f.path, f.line_number
                     LIMIT 50
                 """
                 result = session.run(query, function_name=function_name)
             return result.data()
 
-    def find_all_callees(self, function_name: str, file_path: str = None) -> List[Dict]:
+    def find_all_callees(self, function_name: str, path: str = None) -> List[Dict]:
         """Find all direct and indirect callees of a specific function."""
         with self.driver.session() as session:
-            if file_path:
+            if path:
                 query = """
-                    MATCH (caller:Function {name: $function_name, file_path: $file_path})
+                    MATCH (caller:Function {name: $function_name, path: $path})
                     MATCH (caller)-[:CALLS*]->(f:Function)
-                    RETURN DISTINCT f.name AS callee_name, f.file_path AS callee_file_path, f.line_number AS callee_line_number, f.is_dependency AS callee_is_dependency
-                    ORDER BY f.is_dependency ASC, f.file_path, f.line_number
+                    RETURN DISTINCT f.name AS callee_name, f.path AS callee_file_path, f.line_number AS callee_line_number, f.is_dependency AS callee_is_dependency
+                    ORDER BY f.is_dependency ASC, f.path, f.line_number
                     LIMIT 50
                 """
-                result = session.run(query, function_name=function_name, file_path=file_path)
+                result = session.run(query, function_name=function_name, path=path)
             else:
                 query = """
                     MATCH (caller:Function {name: $function_name})
                     MATCH (caller)-[:CALLS*]->(f:Function)
-                    RETURN DISTINCT f.name AS callee_name, f.file_path AS callee_file_path, f.line_number AS callee_line_number, f.is_dependency AS callee_is_dependency
-                    ORDER BY f.is_dependency ASC, f.file_path, f.line_number
+                    RETURN DISTINCT f.name AS callee_name, f.path AS callee_file_path, f.line_number AS callee_line_number, f.is_dependency AS callee_is_dependency
+                    ORDER BY f.is_dependency ASC, f.path, f.line_number
                     LIMIT 50
                 """
                 result = session.run(query, function_name=function_name)
@@ -545,8 +546,8 @@ class CodeFinder:
         """Find call chains between two functions"""
         with self.driver.session() as session:
             # Build match clauses based on whether files are specified
-            start_props = "{name: $start_function" + (", file_path: $start_file}" if start_file else "}")
-            end_props = "{name: $end_function" + (", file_path: $end_file}" if end_file else "}")
+            start_props = "{name: $start_function" + (", path: $start_file}" if start_file else "}")
+            end_props = "{name: $end_function" + (", path: $end_file}" if end_file else "}")
 
             query = f"""
                 MATCH (start:Function {start_props}), (end:Function {end_props})
@@ -557,7 +558,7 @@ class CodeFinder:
                 RETURN 
                     [node in func_nodes | {{
                         name: node.name,
-                        file_path: node.file_path,
+                        path: node.path,
                         line_number: node.line_number,
                         is_dependency: node.is_dependency
                     }}] as function_chain,
@@ -600,21 +601,21 @@ class CodeFinder:
             if label == "File":
                 query = f"""
                     MATCH (n:File)
-                    RETURN n.name as name, n.path as file_path, n.is_dependency as is_dependency
+                    RETURN n.name as name, n.path as path, n.is_dependency as is_dependency
                     ORDER BY n.path
                     LIMIT $limit
                 """
             elif label == "Module":
                 query = f"""
                     MATCH (n:Module)
-                    RETURN n.name as name, n.name as file_path, false as is_dependency
+                    RETURN n.name as name, n.name as path, false as is_dependency
                     ORDER BY n.name
                     LIMIT $limit
                 """
             else:
                 query = f"""
                     MATCH (n:{label})
-                    RETURN n.name as name, n.file_path as file_path, n.line_number as line_number, n.is_dependency as is_dependency
+                    RETURN n.name as name, n.path as path, n.line_number as line_number, n.is_dependency as is_dependency
                     ORDER BY n.is_dependency ASC, n.name
                     LIMIT $limit
                 """
@@ -657,13 +658,13 @@ class CodeFinder:
                 "imports": [dict(record) for record in imports_result]
             }
     
-    def find_variable_usage_scope(self, variable_name: str, file_path: str = None) -> Dict[str, Any]:
+    def find_variable_usage_scope(self, variable_name: str, path: str = None) -> Dict[str, Any]:
         """Find the scope and usage patterns of a variable, optional file path filtering"""
         with self.driver.session() as session:
-            if file_path:
+            if path:
                 variable_instances = session.run("""
                     MATCH (var:Variable {name: $variable_name})
-                    WHERE var.file_path ENDS WITH $file_path OR var.file_path = $file_path
+                    WHERE var.path ENDS WITH $path OR var.path = $path
                     OPTIONAL MATCH (container)-[:CONTAINS]->(var)
                     WHERE container:Function OR container:Class OR container:File
                     OPTIONAL MATCH (file:File)-[:CONTAINS]->(var)
@@ -672,7 +673,7 @@ class CodeFinder:
                         var.value as variable_value,
                         var.line_number as line_number,
                         var.context as context,
-                        COALESCE(var.file_path, file.path) as file_path,
+                        COALESCE(var.path, file.path) as path,
                         CASE 
                         WHEN container:Function THEN 'function'
                         WHEN container:Class THEN 'class'
@@ -684,8 +685,8 @@ class CodeFinder:
                         ELSE 'module_level'
                     END as scope_name,
                     var.is_dependency as is_dependency
-                ORDER BY var.is_dependency ASC, file_path, line_number
-            """, variable_name=variable_name, file_path=file_path)
+                ORDER BY var.is_dependency ASC, path, line_number
+            """, variable_name=variable_name, path=path)
             else:
                 variable_instances = session.run("""
                     MATCH (var:Variable {name: $variable_name})
@@ -697,7 +698,7 @@ class CodeFinder:
                         var.value as variable_value,
                         var.line_number as line_number,
                         var.context as context,
-                        COALESCE(var.file_path, file.path) as file_path,
+                        COALESCE(var.path, file.path) as path,
                         CASE 
                             WHEN container:Function THEN 'function'
                             WHEN container:Class THEN 'class'
@@ -709,7 +710,7 @@ class CodeFinder:
                             ELSE 'module_level'
                         END as scope_name,
                         var.is_dependency as is_dependency
-                    ORDER BY var.is_dependency ASC, file_path, line_number
+                    ORDER BY var.is_dependency ASC, path, line_number
                 """, variable_name=variable_name)
             
             return {
@@ -854,23 +855,23 @@ class CodeFinder:
                 "target": target
             }
 
-    def get_cyclomatic_complexity(self, function_name: str, file_path: str = None) -> Optional[Dict]:
+    def get_cyclomatic_complexity(self, function_name: str, path: str = None) -> Optional[Dict]:
         """Get the cyclomatic complexity of a function."""
         with self.driver.session() as session:
-            if file_path:
+            if path:
                 # Use ENDS WITH for flexible path matching, or exact match
                 query = """
                     MATCH (f:Function {name: $function_name})
-                    WHERE f.file_path ENDS WITH $file_path OR f.file_path = $file_path
+                    WHERE f.path ENDS WITH $path OR f.path = $path
                     RETURN f.name as function_name, f.cyclomatic_complexity as complexity,
-                           f.file_path as file_path, f.line_number as line_number
+                           f.path as path, f.line_number as line_number
                 """
-                result = session.run(query, function_name=function_name, file_path=file_path)
+                result = session.run(query, function_name=function_name, path=path)
             else:
                 query = """
                     MATCH (f:Function {name: $function_name})
                     RETURN f.name as function_name, f.cyclomatic_complexity as complexity,
-                           f.file_path as file_path, f.line_number as line_number
+                           f.path as path, f.line_number as line_number
                 """
                 result = session.run(query, function_name=function_name)
             
@@ -885,7 +886,7 @@ class CodeFinder:
             query = """
                 MATCH (f:Function)
                 WHERE f.cyclomatic_complexity IS NOT NULL AND f.is_dependency = false
-                RETURN f.name as function_name, f.file_path as file_path, f.cyclomatic_complexity as complexity, f.line_number as line_number
+                RETURN f.name as function_name, f.path as path, f.cyclomatic_complexity as complexity, f.line_number as line_number
                 ORDER BY f.cyclomatic_complexity DESC
                 LIMIT $limit
             """

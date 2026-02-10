@@ -1,104 +1,153 @@
-# CodeGraphContext
+# 🏗️ CodeGraphContext (CGC)
 
-<!-- ====== Project stats ====== -->
-[![Stars](https://img.shields.io/github/stars/Shashankss1205/CodeGraphContext?logo=github)](https://github.com/Shashankss1205/CodeGraphContext/stargazers)
-[![Forks](https://img.shields.io/github/forks/Shashankss1205/CodeGraphContext?logo=github)](https://github.com/Shashankss1205/CodeGraphContext/network/members)
-[![Open Issues](https://img.shields.io/github/issues-raw/Shashankss1205/CodeGraphContext?logo=github)](https://github.com/Shashankss1205/CodeGraphContext/issues)
-[![Open PRs](https://img.shields.io/github/issues-pr/Shashankss1205/CodeGraphContext?logo=github)](https://github.com/Shashankss1205/CodeGraphContext/pulls)
-[![Closed PRs](https://img.shields.io/github/issues-pr-closed/Shashankss1205/CodeGraphContext?logo=github&color=lightgrey)](https://github.com/Shashankss1205/CodeGraphContext/pulls?q=is%3Apr+is%3Aclosed)
-[![Contributors](https://img.shields.io/github/contributors/Shashankss1205/CodeGraphContext?logo=github)](https://github.com/Shashankss1205/CodeGraphContext/graphs/contributors)
-[![Languages](https://img.shields.io/github/languages/count/Shashankss1205/CodeGraphContext?logo=github)](https://github.com/Shashankss1205/CodeGraphContext)
-[![Build Status](https://github.com/Shashankss1205/CodeGraphContext/actions/workflows/test.yml/badge.svg)](https://github.com/Shashankss1205/CodeGraphContext/actions/workflows/test.yml)
-[![Build Status](https://github.com/Shashankss1205/CodeGraphContext/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/Shashankss1205/CodeGraphContext/actions/workflows/e2e-tests.yml)
-[![PyPI version](https://img.shields.io/pypi/v/codegraphcontext?)](https://pypi.org/project/codegraphcontext/)
-[![PyPI downloads](https://img.shields.io/pypi/dm/codegraphcontext?)](https://pypi.org/project/codegraphcontext/)
-[![License](https://img.shields.io/github/license/Shashankss1205/CodeGraphContext?)](LICENSE)
-[![Website](https://img.shields.io/badge/website-up-brightgreen?)](http://codegraphcontext.vercel.app/)
-[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://shashankss1205.github.io/CodeGraphContext/)
-[![YouTube](https://img.shields.io/badge/YouTube-Watch%20Demo-red?logo=youtube)](https://youtu.be/KYYSdxhg1xU)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Chat-7289da?logo=discord&logoColor=white)](https://discord.gg/dR4QY32uYQ)
-
+<p align="center">
+  <br>
+  <b>Bridge the gap between deep code graphs and AI context.</b>
+  <br><br>
+  <a href="https://pypi.org/project/codegraphcontext/">
+    <img src="https://img.shields.io/pypi/v/codegraphcontext?style=flat-square&logo=pypi" alt="PyPI Version">
+  </a>
+  <a href="https://pypi.org/project/codegraphcontext/">
+    <img src="https://img.shields.io/pypi/dm/codegraphcontext?style=flat-square" alt="PyPI Downloads">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/CodeGraphContext/CodeGraphContext?style=flat-square" alt="License">
+  </a>
+  <img src="https://img.shields.io/badge/MCP-Compatible-green?style=flat-square" alt="MCP Compatible">
+  <a href="https://discord.gg/VCwUdCnn">
+    <img src="https://img.shields.io/discord/1421769154507309150?label=Discord&logo=discord&logoColor=white&style=flat-square">
+  </a>
+  <br><br>
+  <a href="https://github.com/CodeGraphContext/CodeGraphContext/stargazers">
+    <img src="https://img.shields.io/github/stars/CodeGraphContext/CodeGraphContext?style=flat-square&logo=github" alt="Stars">
+  </a>
+  <a href="https://github.com/CodeGraphContext/CodeGraphContext/network/members">
+    <img src="https://img.shields.io/github/forks/CodeGraphContext/CodeGraphContext?style=flat-square&logo=github" alt="Forks">
+  </a>
+  <a href="https://github.com/CodeGraphContext/CodeGraphContext/issues">
+    <img src="https://img.shields.io/github/issues-raw/CodeGraphContext/CodeGraphContext?style=flat-square&logo=github" alt="Issues">
+  </a>
+  <a href="https://github.com/CodeGraphContext/CodeGraphContext/pulls">
+    <img src="https://img.shields.io/github/issues-pr/CodeGraphContext/CodeGraphContext?style=flat-square&logo=github" alt="PRs">
+  </a>
+  <a href="https://github.com/CodeGraphContext/CodeGraphContext/graphs/contributors">
+    <img src="https://img.shields.io/github/contributors/CodeGraphContext/CodeGraphContext?style=flat-square&logo=github" alt="Contributors">
+  </a>
+<br><br>
+  <a href="https://github.com/CodeGraphContext/CodeGraphContext/actions/workflows/test.yml">
+    <img src="https://github.com/CodeGraphContext/CodeGraphContext/actions/workflows/test.yml/badge.svg" alt="Tests">
+  </a>
+  <a href="https://github.com/CodeGraphContext/CodeGraphContext/actions/workflows/e2e-tests.yml">
+    <img src="https://github.com/CodeGraphContext/CodeGraphContext/actions/workflows/e2e-tests.yml/badge.svg" alt="E2E Tests">
+  </a>
+  <a href="http://codegraphcontext.vercel.app/">
+    <img src="https://img.shields.io/badge/website-up-brightgreen?style=flat-square" alt="Website">
+  </a>
+  <a href="https://CodeGraphContext.github.io/CodeGraphContext/">
+    <img src="https://img.shields.io/badge/docs-GitHub%20Pages-blue?style=flat-square" alt="Docs">
+  </a>
+  <a href="https://youtu.be/KYYSdxhg1xU">
+    <img src="https://img.shields.io/badge/YouTube-Watch%20Demo-red?style=flat-square&logo=youtube" alt="YouTube Demo">
+  </a>
+</p>
 
 
 A powerful **MCP server** and **CLI toolkit** that indexes local code into a graph database to provide context to AI assistants and developers. Use it as a standalone CLI for comprehensive code analysis or connect it to your favorite AI IDE via MCP for AI-powered code understanding.
 
-### Indexing a codebase
-![Indexing using an MCP client](https://github.com/Shashankss1205/CodeGraphContext/blob/main/images/Indexing.gif)
+---
 
-### Using the MCP server
-![Using the MCP server](https://github.com/Shashankss1205/CodeGraphContext/blob/main/images/Usecase.gif)
+## 📍 Quick Navigation
+* [🚀 Quick Start](#quick-start) 
+* [🌐 Supported Programming Languages](#supported-programming-languages) 
+* [🛠️ CLI Toolkit](#for-cli-toolkit-mode) 
+* [🤖 MCP Server](#-for-mcp-server-mode) 
+* [🗄️ Database Options](#database-options)
+
+---
+
+## ✨ Experience CGC
+
+
+### 👨🏻‍💻 Installation and CLI
+> Install in seconds with pip and unlock a powerful CLI for code graph analysis.
+![Install and unlock the CLI instantly](https://github.com/CodeGraphContext/CodeGraphContext/blob/main/images/install&cli.gif)
+
+
+### 🛠️ Indexing in Seconds
+> The CLI intelligently parses your tree-sitter nodes to build the graph.
+![Indexing using an MCP client](https://github.com/CodeGraphContext/CodeGraphContext/blob/main/images/Indexing.gif)
+
+### 🤖 Powering your AI Assistant
+> Use natural language to query complex call-chains via MCP.
+![Using the MCP server](https://github.com/CodeGraphContext/CodeGraphContext/blob/main/images/Usecase.gif)
+
+---
 
 ## Project Details
-- **Version:** 0.1.32
+- **Version:** 0.2.1
 - **Authors:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **License:** MIT License (See [LICENSE](LICENSE) for details)
 - **Website:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
 
+---
+
+## 👨‍💻 Maintainer
+**CodeGraphContext** is created and actively maintained by:
+
+**Shashank Shekhar Singh**  
+- 📧 Email: [shashankshekharsingh1205@gmail.com](mailto:shashankshekharsingh1205@gmail.com)
+- 🐙 GitHub: [@Shashankss1205](https://github.com/Shashankss1205)
+- 🔗 LinkedIn: [Shashank Shekhar Singh](https://www.linkedin.com/in/shashank-shekhar-singh-a67282228/)
+- 🌐 Website: [codegraphcontext.vercel.app](http://codegraphcontext.vercel.app/)
+
+*Contributions and feedback are always welcome! Feel free to reach out for questions, suggestions, or collaboration opportunities.*
+
+---
+
 ## Star History
-[![Star History Chart](https://api.star-history.com/svg?repos=Shashankss1205/CodeGraphContext&type=Date)](https://www.star-history.com/#Shashankss1205/CodeGraphContext&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=CodeGraphContext/CodeGraphContext&type=Date)](https://www.star-history.com/#CodeGraphContext/CodeGraphContext&Date)
+
+---
 
 ## Features
-
 -   **Code Indexing:** Analyzes code and builds a knowledge graph of its components.
 -   **Relationship Analysis:** Query for callers, callees, class hierarchies, call chains and more.
+-   **Pre-indexed Bundles:** Load famous repositories instantly with `.cgc` bundles - no indexing required! ([Learn more](docs/BUNDLES.md))
 -   **Live File Watching:** Watch directories for changes and automatically update the graph in real-time (`cgc watch`).
 -   **Interactive Setup:** A user-friendly command-line wizard for easy setup.
 -   **Dual Mode:** Works as a standalone **CLI toolkit** for developers and as an **MCP server** for AI agents.
 -   **Multi-Language Support:** Full support for 12 programming languages.
 -   **Flexible Database Backend:** FalkorDB Lite (default, inbuilt for Unix and through WSL for Windows) or Neo4j (all platforms via Docker/native).
 
+---
 
 ## Supported Programming Languages
 
 CodeGraphContext provides comprehensive parsing and analysis for the following languages:
 
-- **Python** (`.py`) - Including Jupyter notebooks (`.ipynb`)
-- **JavaScript** (`.js`)
-- **TypeScript** (`.ts`)
-- **Java** (`.java`)
-- **C** (`.c`, `.h`)
-- **C++** (`.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`)
-- **C#** (`.cs`) - Full support for classes, methods, namespaces, and inheritance
-- **Go** (`.go`)
-- **Rust** (`.rs`)
-- **Ruby** (`.rb`)
-- **PHP** (`.php`)
-- **Kotlin** (`.kt`) - Full support for classes, objects, companions, functions, and coroutines
-- **Swift** (`.swift`) - Full support for classes, structs, protocols, enums, and generics
+| | Language | | Language | | Language |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 🐍 | **Python** | 📜 | **JavaScript** | 🔷 | **TypeScript** |
+| ☕ | **Java** | 🏗️ | **C / C++** | #️⃣ | **C#** |
+| 🐹 | **Go** | 🦀 | **Rust** | 💎 | **Ruby** |
+| 🐘 | **PHP** | 🍎 | **Swift** | 🎨 | **Kotlin** |
 
 Each language parser extracts functions, classes, methods, parameters, inheritance relationships, function calls, and imports to build a comprehensive code graph.
+
+---
 
 ## Database Options
 
 CodeGraphContext supports two graph database backends:
 
-### FalkorDB Lite (Default for Unix/Linux/macOS)
-- **Lightweight** in-memory graph database
-- **No external dependencies** - runs entirely in-process
-- **Inbuilt and enabled by default** for Unix-based systems (Linux, macOS)
-- Available for **Python 3.12+** only
-- Perfect for quick testing, development, and most use cases
-- Automatically installed and configured when using Python 3.12 or higher on Unix systems
+| Feature | FalkorDB Lite (Default) | Neo4j |
+| :--- | :--- | :--- |
+| **Setup** | Zero-config / In-process | Docker / External |
+| **Platform** | Unix / WSL / macOS | All (incl. Windows Native) |
+| **Use Case** | Local dev & Quick tests | Production & Massive graphs |
+| **Requirement**| Python 3.12+ | Any supported Python |
 
-> ⚠️ **Windows Users:**  
-> FalkorDB Lite / redislite is **not supported on Windows**.  
-> You have three options:  
-> 1. Run the project under **WSL (Windows Subsystem for Linux)**: [WSL Install](https://learn.microsoft.com/en-us/windows/wsl/install)  
-> 2. Use **Docker** to run the project in a containerized Linux environment  
-> 3. Use **Neo4j** directly as your graph database (see below)
-
-### Neo4j (Available for All Platforms)
-- **Production-ready** and widely used graph database
-- **Available on all operating systems**: Windows, Linux, macOS
-- Can be installed via:
-  - **Docker** (recommended, cross-platform)
-  - **WSL** (for Windows users)
-  - **Native installation** (dedicated command for each OS)
-- Supports local instances and cloud hosting (Neo4j AuraDB)
-- Full Cypher query support for advanced graph analytics
-- Recommended for Windows users and production deployments
-
-The `cgc neo4j setup` wizard helps you configure the Neo4j database backend, while FalkorDB Lite is enabled by default on Unix systems with no configuration needed.
+---
 
 ## Used By
 
@@ -108,7 +157,9 @@ CodeGraphContext is already being explored by developers and projects for:
 - **Graph-based visualization of projects**
 - **Dead code and complexity detection**
 
-If you’re using CodeGraphContext in your project, feel free to open a PR and add it here! 🚀
+_If you’re using CodeGraphContext in your project, feel free to open a PR and add it here! 🚀_
+
+---
 
 ## Dependencies
 
@@ -129,10 +180,24 @@ If you’re using CodeGraphContext in your project, feel free to open a PR and a
 
 **Note:** Python 3.10-3.14 is supported.
 
+---
+
+## Quick Start
+### Install the core toolkit
+```
+pip install codegraphcontext
+```
+
+### If 'cgc' command isn't found, run our one-line fix:
+```
+curl -sSL [https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/scripts/post_install_fix.sh](https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/scripts/post_install_fix.sh) | bash
+```
+
+---
+
 ## Getting Started
 
 ### 📋 Understanding CodeGraphContext Modes
-
 CodeGraphContext operates in **two modes**, and you can use either or both:
 
 #### 🛠️ Mode 1: CLI Toolkit (Standalone)
@@ -144,19 +209,16 @@ Use CodeGraphContext as a **powerful command-line toolkit** for code analysis:
 
 #### 🤖 Mode 2: MCP Server (AI-Powered)
 Use CodeGraphContext as an **MCP server** for AI assistants:
-- Connect to AI IDEs (VS Code, Cursor, Windsurf, Claude, etc.)
+- Connect to AI IDEs (VS Code, Cursor, Windsurf, Claude, Kiro, etc.)
 - Let AI agents query your codebase using natural language
 - Automatic code understanding and relationship analysis
 - Perfect for AI-assisted development workflows
 
 **You can use both modes!** Install once, then use CLI commands directly OR connect to your AI assistant.
 
----
-
 ### Installation (Both Modes)
 
 1.  **Install:** `pip install codegraphcontext`
-
     <details>
     <summary>⚙️ Troubleshooting: In case, command <code>cgc</code> not found</summary>
 
@@ -165,7 +227,7 @@ Use CodeGraphContext as an **MCP server** for AI assistants:
     **Linux/Mac:**
     ```bash
     # Download the fix script
-    curl -O https://raw.githubusercontent.com/Shashankss1205/CodeGraphContext/main/scripts/post_install_fix.sh
+    curl -O https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/scripts/post_install_fix.sh
     
     # Make it executable
     chmod +x post_install_fix.sh
@@ -180,7 +242,7 @@ Use CodeGraphContext as an **MCP server** for AI assistants:
     **Windows (PowerShell):**
     ```powershell
     # Download the fix script
-    curl -O https://raw.githubusercontent.com/Shashankss1205/CodeGraphContext/main/scripts/post_install_fix.sh
+    curl -O https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/scripts/post_install_fix.sh
     
     # Run with bash (requires Git Bash or WSL)
     bash post_install_fix.sh
@@ -197,10 +259,9 @@ Use CodeGraphContext as an **MCP server** for AI assistants:
 
 ---
 
-### 🛠️ For CLI Toolkit Mode
+### For CLI Toolkit Mode
 
 **Start using immediately with CLI commands:**
-
 ```bash
 # Index your current directory
 cgc index .
@@ -232,7 +293,6 @@ cgc help
 ### 🤖 For MCP Server Mode
 
 **Configure your AI assistant to use CodeGraphContext:**
-
 1.  **Setup:** Run the MCP setup wizard to configure your IDE/AI assistant:
     
     ```bash
@@ -249,19 +309,21 @@ cgc help
     *   Cline
     *   RooCode
     *   Amazon Q Developer
+    *   Kiro
 
     Upon successful configuration, `cgc mcp setup` will generate and place the necessary configuration files:
     *   It creates an `mcp.json` file in your current directory for reference.
     *   It stores your database credentials securely in `~/.codegraphcontext/.env`.
     *   It updates the settings file of your chosen IDE/CLI (e.g., `.claude.json` or VS Code's `settings.json`).
 
-2.  **Start:** Launch the MCP server:
-    
+2.  **Start:** Launch the MCP server:    
     ```bash
     cgc mcp start
     ```
 
 3.  **Use:** Now interact with your codebase through your AI assistant using natural language! See examples below.
+
+---
 
 ## Ignoring Files (`.cgcignore`)
 
@@ -280,6 +342,8 @@ You can tell CodeGraphContext to ignore specific files and directories by creati
 # Ignore logs
 *.log
 ```
+
+---
 
 ## MCP Client Configuration
 
@@ -301,33 +365,14 @@ Add the following server configuration to your client's settings file (e.g., VS 
         "NEO4J_USERNAME": "YOUR_NEO4J_USERNAME",
         "NEO4J_PASSWORD": "YOUR_NEO4J_PASSWORD"
       },
-      "tools": {
-        "alwaysAllow": [
-          "add_code_to_graph",
-          "add_package_to_graph",
-          "check_job_status",
-          "list_jobs",
-          "find_code",
-          "analyze_code_relationships",
-          "watch_directory",
-          "find_dead_code",
-          "execute_cypher_query",
-          "calculate_cyclomatic_complexity",
-          "find_most_complex_functions",
-          "list_indexed_repositories",
-          "delete_repository",
-          "visualize_graph_query",
-          "list_watched_paths",
-          "unwatch_directory"
-        ],
-        "disabled": false
-      },
       "disabled": false,
       "alwaysAllow": []
     }
   }
 }
 ```
+
+---
 
 ## Natural Language Interaction Examples
 
@@ -389,10 +434,12 @@ Once the server is running, you can interact with it through your AI assistant u
     -   "List all currently indexed repositories."
     -   "Delete the indexed repository at `/path/to/old-project`."
 
+---
+
 ## Contributing
 
 Contributions are welcome! 🎉  
 Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-If you have ideas for new features, integrations, or improvements, open an [issue](https://github.com/Shashankss1205/CodeGraphContext/issues) or submit a Pull Request.
+If you have ideas for new features, integrations, or improvements, open an [issue](https://github.com/CodeGraphContext/CodeGraphContext/issues) or submit a Pull Request.
 
 Join discussions and help shape the future of CodeGraphContext.

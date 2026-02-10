@@ -11,15 +11,15 @@ export default function ShowStarGraph() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const baseStarHistoryImageUrl =
-    "https://api.star-history.com/svg?repos=Shashankss1205/CodeGraphContext&type=Date";
+    "https://api.star-history.com/svg?repos=CodeGraphContext/CodeGraphContext&type=Date";
 
   // Add cache busting parameter to force updates
   const starHistoryImageUrl = `${baseStarHistoryImageUrl}&t=${refreshKey}`;
   const starHistoryDarkImageUrl = `${baseStarHistoryImageUrl}&theme=dark&t=${refreshKey}`;
 
-  const githubRepoUrl = "https://github.com/Shashankss1205/CodeGraphContext";
+  const githubRepoUrl = "https://github.com/CodeGraphContext/CodeGraphContext";
   const starHistoryUrl =
-    "https://star-history.com/#Shashankss1205/CodeGraphContext&Date";
+    "https://star-history.com/#CodeGraphContext/CodeGraphContext&Date";
 
   const handleImageLoad = () => {
     setImageLoaded(true);

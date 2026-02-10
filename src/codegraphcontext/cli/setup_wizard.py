@@ -114,7 +114,7 @@ def _configure_ide(mcp_config):
     questions = [
         {
             "type": "confirm",
-            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider)?",
+            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro)?",
             "name": "configure_ide",
             "default": True,
         }
@@ -128,7 +128,7 @@ def _configure_ide(mcp_config):
         {
             "type": "list",
             "message": "Choose your IDE/CLI to configure:",
-            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "None of the above"],
+            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "None of the above"],
             "name": "ide_choice",
         }
     ]
@@ -140,7 +140,7 @@ def _configure_ide(mcp_config):
         return
 
 
-    if ide_choice in ["VS Code", "Cursor/CLI", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "Windsurf", "RooCode", "Amazon Q Developer , JetBrainsAI", "Aider"]:
+    if ide_choice in ["VS Code", "Cursor/CLI", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "Windsurf", "RooCode", "Amazon Q Developer , JetBrainsAI", "Aider", "Kiro"]:
         console.print(f"\n[bold cyan]Configuring for {ide_choice}...[/bold cyan]")
 
         if ide_choice == "Amazon Q Developer":
@@ -198,6 +198,11 @@ def _configure_ide(mcp_config):
                 Path.home() / "Library" / "Application Support" / "aider" / "settings.json",
                 Path.home() / "AppData" / "Roaming" / "aider" / "settings.json",
                 Path.home() / ".config" / "Aider" / "User" / "settings.json",
+            ],
+            "Kiro": [
+                Path.home() / ".kiro" / "settings" / "mcp.json",                                   # macOS / Linux / Windows (user-level global)
+                Path.home() / ".config" / "kiro" / "settings" / "mcp.json",                         # Linux (XDG config)
+                Path.home() / "AppData" / "Roaming" / "Kiro" / "settings" / "mcp.json",             # Windows
             ]
         }
 
@@ -466,9 +471,9 @@ def setup_existing_db():
                 {"type": "input", "message": "Please enter the path to your credentials file:", "name": "cred_file_path"}
             ]
             file_path_str = prompt(path_questions).get("cred_file_path", "")
-            file_path = Path(file_path_str.strip())
-            if file_path.exists() and file_path.is_file():
-                file_to_parse = file_path
+            path = Path(file_path_str.strip())
+            if path.exists() and path.is_file():
+                file_to_parse = path
             else:
                 console.print("[red]❌ The specified file path does not exist or is not a file.[/red]")
                 return
@@ -584,9 +589,9 @@ def setup_hosted_db():
                 {"type": "input", "message": "Please enter the path to your credentials file:", "name": "cred_file_path"}
             ]
             file_path_str = prompt(path_questions).get("cred_file_path", "")
-            file_path = Path(file_path_str.strip())
-            if file_path.exists() and file_path.is_file():
-                file_to_parse = file_path
+            path = Path(file_path_str.strip())
+            if path.exists() and path.is_file():
+                file_to_parse = path
             else:
                 console.print("[red]❌ The specified file path does not exist or is not a file.[/red]")
                 return
@@ -860,20 +865,20 @@ def setup_local_binary():
     if not prompt(confirm_q).get("proceed"):
         return
 
-    NEO4J_VERSION = "1:5.21.0" 
-
+    # Install latest Neo4j version instead of pinning to a specific version
+    # This prevents version conflicts and ensures users get the latest stable release
     install_commands = [
         ("Creating keyring directory", ["sudo", "mkdir", "-p", "/etc/apt/keyrings"]),
         ("Adding Neo4j GPG key", "wget -qO- https://debian.neo4j.com/neotechnology.gpg.key | sudo gpg --dearmor --yes -o /etc/apt/keyrings/neotechnology.gpg", True),
         ("Adding Neo4j repository", "echo 'deb [signed-by=/etc/apt/keyrings/neotechnology.gpg] https://debian.neo4j.com stable 5' | sudo tee /etc/apt/sources.list.d/neo4j.list > /dev/null", True),
         ("Updating apt sources", ["sudo", "apt-get", "-qq", "update"]),
-        (f"Installing Neo4j ({NEO4J_VERSION}) and Cypher Shell", ["sudo", "apt-get", "install", "-qq", "-y", f"neo4j={NEO4J_VERSION}", "cypher-shell"])
+        ("Installing latest Neo4j and Cypher Shell", ["sudo", "apt-get", "install", "-qq", "-y", "neo4j", "cypher-shell"])
     ]
 
     for desc, cmd, use_shell in [(c[0], c[1], c[2] if len(c) > 2 else False) for c in install_commands]:
         console.print(f"\n[bold]Step: {desc}...[/bold]")
         if not run_command(cmd, console, shell=use_shell):
-            console.print(f"[bold red]Failed on step: {desc}. Aborting installation.[/bold]")
+            console.print(f"[bold red]Failed on step: {desc}. Aborting installation.[/bold red]")
             return
             
     console.print("\n[bold green]Neo4j installed successfully![/bold green]")

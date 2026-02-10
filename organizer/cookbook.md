@@ -105,7 +105,7 @@ This cookbook provides examples of how to use the `mcp` tool to query and unders
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (c:Class) WHERE 'dataclass' IN c.decorators RETURN c.name, c.file_path"
+    "cypher_query": "MATCH (c:Class) WHERE 'dataclass' IN c.decorators RETURN c.name, c.path"
   }
   ```
 
@@ -241,7 +241,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (n:Function) RETURN n.name, n.file_path, n.line_number LIMIT 50"
+    "cypher_query": "MATCH (n:Function) RETURN n.name, n.path, n.line_number LIMIT 50"
   }
   ```
 
@@ -252,7 +252,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (n:Class) RETURN n.name, n.file_path, n.line_number LIMIT 50"
+    "cypher_query": "MATCH (n:Class) RETURN n.name, n.path, n.line_number LIMIT 50"
   }
   ```
 
@@ -263,7 +263,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (f:Function) WHERE f.file_path ENDS WITH 'module_a.py' RETURN f.name"
+    "cypher_query": "MATCH (f:Function) WHERE f.path ENDS WITH 'module_a.py' RETURN f.name"
   }
   ```
 
@@ -274,7 +274,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (c:Class) WHERE c.file_path ENDS WITH 'advanced_classes.py' RETURN c.name"
+    "cypher_query": "MATCH (c:Class) WHERE c.path ENDS WITH 'advanced_classes.py' RETURN c.name"
   }
   ```
 
@@ -296,7 +296,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (caller:Function)-[:CALLS]->(callee:Function {name: 'helper'}) WHERE caller.file_path ENDS WITH 'module_a.py' AND callee.file_path ENDS WITH 'module_b.py' RETURN caller.name"
+    "cypher_query": "MATCH (caller:Function)-[:CALLS]->(callee:Function {name: 'helper'}) WHERE caller.path ENDS WITH 'module_a.py' AND callee.path ENDS WITH 'module_b.py' RETURN caller.name"
   }
   ```
 
@@ -316,7 +316,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (f:Function) WHERE size(f.args) > 5 RETURN f.name, f.file_path, size(f.args) as arg_count"
+    "cypher_query": "MATCH (f:Function) WHERE size(f.args) > 5 RETURN f.name, f.path, size(f.args) as arg_count"
   }
   ```
 
@@ -327,7 +327,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (f:Function) WHERE f.file_path ENDS WITH 'module_a.py' AND f.docstring IS NOT NULL AND f.docstring <> '' RETURN f.name"
+    "cypher_query": "MATCH (f:Function) WHERE f.path ENDS WITH 'module_a.py' AND f.docstring IS NOT NULL AND f.docstring <> '' RETURN f.name"
   }
   ```
 
@@ -336,7 +336,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (c:Class)-[:CONTAINS]->(m:Function {name: 'greet'}) RETURN c.name, c.file_path"
+    "cypher_query": "MATCH (c:Class)-[:CONTAINS]->(m:Function {name: 'greet'}) RETURN c.name, c.path"
   }
   ```
 
@@ -347,7 +347,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (c:Class) OPTIONAL MATCH path = (c)-[:INHERITS*]->(parent:Class) RETURN c.name, c.file_path, length(path) AS depth ORDER BY depth DESC"
+    "cypher_query": "MATCH (c:Class) OPTIONAL MATCH path = (c)-[:INHERITS*]->(parent:Class) RETURN c.name, c.path, length(path) AS depth ORDER BY depth DESC"
   }
   ```
 
@@ -358,7 +358,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (f:Function) WHERE f.docstring IS NOT NULL AND f.docstring <> '' RETURN f.name, f.file_path LIMIT 50"
+    "cypher_query": "MATCH (f:Function) WHERE f.docstring IS NOT NULL AND f.docstring <> '' RETURN f.name, f.path LIMIT 50"
   }
   ```
 
@@ -380,7 +380,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (f:Function) RETURN f.file_path, count(f) AS function_count ORDER BY function_count DESC"
+    "cypher_query": "MATCH (f:Function) RETURN f.path, count(f) AS function_count ORDER BY function_count DESC"
   }
   ```
 
@@ -402,7 +402,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (f:Function)-[r:CALLS]->() WHERE r.full_call_name STARTS WITH 'super(' RETURN f.name, f.file_path"
+    "cypher_query": "MATCH (f:Function)-[r:CALLS]->() WHERE r.full_call_name STARTS WITH 'super(' RETURN f.name, f.path"
   }
   ```
 
@@ -413,7 +413,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH ()-[r:CALLS]->(f:Function {name: 'helper'}) WHERE 'x' IN r.args RETURN r.full_call_name, r.line_number, r.file_path"
+    "cypher_query": "MATCH ()-[r:CALLS]->(f:Function {name: 'helper'}) WHERE 'x' IN r.args RETURN r.full_call_name, r.line_number, r.path"
   }
   ```
 
@@ -424,7 +424,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
 - **JSON Arguments:**
   ```json
   {
-    "cypher_query": "MATCH (f:Function) WHERE NOT (()-[:CALLS]->(f)) AND f.is_dependency = false RETURN f.name, f.file_path"
+    "cypher_query": "MATCH (f:Function) WHERE NOT (()-[:CALLS]->(f)) AND f.is_dependency = false RETURN f.name, f.path"
   }
   ```
 
@@ -499,7 +499,7 @@ These examples use the `execute_cypher_query` tool for more specific and complex
   ```json
   {
     "cypher_query": "MATCH p=(f:Function)-[:CALLS]->(f2:Function)
-    WHERE f.name = f2.name AND f.file_path = f2.file_path
+    WHERE f.name = f2.name AND f.path = f2.path
     RETURN p"
   }
   ```

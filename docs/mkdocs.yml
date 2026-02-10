@@ -1,20 +1,76 @@
 site_name: CodeGraphContext
+repo_url: https://github.com/CodeGraphContext/CodeGraphContext
+repo_name: CodeGraphContext/CodeGraphContext
 theme:
   name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - toc.follow
+  palette: 
+    - scheme: default
+      primary: teal
+      accent: purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: lime
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
 nav:
   - Home: index.md
-  - Installation: installation.md
-  - Use Cases: use_cases.md
-  - Architecture: architecture.md
-  - CLI Reference: cli.md
-  - Live Watching: watching.md
-  - Server: server.md
-  - Core Concepts: core.md
-  - Tools: tools.md
-  - Cookbook: cookbook.md
-  - Contributing:
-    - Overview: contributing.md
-    - Adding New Languages: contributing_languages.md
-  - Troubleshooting: troubleshooting.md
-  - Future Work: future_work.md
-  - License: license.md
+  - Getting Started:
+    - Prerequisites & Context: getting-started/prerequisites.md
+    - Installation: getting-started/installation.md
+    - Quickstart (5 min): getting-started/quickstart.md
+  - Usage:
+    - "Real-World Scenarios (ROI)": use_cases_detailed.md
+    - "User Journeys (Stories)": user_journeys.md
+    - "Integration & Workflows": integration_guide.md
+  - Guides:
+    - Neo4j Setup Wizard : guides/setup_deep_dive.md
+    - MCP Setup Wizard : guides/mcp_guide.md
+    - Visualizing the Graph: guides/visualization.md
+    - Using On-Demand Bundles: guides/bundles.md
+    - CI/CD & Advanced: guides/ci_cd.md
+  - Core Concepts:
+    - How it Works: concepts/how_it_works.md
+    - "System Architecture": architecture.md
+    - The Graph Model: concepts/the_graph.md
+    - CLI vs MCP Modes: concepts/modes.md
+  - CLI Reference:
+    - "All Commands (Master List)": reference/cli_master.md
+    - "Indexing & Management": reference/cli_indexing.md
+    - "Analysis & Querying": reference/cli_analysis.md
+    - "System & Config": reference/cli_system.md
+  - MCP Reference:
+    - "All Tools (Master List)": reference/mcp_master.md
+    - "Example Cookbook": cookbook.md
+  - Project Info:
+    - Roadmap: roadmap.md
+    - Contributing: contributing.md
+    - License: license.md
+    - Configuration: reference/configuration.md
+    - ".cgcignore Guide": reference/cgcignore.md
+    - Troubleshooting: reference/troubleshooting.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true 
+  - attr_list
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg

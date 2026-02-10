@@ -55,3 +55,13 @@ src/codegraphcontext/cli/nl.py
 temporaryFiles
 codegraph_viz.html
 Temp
+tests_sample
+.vercel
+.env*.local
+STATUS.md
+visualizations/
+tests_backup_final/
+tests_old_backup/
+docs/BUNDLES.md
+docs/DOCUMENTATION_AUDIT_2026-01-29.md
+vscode-extension

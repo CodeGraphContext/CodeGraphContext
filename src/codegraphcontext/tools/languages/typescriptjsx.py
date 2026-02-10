@@ -15,9 +15,9 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
         "(interface_declaration) @interface",
         "(type_alias_declaration) @type_alias",
     ]
-    for file_path in files:
+    for path in files:
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 source_code = f.read()
                 tree = parser_wrapper.parser.parse(bytes(source_code, "utf8"))
             for query_str in query_strings:
@@ -53,15 +53,15 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
                         if name:
                             if name not in imports_map:
                                 imports_map[name] = []
-                            file_path_str = str(file_path.resolve())
+                            file_path_str = str(path.resolve())
                             if file_path_str not in imports_map[name]:
                                 imports_map[name].append(file_path_str)
                 except Exception as query_error:
                     warning_logger(f"Query failed for pattern '{query_str}': {query_error}")
         except Exception as e:
-            warning_logger(f"Tree-sitter pre-scan failed for {file_path}: {e}")
+            warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     return imports_map
-from typing import Dict
+from typing import Dict, Any
 from codegraphcontext.utils.debug_log import warning_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
 from .typescript import TypescriptTreeSitterParser
@@ -74,12 +74,13 @@ class TypescriptJSXTreeSitterParser(TypescriptTreeSitterParser):
         super().__init__(generic_parser_wrapper)
         self.language_name = 'typescript'
         self.jsx_enabled = True 
-    def parse(self, file_path: Path, is_dependency: bool = False) -> Dict:
+    def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict[str, Any]:
         """
         Parse a .tsx file, reusing TypeScript logic and ensuring JSX nodes are handled.
         Indexes components, functions, imports, and exports.
         """
-        with open(file_path, "r", encoding="utf-8") as f:
+        self.index_source = index_source
+        with open(path, "r", encoding="utf-8") as f:
             source_code = f.read()
         tree = self.parser.parse(bytes(source_code, "utf8"))
         root_node = tree.root_node
@@ -97,7 +98,7 @@ class TypescriptJSXTreeSitterParser(TypescriptTreeSitterParser):
         components = self._find_react_components(root_node)
 
         return {
-            "file_path": str(file_path),
+            "path": str(path),
             "functions": functions,
             "classes": classes,
             "interfaces": interfaces,
@@ -119,7 +120,7 @@ class TypescriptJSXTreeSitterParser(TypescriptTreeSitterParser):
         # Class components: class extending React.Component or React.PureComponent
         # This is a simplified query, can be extended for more cases
         query_strings = [
-            '(class_declaration extends_clause: (extends_clause (identifier) @base) name: (identifier) @name)',
+            '(class_declaration name: (type_identifier) @name)',
             '(variable_declarator name: (identifier) @name value: (arrow_function) @fn)',
             '(variable_declarator name: (identifier) @name value: (function_expression) @fn)',
             '(function_declaration name: (identifier) @name)',
@@ -129,10 +130,22 @@ class TypescriptJSXTreeSitterParser(TypescriptTreeSitterParser):
                 if capture_name == 'name':
                     name = node.text.decode('utf-8')
                     line_number = node.start_point[0] + 1
-                    components.append({
+                    component_data = {
                         "name": name,
                         "line_number": line_number,
                         "type": "component",
                         "lang": self.language_name,
-                    })
+                    }
+
+                    if self.index_source:
+                        # Assuming node is the name node, we might want the parent declaration node for source
+                        # The query captures 'name', so node is the identifier.
+                        # We need the parent node.
+                        # (class_declaration ... name: (identifier) @name) -> parent is class_declaration
+                        # (variable_declarator name: (identifier) @name ...) -> parent is variable_declarator
+                        # (function_declaration name: (identifier) @name) -> parent is function_declaration
+                        parent = node.parent
+                        component_data["source"] = parent.text.decode('utf-8')
+
+                    components.append(component_data)
         return components
