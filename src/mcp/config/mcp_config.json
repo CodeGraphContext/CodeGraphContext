@@ -1,0 +1,9 @@
+{
+  "providers": {
+    "antigravity": {
+      "type": "google",
+      "endpoint": "https://antigravity.googleapis.com",
+      "auth": "env:ANTIGRAVITY_API_KEY"
+    }
+  }
+}
