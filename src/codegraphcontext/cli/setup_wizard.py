@@ -135,12 +135,86 @@ def convert_mcp_json_to_yaml():
             yaml.dump(mcp_config, yaml_file, default_flow_style=False)
         console.print(f"[green]Generated devfile.yaml for Amazon Q Developer at {yaml_path}[/green]")
 
+def _configure_goose(mcp_config):
+    """Configures Goose CLI with the MCP server."""
+    # Define paths
+    paths = [
+        Path.home() / ".config" / "goose" / "config.yaml", # Linux/macOS
+        Path.home() / "AppData" / "Roaming" / "Block" / "goose" / "config.yaml", # Windows default
+        Path.home() / "AppData" / "Roaming" / "goose" / "config.yaml" # Windows alternative
+    ]
+    
+    target_path = None
+    for path in paths:
+        if path.exists():
+            target_path = path
+            break
+            
+    if not target_path:
+        # Check parents
+         for path in paths:
+            if path.parent.exists():
+                target_path = path
+                break
+                
+    if not target_path:
+        console.print(f"[yellow]Could not automatically find or create the configuration directory for Goose.[/yellow]")
+        console.print("Please add the MCP configuration manually.")
+        return
+
+    console.print(f"Using configuration file at: {target_path}")
+
+    try:
+        # Load existing config or start fresh
+        if target_path.exists():
+            with open(target_path, "r") as f:
+                try:
+                    config = yaml.safe_load(f) or {}
+                except yaml.YAMLError as e:
+                    console.print(f"[red]Error parsing existing Goose configuration: {e}[/red]")
+                    console.print("[yellow]Aborting to prevent data loss. Please fix your config.yaml and try again.[/yellow]")
+                    return
+        else:
+            config = {}
+            
+        if "extensions" not in config:
+            config["extensions"] = {}
+            
+        # Transform mcp_config to Goose format
+        if "mcpServers" in mcp_config and "CodeGraphContext" in mcp_config["mcpServers"]:
+            cgc_config = mcp_config["mcpServers"]["CodeGraphContext"]
+            
+            # Ensure args are in the list format properly
+            cmd = cgc_config.get("command", "cgc")
+            args = cgc_config.get("args", ["mcp", "start"])
+            
+            goose_ext = {
+                "enabled": True,
+                "name": "CodeGraphContext",
+                "type": "stdio",
+                "cmd": cmd,
+                "args": args,
+                "envs": cgc_config.get("env", {})
+            }
+            
+            config["extensions"]["codegraphcontext"] = goose_ext
+            
+            with open(target_path, "w") as f:
+                yaml.dump(config, f, default_flow_style=False)
+                
+            console.print(f"[green]Successfully updated Goose configuration.[/green]")
+        else:
+             console.print("[red]Error: Invalid MCP configuration structure.[/red]")
+        
+    except Exception as e:
+        console.print(f"[red]Failed to update Goose configuration: {e}[/red]")
+
 def _configure_ide(mcp_config):
     """Asks user for their IDE and configures it automatically."""
     questions = [
         {
             "type": "confirm",
-            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro)?",
+            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Goose)?",
             "name": "configure_ide",
             "default": True,
         }
@@ -154,7 +228,7 @@ def _configure_ide(mcp_config):
         {
             "type": "list",
             "message": "Choose your IDE/CLI to configure:",
-            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "None of the above"],
+            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "None of the above"],
             "name": "ide_choice",
         }
     ]
@@ -166,12 +240,16 @@ def _configure_ide(mcp_config):
         return
 
 
-    if ide_choice in ["VS Code", "Cursor/CLI", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "Windsurf", "RooCode", "Amazon Q Developer , JetBrainsAI", "Aider", "Kiro"]:
+    if ide_choice in ["VS Code", "Cursor", "Cursor/CLI", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose"]:
         console.print(f"\n[bold cyan]Configuring for {ide_choice}...[/bold cyan]")
 
         if ide_choice == "Amazon Q Developer":
             convert_mcp_json_to_yaml()
             return  
+        
+        if ide_choice == "Goose":
+            _configure_goose(mcp_config)
+            return
         
         config_paths = {
             "VS Code": [
