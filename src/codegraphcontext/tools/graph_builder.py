@@ -138,6 +138,7 @@ class GraphBuilder:
                 session.run("CREATE CONSTRAINT macro_unique IF NOT EXISTS FOR (m:Macro) REQUIRE (m.name, m.path, m.line_number) IS UNIQUE")
                 session.run("CREATE CONSTRAINT variable_unique IF NOT EXISTS FOR (v:Variable) REQUIRE (v.name, v.path, v.line_number) IS UNIQUE")
                 session.run("CREATE CONSTRAINT module_name IF NOT EXISTS FOR (m:Module) REQUIRE m.name IS UNIQUE")
+                session.run("CREATE CONSTRAINT export_unique IF NOT EXISTS FOR (e:Export) REQUIRE (e.name, e.module_name, e.file_path) IS UNIQUE")
                 session.run("CREATE CONSTRAINT struct_cpp IF NOT EXISTS FOR (cstruct: Struct) REQUIRE (cstruct.name, cstruct.path, cstruct.line_number) IS UNIQUE")
                 session.run("CREATE CONSTRAINT enum_cpp IF NOT EXISTS FOR (cenum: Enum) REQUIRE (cenum.name, cenum.path, cenum.line_number) IS UNIQUE")
                 session.run("CREATE CONSTRAINT union_cpp IF NOT EXISTS FOR (cunion: Union) REQUIRE (cunion.name, cunion.path, cunion.line_number) IS UNIQUE")
@@ -257,7 +258,6 @@ class GraphBuilder:
 
     # First pass to add file and its contents
     def add_file_to_graph(self, file_data: Dict, repo_name: str, imports_map: dict):
-        info_logger("Executing add_file_to_graph with my change!")
         """Adds a file and its contents within a single, unified session."""
         file_path_str = str(Path(file_data['path']).resolve())
         file_name = Path(file_path_str).name
@@ -369,20 +369,27 @@ class GraphBuilder:
 
             # Handle imports and create IMPORTS relationships
             for imp in file_data.get('imports', []):
-                info_logger(f"Processing import: {imp}")
                 lang = file_data.get('lang')
                 if lang == 'javascript':
-                    # New, correct logic for JS
-                    module_name = imp.get('source')
-                    if not module_name: continue
-
-                    # Use a map for relationship properties to handle optional alias and line_number
+                    raw_source = imp.get('source')
+                    if not raw_source:
+                        continue
+                    # Unify Module name with export: use repo-relative path so
+                    # "who imports this module" finds the same Module as export name search.
+                    if raw_source.startswith('.'):
+                        try:
+                            resolved = (file_path_obj.parent / raw_source).resolve()
+                            rel = resolved.relative_to(repo_path_obj)
+                            module_name = './' + str(rel).replace('\\', '/')
+                        except (ValueError, OSError):
+                            module_name = raw_source
+                    else:
+                        module_name = raw_source
                     rel_props = {'imported_name': imp.get('name', '*')}
                     if imp.get('alias'):
                         rel_props['alias'] = imp.get('alias')
                     if imp.get('line_number'):
                         rel_props['line_number'] = imp.get('line_number')
-
                     session.run("""
                         MATCH (f:File {path: $path})
                         MERGE (m:Module {name: $module_name})
@@ -411,6 +418,38 @@ class GraphBuilder:
                         SET r += $rel_props
                     """, path=file_path_str, rel_props=rel_props, **imp)
 
+            # Handle exports for JavaScript modules (PR #530 / issue #495)
+            exports_list = file_data.get('exports', [])
+            lang = file_data.get('lang')
+            for export in exports_list:
+                if lang == 'javascript':
+                    try:
+                        file_obj = Path(file_path_str)
+                        repo_path = repo_result['path'] if repo_result else str(repo_path_obj)
+                        repo_obj = Path(repo_path)
+                        rel_path = file_obj.relative_to(repo_obj)
+                        module_name = './' + str(rel_path).replace('\\', '/')
+                    except (ValueError, KeyError, TypeError):
+                        module_name = './' + Path(file_path_str).name
+                    session.run("""
+                        MATCH (f:File {path: $file_path})
+                        MERGE (m:Module {name: $module_name})
+                        MERGE (e:Export {name: $export_name, module_name: $module_name, file_path: $file_path})
+                        SET e.original_name = $original_name,
+                            e.is_default = $is_default,
+                            e.line_number = $line_number,
+                            e.lang = $lang
+                        MERGE (m)-[:EXPORTS]->(e)
+                        MERGE (f)-[:CONTAINS]->(e)
+                    """,
+                        file_path=file_path_str,
+                        module_name=module_name,
+                        export_name=export.get('name'),
+                        original_name=export.get('original_name') or export.get('name'),
+                        is_default=export.get('is_default', False),
+                        line_number=export.get('line_number'),
+                        lang=export.get('lang'),
+                    )
 
             # Handle CONTAINS relationship between class to their children like variables
             for func in file_data.get('functions', []):

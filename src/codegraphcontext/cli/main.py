@@ -1691,6 +1691,12 @@ def analyze_dependencies(
         
         if not results.get('importers') and not results.get('imports'):
             console.print(f"[yellow]No dependency information found for '{target}'[/yellow]")
+            exports_found = results.get('exports', [])
+            if exports_found:
+                console.print(f"[dim]Found {len(exports_found)} export(s) but no files import this module.[/dim]")
+                console.print("[dim]Run [bold]cgc index . --force[/bold] to re-index so import and export module names match, then try again.[/dim]")
+            else:
+                console.print("[dim]Tip: For JavaScript, try an export name (e.g. exportedFunction), import alias (e.g. defaultExport), or module path. Run [bold]cgc index . --force[/bold] after code or CGC updates.[/dim]")
             return
         
         # Check if visual mode is enabled

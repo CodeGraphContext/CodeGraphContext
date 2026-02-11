@@ -624,25 +624,92 @@ class CodeFinder:
             return result.data()
     
     def find_module_dependencies(self, module_name: str) -> Dict[str, Any]:
-        """Find all dependencies and dependents of a module"""
+        """Find all dependencies and dependents of a module, searching by module name, export names, and import aliases (PR #530)."""
         with self.driver.session() as session:
-            # Find files that import this module (who imports this module)
-            importers_result = session.run("""
+            # Strategy 1: Direct module name match
+            importers_by_module = session.run("""
                 MATCH (file:File)-[imp:IMPORTS]->(module:Module {name: $module_name})
                 OPTIONAL MATCH (repo:Repository)-[:CONTAINS]->(file)
                 RETURN DISTINCT
                     file.path as importer_file_path,
                     imp.line_number as import_line_number,
+                    imp.imported_name as imported_name,
+                    imp.alias as import_alias,
                     file.is_dependency as file_is_dependency,
-                    repo.name as repository_name
+                    repo.name as repository_name,
+                    'direct_module' as match_type
                 ORDER BY file.is_dependency ASC, file.path
                 LIMIT 50
             """, module_name=module_name)
-            
+
+            # Strategy 2: Search by export name - find modules that export this name
+            importers_by_export = session.run("""
+                MATCH (export:Export {name: $module_name})
+                MATCH (module:Module)-[:EXPORTS]->(export)
+                MATCH (file:File)-[imp:IMPORTS]->(module)
+                OPTIONAL MATCH (repo:Repository)-[:CONTAINS]->(file)
+                RETURN DISTINCT
+                    file.path as importer_file_path,
+                    imp.line_number as import_line_number,
+                    imp.imported_name as imported_name,
+                    imp.alias as import_alias,
+                    file.is_dependency as file_is_dependency,
+                    repo.name as repository_name,
+                    'export_name' as match_type
+                ORDER BY file.is_dependency ASC, file.path
+                LIMIT 50
+            """, module_name=module_name)
+
+            # Strategy 3: Search by import alias
+            importers_by_alias = session.run("""
+                MATCH (file:File)-[imp:IMPORTS]->(module:Module)
+                WHERE imp.alias = $module_name
+                OPTIONAL MATCH (repo:Repository)-[:CONTAINS]->(file)
+                RETURN DISTINCT
+                    file.path as importer_file_path,
+                    imp.line_number as import_line_number,
+                    imp.imported_name as imported_name,
+                    imp.alias as import_alias,
+                    file.is_dependency as file_is_dependency,
+                    repo.name as repository_name,
+                    'import_alias' as match_type
+                ORDER BY file.is_dependency ASC, file.path
+                LIMIT 50
+            """, module_name=module_name)
+
+            # Strategy 4: Search by imported_name on IMPORTS relationship
+            importers_by_imported_name = session.run("""
+                MATCH (file:File)-[imp:IMPORTS]->(module:Module)
+                WHERE imp.imported_name = $module_name
+                OPTIONAL MATCH (repo:Repository)-[:CONTAINS]->(file)
+                RETURN DISTINCT
+                    file.path as importer_file_path,
+                    imp.line_number as import_line_number,
+                    imp.imported_name as imported_name,
+                    imp.alias as import_alias,
+                    file.is_dependency as file_is_dependency,
+                    repo.name as repository_name,
+                    'imported_name' as match_type
+                ORDER BY file.is_dependency ASC, file.path
+                LIMIT 50
+            """, module_name=module_name)
+
+            # Combine results from all strategies, deduplicate by (path, line_number)
+            all_importers = []
+            seen_paths = set()
+            for result_set in [importers_by_module, importers_by_export, importers_by_alias, importers_by_imported_name]:
+                for record in result_set:
+                    record_dict = dict(record)
+                    key = (record_dict.get('importer_file_path'), record_dict.get('import_line_number'))
+                    if key not in seen_paths:
+                        seen_paths.add(key)
+                        all_importers.append(record_dict)
+
             # Find modules that are imported by files that also import the target module
-            # This helps understand what this module is typically used with
             imports_result = session.run("""
-                MATCH (file:File)-[:IMPORTS]->(target_module:Module {name: $module_name})
+                MATCH (file:File)-[:IMPORTS]->(target_module:Module)
+                WHERE target_module.name = $module_name
+                   OR (target_module)-[:EXPORTS]->(:Export {name: $module_name})
                 MATCH (file)-[imp:IMPORTS]->(other_module:Module)
                 WHERE other_module <> target_module
                 RETURN DISTINCT
@@ -651,11 +718,28 @@ class CodeFinder:
                 ORDER BY other_module.name
                 LIMIT 50
             """, module_name=module_name)
-            
+
+            # Find exports from modules matching the search term
+            exports_result = session.run("""
+                MATCH (export:Export)
+                WHERE export.name = $module_name OR export.original_name = $module_name
+                OPTIONAL MATCH (module:Module)-[:EXPORTS]->(export)
+                RETURN DISTINCT
+                    export.name as export_name,
+                    export.original_name as original_name,
+                    export.is_default as is_default,
+                    export.file_path as file_path,
+                    export.line_number as line_number,
+                    module.name as module_name
+                ORDER BY export.file_path, export.line_number
+                LIMIT 20
+            """, module_name=module_name)
+
             return {
                 "module_name": module_name,
-                "importers": [dict(record) for record in importers_result],
-                "imports": [dict(record) for record in imports_result]
+                "importers": all_importers,
+                "imports": [dict(record) for record in imports_result],
+                "exports": [dict(record) for record in exports_result],
             }
     
     def find_variable_usage_scope(self, variable_name: str, path: str = None) -> Dict[str, Any]:
@@ -828,7 +912,7 @@ class CodeFinder:
                 results = self.find_module_dependencies(target)
                 return {
                     "query_type": "module_dependencies", "target": target, "results": results,
-                    "summary": f"Module '{target}' is imported by {len(results['imported_by_files'])} files"
+                    "summary": f"Module '{target}' is imported by {len(results.get('importers', []))} files"
                 }
             
             elif query_type in ["variable_scope", "var_scope", "variable_usage_scope"]:
