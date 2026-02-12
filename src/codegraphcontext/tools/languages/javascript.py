@@ -514,7 +514,6 @@ class JavascriptTreeSitterParser:
                                     name_node = dec.child_by_field_name('name')
                                     if name_node:
                                         original_name = self._get_node_text(name_node)
-                                        break
                                     break
                     exports.append({
                         'name': export_name,
@@ -546,20 +545,7 @@ class JavascriptTreeSitterParser:
                             'line_number': line_number,
                             'lang': self.language_name,
                         })
-                elif child.type == 'lexical_declaration' and not has_default:
-                    for declarator in child.children:
-                        if declarator.type == 'variable_declarator':
-                            name_node = declarator.child_by_field_name('name')
-                            if name_node and name_node.type == 'identifier':
-                                export_name = self._get_node_text(name_node)
-                                exports.append({
-                                    'name': export_name,
-                                    'original_name': export_name,
-                                    'is_default': False,
-                                    'line_number': line_number,
-                                    'lang': self.language_name,
-                                })
-                elif child.type == 'variable_declaration' and not has_default:
+                elif child.type in ('lexical_declaration', 'variable_declaration') and not has_default:
                     for declarator in child.children:
                         if declarator.type == 'variable_declarator':
                             name_node = declarator.child_by_field_name('name')

@@ -626,6 +626,8 @@ class CodeFinder:
     def find_module_dependencies(self, module_name: str) -> Dict[str, Any]:
         """Find all dependencies and dependents of a module, searching by module name, export names, and import aliases (PR #530)."""
         with self.driver.session() as session:
+            # Four strategies below; results are merged and deduplicated in Python.
+            # Future optimization: combine into a single Cypher query with UNION for fewer round trips.
             # Strategy 1: Direct module name match
             importers_by_module = session.run("""
                 MATCH (file:File)-[imp:IMPORTS]->(module:Module {name: $module_name})
@@ -642,23 +644,27 @@ class CodeFinder:
                 LIMIT 50
             """, module_name=module_name)
 
-            # Strategy 2: Search by export name - find modules that export this name
-            importers_by_export = session.run("""
-                MATCH (export:Export {name: $module_name})
-                MATCH (module:Module)-[:EXPORTS]->(export)
-                MATCH (file:File)-[imp:IMPORTS]->(module)
-                OPTIONAL MATCH (repo:Repository)-[:CONTAINS]->(file)
-                RETURN DISTINCT
-                    file.path as importer_file_path,
-                    imp.line_number as import_line_number,
-                    imp.imported_name as imported_name,
-                    imp.alias as import_alias,
-                    file.is_dependency as file_is_dependency,
-                    repo.name as repository_name,
-                    'export_name' as match_type
-                ORDER BY file.is_dependency ASC, file.path
-                LIMIT 50
-            """, module_name=module_name)
+            # Strategy 2: Search by export name. Skip when module_name is "default" because all
+            # default exports have name='default', which would match every default export in the graph.
+            if module_name != "default":
+                importers_by_export = session.run("""
+                    MATCH (export:Export {name: $module_name})
+                    MATCH (module:Module)-[:EXPORTS]->(export)
+                    MATCH (file:File)-[imp:IMPORTS]->(module)
+                    OPTIONAL MATCH (repo:Repository)-[:CONTAINS]->(file)
+                    RETURN DISTINCT
+                        file.path as importer_file_path,
+                        imp.line_number as import_line_number,
+                        imp.imported_name as imported_name,
+                        imp.alias as import_alias,
+                        file.is_dependency as file_is_dependency,
+                        repo.name as repository_name,
+                        'export_name' as match_type
+                    ORDER BY file.is_dependency ASC, file.path
+                    LIMIT 50
+                """, module_name=module_name)
+            else:
+                importers_by_export = iter([])
 
             # Strategy 3: Search by import alias
             importers_by_alias = session.run("""
