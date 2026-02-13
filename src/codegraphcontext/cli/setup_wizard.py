@@ -152,15 +152,22 @@ def _configure_goose(mcp_config):
             
     if not target_path:
         # Check parents
-         for path in paths:
+        for path in paths:
             if path.parent.exists():
                 target_path = path
                 break
                 
     if not target_path:
-        console.print(f"[yellow]Could not automatically find or create the configuration directory for Goose.[/yellow]")
-        console.print("Please add the MCP configuration manually.")
-        return
+        # If no config found, default to the first standard path and ensure directory exists
+        target_path = paths[0]
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            console.print(f"[green]Created new configuration directory at: {target_path.parent}[/green]")
+        except Exception as e:
+             console.print(f"[yellow]Current paths checked: {[str(p) for p in paths]}[/yellow]")
+             console.print(f"[yellow]Could not create configuration directory: {e}[/yellow]")
+             console.print("Please add the MCP configuration manually.")
+             return
 
     console.print(f"Using configuration file at: {target_path}")
 
@@ -177,6 +184,11 @@ def _configure_goose(mcp_config):
         else:
             config = {}
             
+        if "extensions" in config and not isinstance(config["extensions"], dict):
+            console.print("[red]Error: The 'extensions' field in the Goose configuration must be a mapping (dictionary).[/red]")
+            console.print("[yellow]Aborting to prevent overwriting an invalid 'extensions' value. Please fix your config.yaml and try again.[/yellow]")
+            return
+
         if "extensions" not in config:
             config["extensions"] = {}
             
@@ -184,9 +196,20 @@ def _configure_goose(mcp_config):
         if "mcpServers" in mcp_config and "CodeGraphContext" in mcp_config["mcpServers"]:
             cgc_config = mcp_config["mcpServers"]["CodeGraphContext"]
             
-            # Ensure args are in the list format properly
+            # Ensure args are in list format before writing Goose configuration
             cmd = cgc_config.get("command", "cgc")
-            args = cgc_config.get("args", ["mcp", "start"])
+            raw_args = cgc_config.get("args")
+
+            if raw_args is None:
+                args = ["mcp", "start"]
+            elif isinstance(raw_args, str):
+                # Allow a single string and treat it as a single argument
+                args = [raw_args]
+            elif isinstance(raw_args, list):
+                args = raw_args
+            else:
+                console.print("[red]Error: Invalid type for 'args' in MCP configuration. Expected a list of arguments or a string.[/red]")
+                return
             
             goose_ext = {
                 "enabled": True,
@@ -204,7 +227,7 @@ def _configure_goose(mcp_config):
                 
             console.print(f"[green]Successfully updated Goose configuration.[/green]")
         else:
-             console.print("[red]Error: Invalid MCP configuration structure.[/red]")
+            console.print("[red]Error: Invalid MCP configuration structure.[/red]")
         
     except Exception as e:
         console.print(f"[red]Failed to update Goose configuration: {e}[/red]")
@@ -257,7 +280,7 @@ def _configure_ide(mcp_config):
                 Path.home() / "Library" / "Application Support" / "Code" / "User" / "settings.json",
                 Path.home() / "AppData" / "Roaming" / "Code" / "User" / "settings.json"
             ],
-            "Cursor/CLI": [
+            "Cursor": [
                 Path.home() / ".cursor" / "settings.json",
                 Path.home() / ".config" / "cursor" / "settings.json",
                 Path.home() / "Library" / "Application Support" / "cursor" / "settings.json",
