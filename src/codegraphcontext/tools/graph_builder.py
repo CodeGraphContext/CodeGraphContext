@@ -268,7 +268,7 @@ class GraphBuilder:
             )
 
     # First pass to add file and its contents
-    def add_file_to_graph(self, file_data: Dict, repo_name: str, imports_map: dict):
+    def add_file_to_graph(self, file_data: Dict, repo_name: str, imports_map: dict, ts_config: Optional[Dict] = None):
         info_logger("Executing add_file_to_graph with my change!")
         """Adds a file and its contents within a single, unified session."""
         file_path_str = str(Path(file_data['path']).resolve())
@@ -383,10 +383,23 @@ class GraphBuilder:
             for imp in file_data.get('imports', []):
                 info_logger(f"Processing import: {imp}")
                 lang = file_data.get('lang')
-                if lang == 'javascript':
-                    # New, correct logic for JS
+                if lang in ('javascript', 'typescript', 'typescriptjsx'):
                     module_name = imp.get('source')
                     if not module_name: continue
+
+                    # Attempt to resolve the import to an absolute file path
+                    effective_module_name = module_name
+                    if ts_config and lang in ('typescript', 'typescriptjsx'):
+                        from .ts_import_resolver import resolve_ts_import
+                        resolved = resolve_ts_import(
+                            import_source=module_name,
+                            importing_file_path=Path(file_path_str),
+                            project_root=ts_config['project_root'],
+                            base_url=ts_config.get('base_url'),
+                            paths_map=ts_config.get('paths_map'),
+                        )
+                        if resolved:
+                            effective_module_name = resolved
 
                     # Use a map for relationship properties to handle optional alias and line_number
                     rel_props = {'imported_name': imp.get('name', '*')}
@@ -398,9 +411,11 @@ class GraphBuilder:
                     session.run("""
                         MATCH (f:File {path: $path})
                         MERGE (m:Module {name: $module_name})
+                        SET m.raw_specifier = coalesce(m.raw_specifier, $raw_specifier)
                         MERGE (f)-[r:IMPORTS]->(m)
                         SET r += $props
-                    """, path=file_path_str, module_name=module_name, props=rel_props)
+                    """, path=file_path_str, module_name=effective_module_name,
+                         raw_specifier=module_name, props=rel_props)
                 else:
                     # Existing logic for Python (and other languages)
                     set_clauses = ["m.alias = $alias"]
@@ -793,18 +808,18 @@ class GraphBuilder:
             info_logger(f"Deleted repository and its contents from graph: {repo_path_str}")
             return True
 
-    def update_file_in_graph(self, path: Path, repo_path: Path, imports_map: dict):
+    def update_file_in_graph(self, path: Path, repo_path: Path, imports_map: dict, ts_config: Optional[Dict] = None):
         """Updates a single file's nodes in the graph."""
         file_path_str = str(path.resolve())
         repo_name = repo_path.name
-        
+
         self.delete_file_from_graph(file_path_str)
 
         if path.exists():
             file_data = self.parse_file(repo_path, path)
-            
+
             if "error" not in file_data:
-                self.add_file_to_graph(file_data, repo_name, imports_map)
+                self.add_file_to_graph(file_data, repo_name, imports_map, ts_config=ts_config)
                 return file_data
             else:
                 error_logger(f"Skipping graph add for {file_path_str} due to parsing error: {file_data['error']}")
@@ -961,6 +976,17 @@ class GraphBuilder:
             imports_map = self._pre_scan_for_imports(files)
             debug_log(f"Pre-scan complete. Found {len(imports_map)} definitions.")
 
+            # Parse tsconfig.json once for TS/TSX import resolution
+            ts_config = None
+            project_root = path.resolve() if path.is_dir() else path.parent.resolve()
+            from .ts_import_resolver import parse_tsconfig_paths
+            ts_base_url, ts_paths_map = parse_tsconfig_paths(project_root)
+            ts_config = {
+                'base_url': ts_base_url,
+                'paths_map': ts_paths_map,
+                'project_root': project_root,
+            }
+
             all_file_data = []
 
             processed_count = 0
@@ -971,7 +997,7 @@ class GraphBuilder:
                     repo_path = path.resolve() if path.is_dir() else file.parent.resolve()
                     file_data = self.parse_file(repo_path, file, is_dependency)
                     if "error" not in file_data:
-                        self.add_file_to_graph(file_data, repo_name, imports_map)
+                        self.add_file_to_graph(file_data, repo_name, imports_map, ts_config=ts_config)
                         all_file_data.append(file_data)
                     processed_count += 1
                     if job_id:

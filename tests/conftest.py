@@ -33,6 +33,14 @@ def javascript_sample_project(sample_projects_path):
         pytest.fail(f"JavaScript sample project not found at {path}")
     return path
 
+@pytest.fixture(scope="session")
+def typescript_sample_project(sample_projects_path):
+    """Returns path to the TypeScript sample project."""
+    path = sample_projects_path / "sample_project_typescript"
+    if not path.exists():
+        pytest.fail(f"TypeScript sample project not found at {path}")
+    return path
+
 @pytest.fixture
 def temp_test_dir():
     """Creates a temporary directory for file operations, cleaned up after test."""
