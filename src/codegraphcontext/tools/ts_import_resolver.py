@@ -138,8 +138,21 @@ def parse_tsconfig_paths(project_root: Path) -> Tuple[Optional[Path], Dict[str, 
     Returns:
         (base_url_absolute, paths_map) or (None, {}) if no tsconfig found.
     """
-    tsconfig_path = project_root / 'tsconfig.json'
-    if not tsconfig_path.is_file():
+    # Walk up from project_root to find tsconfig.json (it often lives
+    # one level above src/, e.g. project/tsconfig.json when indexing project/src)
+    tsconfig_path = None
+    search_dir = project_root.resolve()
+    while True:
+        candidate = search_dir / 'tsconfig.json'
+        if candidate.is_file():
+            tsconfig_path = candidate
+            break
+        parent = search_dir.parent
+        if parent == search_dir:  # filesystem root
+            break
+        search_dir = parent
+
+    if tsconfig_path is None:
         return None, {}
 
     try:

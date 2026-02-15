@@ -389,6 +389,7 @@ class GraphBuilder:
 
                     # Attempt to resolve the import to an absolute file path
                     effective_module_name = module_name
+                    debug_log(f"[import-resolve] lang={lang} ts_config={'yes' if ts_config else 'no'} source={module_name}")
                     if ts_config and lang in ('typescript', 'typescriptjsx'):
                         from .ts_import_resolver import resolve_ts_import
                         resolved = resolve_ts_import(
@@ -398,6 +399,7 @@ class GraphBuilder:
                             base_url=ts_config.get('base_url'),
                             paths_map=ts_config.get('paths_map'),
                         )
+                        debug_log(f"[import-resolve] resolved={resolved}")
                         if resolved:
                             effective_module_name = resolved
 
