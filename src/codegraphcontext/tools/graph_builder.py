@@ -269,7 +269,6 @@ class GraphBuilder:
 
     # First pass to add file and its contents
     def add_file_to_graph(self, file_data: Dict, repo_name: str, imports_map: dict, ts_config: Optional[Dict] = None):
-        info_logger("Executing add_file_to_graph with my change!")
         """Adds a file and its contents within a single, unified session."""
         file_path_str = str(Path(file_data['path']).resolve())
         file_name = Path(file_path_str).name

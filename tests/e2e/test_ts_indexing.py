@@ -22,6 +22,20 @@ def query(cypher):
     return result.stdout
 
 
+def query_value(cypher, key):
+    """Run a Cypher query and return a single value from the first result row."""
+    result = run_cgc(["query", cypher])
+    assert result.returncode == 0, f"Query failed: {result.stderr}"
+    import json
+    # The CLI may print init messages before JSON; find the JSON array.
+    stdout = result.stdout
+    idx = stdout.find("[")
+    assert idx != -1, f"No JSON array in output: {stdout}"
+    rows = json.loads(stdout[idx:])
+    assert len(rows) > 0, f"No results for query: {cypher}"
+    return rows[0][key]
+
+
 @pytest.mark.slow
 class TestTypescriptIndexing:
     """Index the TS fixture and validate the graph via Cypher queries."""
@@ -44,12 +58,12 @@ class TestTypescriptIndexing:
         )
 
     def test_ts_files_indexed(self):
-        out = query("MATCH (f:File) WHERE f.path ENDS WITH '.ts' RETURN count(f) as c")
-        assert "0" not in out or int(out.strip().split()[-1]) > 0
+        count = query_value("MATCH (f:File) WHERE f.path ENDS WITH '.ts' RETURN count(f) as c", "c")
+        assert count > 0
 
     def test_tsx_files_indexed(self):
-        out = query("MATCH (f:File) WHERE f.path ENDS WITH '.tsx' RETURN count(f) as c")
-        assert "0" not in out
+        count = query_value("MATCH (f:File) WHERE f.path ENDS WITH '.tsx' RETURN count(f) as c", "c")
+        assert count > 0
 
     def test_alias_imports_resolved_to_absolute_paths(self):
         """Module nodes for alias imports should have absolute paths, not raw specifiers."""
@@ -103,9 +117,14 @@ class TestTypescriptIndexing:
         )
         assert "Layout" in out or "Button" in out
 
-    def test_no_duplicate_modules_for_same_file(self):
+    def test_no_duplicate_modules_for_same_file(self, indexed_project):
         """Two files importing @shared/constants should share one Module node."""
-        out = query(
-            "MATCH (m:Module) WHERE m.name CONTAINS 'constants.ts' RETURN count(m) as c"
+        root = str(indexed_project).replace("\\", "\\\\").replace("'", "\\'")
+        count = query_value(
+            "MATCH (f:File)-[:IMPORTS]->(m:Module) "
+            f"WHERE f.path STARTS WITH '{root}' "
+            "AND m.name CONTAINS 'constants.ts' "
+            "RETURN count(DISTINCT m) as c",
+            "c",
         )
-        assert "1" in out
+        assert count == 1

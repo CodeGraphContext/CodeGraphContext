@@ -104,7 +104,8 @@ def resolve_ts_import(
 
     # 2. Alias imports (check paths_map before bare specifier detection)
     if paths_map:
-        for pattern, replacements in paths_map.items():
+        sorted_patterns = sorted(paths_map.items(), key=lambda p: len(p[0]), reverse=True)
+        for pattern, replacements in sorted_patterns:
             wildcard = _match_path_pattern(pattern, import_source)
             if wildcard is not None:
                 resolve_base = base_url if base_url else project_root
@@ -118,11 +119,17 @@ def resolve_ts_import(
                     if result:
                         return result
 
-    # 3. Bare specifiers — skip (npm packages, Node builtins)
+    # 3. baseUrl-only imports (e.g. "utils/foo" when baseUrl is set)
+    if base_url and _is_bare_specifier(import_source):
+        result = _try_resolve_file(base_url / import_source)
+        if result:
+            return result
+
+    # 4. Bare specifiers — skip (npm packages, Node builtins)
     if _is_bare_specifier(import_source):
         return None
 
-    # 4. Absolute imports (rare, starting with /) — try resolve
+    # 5. Absolute imports (rare, starting with /) — try resolve
     base = Path(import_source)
     return _try_resolve_file(base)
 
@@ -185,8 +192,37 @@ def parse_tsconfig_paths(project_root: Path) -> Tuple[Optional[Path], Dict[str, 
 def _read_json_with_comments(path: Path) -> dict:
     """Read a JSON file that may contain // comments and trailing commas."""
     content = path.read_text(encoding='utf-8')
-    # Strip single-line comments
-    content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
+    # Strip single-line comments while respecting quoted strings
+    result = []
+    i = 0
+    while i < len(content):
+        c = content[i]
+        if c == '"':
+            # Consume entire string (respecting escapes)
+            result.append(c)
+            i += 1
+            while i < len(content) and content[i] != '"':
+                if content[i] == '\\':
+                    result.append(content[i])
+                    i += 1
+                    if i < len(content):
+                        result.append(content[i])
+                        i += 1
+                else:
+                    result.append(content[i])
+                    i += 1
+            if i < len(content):
+                result.append(content[i])  # closing quote
+                i += 1
+        elif c == '/' and i + 1 < len(content) and content[i + 1] == '/':
+            # Skip until end of line
+            i += 2
+            while i < len(content) and content[i] != '\n':
+                i += 1
+        else:
+            result.append(c)
+            i += 1
+    content = ''.join(result)
     # Strip trailing commas before } or ]
     content = re.sub(r',\s*([}\]])', r'\1', content)
     return json.loads(content)
