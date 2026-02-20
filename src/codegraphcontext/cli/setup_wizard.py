@@ -237,7 +237,11 @@ def _configure_ide(mcp_config):
     questions = [
         {
             "type": "confirm",
+<<<<<<< HEAD
             "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Goose)?",
+=======
+            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Antigravity)?",
+>>>>>>> origin/main
             "name": "configure_ide",
             "default": True,
         }
@@ -251,7 +255,11 @@ def _configure_ide(mcp_config):
         {
             "type": "list",
             "message": "Choose your IDE/CLI to configure:",
+<<<<<<< HEAD
             "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "None of the above"],
+=======
+            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Antigravity", "None of the above"],
+>>>>>>> origin/main
             "name": "ide_choice",
         }
     ]
@@ -263,7 +271,11 @@ def _configure_ide(mcp_config):
         return
 
 
+<<<<<<< HEAD
     if ide_choice in ["VS Code", "Cursor", "Cursor/CLI", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose"]:
+=======
+    if ide_choice in ["VS Code", "Cursor", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "Windsurf", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Antigravity"]:
+>>>>>>> origin/main
         console.print(f"\n[bold cyan]Configuring for {ide_choice}...[/bold cyan]")
 
         if ide_choice == "Amazon Q Developer":
@@ -330,6 +342,11 @@ def _configure_ide(mcp_config):
                 Path.home() / ".kiro" / "settings" / "mcp.json",                                   # macOS / Linux / Windows (user-level global)
                 Path.home() / ".config" / "kiro" / "settings" / "mcp.json",                         # Linux (XDG config)
                 Path.home() / "AppData" / "Roaming" / "Kiro" / "settings" / "mcp.json",             # Windows
+            ],
+            "Antigravity": [
+                Path.home() / ".antigravity" / "mcp_settings.json",                                # macOS / Linux / Windows (user-level global)
+                Path.home() / ".config" / "antigravity" / "mcp_settings.json",                     # Linux (XDG config)
+                Path.home() / "AppData" / "Roaming" / "Antigravity" / "mcp_settings.json",         # Windows
             ]
         }
 
@@ -359,7 +376,7 @@ def _configure_ide(mcp_config):
                 try:
                     settings = json.load(f)
                 except json.JSONDecodeError:
-                    settings = {}
+                            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Goose, Antigravity)?",
         except FileNotFoundError:
             settings = {}
 
@@ -373,7 +390,7 @@ def _configure_ide(mcp_config):
         settings["mcpServers"].update(mcp_config["mcpServers"])
 
         try:
-            with open(target_path, "w") as f:
+                            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity", "None of the above"],
                 json.dump(settings, f, indent=2)
             console.print(f"[green]Successfully updated {ide_choice} configuration.[/green]")
         except Exception as e:
@@ -384,7 +401,7 @@ def _configure_ide(mcp_config):
 
 def get_project_root() -> Path:
     """Always return the directory where the user runs `cgc` (CWD)."""
-    return Path.cwd()
+                    if ide_choice in ["VS Code", "Cursor", "Cursor/CLI", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity"]:
 
 def run_command(command, console, shell=False, check=True, input_text=None):
     """
@@ -394,6 +411,10 @@ def run_command(command, console, shell=False, check=True, input_text=None):
     cmd_str = command if isinstance(command, str) else ' '.join(command)
     console.print(f"[cyan]$ {cmd_str}[/cyan]")
     try:
+                        if ide_choice == "Antigravity":
+                            # Add handler for Antigravity if needed, or leave as placeholder
+                            console.print("[yellow]Antigravity support placeholder. Implement handler if required.[/yellow]")
+                            return
         process = subprocess.run(
             command,
             shell=shell,

@@ -14,9 +14,20 @@ class CodeFinder:
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
         self.driver = self.db_manager.get_driver()
+        self._is_falkordb = getattr(db_manager, 'get_backend_type', lambda: 'neo4j')() != 'neo4j'
 
     def format_query(self, find_by: Literal["Class", "Function"], fuzzy_search:bool) -> str:
         """Format the search query based on the search type and fuzzy search settings."""
+        if self._is_falkordb:
+            return f"""
+                CALL db.idx.fulltext.queryNodes('{find_by}', $search_term) YIELD node, score
+                    WITH node, score
+                    WHERE node:{find_by} {'AND node.name CONTAINS $search_term' if not fuzzy_search else ''}
+                    RETURN node.name as name, node.path as path, node.line_number as line_number,
+                        node.source as source, node.docstring as docstring, node.is_dependency as is_dependency
+                    ORDER BY score DESC
+                    LIMIT 20
+                """
         return f"""
             CALL db.index.fulltext.queryNodes("code_search_index", $search_term) YIELD node, score
                 WITH node, score
@@ -79,6 +90,8 @@ class CodeFinder:
 
     def find_by_content(self, search_term: str) -> List[Dict]:
         """Find code by content matching in source or docstrings using the full-text index."""
+        if self._is_falkordb:
+            return self._find_by_content_falkordb(search_term)
         with self.driver.session() as session:
             result = session.run("""
                 CALL db.index.fulltext.queryNodes("code_search_index", $search_term) YIELD node, score
@@ -86,10 +99,10 @@ class CodeFinder:
                 WHERE node:Function OR node:Class OR node:Variable
                 MATCH (node)<-[:CONTAINS]-(f:File)
                 RETURN
-                    CASE 
+                    CASE
                         WHEN node:Function THEN 'function'
                         WHEN node:Class THEN 'class'
-                        ELSE 'variable' 
+                        ELSE 'variable'
                     END as type,
                     node.name as name, f.path as path,
                     node.line_number as line_number, node.source as source,
@@ -98,6 +111,31 @@ class CodeFinder:
                 LIMIT 20
             """, search_term=search_term)
             return result.data()
+
+    def _find_by_content_falkordb(self, search_term: str) -> List[Dict]:
+        """FalkorDB-compatible content search. Queries each label separately since
+        FalkorDB fulltext API takes a label name instead of an index name."""
+        all_results = []
+        with self.driver.session() as session:
+            for label, type_name in [('Function', 'function'), ('Class', 'class')]:
+                try:
+                    result = session.run(f"""
+                        CALL db.idx.fulltext.queryNodes('{label}', $search_term) YIELD node, score
+                        WITH node, score
+                        RETURN
+                            '{type_name}' as type,
+                            node.name as name, node.path as path,
+                            node.line_number as line_number, node.source as source,
+                            node.docstring as docstring, node.is_dependency as is_dependency,
+                            score
+                        ORDER BY score DESC
+                        LIMIT 20
+                    """, search_term=search_term)
+                    all_results.extend(result.data())
+                except Exception:
+                    logger.debug(f"FalkorDB fulltext query failed for label {label}", exc_info=True)
+            all_results.sort(key=lambda x: x.get('score', 0), reverse=True)
+            return all_results[:20]
     
     def find_by_module_name(self, search_term: str) -> List[Dict]:
         """Find modules by name matching"""
