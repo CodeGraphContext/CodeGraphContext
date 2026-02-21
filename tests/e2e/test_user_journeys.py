@@ -38,8 +38,11 @@ class TestUserJourneys:
 
         # Ensure pyproject.toml exists in project_dir with explicit config
         pyproject_dst = project_dir / "pyproject.toml"
+        # Write full config for CI reliability
+        with open("pyproject.toml", "r") as src:
+            config_content = src.read()
         with open(pyproject_dst, "w") as f:
-            f.write("[tool.codegraphcontext]\ndatabase = 'Neo4j'\n")
+            f.write(config_content)
 
         # 2. Index
         print(f"Indexing {project_dir}...")
@@ -68,8 +71,11 @@ class TestUserJourneys:
         (dummy_dir / "main.py").write_text("def main(): pass")
         # Ensure pyproject.toml exists in dummy_dir with explicit config
         pyproject_dst = dummy_dir / "pyproject.toml"
+        # Write full config for CI reliability
+        with open("pyproject.toml", "r") as src:
+            config_content = src.read()
         with open(pyproject_dst, "w") as f:
-            f.write("[tool.codegraphcontext]\ndatabase = 'Neo4j'\n")
+            f.write(config_content)
         self.run_cgc(["index", str(dummy_dir)])
         
         # Act: Delete
