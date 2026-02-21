@@ -9,7 +9,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-
+    services:
+      neo4j:
+        image: neo4j:5
+        ports:
+          - 7687:7687
+        env:
+          NEO4J_AUTH: "neo4j/neo4jpassword"
+        options: >
+          --health-cmd "cypher-shell -u neo4j -p neo4jpassword 'RETURN 1' || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     steps:
     - name: Check out code
       uses: actions/checkout@v3
@@ -26,12 +37,16 @@ jobs:
         pip install pytest
         pip install toml
 
-    - name: Start Neo4j
-      run: |
-        docker run --name neo4j-test -p 7687:7687 -p 7474:7474 -e NEO4J_AUTH=neo4j/neo4jpassword -d neo4j:5
-
     - name: Add default config for tests
       run: cp pyproject.toml tests/fixtures/sample_projects/pyproject.toml
+
+    - name: Wait for Neo4j to be ready
+      run: |
+        for i in {1..30}; do
+          nc -z localhost 7687 && echo "Neo4j is up" && break
+          echo "Waiting for Neo4j..."
+          sleep 2
+        done
 
     - name: Run end-to-end tests
       run: |
