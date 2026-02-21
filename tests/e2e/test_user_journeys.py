@@ -31,16 +31,21 @@ class TestUserJourneys:
         4. User runs 'cgc find function foo' to verify indexing worked.
         """
         
+
         # 1. Copy sample project to temp dir to avoid polluting global state
         project_dir = temp_test_dir / "my_project"
         shutil.copytree(python_sample_project, project_dir)
-        
-        # Ensure clean state (optional, if we use unique DBs per test it's better)
-        # For this E2E, we might be hitting the real local DB. 
-        # Ideally, we'd mock the DB env vars here to point to a test container or temp DB.
-        # For safety, let's assume we proceed but maybe force a unique repo name?
-        # Use a localized config if possible.
-        
+
+        # Ensure pyproject.toml exists in project_dir
+        pyproject_src = python_sample_project / "pyproject.toml"
+        pyproject_dst = project_dir / "pyproject.toml"
+        if pyproject_src.exists():
+            shutil.copy(pyproject_src, pyproject_dst)
+        else:
+            # Create a minimal config if missing
+            with open(pyproject_dst, "w") as f:
+                f.write("[tool.some-tool]\noption = 'value'\n")
+
         # 2. Index
         print(f"Indexing {project_dir}...")
         result = self.run_cgc(["index", str(project_dir)])
