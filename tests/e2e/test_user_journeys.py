@@ -15,7 +15,7 @@ class TestUserJourneys:
     """
 
     def run_cgc(self, args, cwd=None):
-        """Helper to run cgc cli using .venv Python (cross-platform)."""
+        """Helper to run cgc cli using .venv Python if available, else sys.executable."""
         import os
         import sys
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.venv'))
@@ -23,7 +23,8 @@ class TestUserJourneys:
             venv_python = os.path.join(base_dir, "Scripts", "python.exe")
         else:
             venv_python = os.path.join(base_dir, "bin", "python")
-        cmd = [venv_python, "-m", "codegraphcontext.cli.main"] + args
+        python_exec = venv_python if os.path.exists(venv_python) else sys.executable
+        cmd = [python_exec, "-m", "codegraphcontext.cli.main"] + args
         return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
 
     @pytest.mark.slow
@@ -98,13 +99,15 @@ class TestUserJourneys:
         # Usually delete requires --yes or input.
         # Assuming --force or --yes flag exists, or we pipe input.
         import os
+        import sys
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.venv'))
         if os.name == "nt":
             venv_python = os.path.join(base_dir, "Scripts", "python.exe")
         else:
             venv_python = os.path.join(base_dir, "bin", "python")
+        python_exec = venv_python if os.path.exists(venv_python) else sys.executable
         result = subprocess.run(
-            [venv_python, "-m", "codegraphcontext.cli.main", "delete", str(dummy_dir), "--yes"],
+            [python_exec, "-m", "codegraphcontext.cli.main", "delete", str(dummy_dir), "--yes"],
             capture_output=True, text=True
         )
         # If --yes is not supported, this might fail/hang. Checking help first would be wise.
@@ -112,7 +115,7 @@ class TestUserJourneys:
         if result.returncode != 0:
              # Try interactive
              result = subprocess.run(
-                [venv_python, "-m", "codegraphcontext.cli.main", "delete", str(dummy_dir)],
+                [python_exec, "-m", "codegraphcontext.cli.main", "delete", str(dummy_dir)],
                 input="y\n", capture_output=True, text=True
             )
 
