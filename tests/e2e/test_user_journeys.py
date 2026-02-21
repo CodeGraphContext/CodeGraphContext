@@ -39,7 +39,7 @@ class TestUserJourneys:
         # Ensure pyproject.toml exists in project_dir with explicit config
         pyproject_dst = project_dir / "pyproject.toml"
         with open(pyproject_dst, "w") as f:
-            f.write("[tool.codegraphcontext]\ndatabase = 'FalkorDB'\n")
+            f.write("[tool.codegraphcontext]\ndatabase = 'Neo4j'\n")
 
         # 2. Index
         print(f"Indexing {project_dir}...")
@@ -69,7 +69,7 @@ class TestUserJourneys:
         # Ensure pyproject.toml exists in dummy_dir with explicit config
         pyproject_dst = dummy_dir / "pyproject.toml"
         with open(pyproject_dst, "w") as f:
-            f.write("[tool.codegraphcontext]\ndatabase = 'FalkorDB'\n")
+            f.write("[tool.codegraphcontext]\ndatabase = 'Neo4j'\n")
         self.run_cgc(["index", str(dummy_dir)])
         
         # Act: Delete

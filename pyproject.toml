@@ -67,3 +67,9 @@ markers = [
     "e2e: mark a test as an end-to-end test.",
     "slow: mark test as slow."
 ]
+
+[tool.codegraphcontext]
+database = 'Neo4j'
+neo4j_uri = 'bolt://localhost:7687'
+neo4j_username = 'neo4j'
+neo4j_password = 'neo4jpassword'

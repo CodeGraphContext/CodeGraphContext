@@ -176,30 +176,32 @@ class DatabaseManager:
             
             # First, test if the host is reachable
             try:
-                # Extract host and port from URI
+                # Extract host and port from URI, but only for TCP connections
                 host_port = uri.split('://')[1]
-                if ':' in host_port:
-                    host = host_port.split(':')[0]
-                    port = int(host_port.split(':')[1])
+                if uri.startswith('neo4j://') or uri.startswith('bolt://'):
+                    if ':' in host_port:
+                        host = host_port.split(':')[0]
+                        port = int(host_port.split(':')[1])
+                    else:
+                        host = host_port
+                        port = 7687 # Default Neo4j port
+                    # Test socket connection
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(5)
+                    result = sock.connect_ex((host, port))
+                    sock.close()
+                    if result != 0:
+                        return False, (
+                            f"Cannot reach Neo4j server at {host}:{port}\n"
+                            "Troubleshooting:\n"
+                            "  • Is Neo4j running? Check with: docker ps (for Docker)\n"
+                            "  • Is the port correct? Default is 7687\n"
+                            "  • Is there a firewall blocking the connection?\n"
+                            f"  • Try: docker compose up -d (if using Docker)"
+                        )
                 else:
-                    host = host_port
-                    port = 7687 # Default Neo4j port
-                
-                # Test socket connection
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(5)
-                result = sock.connect_ex((host, port))
-                sock.close()
-                
-                if result != 0:
-                    return False, (
-                        f"Cannot reach Neo4j server at {host}:{port}\n"
-                        "Troubleshooting:\n"
-                        "  • Is Neo4j running? Check with: docker ps (for Docker)\n"
-                        "  • Is the port correct? Default is 7687\n"
-                        "  • Is there a firewall blocking the connection?\n"
-                        f"  • Try: docker compose up -d (if using Docker)"
-                    )
+                    # For Unix domain socket or other types, skip port check
+                    pass
             except Exception as e:
                 return False, f"Error parsing URI or checking connectivity: {str(e)}"
             
