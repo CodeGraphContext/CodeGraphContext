@@ -29,6 +29,9 @@ jobs:
       run: |
         docker run --name neo4j-test -p 7687:7687 -p 7474:7474 -e NEO4J_AUTH=neo4j/neo4jpassword -d neo4j:5
 
+    - name: Add default config for tests
+      run: cp pyproject.toml tests/fixtures/sample_projects/pyproject.toml
+
     - name: Run end-to-end tests
       run: |
         chmod +x tests/run_tests.sh
