@@ -238,7 +238,49 @@ def _load_credentials():
             config_sources.append(dotenv_values(dotenv_path))
             config_source_names.append(str(dotenv_path))
     except Exception as e:
-        console.print(f"[yellow]Warning: Could not load .env from current directory: {e}[/yellow]")
+        console.print(f"[yellow]Warning: Could not load .env from current directory: {e}[yellow]")
+
+    # 2.5. Local pyproject.toml (project directory)
+    import toml
+    project_pyproject = None
+    # Try to get the path argument from the stack (index/delete commands)
+    import inspect
+    frame = inspect.currentframe()
+    while frame:
+        args = frame.f_locals
+        if 'path' in args and args['path']:
+            candidate = Path(args['path'])
+            if candidate.is_dir():
+                pyproject_path = candidate / "pyproject.toml"
+            else:
+                pyproject_path = candidate.parent / "pyproject.toml"
+            if pyproject_path.exists():
+                project_pyproject = pyproject_path
+                break
+        frame = frame.f_back
+    if not project_pyproject:
+        # fallback to cwd
+        pyproject_path = Path.cwd() / "pyproject.toml"
+        if pyproject_path.exists():
+            project_pyproject = pyproject_path
+    if project_pyproject:
+        try:
+            pyproject_data = toml.load(project_pyproject)
+            tool_cfg = pyproject_data.get("tool", {}).get("codegraphcontext", {})
+            if tool_cfg:
+                db_env = {}
+                if "database" in tool_cfg:
+                    db_env["DEFAULT_DATABASE"] = tool_cfg["database"].lower()
+                if "neo4j_uri" in tool_cfg:
+                    db_env["NEO4J_URI"] = tool_cfg["neo4j_uri"]
+                if "neo4j_username" in tool_cfg:
+                    db_env["NEO4J_USERNAME"] = tool_cfg["neo4j_username"]
+                if "neo4j_password" in tool_cfg:
+                    db_env["NEO4J_PASSWORD"] = tool_cfg["neo4j_password"]
+                config_sources.append(db_env)
+                config_source_names.append(str(project_pyproject))
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not load pyproject.toml: {e}[yellow]")
     
     # 1. Local mcp.json (highest priority - explicit MCP server config)
     mcp_file_path = Path.cwd() / "mcp.json"

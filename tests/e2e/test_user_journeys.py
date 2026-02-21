@@ -15,10 +15,10 @@ class TestUserJourneys:
     """
 
     def run_cgc(self, args, cwd=None):
-        """Helper to run cgc cli."""
-        # Use sys.executable to ensure we use the same python environment
-        import sys
-        cmd = [sys.executable, "-m", "codegraphcontext.cli.main"] + args
+        """Helper to run cgc cli using .venv Python."""
+        import os
+        venv_python = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.venv/Scripts/python.exe'))
+        cmd = [venv_python, "-m", "codegraphcontext.cli.main"] + args
         return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
 
     @pytest.mark.slow
@@ -92,8 +92,10 @@ class TestUserJourneys:
         # We need to bypass confirmation prompt if any. 
         # Usually delete requires --yes or input.
         # Assuming --force or --yes flag exists, or we pipe input.
+        import os
+        venv_python = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.venv/Scripts/python.exe'))
         result = subprocess.run(
-            ["python3", "-m", "codegraphcontext.cli.main", "delete", str(dummy_dir), "--yes"],
+            [venv_python, "-m", "codegraphcontext.cli.main", "delete", str(dummy_dir), "--yes"],
             capture_output=True, text=True
         )
         # If --yes is not supported, this might fail/hang. Checking help first would be wise.
@@ -101,7 +103,7 @@ class TestUserJourneys:
         if result.returncode != 0:
              # Try interactive
              result = subprocess.run(
-                ["python3", "-m", "codegraphcontext.cli.main", "delete", str(dummy_dir)],
+                [venv_python, "-m", "codegraphcontext.cli.main", "delete", str(dummy_dir)],
                 input="y\n", capture_output=True, text=True
             )
 
