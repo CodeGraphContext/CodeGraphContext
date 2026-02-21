@@ -15,9 +15,14 @@ class TestUserJourneys:
     """
 
     def run_cgc(self, args, cwd=None):
-        """Helper to run cgc cli using .venv Python."""
+        """Helper to run cgc cli using .venv Python (cross-platform)."""
         import os
-        venv_python = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.venv/Scripts/python.exe'))
+        import sys
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.venv'))
+        if os.name == "nt":
+            venv_python = os.path.join(base_dir, "Scripts", "python.exe")
+        else:
+            venv_python = os.path.join(base_dir, "bin", "python")
         cmd = [venv_python, "-m", "codegraphcontext.cli.main"] + args
         return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
 
@@ -93,7 +98,11 @@ class TestUserJourneys:
         # Usually delete requires --yes or input.
         # Assuming --force or --yes flag exists, or we pipe input.
         import os
-        venv_python = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.venv/Scripts/python.exe'))
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.venv'))
+        if os.name == "nt":
+            venv_python = os.path.join(base_dir, "Scripts", "python.exe")
+        else:
+            venv_python = os.path.join(base_dir, "bin", "python")
         result = subprocess.run(
             [venv_python, "-m", "codegraphcontext.cli.main", "delete", str(dummy_dir), "--yes"],
             capture_output=True, text=True
