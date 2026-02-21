@@ -149,14 +149,14 @@ def _configure_goose(mcp_config):
         if path.exists():
             target_path = path
             break
-            
+
     if not target_path:
         # Check parents
         for path in paths:
             if path.parent.exists():
                 target_path = path
                 break
-                
+
     if not target_path:
         # If no config found, default to the first standard path and ensure directory exists
         target_path = paths[0]
@@ -164,10 +164,10 @@ def _configure_goose(mcp_config):
             target_path.parent.mkdir(parents=True, exist_ok=True)
             console.print(f"[green]Created new configuration directory at: {target_path.parent}[/green]")
         except Exception as e:
-             console.print(f"[yellow]Current paths checked: {[str(p) for p in paths]}[/yellow]")
-             console.print(f"[yellow]Could not create configuration directory: {e}[/yellow]")
-             console.print("Please add the MCP configuration manually.")
-             return
+            console.print(f"[yellow]Current paths checked: {[str(p) for p in paths]}[/yellow]")
+            console.print(f"[yellow]Could not create configuration directory: {e}[/yellow]")
+            console.print("Please add the MCP configuration manually.")
+            return
 
     console.print(f"Using configuration file at: {target_path}")
 
@@ -183,7 +183,7 @@ def _configure_goose(mcp_config):
                     return
         else:
             config = {}
-            
+
         if "extensions" in config and not isinstance(config["extensions"], dict):
             console.print("[red]Error: The 'extensions' field in the Goose configuration must be a mapping (dictionary).[/red]")
             console.print("[yellow]Aborting to prevent overwriting an invalid 'extensions' value. Please fix your config.yaml and try again.[/yellow]")
@@ -191,11 +191,11 @@ def _configure_goose(mcp_config):
 
         if "extensions" not in config:
             config["extensions"] = {}
-            
+
         # Transform mcp_config to Goose format
         if "mcpServers" in mcp_config and "CodeGraphContext" in mcp_config["mcpServers"]:
             cgc_config = mcp_config["mcpServers"]["CodeGraphContext"]
-            
+
             # Ensure args are in list format before writing Goose configuration
             cmd = cgc_config.get("command", "cgc")
             raw_args = cgc_config.get("args")
@@ -210,7 +210,7 @@ def _configure_goose(mcp_config):
             else:
                 console.print("[red]Error: Invalid type for 'args' in MCP configuration. Expected a list of arguments or a string.[/red]")
                 return
-            
+
             goose_ext = {
                 "enabled": True,
                 "name": "CodeGraphContext",
@@ -219,16 +219,16 @@ def _configure_goose(mcp_config):
                 "args": args,
                 "envs": cgc_config.get("env", {})
             }
-            
+
             config["extensions"]["codegraphcontext"] = goose_ext
-            
+
             with open(target_path, "w") as f:
                 yaml.dump(config, f, default_flow_style=False)
-                
+
             console.print(f"[green]Successfully updated Goose configuration.[/green]")
         else:
             console.print("[red]Error: Invalid MCP configuration structure.[/red]")
-        
+
     except Exception as e:
         console.print(f"[red]Failed to update Goose configuration: {e}[/red]")
 
@@ -237,11 +237,7 @@ def _configure_ide(mcp_config):
     questions = [
         {
             "type": "confirm",
-<<<<<<< HEAD
-            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Goose)?",
-=======
-            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Antigravity)?",
->>>>>>> origin/main
+            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Goose, Antigravity)?",
             "name": "configure_ide",
             "default": True,
         }
@@ -255,11 +251,7 @@ def _configure_ide(mcp_config):
         {
             "type": "list",
             "message": "Choose your IDE/CLI to configure:",
-<<<<<<< HEAD
-            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "None of the above"],
-=======
-            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Antigravity", "None of the above"],
->>>>>>> origin/main
+            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity", "None of the above"],
             "name": "ide_choice",
         }
     ]
@@ -270,12 +262,7 @@ def _configure_ide(mcp_config):
         console.print("\n[cyan]You can add the MCP server manually to your IDE/CLI.[/cyan]")
         return
 
-
-<<<<<<< HEAD
-    if ide_choice in ["VS Code", "Cursor", "Cursor/CLI", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose"]:
-=======
-    if ide_choice in ["VS Code", "Cursor", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "Windsurf", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Antigravity"]:
->>>>>>> origin/main
+    if ide_choice in ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity"]:
         console.print(f"\n[bold cyan]Configuring for {ide_choice}...[/bold cyan]")
 
         if ide_choice == "Amazon Q Developer":
@@ -376,7 +363,7 @@ def _configure_ide(mcp_config):
                 try:
                     settings = json.load(f)
                 except json.JSONDecodeError:
-                            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Goose, Antigravity)?",
+                    settings = {}
         except FileNotFoundError:
             settings = {}
 
@@ -390,7 +377,7 @@ def _configure_ide(mcp_config):
         settings["mcpServers"].update(mcp_config["mcpServers"])
 
         try:
-                            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity", "None of the above"],
+            with open(target_path, "w") as f:
                 json.dump(settings, f, indent=2)
             console.print(f"[green]Successfully updated {ide_choice} configuration.[/green]")
         except Exception as e:
@@ -401,7 +388,7 @@ def _configure_ide(mcp_config):
 
 def get_project_root() -> Path:
     """Always return the directory where the user runs `cgc` (CWD)."""
-                    if ide_choice in ["VS Code", "Cursor", "Cursor/CLI", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity"]:
+    return Path.cwd()
 
 def run_command(command, console, shell=False, check=True, input_text=None):
     """
@@ -411,10 +398,6 @@ def run_command(command, console, shell=False, check=True, input_text=None):
     cmd_str = command if isinstance(command, str) else ' '.join(command)
     console.print(f"[cyan]$ {cmd_str}[/cyan]")
     try:
-                        if ide_choice == "Antigravity":
-                            # Add handler for Antigravity if needed, or leave as placeholder
-                            console.print("[yellow]Antigravity support placeholder. Implement handler if required.[/yellow]")
-                            return
         process = subprocess.run(
             command,
             shell=shell,
@@ -426,14 +409,14 @@ def run_command(command, console, shell=False, check=True, input_text=None):
         )
         return process
     except subprocess.CalledProcessError as e:
-        console.print(f"[bold red]Error executing command:[/bold red] {cmd_str}")
+        console.print(f"[bold red]Error executing command:[/bold red] {command}")
         if e.stdout:
             console.print(f"[red]STDOUT: {e.stdout}[/red]")
         if e.stderr:
             console.print(f"[red]STDERR: {e.stderr}[/red]")
         return None
     except subprocess.TimeoutExpired:
-        console.print(f"[bold red]Command timed out:[/bold red] {cmd_str}")
+        console.print(f"[bold red]Command timed out:[/bold red] {command}")
         return None
 
 def run_neo4j_setup_wizard():
