@@ -36,15 +36,10 @@ class TestUserJourneys:
         project_dir = temp_test_dir / "my_project"
         shutil.copytree(python_sample_project, project_dir)
 
-        # Ensure pyproject.toml exists in project_dir
-        pyproject_src = python_sample_project / "pyproject.toml"
+        # Ensure pyproject.toml exists in project_dir with explicit config
         pyproject_dst = project_dir / "pyproject.toml"
-        if pyproject_src.exists():
-            shutil.copy(pyproject_src, pyproject_dst)
-        else:
-            # Create a minimal config if missing
-            with open(pyproject_dst, "w") as f:
-                f.write("[tool.some-tool]\noption = 'value'\n")
+        with open(pyproject_dst, "w") as f:
+            f.write("[tool.codegraphcontext]\ndatabase = 'FalkorDB'\n")
 
         # 2. Index
         print(f"Indexing {project_dir}...")
@@ -71,7 +66,10 @@ class TestUserJourneys:
         dummy_dir = temp_test_dir / "to_delete"
         dummy_dir.mkdir()
         (dummy_dir / "main.py").write_text("def main(): pass")
-        
+        # Ensure pyproject.toml exists in dummy_dir with explicit config
+        pyproject_dst = dummy_dir / "pyproject.toml"
+        with open(pyproject_dst, "w") as f:
+            f.write("[tool.codegraphcontext]\ndatabase = 'FalkorDB'\n")
         self.run_cgc(["index", str(dummy_dir)])
         
         # Act: Delete
