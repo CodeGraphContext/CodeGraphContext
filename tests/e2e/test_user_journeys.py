@@ -38,11 +38,16 @@ class TestUserJourneys:
 
         # Ensure pyproject.toml exists in project_dir with explicit config
         pyproject_dst = project_dir / "pyproject.toml"
-        # Write full config for CI reliability
-        with open("pyproject.toml", "r") as src:
-            config_content = src.read()
+        # Write only Neo4j config for CI reliability
+        neo4j_config = (
+            "[tool.codegraphcontext]\n"
+            "database = 'Neo4j'\n"
+            "neo4j_uri = 'bolt://localhost:7687'\n"
+            "neo4j_username = 'neo4j'\n"
+            "neo4j_password = 'neo4jpassword'\n"
+        )
         with open(pyproject_dst, "w") as f:
-            f.write(config_content)
+            f.write(neo4j_config)
 
         # 2. Index
         print(f"Indexing {project_dir}...")
@@ -71,11 +76,16 @@ class TestUserJourneys:
         (dummy_dir / "main.py").write_text("def main(): pass")
         # Ensure pyproject.toml exists in dummy_dir with explicit config
         pyproject_dst = dummy_dir / "pyproject.toml"
-        # Write full config for CI reliability
-        with open("pyproject.toml", "r") as src:
-            config_content = src.read()
+        # Write only Neo4j config for CI reliability
+        neo4j_config = (
+            "[tool.codegraphcontext]\n"
+            "database = 'Neo4j'\n"
+            "neo4j_uri = 'bolt://localhost:7687'\n"
+            "neo4j_username = 'neo4j'\n"
+            "neo4j_password = 'neo4jpassword'\n"
+        )
         with open(pyproject_dst, "w") as f:
-            f.write(config_content)
+            f.write(neo4j_config)
         self.run_cgc(["index", str(dummy_dir)])
         
         # Act: Delete
