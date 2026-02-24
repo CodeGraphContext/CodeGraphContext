@@ -1,5 +1,3 @@
-website/
-
 docs/
 # Python
 __pycache__/
@@ -40,10 +38,10 @@ htmlcov/
 mcp.json
 
 # Docker
-docker-compose.yml 
+docker-compose.yml
 
 # yaml file for amazon Q developer
-devfile.yaml 
+devfile.yaml
 
 # local scratch
 

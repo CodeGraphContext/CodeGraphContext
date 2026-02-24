@@ -68,12 +68,49 @@ from .typescript import TypescriptTreeSitterParser
 
 class TypescriptJSXTreeSitterParser(TypescriptTreeSitterParser):
     """
-    A parser for TypeScript JSX (.tsx) files. 
+    A parser for TypeScript JSX (.tsx) files.
     """
     def __init__(self, generic_parser_wrapper):
         super().__init__(generic_parser_wrapper)
-        self.language_name = 'typescript'
-        self.jsx_enabled = True 
+        self.language_name = 'typescriptjsx'
+        self.jsx_enabled = True
+
+    def _find_calls(self, root_node):
+        """Find regular function calls plus JSX component usage."""
+        calls = super()._find_calls(root_node)
+
+        # Add JSX component usage as calls
+        jsx_query = """
+            (jsx_opening_element name: (identifier) @name)
+            (jsx_self_closing_element name: (identifier) @name)
+            (jsx_opening_element name: (member_expression) @name)
+            (jsx_self_closing_element name: (member_expression) @name)
+        """
+        seen = set()  # deduplicate (opening + closing = one usage)
+        for node, capture_name in execute_query(self.language, jsx_query, root_node):
+            name = node.text.decode('utf-8')
+            # Skip HTML elements — only PascalCase = React components
+            if name[0].islower():
+                continue
+            line = node.start_point[0] + 1
+            key = (name, line)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            calls.append({
+                "name": name.split('.')[-1] if '.' in name else name,
+                "full_name": name,
+                "line_number": line,
+                "args": [],
+                "inferred_obj_type": None,
+                "context": self._get_parent_context(node),
+                "class_context": self._get_parent_context(node, types=('class_declaration', 'abstract_class_declaration')),
+                "lang": self.language_name,
+                "is_dependency": False,
+            })
+        return calls
+
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict[str, Any]:
         """
         Parse a .tsx file, reusing TypeScript logic and ensuring JSX nodes are handled.

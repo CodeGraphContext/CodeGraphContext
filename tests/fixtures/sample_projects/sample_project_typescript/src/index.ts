@@ -14,6 +14,8 @@ import * as ModulesNamespaces from './modules-namespaces';
 import * as AdvancedTypes from './advanced-types';
 import * as ErrorValidation from './error-validation';
 import * as UtilitiesHelpers from './utilities-helpers';
+import App from './App';
+import { AppService } from './app-service';
 
 // Import specific examples for demonstration
 import { User, Shape, calculateArea } from './types-interfaces';
