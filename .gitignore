@@ -12,6 +12,9 @@ venv/
 venv311/
 docker-compose.yml
 
+# Megamemory knowledge graph
+.megamemory/
+
 # PyPI
 dist/
 build/

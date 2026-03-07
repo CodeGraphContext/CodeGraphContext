@@ -41,6 +41,17 @@ Demonstrates object methods and prototype assignments:
 - Methods that call other methods
 - Callback and higher-order function patterns
 
+### `sample_jsx.jsx`
+Demonstrates React JSX component patterns:
+- Functional components with JSX
+- Arrow function components
+- Components with React hooks (useState, useEffect)
+- Class components extending React.Component
+- Higher-order components
+- Custom hooks
+- JSX syntax with elements, attributes, and expressions
+- Named and default exports
+
 ## Expected Function Detections
 
 The enhanced JavaScript parser should detect and properly index:
