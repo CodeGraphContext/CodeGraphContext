@@ -29,7 +29,8 @@ dependencies = [
     "nbformat",
     "nbconvert>=7.16.6",
     "pathspec>=0.12.1",
-    "falkordblite>=0.1.0; sys_platform != 'win32' and python_version >= '3.12'"
+    "falkordblite>=0.1.0; sys_platform != 'win32' and python_version >= '3.12'",
+    "requests>=2.31.0"
 ]
 
 [project.optional-dependencies]

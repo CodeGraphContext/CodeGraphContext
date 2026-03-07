@@ -1,4 +1,3 @@
-
 TOOLS = {
     "add_code_to_graph": {
         "name": "add_code_to_graph",
@@ -6,34 +5,61 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the directory or file to add."},
-                "is_dependency": {"type": "boolean", "description": "Whether this code is a dependency.", "default": False}
+                "path": {
+                    "type": "string",
+                    "description": "Path to the directory or file to add.",
+                },
+                "is_dependency": {
+                    "type": "boolean",
+                    "description": "Whether this code is a dependency.",
+                    "default": False,
+                },
             },
-            "required": ["path"]
-        }
+            "required": ["path"],
+        },
     },
     "check_job_status": {
         "name": "check_job_status",
         "description": "Check the status and progress of a background job.",
         "inputSchema": {
             "type": "object",
-            "properties": { "job_id": {"type": "string", "description": "Job ID from a previous tool call"} },
-            "required": ["job_id"]
-        }
+            "properties": {
+                "job_id": {
+                    "type": "string",
+                    "description": "Job ID from a previous tool call",
+                }
+            },
+            "required": ["job_id"],
+        },
     },
     "list_jobs": {
         "name": "list_jobs",
         "description": "List all background jobs and their current status.",
-        "inputSchema": {"type": "object", "properties": {}}
+        "inputSchema": {"type": "object", "properties": {}},
     },
     "find_code": {
         "name": "find_code",
         "description": "Find relevant code snippets related to a keyword (e.g., function name, class name, or content).",
         "inputSchema": {
             "type": "object",
-            "properties": { "query": {"type": "string", "description": "Keyword or phrase to search for"}, "fuzzy_search": {"type": "boolean", "description": "Whether to use fuzzy search", "default": False}, "edit_distance": {"type": "number", "description": "Edit distance for fuzzy search (between 0-2)", "default": 2}}, 
-            "required": ["query"]
-        }
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Keyword or phrase to search for",
+                },
+                "fuzzy_search": {
+                    "type": "boolean",
+                    "description": "Whether to use fuzzy search",
+                    "default": False,
+                },
+                "edit_distance": {
+                    "type": "number",
+                    "description": "Edit distance for fuzzy search (between 0-2)",
+                    "default": 2,
+                },
+            },
+            "required": ["query"],
+        },
     },
     "analyze_code_relationships": {
         "name": "analyze_code_relationships",
@@ -41,30 +67,63 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query_type": {"type": "string", "description": "Type of relationship query to run.", "enum": ["find_callers", "find_callees", "find_all_callers", "find_all_callees", "find_importers", "who_modifies", "class_hierarchy", "overrides", "dead_code", "call_chain", "module_deps", "variable_scope", "find_complexity", "find_functions_by_argument", "find_functions_by_decorator"]},
-                "target": {"type": "string", "description": "The function, class, or module to analyze."},
-                "context": {"type": "string", "description": "Optional: specific file path for precise results."} 
+                "query_type": {
+                    "type": "string",
+                    "description": "Type of relationship query to run.",
+                    "enum": [
+                        "find_callers",
+                        "find_callees",
+                        "find_all_callers",
+                        "find_all_callees",
+                        "find_importers",
+                        "who_modifies",
+                        "class_hierarchy",
+                        "overrides",
+                        "dead_code",
+                        "call_chain",
+                        "module_deps",
+                        "variable_scope",
+                        "find_complexity",
+                        "find_functions_by_argument",
+                        "find_functions_by_decorator",
+                    ],
+                },
+                "target": {
+                    "type": "string",
+                    "description": "The function, class, or module to analyze.",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional: specific file path for precise results.",
+                },
             },
-            "required": ["query_type", "target"]
-        }
+            "required": ["query_type", "target"],
+        },
     },
     "watch_directory": {
         "name": "watch_directory",
         "description": "Performs an initial scan of a directory and then continuously monitors it for changes, automatically keeping the graph up-to-date. Ideal for projects under active development. Returns a job ID for the initial scan.",
         "inputSchema": {
             "type": "object",
-            "properties": { "path": {"type": "string", "description": "Path to directory to watch"} },
-            "required": ["path"]
-        }
+            "properties": {
+                "path": {"type": "string", "description": "Path to directory to watch"}
+            },
+            "required": ["path"],
+        },
     },
     "execute_cypher_query": {
         "name": "execute_cypher_query",
         "description": "Fallback tool to run a direct, read-only Cypher query against the code graph. Use this for complex questions not covered by other tools. The graph contains nodes representing code structures and relationships between them. **Schema Overview:**\n- **Nodes:** `Repository`, `File`, `Module`, `Class`, `Function`.\n- **Properties:** Nodes have properties like `name`, `path`, `cyclomatic_complexity` (on Function nodes), and `source`.\n- **Relationships:** `CONTAINS` (e.g., File-[:CONTAINS]->Function), `CALLS` (Function-[:CALLS]->Function or File-[:CALLS]->Function), `IMPORTS` (File-[:IMPORTS]->Module), `INHERITS` (Class-[:INHERITS]->Class).",
         "inputSchema": {
             "type": "object",
-            "properties": { "cypher_query": {"type": "string", "description": "The read-only Cypher query to execute."} },
-            "required": ["cypher_query"]
-        }
+            "properties": {
+                "cypher_query": {
+                    "type": "string",
+                    "description": "The read-only Cypher query to execute.",
+                }
+            },
+            "required": ["cypher_query"],
+        },
     },
     "add_package_to_graph": {
         "name": "add_package_to_graph",
@@ -72,12 +131,33 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "package_name": {"type": "string", "description": "Name of the package to add (e.g., 'requests', 'express', 'moment', 'lodash')."},
-                "language": {"type": "string", "description": "The programming language of the package.", "enum": ["python", "javascript", "typescript", "java", "c", "go", "ruby", "php","cpp"]},
-                "is_dependency": {"type": "boolean", "description": "Mark as a dependency.", "default": True}
+                "package_name": {
+                    "type": "string",
+                    "description": "Name of the package to add (e.g., 'requests', 'express', 'moment', 'lodash').",
+                },
+                "language": {
+                    "type": "string",
+                    "description": "The programming language of the package.",
+                    "enum": [
+                        "python",
+                        "javascript",
+                        "typescript",
+                        "java",
+                        "c",
+                        "go",
+                        "ruby",
+                        "php",
+                        "cpp",
+                    ],
+                },
+                "is_dependency": {
+                    "type": "boolean",
+                    "description": "Mark as a dependency.",
+                    "default": True,
+                },
             },
-            "required": ["package_name", "language"]
-        }
+            "required": ["package_name", "language"],
+        },
     },
     "find_dead_code": {
         "name": "find_dead_code",
@@ -85,9 +165,14 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "exclude_decorated_with": {"type": "array", "items": {"type": "string"}, "description": "Optional: A list of decorator names (e.g., '@app.route') to exclude from dead code detection.", "default": []}
-            }
-        }
+                "exclude_decorated_with": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional: A list of decorator names (e.g., '@app.route') to exclude from dead code detection.",
+                    "default": [],
+                }
+            },
+        },
     },
     "calculate_cyclomatic_complexity": {
         "name": "calculate_cyclomatic_complexity",
@@ -95,11 +180,17 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "function_name": {"type": "string", "description": "The name of the function to analyze."},
-                "path": {"type": "string", "description": "Optional: The full path to the file containing the function for a more specific query."} 
+                "function_name": {
+                    "type": "string",
+                    "description": "The name of the function to analyze.",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Optional: The full path to the file containing the function for a more specific query.",
+                },
             },
-            "required": ["function_name"]
-        }
+            "required": ["function_name"],
+        },
     },
     "find_most_complex_functions": {
         "name": "find_most_complex_functions",
@@ -107,17 +198,18 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "description": "The maximum number of complex functions to return.", "default": 10}
-            }
-        }
+                "limit": {
+                    "type": "integer",
+                    "description": "The maximum number of complex functions to return.",
+                    "default": 10,
+                }
+            },
+        },
     },
     "list_indexed_repositories": {
         "name": "list_indexed_repositories",
         "description": "List all indexed repositories.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {}
-        }
+        "inputSchema": {"type": "object", "properties": {}},
     },
     "delete_repository": {
         "name": "delete_repository",
@@ -125,10 +217,13 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "repo_path": {"type": "string", "description": "The path of the repository to delete."} 
+                "repo_path": {
+                    "type": "string",
+                    "description": "The path of the repository to delete.",
+                }
             },
-            "required": ["repo_path"]
-        }
+            "required": ["repo_path"],
+        },
     },
     "visualize_graph_query": {
         "name": "visualize_graph_query",
@@ -136,15 +231,18 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "cypher_query": {"type": "string", "description": "The Cypher query to visualize."}
+                "cypher_query": {
+                    "type": "string",
+                    "description": "The Cypher query to visualize.",
+                }
             },
-            "required": ["cypher_query"]
-        }
+            "required": ["cypher_query"],
+        },
     },
     "list_watched_paths": {
         "name": "list_watched_paths",
         "description": "Lists all directories currently being watched for live file changes.",
-        "inputSchema": {"type": "object", "properties": {}}
+        "inputSchema": {"type": "object", "properties": {}},
     },
     "unwatch_directory": {
         "name": "unwatch_directory",
@@ -152,10 +250,13 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "The absolute path of the directory to stop watching."}
+                "path": {
+                    "type": "string",
+                    "description": "The absolute path of the directory to stop watching.",
+                }
             },
-            "required": ["path"]
-        }
+            "required": ["path"],
+        },
     },
     "load_bundle": {
         "name": "load_bundle",
@@ -163,11 +264,18 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "bundle_name": {"type": "string", "description": "Name of the bundle to load (e.g., 'flask', 'pandas', 'flask-main-2579ce9.cgc'). Can be a full filename or just the package name."},
-                "clear_existing": {"type": "boolean", "description": "Whether to clear existing data before loading. Use with caution.", "default": False}
+                "bundle_name": {
+                    "type": "string",
+                    "description": "Name of the bundle to load (e.g., 'flask', 'pandas', 'flask-main-2579ce9.cgc'). Can be a full filename or just the package name.",
+                },
+                "clear_existing": {
+                    "type": "boolean",
+                    "description": "Whether to clear existing data before loading. Use with caution.",
+                    "default": False,
+                },
             },
-            "required": ["bundle_name"]
-        }
+            "required": ["bundle_name"],
+        },
     },
     "search_registry_bundles": {
         "name": "search_registry_bundles",
@@ -175,10 +283,17 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Search query to find bundles (searches in name, repository, and description). Leave empty to list all bundles."},
-                "unique_only": {"type": "boolean", "description": "If true, show only the most recent version of each package. If false, show all versions.", "default": False}
-            }
-        }
+                "query": {
+                    "type": "string",
+                    "description": "Search query to find bundles (searches in name, repository, and description). Leave empty to list all bundles.",
+                },
+                "unique_only": {
+                    "type": "boolean",
+                    "description": "If true, show only the most recent version of each package. If false, show all versions.",
+                    "default": False,
+                },
+            },
+        },
     },
     "get_repository_stats": {
         "name": "get_repository_stats",
@@ -186,8 +301,304 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "repo_path": {"type": "string", "description": "Optional: Path to a specific repository. If not provided, returns overall database statistics."}
-            }
-        }
-    }
+                "repo_path": {
+                    "type": "string",
+                    "description": "Optional: Path to a specific repository. If not provided, returns overall database statistics.",
+                }
+            },
+        },
+    },
+    "authenticate_github": {
+        "name": "authenticate_github",
+        "description": "Authenticate with GitHub using a personal access token to enable GitHub integration features.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "type": "string",
+                    "description": "GitHub personal access token for authentication.",
+                }
+            },
+            "required": ["token"],
+        },
+    },
+    "import_github_repository": {
+        "name": "import_github_repository",
+        "description": "Import a GitHub repository for analysis. Clones the repository to a local path for indexing.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "GitHub repository owner (username or organization).",
+                },
+                "repo": {"type": "string", "description": "GitHub repository name."},
+                "token": {
+                    "type": "string",
+                    "description": "Optional: GitHub personal access token for private repositories.",
+                },
+                "target_path": {
+                    "type": "string",
+                    "description": "Optional: Local path where repository should be cloned.",
+                },
+            },
+            "required": ["owner", "repo"],
+        },
+    },
+    "analyze_github_commits": {
+        "name": "analyze_github_commits",
+        "description": "Analyze commit history for a GitHub repository. Provides insights into recent development activity.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "GitHub repository owner (username or organization).",
+                },
+                "repo": {"type": "string", "description": "GitHub repository name."},
+                "token": {
+                    "type": "string",
+                    "description": "Optional: GitHub personal access token for private repositories.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of commits to analyze (default: 10).",
+                    "default": 10,
+                },
+            },
+            "required": ["owner", "repo"],
+        },
+    },
+    "track_github_pull_requests": {
+        "name": "track_github_pull_requests",
+        "description": "Track pull requests for a GitHub repository. Lists open or closed pull requests with metadata.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "GitHub repository owner (username or organization).",
+                },
+                "repo": {"type": "string", "description": "GitHub repository name."},
+                "token": {
+                    "type": "string",
+                    "description": "Optional: GitHub personal access token for private repositories.",
+                },
+                "state": {
+                    "type": "string",
+                    "description": "PR state to filter by (open, closed, or all).",
+                    "enum": ["open", "closed", "all"],
+                    "default": "open",
+                },
+            },
+            "required": ["owner", "repo"],
+        },
+    },
+    "sync_github_issues": {
+        "name": "sync_github_issues",
+        "description": "Synchronize issues from a GitHub repository. Lists open or closed issues with labels and metadata.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "GitHub repository owner (username or organization).",
+                },
+                "repo": {"type": "string", "description": "GitHub repository name."},
+                "token": {
+                    "type": "string",
+                    "description": "Optional: GitHub personal access token for private repositories.",
+                },
+                "state": {
+                    "type": "string",
+                    "description": "Issue state to filter by (open, closed, or all).",
+                    "enum": ["open", "closed", "all"],
+                    "default": "open",
+                },
+            },
+            "required": ["owner", "repo"],
+        },
+    },
+    "generate_call_graph": {
+        "name": "generate_call_graph",
+        "description": "Generate a call graph visualization showing function calls and relationships in the codebase.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "function_name": {
+                    "type": "string",
+                    "description": "Optional: Specific function to center the graph around.",
+                },
+                "depth": {
+                    "type": "integer",
+                    "description": "Depth of the call graph (default: 3).",
+                    "default": 3,
+                },
+            },
+        },
+    },
+    "generate_class_diagram": {
+        "name": "generate_class_diagram",
+        "description": "Generate a class diagram visualization showing class hierarchies and relationships.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "class_name": {
+                    "type": "string",
+                    "description": "Optional: Specific class to center the diagram around.",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Optional: Path to a specific repository.",
+                },
+            },
+        },
+    },
+    "generate_dependency_tree": {
+        "name": "generate_dependency_tree",
+        "description": "Generate a dependency tree visualization showing module and package dependencies.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "module_name": {
+                    "type": "string",
+                    "description": "Optional: Specific module to start the tree from.",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Optional: Path to a specific repository.",
+                },
+            },
+        },
+    },
+    "scan_security_vulnerabilities": {
+        "name": "scan_security_vulnerabilities",
+        "description": "Scan the codebase for security vulnerabilities including potential secrets and common security issues.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Optional: Path to a specific repository to scan.",
+                },
+                "scan_type": {
+                    "type": "string",
+                    "description": "Type of security scan (all, secrets, vulnerabilities).",
+                    "enum": ["all", "secrets", "vulnerabilities"],
+                    "default": "all",
+                },
+            },
+        },
+    },
+    "scan_dependencies": {
+        "name": "scan_dependencies",
+        "description": "Scan project dependencies for known vulnerabilities and security issues.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Optional: Path to a specific repository to scan.",
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Programming language of the dependencies.",
+                    "enum": [
+                        "python",
+                        "javascript",
+                        "typescript",
+                        "java",
+                        "go",
+                        "ruby",
+                        "php",
+                        "cpp",
+                        "c",
+                    ],
+                    "default": "python",
+                },
+            },
+        },
+    },
+    "analyze_performance": {
+        "name": "analyze_performance",
+        "description": "Analyze code performance including complexity, bottlenecks, and optimization opportunities.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "function_name": {
+                    "type": "string",
+                    "description": "Optional: Specific function to analyze.",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Optional: Path to a specific repository to analyze.",
+                },
+            },
+        },
+    },
+    "find_performance_bottlenecks": {
+        "name": "find_performance_bottlenecks",
+        "description": "Identify performance bottlenecks in the codebase based on complexity and usage patterns.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of bottlenecks to identify (default: 10).",
+                    "default": 10,
+                }
+            },
+        },
+    },
+    "define_custom_rule": {
+        "name": "define_custom_rule",
+        "description": "Define a custom linting rule for code analysis.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "rule_name": {
+                    "type": "string",
+                    "description": "Name of the custom rule.",
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "Pattern or regex to match.",
+                },
+                "severity": {
+                    "type": "string",
+                    "description": "Severity level of the rule.",
+                    "enum": ["error", "warning", "info"],
+                    "default": "warning",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Description of what the rule checks for.",
+                },
+            },
+            "required": ["rule_name", "pattern"],
+        },
+    },
+    "list_custom_rules": {
+        "name": "list_custom_rules",
+        "description": "List all defined custom linting rules.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    "apply_custom_rules": {
+        "name": "apply_custom_rules",
+        "description": "Apply custom linting rules to the codebase and report violations.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Optional: Path to a specific repository to scan.",
+                },
+                "rule_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional: List of specific rule names to apply. If not provided, applies all rules.",
+                },
+            },
+        },
+    },
 }
