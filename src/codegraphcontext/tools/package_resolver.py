@@ -384,6 +384,34 @@ def _get_php_package_path(package_name: str) -> Optional[str]:
         return None
 
 
+
+def _get_dart_package_path(package_name: str) -> Optional[str]:
+    """
+    Finds the local installation path of a Dart package.
+    Uses 'dart pub cache list' or looks in PUB_CACHE.
+    """
+    try:
+        import os
+        debug_log(f"Getting local path for Dart package: {package_name}")
+        
+        # Check environment variable
+        pub_cache = os.environ.get("PUB_CACHE")
+        if not pub_cache:
+            pub_cache = str(Path.home() / ".pub-cache")
+        
+        hosted_path = Path(pub_cache) / "hosted" / "pub.dev" / package_name
+        if hosted_path.exists():
+            # Find the latest version if multiple exist
+            versions = [d for d in hosted_path.parent.glob(f"{package_name}-*") if d.is_dir()]
+            if versions:
+                return str(sorted(versions)[-1].resolve())
+            return str(hosted_path.resolve())
+            
+        return None
+    except Exception as e:
+        debug_log(f"Error getting Dart package path for {package_name}: {e}")
+        return None
+
 def get_local_package_path(package_name: str, language: str) -> Optional[str]:
     """
     Dispatches to the correct package path finder based on the language.
@@ -398,7 +426,7 @@ def get_local_package_path(package_name: str, language: str) -> Optional[str]:
         "ruby": _get_ruby_package_path,
         "php": _get_php_package_path,
         "cpp": _get_cpp_package_path,
-
+        "dart": _get_dart_package_path,
     }
     finder = finders.get(language)
     if finder:

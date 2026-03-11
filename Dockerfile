@@ -51,6 +51,15 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV CGC_HOME=/root/.codegraphcontext
 
+# Remote FalkorDB connection (set at runtime via docker run -e or docker-compose)
+# ENV DATABASE_TYPE=falkordb-remote
+# ENV FALKORDB_HOST=
+# ENV FALKORDB_PORT=6379
+# ENV FALKORDB_PASSWORD=
+# ENV FALKORDB_USERNAME=
+# ENV FALKORDB_SSL=false
+# ENV FALKORDB_GRAPH_NAME=codegraph
+
 # Expose port for potential web interface (future use)
 EXPOSE 8080
 

@@ -76,7 +76,7 @@ cgc doctor
 
 ## Step 4: Configure AI Assistant (For MCP Users)
 
-If you plan to use CodeGraphContext with **Cursor**, **Claude**, or **VS Code**, you must configure the MCP server.
+If you plan to use CodeGraphContext with **Cursor**, **Claude**, **VS Code**, or **Kiro**, you must configure the MCP server.
 
 1.  **Run the MCP wizard:**
     ```bash
@@ -84,7 +84,7 @@ If you plan to use CodeGraphContext with **Cursor**, **Claude**, or **VS Code**,
     ```
 
 2.  **What it does:**
-    *   🔍 **Asks you to choose** your IDE from a supported list (Cursor, VS Code, Claude, Windsurf, Cline, etc.).
+    *   🔍 **Asks you to choose** your IDE from a supported list (Cursor, VS Code, Claude, Windsurf, Cline, Kiro, etc.).
     *   ⚙️ **Updates** the configuration file (e.g., `mcp.json`) to invoke `cgc`.
     *   🔐 **Saves** local database credentials so the AI can connect.
 

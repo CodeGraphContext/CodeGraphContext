@@ -31,7 +31,7 @@ TOOLS = {
         "description": "Find relevant code snippets related to a keyword (e.g., function name, class name, or content).",
         "inputSchema": {
             "type": "object",
-            "properties": { "query": {"type": "string", "description": "Keyword or phrase to search for"}, "fuzzy_search": {"type": "boolean", "description": "Whether to use fuzzy search", "default": False}, "edit_distance": {"type": "number", "description": "Edit distance for fuzzy search (between 0-2)", "default": 2}}, 
+            "properties": { "query": {"type": "string", "description": "Keyword or phrase to search for"}, "fuzzy_search": {"type": "boolean", "description": "Whether to use fuzzy search", "default": False}, "edit_distance": {"type": "number", "description": "Edit distance for fuzzy search (between 0-2)", "default": 2}, "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}}, 
             "required": ["query"]
         }
     },
@@ -43,7 +43,8 @@ TOOLS = {
             "properties": {
                 "query_type": {"type": "string", "description": "Type of relationship query to run.", "enum": ["find_callers", "find_callees", "find_all_callers", "find_all_callees", "find_importers", "who_modifies", "class_hierarchy", "overrides", "dead_code", "call_chain", "module_deps", "variable_scope", "find_complexity", "find_functions_by_argument", "find_functions_by_decorator"]},
                 "target": {"type": "string", "description": "The function, class, or module to analyze."},
-                "context": {"type": "string", "description": "Optional: specific file path for precise results."} 
+                "context": {"type": "string", "description": "Optional: specific file path for precise results."},
+                "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
             },
             "required": ["query_type", "target"]
         }
@@ -59,7 +60,7 @@ TOOLS = {
     },
     "execute_cypher_query": {
         "name": "execute_cypher_query",
-        "description": "Fallback tool to run a direct, read-only Cypher query against the code graph. Use this for complex questions not covered by other tools. The graph contains nodes representing code structures and relationships between them. **Schema Overview:**\n- **Nodes:** `Repository`, `File`, `Module`, `Class`, `Function`.\n- **Properties:** Nodes have properties like `name`, `path`, `cyclomatic_complexity` (on Function nodes), and `code`.\n- **Relationships:** `CONTAINS` (e.g., File-[:CONTAINS]->Function), `CALLS` (Function-[:CALLS]->Function or File-[:CALLS]->Function), `IMPORTS` (File-[:IMPORTS]->Module), `INHERITS` (Class-[:INHERITS]->Class).",
+        "description": "Fallback tool to run a direct, read-only Cypher query against the code graph. Use this for complex questions not covered by other tools. The graph contains nodes representing code structures and relationships between them. **Schema Overview:**\n- **Nodes:** `Repository`, `File`, `Module`, `Class`, `Function`.\n- **Properties:** Nodes have properties like `name`, `path`, `cyclomatic_complexity` (on Function nodes), and `source`.\n- **Relationships:** `CONTAINS` (e.g., File-[:CONTAINS]->Function), `CALLS` (Function-[:CALLS]->Function or File-[:CALLS]->Function), `IMPORTS` (File-[:IMPORTS]->Module), `INHERITS` (Class-[:INHERITS]->Class).",
         "inputSchema": {
             "type": "object",
             "properties": { "cypher_query": {"type": "string", "description": "The read-only Cypher query to execute."} },
@@ -85,7 +86,8 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "exclude_decorated_with": {"type": "array", "items": {"type": "string"}, "description": "Optional: A list of decorator names (e.g., '@app.route') to exclude from dead code detection.", "default": []}
+                "exclude_decorated_with": {"type": "array", "items": {"type": "string"}, "description": "Optional: A list of decorator names (e.g., '@app.route') to exclude from dead code detection.", "default": []},
+                "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
             }
         }
     },
@@ -96,7 +98,8 @@ TOOLS = {
             "type": "object",
             "properties": {
                 "function_name": {"type": "string", "description": "The name of the function to analyze."},
-                "path": {"type": "string", "description": "Optional: The full path to the file containing the function for a more specific query."} 
+                "path": {"type": "string", "description": "Optional: The full path to the file containing the function for a more specific query."},
+                "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
             },
             "required": ["function_name"]
         }
@@ -107,7 +110,8 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "description": "The maximum number of complex functions to return.", "default": 10}
+                "limit": {"type": "integer", "description": "The maximum number of complex functions to return.", "default": 10},
+                "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
             }
         }
     },

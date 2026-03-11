@@ -276,59 +276,50 @@ def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
                         "error": f"Repository not found: {repo_path_obj}"
                     }
                 
-                # Get stats for specific repo
-                stats_query = """
-                MATCH (r:Repository {path: $path})-[:CONTAINS]->(f:File)
-                WITH r, count(f) as file_count, f
-                OPTIONAL MATCH (f)-[:CONTAINS]->(func:Function)
-                OPTIONAL MATCH (f)-[:CONTAINS]->(cls:Class)
-                OPTIONAL MATCH (f)-[:IMPORTS]->(m:Module)
-                RETURN 
-                    file_count,
-                    count(DISTINCT func) as function_count,
-                    count(DISTINCT cls) as class_count,
-                    count(DISTINCT m) as module_count
-                """
-                result = session.run(stats_query, path=repo_path_obj)
-                record = result.single()
+                # 1. Files
+                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as c"
+                file_count = session.run(file_query, path=repo_path_obj).single()["c"]
+                
+                # 2. Functions
+                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(func) as c"
+                func_count = session.run(func_query, path=repo_path_obj).single()["c"]
+                
+                # 3. Classes
+                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(cls:Class) RETURN count(cls) as c"
+                class_count = session.run(class_query, path=repo_path_obj).single()["c"]
+                
+                # 4. Modules (imported)
+                module_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File)-[:IMPORTS]->(m:Module) RETURN count(DISTINCT m) as c"
+                module_count = session.run(module_query, path=repo_path_obj).single()["c"]
                 
                 return {
                     "success": True,
                     "repository": repo_path_obj,
                     "stats": {
-                        "files": record["file_count"] if record else 0,
-                        "functions": record["function_count"] if record else 0,
-                        "classes": record["class_count"] if record else 0,
-                        "modules": record["module_count"] if record else 0
+                        "files": file_count,
+                        "functions": func_count,
+                        "classes": class_count,
+                        "modules": module_count
                     }
                 }
             else:
                 # Overall database stats
-                stats_query = """
-                MATCH (r:Repository)
-                OPTIONAL MATCH (f:File)
-                OPTIONAL MATCH (func:Function)
-                OPTIONAL MATCH (cls:Class)
-                OPTIONAL MATCH (m:Module)
-                RETURN 
-                    count(DISTINCT r) as repo_count,
-                    count(DISTINCT f) as file_count,
-                    count(DISTINCT func) as function_count,
-                    count(DISTINCT cls) as class_count,
-                    count(DISTINCT m) as module_count
-                """
-                result = session.run(stats_query)
-                record = result.single()
+                repo_count = session.run("MATCH (r:Repository) RETURN count(r) as c").single()["c"]
                 
-                if record and record["repo_count"] > 0:
+                if repo_count > 0:
+                    file_count = session.run("MATCH (f:File) RETURN count(f) as c").single()["c"]
+                    func_count = session.run("MATCH (func:Function) RETURN count(func) as c").single()["c"]
+                    class_count = session.run("MATCH (cls:Class) RETURN count(cls) as c").single()["c"]
+                    module_count = session.run("MATCH (m:Module) RETURN count(m) as c").single()["c"]
+                    
                     return {
                         "success": True,
                         "stats": {
-                            "repositories": record["repo_count"],
-                            "files": record["file_count"],
-                            "functions": record["function_count"],
-                            "classes": record["class_count"],
-                            "modules": record["module_count"]
+                            "repositories": repo_count,
+                            "files": file_count,
+                            "functions": func_count,
+                            "classes": class_count,
+                            "modules": module_count
                         }
                     }
                 else:

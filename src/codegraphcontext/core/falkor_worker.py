@@ -45,24 +45,80 @@ def run_worker():
         
         from redislite.falkordb_client import FalkorDB
         
+        # Determine module path for frozen bundles
+        server_config = {}
+        if getattr(sys, 'frozen', False):
+            mei_pass = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+            exe_dir  = os.path.dirname(sys.executable)
+            
+            # All known locations PyInstaller may extract falkordb.so to
+            potential_paths = [
+                # Standard redislite layout
+                os.path.join(mei_pass, 'redislite', 'bin', 'falkordb.so'),
+                # falkordblite scripts layout
+                os.path.join(mei_pass, 'falkordblite.scripts', 'falkordb.so'),
+                # Root of the bundle (add_binary with '.' target)
+                os.path.join(mei_pass, 'falkordb.so'),
+                # Alongside the executable itself
+                os.path.join(exe_dir, 'falkordb.so'),
+                # redislite data dir variant
+                os.path.join(mei_pass, 'redislite', 'falkordb.so'),
+                # falkordblite.libs (shared-lib bundle)
+                os.path.join(mei_pass, 'falkordblite.libs', 'falkordb.so'),
+            ]
+            
+            module_path = None
+            for p in potential_paths:
+                if os.path.exists(p):
+                    module_path = p
+                    break
+            
+            if module_path:
+                logger.info(f"Using FalkorDB module from bundle: {module_path}")
+                server_config['loadmodule'] = module_path
+            else:
+                logger.error(
+                    "Could not find falkordb.so in the PyInstaller bundle. "
+                    "Searched: " + str(potential_paths)
+                )
+                # Exit with a distinct code so the parent can detect FalkorDB is
+                # unavailable in this environment and fall back to KùzuDB.
+                sys.exit(2)
+
         # Start Embedded DB
-        # Note: redislite might raise error if socket is in use/locked.
-        # Ideally we clean up stale socket if check fails.
         if os.path.exists(socket_path):
             try:
                 os.remove(socket_path)
             except OSError:
                 pass
 
-        db_instance = FalkorDB(db_path, unix_socket_path=socket_path)
+        db_instance = FalkorDB(db_path, unix_socket_path=socket_path, serverconfig=server_config)
         logger.info("FalkorDB Lite is running.")
+        
+        # Validate that FalkorDB module actually loaded by running a GRAPH.QUERY
+        try:
+            test_graph = db_instance.select_graph('__cgc_health_check')
+            test_graph.query('RETURN 1')
+            logger.info("FalkorDB GRAPH.QUERY OK.")
+        except Exception as health_err:
+            err_str = str(health_err).lower()
+            if 'graph.query' in err_str or 'unknown command' in err_str:
+                logger.error(
+                    f"FalkorDB module not loaded — GRAPH.QUERY unavailable: {health_err}. "
+                    "The Redis server started but the FalkorDB .so module was not loaded."
+                )
+                sys.exit(2)  # same exit code: parent will fall back to KùzuDB
+            else:
+                logger.warning(f"FalkorDB health-check warning (non-fatal): {health_err}")
         
         # Keep alive loop
         while True:
             time.sleep(1)
             
-    except ImportError:
-        logger.error("Failed to import redislite.falkordb_client. Is falkordblite installed?")
+    except ImportError as e:
+        logger.error(f"Failed to import redislite.falkordb_client: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
     except Exception as e:
         logger.error(f"FalkorDB Worker Critical Failure: {e}")

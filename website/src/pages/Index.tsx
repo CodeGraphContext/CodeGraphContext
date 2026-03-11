@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import AOS from "aos";
 import HeroSection from "../components/HeroSection";
 import FeaturesSection from "../components/FeaturesSection";
 import InstallationSection from "../components/InstallationSection";
@@ -12,8 +14,15 @@ import BundleGeneratorSection from "../components/BundleGeneratorSection";
 import BundleRegistrySection from "../components/BundleRegistrySection";
 
 const Index = () => {
+  useEffect(() => {
+    // Refresh AOS elements when Index page mounts to ensure they appear
+    setTimeout(() => {
+      AOS.refresh();
+    }, 100);
+  }, []);
+
   return (
-    <main className="min-h-screen overflow-x-hidden">
+    <main className="min-h-screen overflow-x-hidden pt-16">
       <div data-aos="fade-in">
         <HeroSection />
       </div>

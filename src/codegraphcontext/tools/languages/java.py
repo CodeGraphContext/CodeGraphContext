@@ -332,7 +332,7 @@ class JavaTreeSitterParser:
         for node, capture_name in captures:
             if capture_name == "import":
                 try:
-                    import_text = source_code[node.start_byte:node.end_byte]
+                    import_text = self._get_node_text(node)
                     import_match = re.search(r'import\s+(?:static\s+)?([^;]+)', import_text)
                     if import_match:
                         import_path = import_match.group(1).strip()

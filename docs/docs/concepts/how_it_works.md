@@ -3,7 +3,7 @@
 Understanding the pipeline helps you write better queries.
 
 ## 1. Parsing (Tree-Sitter)
-We use **Tree-Sitter** to parse your source code into an Abstract Syntax Tree (AST). This allows us to support many languages (Python, JS, Go, etc.) with high accuracy.
+We use **Tree-Sitter** to parse your source code into an Abstract Syntax Tree (AST). This allows us to support many languages (Python, JS, Go, Dart, Perl, etc.) with high accuracy.
 
 ## 2. Graph Construction
 We walk the AST and generate **Nodes** and **Edges**.

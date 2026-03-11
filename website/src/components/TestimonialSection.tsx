@@ -29,7 +29,7 @@ export default function TestimonialSection() {
   const prev = () => setIndex((i) => (i - 1 + reviews.length) % reviews.length);
 
   return (
-    <section className="py-24 px-4" data-aos="fade-in">
+    <section id="testimonials" className="py-24 px-4" data-aos="fade-in">
       <div className="container mx-auto max-w-6xl">
         <div className="text-center mb-16" data-aos="fade-down">
           <h2 className="text-4xl md:text-5xl font-bold mb-6 bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent py-2">

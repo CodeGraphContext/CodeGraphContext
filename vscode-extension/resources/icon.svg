@@ -1,0 +1,28 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4A90E2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7B68EE;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="url(#grad1)"/>
+  
+  <!-- Graph nodes -->
+  <circle cx="40" cy="40" r="8" fill="white" opacity="0.9"/>
+  <circle cx="88" cy="40" r="8" fill="white" opacity="0.9"/>
+  <circle cx="64" cy="70" r="8" fill="white" opacity="0.9"/>
+  <circle cx="40" cy="100" r="8" fill="white" opacity="0.9"/>
+  <circle cx="88" cy="100" r="8" fill="white" opacity="0.9"/>
+  
+  <!-- Graph edges -->
+  <line x1="40" y1="40" x2="64" y2="70" stroke="white" stroke-width="3" opacity="0.7"/>
+  <line x1="88" y1="40" x2="64" y2="70" stroke="white" stroke-width="3" opacity="0.7"/>
+  <line x1="64" y1="70" x2="40" y2="100" stroke="white" stroke-width="3" opacity="0.7"/>
+  <line x1="64" y1="70" x2="88" y2="100" stroke="white" stroke-width="3" opacity="0.7"/>
+  <line x1="40" y1="40" x2="88" y2="40" stroke="white" stroke-width="3" opacity="0.7"/>
+  
+  <!-- Center highlight -->
+  <circle cx="64" cy="70" r="10" fill="none" stroke="white" stroke-width="2" opacity="0.5"/>
+</svg>

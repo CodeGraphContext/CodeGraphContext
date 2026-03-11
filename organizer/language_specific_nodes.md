@@ -1,6 +1,6 @@
 # How to Add Language-Specific Features
 
-This document outlines the standard pattern for extending the CodeGraphContext tool to support new, language-specific code constructs (like Go interfaces, Rust traits, C++ macros, etc.).
+This document outlines the standard pattern for extending the CodeGraphContext tool to support new, language-specific code constructs (like Go interfaces, Rust traits, Dart mixins, C++ macros, etc.).
 
 ## Core Philosophy
 
@@ -135,10 +135,9 @@ In the `add_file_to_graph` method, there is a list called `item_mappings`. Add y
 ```python
 # In GraphBuilder.add_file_to_graph()
 
-# To add a new language-specific node type (e.g., 'Trait' for Rust):
-# 1. Ensure your language-specific parser returns a list under a unique key (e.g., 'traits': [...] ).
+# 1. Ensure your language-specific parser returns a list under a unique key (e.g., 'traits': [...] or 'mixins': [...] ).
 # 2. Add a new constraint for the new label in the `create_schema` method.
-# 3. Add a new entry to the `item_mappings` list below (e.g., (file_data.get('traits', []), 'Trait') ).
+# 3. Add a new entry to the `item_mappings` list below (e.g., (file_data.get('traits', []), 'Trait') or (file_data.get('mixins', []), 'Mixin') ).
 item_mappings = [
     (file_data.get('functions', []), 'Function'),
     (file_data.get('classes', []), 'Class'),

@@ -4,8 +4,10 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Download, Package, Calendar, HardDrive, Star, Loader2 } from 'lucide-react';
+import { Search, Download, Package, Calendar, HardDrive, Star, Loader2, ExternalLink, Copy, Check, HelpCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { toast } from 'sonner';
 
 interface Bundle {
     name: string;
@@ -26,6 +28,7 @@ const BundleRegistrySection = () => {
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
+    const [copiedBundleIndex, setCopiedBundleIndex] = useState<number | null>(null);
 
     useEffect(() => {
         fetchBundles();
@@ -159,8 +162,21 @@ const BundleRegistrySection = () => {
 
     const categories = ['all', ...new Set(bundles.map(b => b.category).filter(Boolean))];
 
+    const handleCopyCommand = async (bundleName: string, index: number) => {
+        const command = `cgc load ${bundleName}`;
+        try {
+            await navigator.clipboard.writeText(command);
+            setCopiedBundleIndex(index);
+            toast.success('Command copied to clipboard!');
+            setTimeout(() => setCopiedBundleIndex(null), 2000);
+        } catch (err) {
+            toast.error('Failed to copy command');
+            console.error('Copy failed:', err);
+        }
+    };
+
     return (
-        <section className="py-20 px-4">
+        <section id="bundle-registry" className="py-20 px-4">
             <div className="container mx-auto max-w-7xl">
                 {/* Header */}
                 <div className="text-center mb-12" data-aos="fade-up">
@@ -168,7 +184,70 @@ const BundleRegistrySection = () => {
                         <Package className="w-4 h-4 mr-2" />
                         Bundle Registry
                     </Badge>
-                    <h2 className="text-4xl font-bold mb-4">Pre-indexed Repositories</h2>
+                    <div className="flex items-center justify-center gap-3 mb-4">
+                        <h2 className="text-4xl font-bold">Pre-indexed Repositories</h2>
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <button 
+                                    className="inline-flex items-center justify-center rounded-full p-2 hover:bg-muted transition-colors"
+                                    aria-label="Help - How to use pre-indexed bundles"
+                                >
+                                    <HelpCircle className="w-6 h-6 text-muted-foreground hover:text-primary" />
+                                </button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                                <DialogHeader>
+                                    <DialogTitle>How to Use Pre-indexed Bundles</DialogTitle>
+                                    <DialogDescription>
+                                        Learn how to quickly download and load pre-indexed repositories
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <div className="space-y-4 mt-4">
+                                    <div className="prose dark:prose-invert max-w-none">
+                                        <h3 className="text-lg font-semibold mb-2">What are Pre-indexed Bundles?</h3>
+                                        <p className="text-sm text-muted-foreground mb-4">
+                                            Pre-indexed bundles are ready-to-use knowledge graph snapshots of popular repositories. 
+                                            Instead of indexing code yourself (which can take time), you can download and load these bundles instantly.
+                                        </p>
+
+                                        <h3 className="text-lg font-semibold mb-2">Quick Start Guide</h3>
+                                        <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
+                                            <li>Browse the available bundles below and find one you need</li>
+                                            <li>Click the <strong>Download Bundle</strong> button to download the .cgc file</li>
+                                            <li>Copy the CLI command shown (click the copy icon next to it)</li>
+                                            <li>Run the command in your terminal to load the bundle</li>
+                                            <li>Start using the knowledge graph with your AI assistant immediately!</li>
+                                        </ol>
+
+                                        <h3 className="text-lg font-semibold mb-2 mt-4">Example Usage</h3>
+                                        <div className="bg-muted p-3 rounded-md font-mono text-xs space-y-2">
+                                            <div># Download a bundle (e.g., numpy)</div>
+                                            <div># Then load it:</div>
+                                            <div className="text-primary font-semibold">cgc load numpy-1.26.4.cgc</div>
+                                        </div>
+
+                                        <div className="mt-6 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                                            <h4 className="text-sm font-semibold mb-2 text-blue-900 dark:text-blue-100">💡 Pro Tip</h4>
+                                            <p className="text-xs text-blue-800 dark:text-blue-200">
+                                                Use the copy button next to each command to avoid typos. The bundle filename is automatically included in the command.
+                                            </p>
+                                        </div>
+
+                                        {/* Placeholder for video/GIF */}
+                                        <div className="mt-6 bg-muted rounded-lg p-8 text-center border-2 border-dashed">
+                                            <Package className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
+                                            <p className="text-sm text-muted-foreground">
+                                                Video tutorial coming soon!
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                For now, follow the steps above to get started
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </DialogContent>
+                        </Dialog>
+                    </div>
                     <p className="text-xl text-muted-foreground">
                         Download and load instantly - no indexing required
                     </p>
@@ -239,7 +318,15 @@ const BundleRegistrySection = () => {
                                         <div className="flex-1">
                                             <CardTitle className="text-lg">{bundle.name}</CardTitle>
                                             <CardDescription className="text-sm mt-1">
-                                                {bundle.repo}
+                                                <a
+                                                    href={`https://github.com/${bundle.repo}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors underline underline-offset-2"
+                                                >
+                                                    {bundle.repo}
+                                                    <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                                                </a>
                                             </CardDescription>
                                         </div>
                                         {bundle.category && (
@@ -280,9 +367,20 @@ const BundleRegistrySection = () => {
                                         {bundle.version && (
                                             <Badge variant="secondary">v{bundle.version}</Badge>
                                         )}
-                                        <Badge variant="secondary" className="font-mono">
-                                            {bundle.commit}
-                                        </Badge>
+                                        <a href={`https://github.com/${bundle.repo}/commit/${bundle.commit}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1"
+                                        >
+                                       <Badge
+                                       variant="secondary"
+                                       className="font-mono cursor-pointer hover:bg-muted"
+                                        >
+                                       {bundle.commit}
+                                       <ExternalLink className="h-3 w-3 ml-1" />
+                                       </Badge>
+                                       </a>
+
                                     </div>
 
                                     {/* Download Button */}
@@ -293,9 +391,26 @@ const BundleRegistrySection = () => {
                                         </a>
                                     </Button>
 
-                                    {/* Usage Hint */}
-                                    <div className="bg-muted p-2 rounded text-xs font-mono">
-                                        cgc load {bundle.bundle_name || `${bundle.name}-${bundle.version || 'latest'}.cgc`}
+                                    {/* Usage Hint with Copy Button */}
+                                    <div className="bg-muted p-2 rounded text-xs font-mono flex items-center justify-between gap-2 group">
+                                        <span className="flex-1 truncate">
+                                            cgc load {bundle.bundle_name || `${bundle.name}-${bundle.version || 'latest'}.cgc`}
+                                        </span>
+                                        <button
+                                            onClick={() => handleCopyCommand(
+                                                bundle.bundle_name || `${bundle.name}-${bundle.version || 'latest'}.cgc`,
+                                                index
+                                            )}
+                                            className="shrink-0 p-1 rounded hover:bg-background transition-colors"
+                                            aria-label={`Copy command for ${bundle.name}`}
+                                            title="Copy to clipboard"
+                                        >
+                                            {copiedBundleIndex === index ? (
+                                                <Check className="w-4 h-4 text-green-600 dark:text-green-400" />
+                                            ) : (
+                                                <Copy className="w-4 h-4 text-muted-foreground group-hover:text-foreground" />
+                                            )}
+                                        </button>
                                     </div>
                                 </CardContent>
                             </Card>

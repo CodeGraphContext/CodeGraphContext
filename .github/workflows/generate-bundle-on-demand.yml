@@ -32,10 +32,13 @@ jobs:
         with:
           python-version: '3.12'
       
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      
       - name: Install CodeGraphContext
         run: |
-          pip install -e .
-          pip install tree-sitter tree-sitter-language-pack
+          uv pip install --system -e .
+          uv pip install --system tree-sitter tree-sitter-language-pack
       
       - name: Parse repository URL
         id: parse-url
@@ -87,6 +90,14 @@ jobs:
           REPO_SIZE=$(du -sh . | cut -f1)
           echo "repo_size=$REPO_SIZE" >> $GITHUB_OUTPUT
       
+      - name: Cache CGC Index
+        uses: actions/cache@v4
+        with:
+          path: ~/.codegraphcontext
+          key: cgc-index-${{ steps.parse-url.outputs.owner }}-${{ steps.parse-url.outputs.repo }}-${{ steps.repo-meta.outputs.commit_sha }}
+          restore-keys: |
+            cgc-index-${{ steps.parse-url.outputs.owner }}-${{ steps.parse-url.outputs.repo }}-
+
       - name: Index repository
         id: index
         run: |

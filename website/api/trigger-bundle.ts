@@ -1,13 +1,61 @@
 // api/trigger-bundle.ts
 // Triggers the on-demand bundle generation GitHub Actions workflow
 
+import {
+    checkRateLimit,
+    checkRepoCooldown,
+    getActiveRepoJob,
+    getClientIp,
+    isAllowedOrigin,
+    isAuthorizedRequest,
+    markRepoJobActive,
+    normalizeRepoKey,
+    setRepoCooldown,
+} from './lib/security.js';
+
 export default async function handler(req: any, res: any) {
     // Only allow POST requests
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const { repoUrl } = req.body;
+    // Basic request hardening
+    const origin = req.headers?.origin || req.headers?.referer;
+    if (!isAllowedOrigin(origin)) {
+        return res.status(403).json({
+            error: 'Forbidden origin'
+        });
+    }
+
+    if (!isAuthorizedRequest(req)) {
+        return res.status(401).json({
+            error: 'Unauthorized request'
+        });
+    }
+
+    const contentType = req.headers?.['content-type'] || '';
+    if (typeof contentType === 'string' && !contentType.includes('application/json')) {
+        return res.status(415).json({ error: 'Content-Type must be application/json' });
+    }
+
+    const clientIp = getClientIp(req);
+    const rateLimitResult = checkRateLimit(clientIp);
+    if (!rateLimitResult.allowed) {
+        res.setHeader('Retry-After', String(rateLimitResult.retryAfterSeconds));
+        return res.status(429).json({
+            error: 'Rate limit exceeded. Please retry later.',
+            retry_after_seconds: rateLimitResult.retryAfterSeconds
+        });
+    }
+
+    if (!process.env.GITHUB_TOKEN) {
+        return res.status(503).json({
+            error: 'Bundle generation service is not configured'
+        });
+    }
+
+    const rawRepoUrl = req.body.repoUrl;
+    const repoUrl = rawRepoUrl ? rawRepoUrl.trim() : rawRepoUrl;
 
     // Validate input
     if (!repoUrl) {
@@ -15,7 +63,8 @@ export default async function handler(req: any, res: any) {
     }
 
     // Validate GitHub URL format
-    const githubUrlPattern = /^https?:\/\/(www\.)?github\.com\/([^\/]+)\/([^\/]+)(\.git)?$/;
+    // Allow optional trailing slash and .git extension
+    const githubUrlPattern = /^https?:\/\/(www\.)?github\.com\/([^\/]+)\/([^\/]+)(\.git)?\/?$/;
     const match = repoUrl.match(githubUrlPattern);
 
     if (!match) {
@@ -26,6 +75,28 @@ export default async function handler(req: any, res: any) {
 
     const owner = match[2];
     const repo = match[3].replace('.git', '');
+    const normalizedRepo = normalizeRepoKey(owner, repo);
+
+    // Avoid duplicate or abusive triggers for the same repository
+    const existingActiveJob = getActiveRepoJob(normalizedRepo);
+    if (existingActiveJob) {
+        return res.status(202).json({
+            status: 'processing',
+            message: 'A bundle generation request is already in progress for this repository',
+            repository: normalizedRepo,
+            run_id: existingActiveJob.runId,
+            run_url: existingActiveJob.runUrl
+        });
+    }
+
+    const cooldownCheck = checkRepoCooldown(normalizedRepo);
+    if (!cooldownCheck.allowed) {
+        res.setHeader('Retry-After', String(cooldownCheck.retryAfterSeconds));
+        return res.status(429).json({
+            error: 'This repository was recently queued. Please wait before retrying.',
+            retry_after_seconds: cooldownCheck.retryAfterSeconds
+        });
+    }
 
     try {
         // Check if repository exists
@@ -103,6 +174,10 @@ export default async function handler(req: any, res: any) {
             throw new Error(`Failed to trigger workflow: ${workflowResponse.statusText}`);
         }
 
+        // Mark repository as active and apply cooldown to prevent rapid re-triggers
+        setRepoCooldown(normalizedRepo);
+        markRepoJobActive(normalizedRepo);
+
         // Get the latest workflow run ID (we just triggered it)
         // Wait a bit for GitHub to register the run
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -125,6 +200,7 @@ export default async function handler(req: any, res: any) {
             if (runsData.workflow_runs && runsData.workflow_runs.length > 0) {
                 runId = runsData.workflow_runs[0].id;
                 runUrl = runsData.workflow_runs[0].html_url;
+                markRepoJobActive(normalizedRepo, runId, runUrl);
             }
         }
 

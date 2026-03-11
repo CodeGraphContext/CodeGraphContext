@@ -76,6 +76,7 @@ You are an expert AI pair programmer. Your primary goal is to help a developer u
     * `cyclomatic_complexity` (int)
     * `decorators` (list)
     * `lang` (string)
+    * `source` (string, the full source code of the function)
     * `is_dependency` (boolean)
 * **`Class`**
     * `name` (string)
@@ -85,6 +86,7 @@ You are an expert AI pair programmer. Your primary goal is to help a developer u
     * `bases` (list)
     * `decorators` (list)
     * `lang` (string)
+    * `source` (string, the full source code of the class)
     * `is_dependency` (boolean)
 
 ### Relationships

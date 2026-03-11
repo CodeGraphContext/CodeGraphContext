@@ -19,6 +19,39 @@ DEFAULT_NEO4J_USERNAME = "neo4j"
 DEFAULT_NEO4J_BOLT_PORT = 7687
 DEFAULT_NEO4J_HTTP_PORT = 7474
 
+def _save_neo4j_credentials(creds):
+    """
+    Save Neo4j credentials to .env file (database setup only).
+    Does NOT generate MCP config or configure IDE.
+    """
+    from codegraphcontext.cli.config_manager import load_config, save_config, ensure_config_dir
+    
+    ensure_config_dir()
+    
+    # Load existing config (or defaults if no file exists)
+    config = load_config()
+    
+    # Update Neo4j credentials
+    config["NEO4J_URI"] = creds.get('uri', '')
+    config["NEO4J_USERNAME"] = creds.get('username', 'neo4j')
+    config["NEO4J_PASSWORD"] = creds.get('password', '')
+    
+    # Set default database to neo4j
+    config["DEFAULT_DATABASE"] = "neo4j"
+    
+    # Save config (preserves all other settings)
+    save_config(config, preserve_db_credentials=False)
+    
+    console.print("\n[bold green]✅ Neo4j setup complete![/bold green]")
+    console.print(f"[cyan]📝 Credentials saved to ~/.codegraphcontext/.env[/cyan]")
+    console.print(f"[cyan]🔧 Default database set to 'neo4j'[/cyan]")
+    console.print("\n[dim]You can now use cgc commands with Neo4j:[/dim]")
+    console.print("[dim]  • cgc index .          - Index your code[/dim]")
+    console.print("[dim]  • cgc find function    - Search your codebase[/dim]")
+    console.print("\n[dim]To use cgc as an MCP server in your IDE, run:[/dim]")
+    console.print("[dim]  cgc mcp setup[/dim]")
+
+
 def _generate_mcp_json(creds):
     """Generates and prints the MCP JSON configuration."""
     cgc_path = shutil.which("cgc") or sys.executable
@@ -69,15 +102,8 @@ def _generate_mcp_json(creds):
         json.dump(mcp_config, f, indent=2)
     console.print(f"\n[cyan]For your convenience, the configuration has also been saved to: {mcp_file}[/cyan]")
 
-    # Also save to a .env file for convenience
-    env_file = Path.home() / ".codegraphcontext" / ".env"
-    env_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(env_file, "w") as f:
-        f.write(f"NEO4J_URI={creds.get('uri', '')}\n")
-        f.write(f"NEO4J_USERNAME={creds.get('username', 'neo4j')}\n")
-        f.write(f"NEO4J_PASSWORD={creds.get('password', '')}\n")
-
-    console.print(f"[cyan]Neo4j credentials also saved to: {env_file}[/cyan]")
+    # Also save credentials to .env using the proper function
+    _save_neo4j_credentials(creds)
     _configure_ide(mcp_config)
 
 
@@ -114,7 +140,7 @@ def _configure_ide(mcp_config):
     questions = [
         {
             "type": "confirm",
-            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider)?",
+            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Antigravity)?",
             "name": "configure_ide",
             "default": True,
         }
@@ -128,7 +154,7 @@ def _configure_ide(mcp_config):
         {
             "type": "list",
             "message": "Choose your IDE/CLI to configure:",
-            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "None of the above"],
+            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Antigravity", "None of the above"],
             "name": "ide_choice",
         }
     ]
@@ -140,7 +166,7 @@ def _configure_ide(mcp_config):
         return
 
 
-    if ide_choice in ["VS Code", "Cursor/CLI", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "Windsurf", "RooCode", "Amazon Q Developer , JetBrainsAI", "Aider"]:
+    if ide_choice in ["VS Code", "Cursor", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "Windsurf", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Antigravity"]:
         console.print(f"\n[bold cyan]Configuring for {ide_choice}...[/bold cyan]")
 
         if ide_choice == "Amazon Q Developer":
@@ -198,6 +224,16 @@ def _configure_ide(mcp_config):
                 Path.home() / "Library" / "Application Support" / "aider" / "settings.json",
                 Path.home() / "AppData" / "Roaming" / "aider" / "settings.json",
                 Path.home() / ".config" / "Aider" / "User" / "settings.json",
+            ],
+            "Kiro": [
+                Path.home() / ".kiro" / "settings" / "mcp.json",                                   # macOS / Linux / Windows (user-level global)
+                Path.home() / ".config" / "kiro" / "settings" / "mcp.json",                         # Linux (XDG config)
+                Path.home() / "AppData" / "Roaming" / "Kiro" / "settings" / "mcp.json",             # Windows
+            ],
+            "Antigravity": [
+                Path.home() / ".antigravity" / "mcp_settings.json",                                # macOS / Linux / Windows (user-level global)
+                Path.home() / ".config" / "antigravity" / "mcp_settings.json",                     # Linux (XDG config)
+                Path.home() / "AppData" / "Roaming" / "Antigravity" / "mcp_settings.json",         # Windows
             ]
         }
 
@@ -341,7 +377,7 @@ def configure_mcp_client():
                     if line and not line.startswith("#") and "=" in line:
                         key, value = line.split("=", 1)
                         key = key.strip()
-                        if key in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"]:
+                        if key in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE"]:
                             env_vars[key] = value.strip()
         except Exception:
             pass
@@ -540,7 +576,7 @@ def setup_existing_db():
 
 
     if creds.get("uri") and creds.get("password"):
-        _generate_mcp_json(creds)
+        _save_neo4j_credentials(creds)
     else:
         console.print("[red]❌ Incomplete credentials. Please try again.[/red]")
 
@@ -658,7 +694,7 @@ def setup_hosted_db():
 
 
     if creds.get("uri") and creds.get("password"):
-        _generate_mcp_json(creds)
+        _save_neo4j_credentials(creds)
     else:
         console.print("[red]❌ Incomplete credentials. Please try again.[/red]")
 
@@ -681,7 +717,7 @@ def setup_local_db():
         if platform.system() == "Darwin":
             # lazy import to avoid circular import
             from .setup_macos import setup_macos_binary
-            setup_macos_binary(console, prompt, run_command, _generate_mcp_json)
+            setup_macos_binary(console, prompt, run_command, _save_neo4j_credentials)
         else:
             setup_local_binary()
 
@@ -829,7 +865,7 @@ volumes:
                 "password": password
             }
 
-            _generate_mcp_json(creds)
+            _save_neo4j_credentials(creds)
             
             console.print("\n[bold green]🎉 Setup complete![/bold green]")
             console.print("Neo4j is running at:")
@@ -924,5 +960,5 @@ def setup_local_binary():
         "username": "neo4j",
         "password": new_password
     }
-    _generate_mcp_json(creds)
+    _save_neo4j_credentials(creds)
     console.print("\n[bold green]All done! Your local Neo4j instance is ready to use.[/bold green]")

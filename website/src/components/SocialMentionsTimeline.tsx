@@ -22,7 +22,7 @@ export default function SocialMentionsTimeline() {
     { name: "Reddit Announcement", url: "https://www.reddit.com/r/mcp/comments/1o22gc5/i_built_codegraphcontext_an_mcp_server_that/", icon: <FaReddit />, color: "#FF5700", button: "See Reddit post" },
   ];
   return (
-    <section className="py-24 px-4 bg-muted" data-aos="fade-in">
+    <section id="socialmentions" className="py-24 px-4 bg-muted" data-aos="fade-in">
       <div className="container mx-auto max-w-5xl">
         <div className="text-center mb-16" data-aos="fade-down">
           <h2 className="text-3xl md:text-4xl font-bold mb-4 bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent py-2">
@@ -45,8 +45,8 @@ export default function SocialMentionsTimeline() {
                     href={rowLinks[0].url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block rounded-lg shadow-sm hover:shadow-md transition-shadow p-6 border border-muted bg-card text-card-foreground group w-full"
-                    style={{ textDecoration: 'none' }}
+                    className="block rounded-lg shadow-sm hover:shadow-md transition-shadow p-6 border border-muted bg-card text-card-foreground group w-full border-l-4"
+                    style={{ textDecoration: 'none', borderLeftColor: rowLinks[0].color || 'var(--primary)' }}
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <span className={`text-2xl transition-colors ${rowLinks[0].name === "Github" || rowLinks[0].name === "Skyworks"? "text-black dark:text-white": ""}`}style={rowLinks[0].name !== "Github" && rowLinks[0].name !== "Skyworks"? { color: rowLinks[0].color }: {}}>{rowLinks[0].icon}</span>
@@ -71,8 +71,8 @@ export default function SocialMentionsTimeline() {
                     href={rowLinks[1].url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block rounded-lg shadow-sm hover:shadow-md transition-shadow p-6 border border-muted bg-card text-card-foreground group w-full"
-                    style={{ textDecoration: 'none' }}
+                    className="block rounded-lg shadow-sm hover:shadow-md transition-shadow p-6 border border-muted bg-card text-card-foreground group w-full border-l-4"
+                    style={{ textDecoration: 'none', borderLeftColor: rowLinks[1].color || 'var(--primary)' }}
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <span className={`text-2xl transition-colors ${rowLinks[1].name === "Github" || rowLinks[1].name === "Skyworks"? "text-black dark:text-white": ""}`}style={rowLinks[1].name !== "Github" && rowLinks[1].name !== "Skyworks"? { color: rowLinks[1].color }: {}}>{rowLinks[1].icon}</span>
@@ -99,8 +99,8 @@ export default function SocialMentionsTimeline() {
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="block rounded-lg shadow-sm hover:shadow-md transition-shadow p-6 border border-muted bg-card text-card-foreground group w-full"
-                      style={{ textDecoration: 'none' }}
+                      className="block rounded-lg shadow-sm hover:shadow-md transition-shadow p-6 border border-muted bg-card text-card-foreground group w-full border-l-4"
+                      style={{ textDecoration: 'none', borderLeftColor: link.color || 'var(--primary)' }}
                     >
                       <div className="flex items-center gap-3 mb-2">
                         <span className={`text-2xl transition-colors ${link.name === "Github" || link.name === "Skyworks"? "text-black dark:text-white": ""}`}style={link.name !== "Github" && link.name !== "Skyworks"? { color: link.color }: {}}>{link.icon}</span>
@@ -128,8 +128,8 @@ export default function SocialMentionsTimeline() {
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="block rounded-lg shadow-sm hover:shadow-md transition-shadow p-6 border border-muted bg-card text-card-foreground group w-full"
-                      style={{ textDecoration: 'none' }}
+                      className="block rounded-lg shadow-sm hover:shadow-md transition-shadow p-6 border border-muted bg-card text-card-foreground group w-full border-l-4"
+                      style={{ textDecoration: 'none', borderLeftColor: link.color || 'var(--primary)' }}
                     >
                       <div className="flex items-center gap-3 mb-2">
                         <span className={`text-2xl transition-colors ${link.name === "Github" || link.name === "Skyworks"? "text-black dark:text-white": ""}`}style={link.name !== "Github" && link.name !== "Skyworks"? { color: link.color }: {}}>{link.icon}</span>

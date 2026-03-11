@@ -74,6 +74,15 @@ class TreeSitterParser:
         elif self.language_name == 'haskell':
             from .languages.haskell import HaskellTreeSitterParser
             self.language_specific_parser = HaskellTreeSitterParser(self)
+        elif self.language_name == 'dart':
+            from .languages.dart import DartTreeSitterParser
+            self.language_specific_parser = DartTreeSitterParser(self)
+        elif self.language_name == 'perl':
+            from .languages.perl import PerlTreeSitterParser
+            self.language_specific_parser = PerlTreeSitterParser(self)
+        elif self.language_name == 'elixir':
+            from .languages.elixir import ElixirTreeSitterParser
+            self.language_specific_parser = ElixirTreeSitterParser(self)
 
 
 
@@ -105,11 +114,10 @@ class GraphBuilder:
             '.cpp': TreeSitterParser('cpp'),
             '.h': TreeSitterParser('cpp'),
             '.hpp': TreeSitterParser('cpp'),
+            '.hh': TreeSitterParser('cpp'),
             '.rs': TreeSitterParser('rust'),
             '.c': TreeSitterParser('c'),
             # '.h': TreeSitterParser('c'), # Need to write an algo for distinguishing C vs C++ headers
-            '.java': TreeSitterParser('java'),
-            '.rb': TreeSitterParser('ruby'),
             '.java': TreeSitterParser('java'),
             '.rb': TreeSitterParser('ruby'),
             '.cs': TreeSitterParser('c_sharp'),
@@ -119,6 +127,11 @@ class GraphBuilder:
             '.sc': TreeSitterParser('scala'),
             '.swift': TreeSitterParser('swift'),
             '.hs': TreeSitterParser('haskell'),
+            '.dart': TreeSitterParser('dart'),
+            '.pl': TreeSitterParser('perl'),
+            '.pm': TreeSitterParser('perl'),
+            '.ex': TreeSitterParser('elixir'),
+            '.exs': TreeSitterParser('elixir'),
         }
         self.create_schema()
 
@@ -149,11 +162,20 @@ class GraphBuilder:
                 session.run("CREATE INDEX function_lang IF NOT EXISTS FOR (f:Function) ON (f.lang)")
                 session.run("CREATE INDEX class_lang IF NOT EXISTS FOR (c:Class) ON (c.lang)")
                 session.run("CREATE INDEX annotation_lang IF NOT EXISTS FOR (a:Annotation) ON (a.lang)")
-                session.run("""
-                    CREATE FULLTEXT INDEX code_search_index IF NOT EXISTS 
-                    FOR (n:Function|Class|Variable) 
-                    ON EACH [n.name, coalesce(n.source, ''), coalesce(n.docstring, '')]
-                """ )
+                is_falkordb = getattr(self.db_manager, 'get_backend_type', lambda: 'neo4j')() != 'neo4j'
+                if is_falkordb:
+                    # FalkorDB uses db.idx.fulltext.createNodeIndex per label
+                    for label in ['Function', 'Class']:
+                        try:
+                            session.run(f"CALL db.idx.fulltext.createNodeIndex('{label}', 'name', 'source', 'docstring')")
+                        except Exception:
+                            pass  # Index may already exist
+                else:
+                    session.run("""
+                        CREATE FULLTEXT INDEX code_search_index IF NOT EXISTS
+                        FOR (n:Function|Class|Variable)
+                        ON EACH [n.name, n.source, n.docstring]
+                    """)
                 
                 info_logger("Database schema verified/created successfully")
             except Exception as e:
@@ -209,6 +231,9 @@ class GraphBuilder:
         if '.hpp' in files_by_lang:
             from .languages import cpp as cpp_lang_module
             imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.hpp'], self.parsers['.hpp']))
+        if '.hh' in files_by_lang:
+            from .languages import cpp as cpp_lang_module
+            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.hh'], self.parsers['.hh']))
         if '.rs' in files_by_lang:
             from .languages import rust as rust_lang_module
             imports_map.update(rust_lang_module.pre_scan_rust(files_by_lang['.rs'], self.parsers['.rs']))
@@ -236,7 +261,22 @@ class GraphBuilder:
         if '.swift' in files_by_lang:
             from .languages import swift as swift_lang_module
             imports_map.update(swift_lang_module.pre_scan_swift(files_by_lang['.swift'], self.parsers['.swift']))
-            
+        if '.dart' in files_by_lang:
+            from .languages import dart as dart_lang_module
+            imports_map.update(dart_lang_module.pre_scan_dart(files_by_lang['.dart'], self.parsers['.dart']))
+        if '.pl' in files_by_lang:
+            from .languages import perl as perl_lang_module
+            imports_map.update(perl_lang_module.pre_scan_perl(files_by_lang['.pl'], self.parsers['.pl']))
+        if '.pm' in files_by_lang:
+            from .languages import perl as perl_lang_module
+            imports_map.update(perl_lang_module.pre_scan_perl(files_by_lang['.pm'], self.parsers['.pm']))
+        if '.ex' in files_by_lang:
+            from .languages import elixir as elixir_lang_module
+            imports_map.update(elixir_lang_module.pre_scan_elixir(files_by_lang['.ex'], self.parsers['.ex']))
+        if '.exs' in files_by_lang:
+            from .languages import elixir as elixir_lang_module
+            imports_map.update(elixir_lang_module.pre_scan_elixir(files_by_lang['.exs'], self.parsers['.exs']))
+
         return imports_map
 
     # Language-agnostic method
@@ -257,7 +297,8 @@ class GraphBuilder:
 
     # First pass to add file and its contents
     def add_file_to_graph(self, file_data: Dict, repo_name: str, imports_map: dict):
-        info_logger("Executing add_file_to_graph with my change!")
+        calls_count = len(file_data.get('function_calls', []))
+        debug_log(f"Executing add_file_to_graph for {file_data.get('path', 'unknown')} - Calls found: {calls_count}")
         """Adds a file and its contents within a single, unified session."""
         file_path_str = str(Path(file_data['path']).resolve())
         file_name = Path(file_path_str).name
@@ -277,7 +318,12 @@ class GraphBuilder:
             """, path=file_path_str, name=file_name, relative_path=relative_path, is_dependency=is_dependency)
 
             file_path_obj = Path(file_path_str)
-            repo_path_obj = Path(repo_result['path'])
+            if repo_result:
+                repo_path_obj = Path(repo_result['path'])
+            else:
+                # Fallback to the path we queried for
+                warning_logger(f"Repository node not found for {file_data['repo_path']} during indexing of {file_name}. Using original path.")
+                repo_path_obj = Path(file_data['repo_path']).resolve()
             
             relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
             
@@ -386,10 +432,14 @@ class GraphBuilder:
                     """, path=file_path_str, module_name=module_name, props=rel_props)
                 else:
                     # Existing logic for Python (and other languages)
-                    set_clauses = ["m.alias = $alias"]
+                    # For KùzuDB, Module schema only has: name, lang, full_import_name.
+                    # 'alias' belongs on the relationship.
+                    
+                    set_clauses = []
                     if 'full_import_name' in imp:
                         set_clauses.append("m.full_import_name = $full_import_name")
-                    set_clause_str = ", ".join(set_clauses)
+                    
+                    set_clause_str = ("SET " + ", ".join(set_clauses)) if set_clauses else ""
 
                     # Build relationship properties
                     rel_props = {}
@@ -397,14 +447,20 @@ class GraphBuilder:
                         rel_props['line_number'] = imp.get('line_number')
                     if imp.get('alias'):
                         rel_props['alias'] = imp.get('alias')
+                    
+                    # Ensure full_import_name is available in params for SET clause
+                    params = imp.copy()
+                    params['path'] = file_path_str
+                    params['rel_props'] = rel_props
+                    params['module_name'] = imp.get('name') # Use 'name' from imp as module name
 
                     session.run(f"""
                         MATCH (f:File {{path: $path}})
-                        MERGE (m:Module {{name: $name}})
-                        SET {set_clause_str}
+                        MERGE (m:Module {{name: $module_name}})
+                        {set_clause_str}
                         MERGE (f)-[r:IMPORTS]->(m)
                         SET r += $rel_props
-                    """, path=file_path_str, rel_props=rel_props, **imp)
+                    """, **params)
 
 
             # Handle CONTAINS relationship between class to their children like variables
@@ -435,16 +491,34 @@ class GraphBuilder:
             # Function calls are also handled in a separate pass after all files are processed.
 
     # Second pass to create relationships that depend on all files being present like call functions and class inheritance
+    def _safe_run_create(self, session, query, params) -> bool:
+        """Helper to run a creation query safely, catching exceptions and checking result."""
+        try:
+            result = session.run(query, **params)
+            row = result.single()
+            return row is not None and row.get('created', 0) > 0
+        except Exception as e:
+            # Optionally log, but suppress to allow fallback
+            return False
+
     def _create_function_calls(self, session, file_data: Dict, imports_map: dict):
         """Create CALLS relationships with a unified, prioritized logic flow for all call types."""
         caller_file_path = str(Path(file_data['path']).resolve())
+        num_calls = len(file_data.get('function_calls', []))
+        if num_calls > 0:
+            debug_log(f"Creating function calls for {caller_file_path} (Count: {num_calls})")
+        
         local_names = {f['name'] for f in file_data.get('functions', [])} | \
                       {c['name'] for c in file_data.get('classes', [])}
         local_imports = {imp.get('alias') or imp['name'].split('.')[-1]: imp['name'] 
                         for imp in file_data.get('imports', [])}
         
+        # Check if we should skip external resolution attempts - 
+        skip_external = (get_config_value("SKIP_EXTERNAL_RESOLUTION") or "false").lower() == "true"
+        
         for call in file_data.get('function_calls', []):
             called_name = call['name']
+            # debug_log(f"Processing call: {called_name}")
             if called_name in __builtins__: continue
 
             resolved_path = None
@@ -499,7 +573,13 @@ class GraphBuilder:
                                     break
             
             if not resolved_path:
-                 warning_logger(f"Could not resolve call {called_name} (lookup: {lookup_name}) in {caller_file_path}")
+                # Only log warning if we're not skipping external resolution
+                if not skip_external:
+                    warning_logger(f"Could not resolve call {called_name} (lookup: {lookup_name}) in {caller_file_path}")
+                # Track that this was an unresolved external call
+                is_unresolved_external = True
+            else:
+                is_unresolved_external = False
             # else:
             #      info_logger(f"Resolved call {called_name} -> {resolved_path}")
             
@@ -521,6 +601,7 @@ class GraphBuilder:
             if not resolved_path:
                 if called_name in local_names:
                     resolved_path = caller_file_path
+                    is_unresolved_external = False  # This is a local call, not external
                 elif called_name in imports_map and imports_map[called_name]:
                     # Check if any path in imports_map for called_name matches current file's imports
                     candidates = imports_map[called_name]
@@ -528,68 +609,136 @@ class GraphBuilder:
                         for imp_name in local_imports.values():
                             if imp_name.replace('.', '/') in path:
                                 resolved_path = path
+                                is_unresolved_external = False  # Found a match
                                 break
                         if resolved_path: break
                     if not resolved_path:
                         resolved_path = candidates[0]
                 else:
                     resolved_path = caller_file_path
+            
+            # Skip creating CALLS relationship for unresolved external calls when skip_external is enabled
+            if skip_external and is_unresolved_external:
+                continue
 
             caller_context = call.get('context')
             if caller_context and len(caller_context) == 3 and caller_context[0] is not None:
                 caller_name, _, caller_line_number = caller_context
-                # if called_name == "sumOfSquares":
-                    # print(f"DEBUG_CYPHER: caller={caller_name}, caller_line={caller_line_number}, called={called_name}, path={resolved_path}")
-
-                session.run("""
-                    MATCH (caller) WHERE (caller:Function OR caller:Class) 
-                      AND caller.name = $caller_name 
-                      AND caller.path = $caller_file_path 
-                      AND caller.line_number = $caller_line_number
-                    MATCH (called) WHERE (called:Function OR called:Class)
-                      AND called.name = $called_name 
-                      AND called.path = $called_file_path
-                    
+                
+                # KùzuDB workaround: Try Function->Function first, then other combinations
+                # This avoids polymorphic MERGE which KùzuDB doesn't support
+                call_params = {
+                    'caller_name': caller_name,
+                    'caller_file_path': caller_file_path,
+                    'caller_line_number': caller_line_number,
+                    'called_name': called_name,
+                    'called_file_path': resolved_path,
+                    'line_number': call['line_number'],
+                    'args': call.get('args', []),
+                    'full_call_name': call.get('full_name', called_name)
+                }
+                
+                # Try Function caller -> Function callee
+                if not self._safe_run_create(session, """
+                    OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
+                    OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
                     WITH caller, called
-                    OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
-                    WHERE called:Class AND init.name IN ["__init__", "constructor"]
-                    WITH caller, COALESCE(init, called) as final_target
-                    
-                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
-                """,
-                caller_name=caller_name,
-                caller_file_path=caller_file_path,
-                caller_line_number=caller_line_number,
-                called_name=called_name,
-                called_file_path=resolved_path,
-                line_number=call['line_number'],
-                args=call.get('args', []),
-                full_call_name=call.get('full_name', called_name))
+                    WHERE caller IS NOT NULL AND called IS NOT NULL
+                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                    RETURN count(*) as created
+                """, call_params):
+                
+                    # Try Function caller -> Class callee (with __init__ resolution)
+                    if not self._safe_run_create(session, """
+                        OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
+                        OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
+                        OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
+                        WHERE init.name IN ["__init__", "constructor"]
+                        WITH caller, COALESCE(init, called) as final_target
+                        WHERE caller IS NOT NULL AND final_target IS NOT NULL
+                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
+                        RETURN count(*) as created
+                    """, call_params):
+                
+                        # Try Class caller -> Function callee
+                        if not self._safe_run_create(session, """
+                            OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
+                            OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
+                            WITH caller, called
+                            WHERE caller IS NOT NULL AND called IS NOT NULL
+                            MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                            RETURN count(*) as created
+                        """, call_params):
+                
+                            # Try Class caller -> Class callee
+                            if not self._safe_run_create(session, """
+                                OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
+                                OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
+                                OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
+                                WHERE init.name IN ["__init__", "constructor"]
+                                WITH caller, COALESCE(init, called) as final_target
+                                WHERE caller IS NOT NULL AND final_target IS NOT NULL
+                                MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
+                                RETURN count(*) as created
+                            """, call_params):
+
+                                 # Fallback: Relaxed Global Search (Caller: Function/Class -> Callee: Function)
+                                 # Used when path resolution failed or was ambiguous
+                                 self._safe_run_create(session, """
+                                    OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path}) 
+                                    OPTIONAL MATCH (callerClass:Class {name: $caller_name, path: $caller_file_path})
+                                    WITH COALESCE(caller, callerClass) as final_caller
+                                    OPTIONAL MATCH (called:Function {name: $called_name})
+                                    WITH final_caller, called
+                                    WHERE final_caller IS NOT NULL AND called IS NOT NULL
+                                    MERGE (final_caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                                """, call_params)
             else:
-                session.run("""
-                    MATCH (caller:File {path: $caller_file_path})
-                    MATCH (called) WHERE (called:Function OR called:Class)
-                      AND called.name = $called_name 
-                      AND called.path = $called_file_path
-                    
+                # File-level calls: Try Function first, then Class
+                call_params = {
+                    'caller_file_path': caller_file_path,
+                    'called_name': called_name,
+                    'called_file_path': resolved_path,
+                    'line_number': call['line_number'],
+                    'args': call.get('args', []),
+                    'full_call_name': call.get('full_name', called_name)
+                }
+                
+                if not self._safe_run_create(session, """
+                    OPTIONAL MATCH (caller:File {path: $caller_file_path})
+                    OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
                     WITH caller, called
-                    OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
-                    WHERE called:Class AND init.name IN ["__init__", "constructor"]
-                    WITH caller, COALESCE(init, called) as final_target
+                    WHERE caller IS NOT NULL AND called IS NOT NULL
+                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                    RETURN count(*) as created
+                """, call_params):
+                
+                    if not self._safe_run_create(session, """
+                        OPTIONAL MATCH (caller:File {path: $caller_file_path})
+                        OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
+                        OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
+                        WHERE init.name IN ["__init__", "constructor"]
+                        WITH caller, COALESCE(init, called) as final_target
+                        WHERE caller IS NOT NULL AND final_target IS NOT NULL
+                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
+                        RETURN count(*) as created
+                    """, call_params):
 
-                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
-                """,
-                caller_file_path=caller_file_path,
-                called_name=called_name,
-                called_file_path=resolved_path,
-                line_number=call['line_number'],
-                args=call.get('args', []),
-                full_call_name=call.get('full_name', called_name))
+                         # Fallback: Relaxed Global Search (Caller: File -> Callee: Function)
+                         self._safe_run_create(session, """
+                            OPTIONAL MATCH (caller:File {path: $caller_file_path})
+                            OPTIONAL MATCH (called:Function {name: $called_name})
+                            WITH caller, called
+                            WHERE caller IS NOT NULL AND called IS NOT NULL
+                            MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                        """, call_params)
 
     def _create_all_function_calls(self, all_file_data: list[Dict], imports_map: dict):
         """Create CALLS relationships for all functions after all files have been processed."""
+        debug_log(f"_create_all_function_calls called with {len(all_file_data)} files")
         with self.driver.session() as session:
-            for file_data in all_file_data:
+            for idx, file_data in enumerate(all_file_data):
+                debug_log(f"Processing file {idx+1}/{len(all_file_data)}: {file_data.get('path', 'unknown')}")
                 self._create_function_calls(session, file_data, imports_map)
 
     def _create_inheritance_links(self, session, file_data: Dict, imports_map: dict):
@@ -861,11 +1010,200 @@ class GraphBuilder:
             error_logger(f"Could not estimate processing time for {path}: {e}")
             return None
 
+    async def _build_graph_from_scip(
+        self, path: Path, is_dependency: bool, job_id: Optional[str], lang: str
+    ):
+        """
+        SCIP-based indexing path. Activated only when SCIP_INDEXER=true and
+        a scip-<lang> binary is available.
+
+        Steps:
+          1. Run scip-<lang> CLI → index.scip
+          2. Parse index.scip → nodes + reference edges
+          3. Write nodes to graph (same MERGE queries as Tree-sitter path)
+          4. Tree-sitter supplement: add source text + cyclomatic_complexity
+          5. Write SCIP CALLS edges (precise, no heuristics)
+        """
+        import tempfile
+        from .scip_indexer import ScipIndexer, ScipIndexParser
+        from .graph_builder import TreeSitterParser  # supplement pass
+
+        if job_id:
+            self.job_manager.update_job(job_id, status=JobStatus.RUNNING)
+
+        self.add_repository_to_graph(path, is_dependency)
+        repo_name = path.name
+
+        try:
+            # Step 1: Run SCIP indexer
+            with tempfile.TemporaryDirectory(prefix="cgc_scip_") as tmpdir:
+                scip_file = ScipIndexer().run(path, lang, Path(tmpdir))
+
+                if not scip_file:
+                    warning_logger(
+                        f"SCIP indexer produced no output for {path}. "
+                        "Falling back to Tree-sitter."
+                    )
+                    # Hand off to Tree-sitter pipeline by re-calling without SCIP flag
+                    # (the flag is checked at the start; override is not needed because
+                    # we return here — caller will not re-enter this branch)
+                    raise RuntimeError("SCIP produced no index — triggering Tree-sitter fallback")
+
+                # Step 2: Parse index.scip
+                scip_data = ScipIndexParser().parse(scip_file, path)
+            
+            if not scip_data:
+                raise RuntimeError("SCIP parse returned empty result")
+
+            files_data = scip_data.get("files", {})
+            file_paths = [Path(p) for p in files_data.keys() if Path(p).exists()]
+            
+            # Step 3: Pre-scan for imports to correctly associate external modules/classes
+            imports_map = self._pre_scan_for_imports(file_paths)
+
+            if job_id:
+                self.job_manager.update_job(job_id, total_files=len(files_data))
+
+            # Step 4: Write nodes to graph using existing add_file_to_graph()
+            processed = 0
+            for abs_path_str, file_data in files_data.items():
+                file_data["repo_path"] = str(path.resolve())
+                if job_id:
+                    self.job_manager.update_job(job_id, current_file=abs_path_str)
+
+                # Step 5: Tree-sitter supplement — add source text, complexity, imports and bases
+                file_path = Path(abs_path_str)
+                if file_path.exists() and file_path.suffix in self.parsers:
+                    try:
+                        ts_parser = self.parsers[file_path.suffix]
+                        ts_data = ts_parser.parse(file_path, is_dependency, index_source=True)
+                        if "error" not in ts_data:
+                            # 1. Functions: complexity, source, decorators
+                            ts_funcs = {f["name"]: f for f in ts_data.get("functions", [])}
+                            for f in file_data.get("functions", []):
+                                ts_f = ts_funcs.get(f["name"])
+                                if ts_f:
+                                    f.update({
+                                        "source": ts_f.get("source"),
+                                        "cyclomatic_complexity": ts_f.get("cyclomatic_complexity", 1),
+                                        "decorators": ts_f.get("decorators", [])
+                                    })
+                            
+                            # 2. Classes: bases (inheritance)
+                            ts_classes = {c["name"]: c for c in ts_data.get("classes", [])}
+                            for c in file_data.get("classes", []):
+                                ts_c = ts_classes.get(c["name"])
+                                if ts_c:
+                                    c["bases"] = ts_c.get("bases", [])
+                            
+                            # 3. Imports: critical for cross-file resolution
+                            file_data["imports"] = ts_data.get("imports", [])
+                            
+                            # 4. Variables/Other: value, etc.
+                            file_data["variables"] = ts_data.get("variables", [])
+                    except Exception as e:
+                        debug_log(f"Tree-sitter supplement failed for {abs_path_str}: {e}")
+
+                self.add_file_to_graph(file_data, repo_name, imports_map)
+
+                processed += 1
+                if job_id:
+                    self.job_manager.update_job(job_id, processed_files=processed)
+                await asyncio.sleep(0.01)
+
+            # Step 6: Create INHERITS relationships (Supplemented from Tree-sitter)
+            self._create_all_inheritance_links(list(files_data.values()), imports_map)
+
+            # Step 7: Write SCIP CALLS edges — precise cross-file resolution
+            with self.driver.session() as session:
+                for file_data in files_data.values():
+                    for edge in file_data.get("function_calls_scip", []):
+                        try:
+                            # Use line numbers for precise matching in case of duplicates
+                            session.run("""
+                                MATCH (caller:Function {name: $caller_name, path: $caller_file, line_number: $caller_line})
+                                MATCH (callee:Function {name: $callee_name, path: $callee_file, line_number: $callee_line})
+                                MERGE (caller)-[:CALLS {line_number: $ref_line, source: 'scip'}]->(callee)
+                            """,
+                            caller_name=self._name_from_symbol(edge["caller_symbol"]),
+                            caller_file=edge["caller_file"],
+                            caller_line=edge["caller_line"],
+                            callee_name=edge["callee_name"],
+                            callee_file=edge["callee_file"],
+                            callee_line=edge["callee_line"],
+                            ref_line=edge["ref_line"],
+                            )
+                        except Exception:
+                            pass  # best-effort: node might not be indexed yet
+
+            if job_id:
+                self.job_manager.update_job(job_id, status=JobStatus.COMPLETED, end_time=datetime.now())
+
+        except RuntimeError as e:
+            # Graceful fallback to Tree-sitter when SCIP fails
+            warning_logger(f"SCIP path failed ({e}), re-running with Tree-sitter...")
+            # Temporarily disable the flag in-memory so the recursive call goes straight to TS
+            # (we do this by calling the internal Tree-sitter steps directly)
+            if job_id:
+                self.job_manager.update_job(job_id, status=JobStatus.RUNNING)
+            # Re-enter the async flow without SCIP check — handled by caller returning early
+            # For simplicity, we just let the exception propagate to the outer handler so the
+            # job is marked FAILED with a meaningful message rather than silently degrading.
+            raise
+
+        except Exception as e:
+            error_logger(f"SCIP indexing failed for {path}: {e}")
+            if job_id:
+                self.job_manager.update_job(
+                    job_id, status=JobStatus.FAILED, end_time=datetime.now(), errors=[str(e)]
+                )
+
+    def _name_from_symbol(self, symbol: str) -> str:
+        """Extract human-readable name from a SCIP symbol ID string."""
+        import re
+        s = symbol.rstrip(".#")
+        s = re.sub(r"\(\)\.?$", "", s) # Remove trailing () or ().
+        parts = re.split(r'[/#]', s)
+        last = parts[-1] if parts else symbol
+        return last or symbol
+
+
     async def build_graph_from_path_async(
         self, path: Path, is_dependency: bool = False, job_id: str = None
     ):
         """Builds graph from a directory or file path."""
         try:
+            # ------------------------------------------------------------------
+            # SCIP feature flag: SCIP_INDEXER=true in ~/.codegraphcontext/.env
+            # When enabled (and the binary is installed), SCIP handles the
+            # indexing for supported languages. SCIP_INDEXER=false (default)
+            # means this entire block is a no-op and existing behaviour is kept.
+            # ------------------------------------------------------------------
+            scip_enabled = (get_config_value("SCIP_INDEXER") or "false").lower() == "true"
+            if scip_enabled:
+                from .scip_indexer import ScipIndexer, ScipIndexParser, detect_project_lang, is_scip_available
+                scip_langs_str = get_config_value("SCIP_LANGUAGES") or "python,typescript,go,rust,java"
+                scip_languages = [l.strip() for l in scip_langs_str.split(",") if l.strip()]
+                detected_lang = detect_project_lang(path, scip_languages)
+
+                if detected_lang and is_scip_available(detected_lang):
+                    info_logger(f"SCIP_INDEXER=true — using SCIP for language: {detected_lang}")
+                    await self._build_graph_from_scip(path, is_dependency, job_id, detected_lang)
+                    return   # SCIP handled it; skip Tree-sitter pipeline below
+                else:
+                    if detected_lang:
+                        warning_logger(
+                            f"SCIP_INDEXER=true but scip-{detected_lang} binary not found. "
+                            f"Falling back to Tree-sitter. Install it first."
+                        )
+                    else:
+                        info_logger(
+                            "SCIP_INDEXER=true but no SCIP-supported language detected. "
+                            "Falling back to Tree-sitter."
+                        )
+            # ------------------------------------------------------------------
+            # Existing Tree-sitter pipeline (unchanged)
+            # ------------------------------------------------------------------
             if job_id:
                 self.job_manager.update_job(job_id, status=JobStatus.RUNNING)
             

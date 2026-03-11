@@ -11,6 +11,8 @@ from ..tools.query_tool_languages.ruby_toolkit import RubyToolkit
 from ..tools.query_tool_languages.rust_toolkit import RustToolkit
 from ..tools.query_tool_languages.typescript_toolkit import TypescriptToolkit
 from ..tools.query_tool_languages.csharp_toolkit import CSharpToolkit
+from ..tools.query_tool_languages.dart_toolkit import DartToolkit
+from ..tools.query_tool_languages.perl_toolkit import PerlToolkit
 
 from ..core.database import DatabaseManager
 from ..utils.debug_log import debug_log
@@ -35,7 +37,9 @@ class Advanced_language_query:
         "ruby": RubyToolkit,
         "rust": RustToolkit,
         "typescript": TypescriptToolkit,
-        "c_sharp": CSharpToolkit
+        "c_sharp": CSharpToolkit,
+        "dart": DartToolkit,
+        "perl": PerlToolkit
     }
     Supported_queries = {
         "repository": "Repository",

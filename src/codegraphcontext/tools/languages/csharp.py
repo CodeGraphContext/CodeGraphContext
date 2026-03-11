@@ -193,7 +193,7 @@ class CSharpTreeSitterParser:
                     
                     if name_captures:
                         name_node = name_captures[0][0]
-                        func_name = source_code[name_node.start_byte:name_node.end_byte]
+                        func_name = self._get_node_text(name_node)
                         
                         params_captures = [
                             (n, cn) for n, cn in captures 
@@ -208,13 +208,13 @@ class CSharpTreeSitterParser:
                         # Extract attributes applied to this function
                         attributes = []
                         if node.parent and node.parent.type == "attribute_list":
-                            attr_text = source_code[node.parent.start_byte:node.parent.end_byte]
+                            attr_text = self._get_node_text(node.parent)
                             attributes.append(attr_text)
 
                         # Find containing class/struct/interface
                         class_context = self._find_containing_type(node, source_code)
 
-                        source_text = source_code[node.start_byte:node.end_byte]
+                        source_text = self._get_node_text(node)
                         
                         func_data = {
                             "name": func_name,
@@ -268,7 +268,7 @@ class CSharpTreeSitterParser:
                     
                     if name_captures:
                         name_node = name_captures[0][0]
-                        type_name = source_code[name_node.start_byte:name_node.end_byte]
+                        type_name = self._get_node_text(name_node)
                         
                         # Extract base classes/interfaces
                         bases = []
@@ -279,13 +279,13 @@ class CSharpTreeSitterParser:
                         
                         if bases_captures:
                             bases_node = bases_captures[0][0]
-                            bases_text = source_code[bases_node.start_byte:bases_node.end_byte]
+                            bases_text = self._get_node_text(bases_node)
                             # Parse base list: ": BaseClass, IInterface1, IInterface2"
                             bases_text = bases_text.strip().lstrip(':').strip()
                             if bases_text:
                                 bases = [b.strip() for b in bases_text.split(',')]
                         
-                        source_text = source_code[node.start_byte:node.end_byte]
+                        source_text = self._get_node_text(node)
                         
                         type_data = {
                             "name": type_name,
@@ -316,7 +316,7 @@ class CSharpTreeSitterParser:
         for node, capture_name in captures:
             if capture_name == "import":
                 try:
-                    import_text = source_code[node.start_byte:node.end_byte]
+                    import_text = self._get_node_text(node)
                     # Match: using System.Collections.Generic; or using static System.Math;
                     import_match = re.search(r'using\s+(?:static\s+)?([^;]+)', import_text)
                     if import_match:
@@ -371,7 +371,7 @@ class CSharpTreeSitterParser:
         for node, capture_name in captures:
             if capture_name == "name":
                 try:
-                    call_name = source_code[node.start_byte:node.end_byte]
+                    call_name = self._get_node_text(node)
                     line_number = node.start_point[0] + 1
                     
                     # Avoid duplicates
@@ -431,7 +431,7 @@ class CSharpTreeSitterParser:
                 # Find the name of this type
                 for child in current.children:
                     if child.type == 'identifier':
-                        return source_code[child.start_byte:child.end_byte]
+                        return self._get_node_text(child)
             current = current.parent
         return None
 
@@ -452,20 +452,20 @@ class CSharpTreeSitterParser:
                     
                     if name_captures:
                         name_node = name_captures[0][0]
-                        prop_name = source_code[name_node.start_byte:name_node.end_byte]
+                        prop_name = self._get_node_text(name_node)
                         
                         # Get property type from node children
                         prop_type = None
                         for child in node.children:
                             if child.type in ['predefined_type', 'identifier', 'generic_name', 'nullable_type', 'array_type']:
-                                prop_type = source_code[child.start_byte:child.end_byte]
+                                prop_type = self._get_node_text(child)
                                 break
                         
                         
                         # Find containing class/struct
                         class_context = self._find_containing_type(node, source_code)
                         
-                        source_text = source_code[node.start_byte:node.end_byte]
+                        source_text = self._get_node_text(node)
                         
                         prop_data = {
                             "name": prop_name,

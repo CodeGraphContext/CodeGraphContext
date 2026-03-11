@@ -25,7 +25,7 @@ def _set_initial_password(new_pw: str, run_command, console) -> bool:
     ]
     return run_command(cmd, console, check=False) is not None
 
-def setup_macos_binary(console, prompt, run_command, _generate_mcp_json):
+def setup_macos_binary(console, prompt, run_command, _save_neo4j_credentials):
     """Automates Neo4j install & config on macOS via Homebrew."""
     os_name = platform.system()
     console.print(f"Detected Operating System: [bold yellow]{os_name}[/bold yellow]")
@@ -89,7 +89,5 @@ def setup_macos_binary(console, prompt, run_command, _generate_mcp_json):
         return
 
     creds = {"uri": "neo4j://localhost:7687", "username": "neo4j", "password": new_password}
-    _generate_mcp_json(creds)
+    _save_neo4j_credentials(creds)
 
-    env_path = Path.home() / ".codegraphcontext" / ".env"
-    console.print(f"\n[bold green]All done![/bold green] Neo4j running. Credentials saved to: [bold]{env_path}[/bold]")

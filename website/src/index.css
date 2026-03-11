@@ -1,11 +1,29 @@
 html,
 body {
+  margin: 0;
+  padding: 0;
   width: 100%;
-  overflow-x: hidden;
+  min-height: 100%;
 }
 #root {
   width: 100%;
-  overflow-x: hidden;
+}
+
+/* Reserve stable space for scrollbar and use a thin, subtle scrollbar */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* Thin scrollbar for modern browsers */
+body::-webkit-scrollbar {
+  width: 8px;
+}
+body::-webkit-scrollbar-track {
+  background: transparent;
+}
+body::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.06);
+  border-radius: 8px;
 }
 @tailwind base;
 @tailwind components;
@@ -230,6 +248,18 @@ body {
   }
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* Utility classes used in sections */
+  .bg-gradient-subtle {
+    background: linear-gradient(to bottom, transparent, hsl(var(--secondary) / 0.3), transparent);
+  }
+
+  .bg-grid-pattern {
+    background-image: 
+      linear-gradient(to right, hsl(var(--primary) / 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--primary) / 0.05) 1px, transparent 1px);
+    background-size: 40px 40px;
   }
 }
 

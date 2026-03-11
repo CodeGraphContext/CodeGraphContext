@@ -1,0 +1,52 @@
+name: macOS CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system deps
+        run: |
+          brew update
+          brew install ripgrep || true
+
+      - name: Install CodeGraphContext
+        run: |
+          pip install -e .
+
+      - name: Debug info
+        run: |
+          uname -a
+          python --version
+          which python
+          df -h
+
+      - name: Run index (verbose)
+        run: |
+          cgc index -f --debug || true
+
+      - name: Try find
+        run: |
+          cgc find content "def" --debug || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-logs
+          path: |
+            ~/.codegraphcontext
+            *.log
