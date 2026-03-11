@@ -1,2 +1,4 @@
 prune website
 prune images
+prune vscode-extension
+prune playground

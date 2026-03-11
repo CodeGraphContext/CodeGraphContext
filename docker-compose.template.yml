@@ -14,13 +14,33 @@ services:
       - cgc-data:/root/.codegraphcontext
     environment:
       - PYTHONUNBUFFERED=1
+      - DATABASE_TYPE=${DATABASE_TYPE:-falkordb}
+      - FALKORDB_HOST=${FALKORDB_HOST:-}
+      - FALKORDB_PORT=${FALKORDB_PORT:-6379}
+      # To use the separate falkordb container (recommended for aarch64):
+      # - DATABASE_TYPE=falkordb-remote
+      # - FALKORDB_HOST=falkordb
+      # - FALKORDB_PORT=6379
     stdin_open: true
     tty: true
     command: bash
     networks:
       - cgc-network
 
-  # Optional: Neo4j database (if you prefer Neo4j over FalkorDB Lite)
+  # Separate FalkorDB container (recommended for aarch64 or larger projects)
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: cgc-falkordb
+    ports:
+      - "6379:6379"
+    volumes:
+      - falkordb-data:/data
+    networks:
+      - cgc-network
+    profiles:
+      - falkordb
+
+  # Optional: Neo4j database (if you prefer Neo4j over FalkorDB)
   neo4j:
     image: neo4j:5.15.0
     container_name: cgc-neo4j
@@ -42,6 +62,8 @@ services:
 
 volumes:
   cgc-data:
+    driver: local
+  falkordb-data:
     driver: local
   neo4j-data:
     driver: local

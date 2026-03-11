@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import AOS from "aos";
 import HeroSection from "../components/HeroSection";
 import FeaturesSection from "../components/FeaturesSection";
 import InstallationSection from "../components/InstallationSection";
@@ -12,39 +14,46 @@ import BundleGeneratorSection from "../components/BundleGeneratorSection";
 import BundleRegistrySection from "../components/BundleRegistrySection";
 
 const Index = () => {
+  useEffect(() => {
+    // Refresh AOS elements when Index page mounts to ensure they appear
+    setTimeout(() => {
+      AOS.refresh();
+    }, 100);
+  }, []);
+
   return (
     <main className="min-h-screen overflow-x-hidden pt-16">
       <div data-aos="fade-in">
         <HeroSection />
       </div>
-      <div data-aos="fade-up" id="demo">
+      <div data-aos="fade-up">
         <DemoSection />
       </div>
       <div data-aos="fade-up">
         <ComparisonTable />
       </div>
-      <div data-aos="fade-up" id="features">
+      <div data-aos="fade-up">
         <FeaturesSection />
       </div>
-      <div data-aos="fade-up" id="installation">
+      <div data-aos="fade-up">
         <InstallationSection />
       </div>
-      <div data-aos="fade-up" id="bundleregistry">
+      <div data-aos="fade-up">
         <BundleRegistrySection />
       </div>
-      <div data-aos="fade-up" id="bundlegenerator">
+      <div data-aos="fade-up">
         <BundleGeneratorSection />
       </div>
-      <div data-aos="fade-up" id="examples">
+      <div data-aos="fade-up">
         <ExamplesSection />
       </div>
-      <div data-aos="fade-up" id="testimonials">
+      <div data-aos="fade-up">
         <TestimonialSection />
       </div>
-      <div data-aos="fade-up" id="cookbook">
+      <div data-aos="fade-up">
         <CookbookSection />
       </div>
-      <div data-aos="fade-up" id="socialmentions">
+      <div data-aos="fade-up">
         <SocialMentionsTimeline />
       </div>
       <div data-aos="fade-up" data-aos-anchor-placement="top-bottom">

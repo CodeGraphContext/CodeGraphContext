@@ -1,0 +1,337 @@
+{
+  "name": "codegraphcontext",
+  "displayName": "CodeGraphContext",
+  "description": "AI-powered code analysis with graph database integration",
+  "version": "0.1.0",
+  "publisher": "codegraphcontext",
+  "icon": "resources/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "code analysis",
+    "graph database",
+    "call graph",
+    "dependencies",
+    "AI"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cgc.index",
+        "title": "CGC: Index Current Workspace",
+        "icon": "$(database)"
+      },
+      {
+        "command": "cgc.reindex",
+        "title": "CGC: Re-index Current Workspace",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "cgc.search",
+        "title": "CGC: Search Code",
+        "icon": "$(search)"
+      },
+      {
+        "command": "cgc.showCallGraph",
+        "title": "CGC: Show Call Graph",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "cgc.showCallers",
+        "title": "CGC: Show Callers",
+        "icon": "$(arrow-left)"
+      },
+      {
+        "command": "cgc.showCallees",
+        "title": "CGC: Show Callees",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "cgc.findDependencies",
+        "title": "CGC: Find Dependencies",
+        "icon": "$(package)"
+      },
+      {
+        "command": "cgc.analyzeCalls",
+        "title": "CGC: Analyze Calls",
+        "icon": "$(call-outgoing)"
+      },
+      {
+        "command": "cgc.analyzeComplexity",
+        "title": "CGC: Analyze Complexity",
+        "icon": "$(graph-line)"
+      },
+      {
+        "command": "cgc.findDeadCode",
+        "title": "CGC: Find Dead Code",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "cgc.showStats",
+        "title": "CGC: Show Statistics",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "cgc.openSettings",
+        "title": "CGC: Open Settings",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "cgc.refreshExplorer",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "cgc.goToDefinition",
+        "title": "Go to Definition",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "cgc.showInheritance",
+        "title": "CGC: Show Inheritance Tree",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "cgc.loadBundle",
+        "title": "CGC: Load Bundle",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "cgc.visualizeRepo",
+        "title": "CGC: Visualize Repository Graph",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "cgc.showDeepCallGraph",
+        "title": "CGC: Trace Indirect Call Chain",
+        "icon": "$(debug-step-into)"
+      },
+      {
+        "command": "cgc.openConfig",
+        "title": "CGC: Open Configuration",
+        "icon": "$(gear)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cgc-explorer",
+          "title": "CodeGraphContext",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "cgc-explorer": [
+        {
+          "id": "cgc-projects",
+          "name": "Projects",
+          "icon": "$(folder-library)",
+          "contextualTitle": "CGC Projects"
+        },
+        {
+          "id": "cgc-functions",
+          "name": "Functions",
+          "icon": "$(symbol-method)",
+          "contextualTitle": "CGC Functions"
+        },
+        {
+          "id": "cgc-classes",
+          "name": "Classes",
+          "icon": "$(symbol-class)",
+          "contextualTitle": "CGC Classes"
+        },
+        {
+          "id": "cgc-callgraph",
+          "name": "Call Graph",
+          "icon": "$(graph)",
+          "contextualTitle": "CGC Call Graph"
+        },
+        {
+          "id": "cgc-dependencies",
+          "name": "Dependencies",
+          "icon": "$(package)",
+          "contextualTitle": "CGC Dependencies"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "cgc-projects",
+        "contents": "No projects indexed yet.\n[Index Current Workspace](command:cgc.index)\n[Load Bundle](command:cgc.loadBundle)\n[⚙️ Configure Database](command:cgc.openConfig)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "cgc.refreshExplorer",
+          "when": "view =~ /^cgc-/",
+          "group": "navigation"
+        },
+        {
+          "command": "cgc.openConfig",
+          "when": "view =~ /^cgc-/",
+          "group": "navigation@0"
+        },
+        {
+          "command": "cgc.visualizeRepo",
+          "when": "view == cgc-projects",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "cgc.visualizeRepo",
+          "when": "view == cgc-projects && viewItem == project",
+          "group": "visualization@0"
+        },
+        {
+          "command": "cgc.goToDefinition",
+          "when": "view =~ /^cgc-/ && viewItem == function || viewItem == class",
+          "group": "navigation"
+        },
+        {
+          "command": "cgc.showCallGraph",
+          "when": "view =~ /^cgc-/ && viewItem == function",
+          "group": "analysis"
+        },
+        {
+          "command": "cgc.showDeepCallGraph",
+          "when": "view =~ /^cgc-/ && viewItem == function",
+          "group": "analysis"
+        },
+        {
+          "command": "cgc.showCallers",
+          "when": "view =~ /^cgc-/ && viewItem == function",
+          "group": "analysis"
+        },
+        {
+          "command": "cgc.showCallees",
+          "when": "view =~ /^cgc-/ && viewItem == function",
+          "group": "analysis"
+        },
+        {
+          "command": "cgc.showInheritance",
+          "when": "view == cgc-classes && viewItem == class",
+          "group": "analysis@0"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "cgc.showCallGraph",
+          "when": "editorTextFocus",
+          "group": "cgc@1"
+        },
+        {
+          "command": "cgc.showDeepCallGraph",
+          "when": "editorTextFocus",
+          "group": "cgc@1b"
+        },
+        {
+          "command": "cgc.showCallers",
+          "when": "editorTextFocus",
+          "group": "cgc@2"
+        },
+        {
+          "command": "cgc.showCallees",
+          "when": "editorTextFocus",
+          "group": "cgc@3"
+        },
+        {
+          "command": "cgc.findDependencies",
+          "when": "editorTextFocus",
+          "group": "cgc@4"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "cgc.goToDefinition",
+          "when": "false"
+        },
+        {
+          "command": "cgc.refreshExplorer",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CodeGraphContext",
+      "properties": {
+        "cgc.autoIndex": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically index workspace on startup"
+        },
+        "cgc.indexSource": {
+          "type": "boolean",
+          "default": false,
+          "description": "Index full source code (slower but enables code search)"
+        },
+        "cgc.cgcPath": {
+          "type": "string",
+          "default": "cgc",
+          "description": "Path to cgc CLI executable. Leave as 'cgc' to auto-detect from virtual environments (.venv, venv, env) or use full path (e.g., /path/to/venv/bin/cgc)"
+        },
+        "cgc.enableCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show code lens for function callers/callees"
+        },
+        "cgc.enableDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show diagnostics for dead code and complexity"
+        },
+        "cgc.complexityThreshold": {
+          "type": "number",
+          "default": 10,
+          "description": "Complexity threshold for warnings"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@types/d3": "^7.4.3",
+    "d3": "^7.8.5",
+    "vscode-jsonrpc": "^8.2.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CodeGraphContext/CodeGraphContext"
+  },
+  "bugs": {
+    "url": "https://github.com/CodeGraphContext/CodeGraphContext/issues"
+  },
+  "homepage": "https://github.com/CodeGraphContext/CodeGraphContext#readme",
+  "license": "MIT"
+}

@@ -9,27 +9,32 @@ SWIFT_QUERIES = {
         [
             (function_declaration
                 name: (simple_identifier) @name
-                parameters: (parameter)* @params
             ) @function_node
-            (init_declaration
-                parameters: (parameter)* @params
-            ) @init_node
+            (init_declaration) @init_node
         ]
     """,
     "classes": """
         [
             (class_declaration
+                declaration_kind: "class"
                 name: (type_identifier) @name
             ) @class
-            (struct_declaration
+            (class_declaration
+                declaration_kind: "struct"
                 name: (type_identifier) @name
             ) @struct
-            (enum_declaration
+            (class_declaration
+                declaration_kind: "enum"
                 name: (type_identifier) @name
             ) @enum
-            (protocol_declaration
+            (class_declaration
+                declaration_kind: "protocol"
                 name: (type_identifier) @name
             ) @protocol
+            (class_declaration
+                declaration_kind: "actor"
+                name: (type_identifier) @name
+            ) @class
         ]
     """,
     "imports": """
@@ -41,13 +46,13 @@ SWIFT_QUERIES = {
     "variables": """
         [
             (property_declaration
-                (pattern) @pattern
-            ) @variable
-            (constant_declaration
-                (pattern_binding
-                    pattern: (simple_identifier) @name
+                name: (pattern
+                    bound_identifier: (simple_identifier) @name
                 )
-            ) @constant
+            ) @variable
+            (property_declaration
+                name: (pattern) @pattern
+            ) @variable
         ]
     """,
 }

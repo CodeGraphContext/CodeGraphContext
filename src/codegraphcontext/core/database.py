@@ -10,6 +10,24 @@ from neo4j import GraphDatabase, Driver
 
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 
+class Neo4jDriverWrapper:
+    """
+    A simple wrapper around the Neo4j Driver to inject a database name into session() calls.
+    """
+    def __init__(self, driver: Driver, database: str = None):
+        self._driver = driver
+        self._database = database
+
+    def session(self, **kwargs):
+        """Proxy method to get a session from the underlying driver."""
+        if self._database and 'database' not in kwargs:
+            kwargs["database"] = self._database
+        return self._driver.session(**kwargs)
+    
+    def close(self):
+        """Proxy method to close the underlying driver."""
+        self._driver.close()
+
 class DatabaseManager:
     """
     Manages the Neo4j database driver as a singleton to ensure only one
@@ -42,6 +60,7 @@ class DatabaseManager:
         self.neo4j_uri = os.getenv('NEO4J_URI')
         self.neo4j_username = os.getenv('NEO4J_USERNAME', 'neo4j')
         self.neo4j_password = os.getenv('NEO4J_PASSWORD')
+        self.neo4j_database = os.getenv('NEO4J_DATABASE') # Optional, if not set, will use default database configured in Neo4j
         self._initialized = True
 
     def get_driver(self) -> Driver:
@@ -53,7 +72,7 @@ class DatabaseManager:
             ValueError: If Neo4j credentials are not set in environment variables.
 
         Returns:
-            The active Neo4j Driver instance.
+            The a wrapper for Neo4j Driver instance.
         """
         if self._driver is None:
             with self._lock:
@@ -100,7 +119,7 @@ class DatabaseManager:
                             self._driver.close()
                         self._driver = None
                         raise
-        return self._driver
+        return Neo4jDriverWrapper(self._driver, database=self.neo4j_database)
 
     def close_driver(self):
         """Closes the Neo4j driver connection if it exists."""
@@ -116,7 +135,10 @@ class DatabaseManager:
         if self._driver is None:
             return False
         try:
-            with self._driver.session() as session:
+            session_kwargs = {}
+            if self.neo4j_database:
+                session_kwargs['database'] = self.neo4j_database
+            with self._driver.session(**session_kwargs) as session:
                 session.run("RETURN 1").consume()
             return True
         except Exception:
@@ -163,7 +185,7 @@ class DatabaseManager:
         return True, None
 
     @staticmethod
-    def test_connection(uri: str, username: str, password: str) -> Tuple[bool, Optional[str]]:
+    def test_connection(uri: str, username: str, password: str, database: str=None) -> Tuple[bool, Optional[str]]:
         """
         Tests the Neo4j database connection.
         
@@ -206,7 +228,10 @@ class DatabaseManager:
             # Now test Neo4j authentication
             driver = GraphDatabase.driver(uri, auth=(username, password))
             
-            with driver.session() as session:
+            session_kwargs = {}
+            if database:
+                session_kwargs['database'] = database # Pass database to session if provided
+            with driver.session(**session_kwargs) as session:
                 result = session.run("RETURN 'Connection successful' as status")
                 result.single()
             

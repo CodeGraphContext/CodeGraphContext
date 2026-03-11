@@ -44,10 +44,24 @@ from .cli_helpers import (
     list_watching_helper,
 )
 
-# Set the log level for the noisy neo4j, asyncio, and urllib3 loggers to WARNING to keep the output clean.
-logging.getLogger("neo4j").setLevel(logging.WARNING)
-logging.getLogger("asyncio").setLevel(logging.WARNING)
-logging.getLogger("urllib3").setLevel(logging.WARNING)
+# Set the log level for the noisy neo4j, asyncio, and urllib3 loggers to keep the output clean.
+# Get the log level from config, defaulting to WARNING
+def _configure_library_loggers():
+    """Configure third-party library loggers based on config setting."""
+    try:
+        log_level_str = config_manager.get_config_value('LIBRARY_LOG_LEVEL')
+        if log_level_str is None:
+            log_level_str = 'WARNING'
+        log_level_str = str(log_level_str).upper()
+        log_level = getattr(logging, log_level_str, logging.WARNING)
+    except (AttributeError, Exception):
+        log_level = logging.WARNING
+    
+    logging.getLogger("neo4j").setLevel(log_level)
+    logging.getLogger("asyncio").setLevel(log_level)
+    logging.getLogger("urllib3").setLevel(log_level)
+
+_configure_library_loggers()
 
 
 # Import visualization module
@@ -215,6 +229,13 @@ def _load_credentials():
     from dotenv import dotenv_values
     from codegraphcontext.cli.config_manager import ensure_config_dir
     
+    # Capture DATABASE_TYPE from actual shell env BEFORE we load .env files.
+    # If the user ran `DATABASE_TYPE=falkordb cgc …` we must not let
+    # DEFAULT_DATABASE=neo4j in .env steal priority later.
+    shell_db_type = os.environ.get('DATABASE_TYPE')
+    if shell_db_type and not os.environ.get('CGC_RUNTIME_DB_TYPE'):
+        os.environ['CGC_RUNTIME_DB_TYPE'] = shell_db_type
+
     # Ensure config directory exists (lazy initialization)
     ensure_config_dir()
     
@@ -258,9 +279,16 @@ def _load_credentials():
     for config in config_sources:
         merged_config.update(config)
     
-    # Apply merged config to environment
+    # Apply merged config to environment.
+    # IMPORTANT: DB-selection keys set in the shell must win over .env defaults.
+    # E.g. `DATABASE_TYPE=falkordb cgc index …` must not be overridden by
+    # DEFAULT_DATABASE=neo4j sitting in ~/.codegraphcontext/.env
+    DB_OVERRIDE_KEYS = {"DATABASE_TYPE", "CGC_RUNTIME_DB_TYPE", "DEFAULT_DATABASE"}
     for key, value in merged_config.items():
         if value is not None:  # Only set non-None values
+            # Never let .env clobber a DB-type key that the user already set in the shell
+            if key in DB_OVERRIDE_KEYS and key in os.environ:
+                continue
             os.environ[key] = str(value)
     
     # Report what was loaded
@@ -273,14 +301,31 @@ def _load_credentials():
         console.print("[yellow]No configuration file found. Using defaults.[/yellow]")
     
     
-    # Show which database is actually being used
-    # Check for runtime override first (from -db/--database flag)
+    # Show which database is actually being used.
+    # When DATABASE_TYPE is explicitly set, trust it.  When it's left to auto-
+    # detect, call get_database_manager() so the banner can never lie: e.g. if
+    # falkordblite is installed but its native .so is missing (frozen bundle),
+    # the factory falls back to KùzuDB and we display that correctly.
     runtime_db = os.environ.get("CGC_RUNTIME_DB_TYPE")
-    if runtime_db:
-        default_db = runtime_db.lower()
+    explicit_db = (
+        runtime_db
+        or os.environ.get("DEFAULT_DATABASE")
+        or os.environ.get("DATABASE_TYPE")
+    )
+
+    if explicit_db:
+        default_db = explicit_db.lower()
     else:
-        default_db = os.environ.get("DEFAULT_DATABASE", "falkordb").lower()
-    
+        # No explicit choice — ask the factory which backend it will use
+        try:
+            from codegraphcontext.core import get_database_manager
+            _mgr = get_database_manager()
+            default_db = _mgr.get_backend_type()   # e.g. 'falkordb' / 'kuzudb'
+        except Exception:
+            # Factory failed entirely — still show a best-guess
+            from codegraphcontext.core import _is_falkordb_available
+            default_db = "falkordb" if _is_falkordb_available() else "kuzudb"
+
     if default_db == "neo4j":
         has_neo4j_creds = all([
             os.environ.get("NEO4J_URI"),
@@ -288,11 +333,32 @@ def _load_credentials():
             os.environ.get("NEO4J_PASSWORD")
         ])
         if has_neo4j_creds:
-            console.print("[cyan]Using database: Neo4j[/cyan]")
+            neo4j_db = os.environ.get("NEO4J_DATABASE")
+            if neo4j_db:
+                console.print(f"[cyan]Using database: Neo4j (database: {neo4j_db})[/cyan]")
+            else:
+                console.print("[cyan]Using database: Neo4j[/cyan]")
         else:
-            console.print("[yellow]⚠ DEFAULT_DATABASE=neo4j but credentials not found. Falling back to FalkorDB.[/yellow]")
+            console.print("[yellow]⚠ DEFAULT_DATABASE=neo4j but credentials not found. Falling back to default.[/yellow]")
+    elif default_db == "falkordb":
+        console.print("[cyan]Using database: FalkorDB Lite[/cyan]")
+    elif default_db == "kuzudb":
+        console.print("[cyan]Using database: KùzuDB[/cyan]")
+    elif default_db == "falkordb-remote":
+        host = os.environ.get("FALKORDB_HOST")
+        if host:
+            console.print(f"[cyan]Using database: FalkorDB Remote ({host})[/cyan]")
+        else:
+            console.print("[yellow]⚠ DATABASE_TYPE=falkordb-remote but FALKORDB_HOST not set.[/yellow]")
+    elif default_db == "falkordb":
+        if os.environ.get("FALKORDB_HOST"):
+            console.print(f"[cyan]Using database: FalkorDB Remote ({os.environ.get('FALKORDB_HOST')})[/cyan]")
+        else:
+            console.print("[cyan]Using database: FalkorDB[/cyan]")
     else:
-        console.print("[cyan]Using database: FalkorDB[/cyan]")
+        console.print(f"[cyan]Using database: {default_db}[/cyan]")
+
+
 
 # ============================================================================
 # CONFIG COMMAND GROUP
@@ -352,9 +418,9 @@ def config_db(backend: str = typer.Argument(..., help="Database backend: 'neo4j'
         cgc config db falkordb
     """
     backend = backend.lower()
-    if backend not in ['falkordb', 'neo4j']:
+    if backend not in ['falkordb', 'falkordb-remote', 'neo4j']:
         console.print(f"[bold red]Invalid backend: {backend}[/bold red]")
-        console.print("Must be 'falkordb' or 'neo4j'")
+        console.print("Must be 'falkordb', 'falkordb-remote', or 'neo4j'")
         raise typer.Exit(code=1)
     
     config_manager.set_config_value("DEFAULT_DATABASE", backend)
@@ -700,7 +766,7 @@ def doctor():
             
             if uri and username and password:
                 console.print(f"   [cyan]Testing Neo4j connection to {uri}...[/cyan]")
-                is_connected, error_msg = DatabaseManager.test_connection(uri, username, password)
+                is_connected, error_msg = DatabaseManager.test_connection(uri, username, password, database=os.environ.get("NEO4J_DATABASE"))
                 if is_connected:
                     console.print(f"   [green]✓[/green] Neo4j connection successful")
                 else:

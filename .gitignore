@@ -19,50 +19,38 @@ docker-compose.yml
 dist/
 build/
 *.egg-info/
-
 # IDEs and editors
 .vscode/
 .idea/
 *.swp
 *.swo
-
 # Config
 .env
 *.db
 *.sqlite3
-
 # Testing
 .pytest_cache/
 coverage.xml
 htmlcov/
-
 # MCP
 mcp.json
-
 # Docker
 docker-compose.yml 
-
 # macOS system files
 .DS_Store
 src/.DS_Store
 src/codegraphcontext/.DS_Store
-
 # PR templates and guides
 CGC_PR_DESCRIPTION.md
 PR_SUBMISSION_GUIDE.txt
-
 # Ignore the PR submission script if not to be tracked
 submit_pr.sh
-
 # yaml file for amazon Q developer
 devfile.yaml 
-
 # local scratch
-
 javascript.py.bak
 src/codegraphcontext/cli/nl.py
 *.bak
-
 # temporary files
 *.temp
 *.tmp
@@ -79,6 +67,10 @@ tests_backup_final/
 tests_old_backup/
 docs/BUNDLES.md
 docs/DOCUMENTATION_AUDIT_2026-01-29.md
-vscode-extension
 GRANT_KNOWLEDGE_GRAPH.md
 cgc_btc/
+# Claude
+.claude/*
+*.spec
+playground
+todo.md

@@ -377,7 +377,7 @@ def configure_mcp_client():
                     if line and not line.startswith("#") and "=" in line:
                         key, value = line.split("=", 1)
                         key = key.strip()
-                        if key in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"]:
+                        if key in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE"]:
                             env_vars[key] = value.strip()
         except Exception:
             pass

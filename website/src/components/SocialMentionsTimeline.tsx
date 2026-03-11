@@ -22,7 +22,7 @@ export default function SocialMentionsTimeline() {
     { name: "Reddit Announcement", url: "https://www.reddit.com/r/mcp/comments/1o22gc5/i_built_codegraphcontext_an_mcp_server_that/", icon: <FaReddit />, color: "#FF5700", button: "See Reddit post" },
   ];
   return (
-    <section className="py-24 px-4 bg-muted" data-aos="fade-in">
+    <section id="socialmentions" className="py-24 px-4 bg-muted" data-aos="fade-in">
       <div className="container mx-auto max-w-5xl">
         <div className="text-center mb-16" data-aos="fade-down">
           <h2 className="text-3xl md:text-4xl font-bold mb-4 bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent py-2">

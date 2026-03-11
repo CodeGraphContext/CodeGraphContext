@@ -1,11 +1,20 @@
-# src/codegraphcontext/cli/cli_helpers.py
 import asyncio
 import json
+import uuid
 import urllib.parse
 from pathlib import Path
 import time
 from rich.console import Console
 from rich.table import Table
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+    TimeRemainingColumn,
+    MofNCompleteColumn,
+)
 
 from ..core import get_database_manager
 from ..core.jobs import JobManager
@@ -27,10 +36,32 @@ def _initialize_services():
 
     try:
         db_manager.get_driver()
-    except ValueError as e:
-        console.print(f"[bold red]Database Connection Error:[/bold red] {e}")
-        console.print("Please ensure your Neo4j credentials are correct and the database is running.")
-        return None, None, None
+    except Exception as e:
+        # Check if this is a FalkorDB failure that should trigger a KùzuDB fallback
+        from ..core.database_falkordb import FalkorDBUnavailableError
+        if isinstance(e, FalkorDBUnavailableError):
+            console.print(f"[yellow]⚠ FalkorDB Lite is not functional in this environment: {e}[/yellow]")
+            console.print("[cyan]Falling back to KùzuDB for a reliable experience...[/cyan]")
+            
+            # Close the broken driver/socket
+            try:
+                db_manager.close_driver()
+            except Exception:
+                pass
+            
+            # Re-initialize explicitly with KùzuDB
+            from ..core.database_kuzu import KuzuDBManager
+            db_manager = KuzuDBManager()
+            try:
+                db_manager.get_driver()
+                console.print("[green]✓[/green] Successfully switched to KùzuDB fallback")
+            except Exception as kuzu_e:
+                console.print(f"[bold red]Critical Error:[/bold red] Both FalkorDB and KùzuDB failed: {kuzu_e}")
+                return None, None, None
+        else:
+            console.print(f"[bold red]Database Connection Error:[/bold red] {e}")
+            console.print("Please ensure your database is configured correctly or run 'cgc doctor'.")
+            return None, None, None
     
     # The GraphBuilder requires an event loop, even for synchronous-style execution
     try:
@@ -43,6 +74,64 @@ def _initialize_services():
     code_finder = CodeFinder(db_manager)
     console.print("[dim]Services initialized.[/dim]")
     return db_manager, graph_builder, code_finder
+
+
+async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, is_dependency: bool = False):
+    """Internal helper to run indexing with a Live progress bar."""
+    job_id = graph_builder.job_manager.create_job(str(path_obj), is_dependency=is_dependency)
+    
+    # Create the progress bar
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        MofNCompleteColumn(),
+        TimeRemainingColumn(),
+        TextColumn("[dim]{task.fields[filename]}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        
+        task_id = progress.add_task(
+            "Indexing...", 
+            total=None,  # Will be updated once file discovery is done
+            filename=""
+        )
+
+        indexing_task = asyncio.create_task(
+            graph_builder.build_graph_from_path_async(path_obj, is_dependency=is_dependency, job_id=job_id)
+        )
+
+        from ..core.jobs import JobStatus
+        
+        # Poll for updates
+        while not indexing_task.done():
+            job = graph_builder.job_manager.get_job(job_id)
+            if job:
+                if job.total_files > 0:
+                    progress.update(task_id, total=job.total_files, completed=job.processed_files)
+                
+                # Update the current filename in the UI
+                current_file = job.current_file or ""
+                if len(current_file) > 40:
+                    current_file = "..." + current_file[-37:]
+                progress.update(task_id, filename=current_file)
+
+                if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
+                    break
+            
+            await asyncio.sleep(0.1)
+
+        # Wait for actual completion and handle final state
+        try:
+            await indexing_task
+            job = graph_builder.job_manager.get_job(job_id)
+            if job and job.status == JobStatus.FAILED:
+                error_msg = job.errors[0] if job.errors else "Unknown error"
+                raise RuntimeError(error_msg)
+        except Exception as e:
+            raise e
 
 
 def index_helper(path: str):
@@ -85,13 +174,9 @@ def index_helper(path: str):
             console.print(f"[yellow]Warning: Could not check file count: {e}. Proceeding with indexing...[/yellow]")
 
     console.print(f"Starting indexing for: {path_obj}")
-    console.print("[yellow]This may take a few minutes for large repositories...[/yellow]")
-
-    async def do_index():
-        await graph_builder.build_graph_from_path_async(path_obj, is_dependency=False)
 
     try:
-        asyncio.run(do_index())
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False))
         time_end = time.time()
         elapsed = time_end - time_start
         console.print(f"[green]Successfully finished indexing: {path} in {elapsed:.2f} seconds[/green]")
@@ -137,13 +222,9 @@ def add_package_helper(package_name: str, language: str):
         return
 
     console.print(f"Starting indexing for package '{package_name}' at: {package_path}")
-    console.print("[yellow]This may take a few minutes...[/yellow]")
-
-    async def do_index():
-        await graph_builder.build_graph_from_path_async(package_path, is_dependency=True)
 
     try:
-        asyncio.run(do_index())
+        asyncio.run(_run_index_with_progress(graph_builder, package_path, is_dependency=True))
         console.print(f"[green]Successfully finished indexing package: {package_name}[/green]")
     except Exception as e:
         console.print(f"[bold red]An error occurred during package indexing:[/bold red] {e}")
@@ -263,16 +344,28 @@ def cypher_helper_visual(query: str):
 import webbrowser
 
 def visualize_helper(query: str):
-    """Generates a visualization."""
+    """"Generates a visualization."""
     services = _initialize_services()
     if not all(services):
         return
 
     db_manager, _, _ = services
     
-    # Check if FalkorDB
-    if "FalkorDB" in db_manager.__class__.__name__:
+    # Check Backend Type
+    backend = getattr(db_manager, "name", "").lower()
+    if not backend:
+        # Fallback check
+        if "FalkorDB" in db_manager.__class__.__name__:
+            backend = "falkordb"
+        elif "Kuzu" in db_manager.__class__.__name__:
+            backend = "kuzudb"
+        else:
+            backend = "neo4j"
+
+    if backend == "falkordb":
         _visualize_falkordb(db_manager)
+    elif backend == "kuzudb":
+        _visualize_kuzudb(db_manager)
     else:
         try:
             encoded_query = urllib.parse.quote(query)
@@ -391,6 +484,138 @@ def _visualize_falkordb(db_manager):
         db_manager.close_driver()
 
 
+def _visualize_kuzudb(db_manager):
+    console.print("[dim]Generating KùzuDB visualization (showing up to 500 relationships)...[/dim]")
+    try:
+        data_nodes = []
+        data_edges = []
+        
+        with db_manager.get_driver().session() as session:
+            # Fetch nodes and edges
+            # KùzuDB returns dicts for n, r, m in the result
+            q = "MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 500"
+            result = session.run(q)
+            
+            seen_nodes = set()
+            
+            # Helper to extract Node ID and props
+            def process_node(node):
+                uid = None
+                lbl = 'Node'
+                props = {}
+                
+                # Handle Kuzu Node Object (processed by wrapper)
+                if hasattr(node, 'properties'):
+                    props = node.properties or {}
+                    if hasattr(node, 'labels') and node.labels:
+                        lbl = node.labels[0]
+                    if hasattr(node, 'id'):
+                        uid = str(node.id)
+                # Handle Dictionary (raw Kuzu result)
+                elif isinstance(node, dict):
+                    if '_id' in node:
+                        uid = f"{node['_id']['table']}_{node['_id']['offset']}"
+                    lbl = node.get('_label', 'Node')
+                    props = {k: v for k, v in node.items() if not k.startswith('_')}
+                
+                if not uid:
+                    uid = str(uuid.uuid4())
+                    
+                name = props.get('name', str(uid))
+                
+                if uid not in seen_nodes:
+                    seen_nodes.add(uid)
+                    color = "#97c2fc" # Default blue
+                    if "Repository" == lbl: color = "#ffb3ba"
+                    elif "File" == lbl: color = "#baffc9"
+                    elif "Class" == lbl: color = "#bae1ff"
+                    elif "Function" == lbl: color = "#ffffba"
+                    elif "Module" == lbl: color = "#ffdfba"
+                    
+                    data_nodes.append({
+                        "id": uid, 
+                        "label": name, 
+                        "group": lbl, 
+                        "title": str(props),
+                        "color": color
+                    })
+                return uid
+            
+            # Iterate results
+            for record in result:
+                # record is dict-like access to row items
+                n = record['n']
+                r = record['r']
+                m = record['m']
+                
+                nid = process_node(n)
+                mid = process_node(m)
+                
+                # Process Edge
+                e_type = 'REL'
+                if hasattr(r, 'type'):
+                    e_type = r.type
+                elif isinstance(r, dict):
+                    e_type = r.get('_label', 'REL')
+                elif hasattr(r, 'label'): # Some versions
+                     e_type = r.label
+                
+                data_edges.append({
+                    "from": nid,
+                    "to": mid,
+                    "label": e_type,
+                    "arrows": "to"
+                })
+        
+        filename = "codegraph_viz.html"
+        html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+  <title>CodeGraphContext KùzuDB Visualization</title>
+  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style type="text/css">
+    #mynetwork {{
+      width: 100%;
+      height: 100vh;
+      border: 1px solid lightgray;
+    }}
+  </style>
+</head>
+<body>
+  <div id="mynetwork"></div>
+  <script type="text/javascript">
+    var nodes = new vis.DataSet({json.dumps(data_nodes)});
+    var edges = new vis.DataSet({json.dumps(data_edges)});
+    var container = document.getElementById('mynetwork');
+    var data = {{ nodes: nodes, edges: edges }};
+    var options = {{
+        nodes: {{ shape: 'dot', size: 16 }},
+        physics: {{ stabilization: false }},
+        layout: {{ improvedLayout: false }}
+    }};
+    var network = new vis.Network(container, data, options);
+  </script>
+</body>
+</html>
+"""
+        
+        out_path = Path(filename).resolve()
+        with open(out_path, "w") as f:
+            f.write(html_content)
+            
+        console.print(f"[green]Visualization generated at:[/green] {out_path}")
+        console.print("Opening in default browser...")
+        webbrowser.open(f"file://{out_path}")
+
+    except Exception as e:
+        console.print(f"[bold red]Visualization failed:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        db_manager.close_driver()
+
+
 def reindex_helper(path: str):
     """Force re-index by deleting and rebuilding the repository."""
     time_start = time.time()
@@ -421,13 +646,9 @@ def reindex_helper(path: str):
             return
     
     console.print(f"[cyan]Re-indexing: {path_obj}[/cyan]")
-    console.print("[yellow]This may take a few minutes for large repositories...[/yellow]")
-
-    async def do_index():
-        await graph_builder.build_graph_from_path_async(path_obj, is_dependency=False)
-
+    
     try:
-        asyncio.run(do_index())
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False))
         time_end = time.time()
         elapsed = time_end - time_start
         console.print(f"[green]Successfully re-indexed: {path} in {elapsed:.2f} seconds[/green]")

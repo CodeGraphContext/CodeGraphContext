@@ -100,6 +100,10 @@ class TreeSitterParser:
             from .languages.perl import PerlTreeSitterParser
 
             self.language_specific_parser = PerlTreeSitterParser(self)
+        elif self.language_name == "elixir":
+            from .languages.elixir import ElixirTreeSitterParser
+
+            self.language_specific_parser = ElixirTreeSitterParser(self)
 
     def parse(self, path: Path, is_dependency: bool = False, **kwargs) -> Dict:
         """Dispatches parsing to the language-specific parser."""
@@ -153,6 +157,8 @@ class GraphBuilder:
             ".dart": TreeSitterParser("dart"),
             ".pl": TreeSitterParser("perl"),
             ".pm": TreeSitterParser("perl"),
+            ".ex": TreeSitterParser("elixir"),
+            ".exs": TreeSitterParser("elixir"),
         }
         self.create_schema()
 
@@ -450,6 +456,22 @@ class GraphBuilder:
                     files_by_lang[".pm"], self.parsers[".pm"]
                 )
             )
+        if ".ex" in files_by_lang:
+            from .languages import elixir as elixir_lang_module
+
+            imports_map.update(
+                elixir_lang_module.pre_scan_elixir(
+                    files_by_lang[".ex"], self.parsers[".ex"]
+                )
+            )
+        if ".exs" in files_by_lang:
+            from .languages import elixir as elixir_lang_module
+
+            imports_map.update(
+                elixir_lang_module.pre_scan_elixir(
+                    files_by_lang[".exs"], self.parsers[".exs"]
+                )
+            )
 
         return imports_map
 
@@ -471,7 +493,10 @@ class GraphBuilder:
 
     # First pass to add file and its contents
     def add_file_to_graph(self, file_data: Dict, repo_name: str, imports_map: dict):
-        info_logger("Executing add_file_to_graph with my change!")
+        calls_count = len(file_data.get("function_calls", []))
+        debug_log(
+            f"Executing add_file_to_graph for {file_data.get('path', 'unknown')} - Calls found: {calls_count}"
+        )
         """Adds a file and its contents within a single, unified session."""
         file_path_str = str(Path(file_data["path"]).resolve())
         file_name = Path(file_path_str).name
@@ -657,10 +682,16 @@ class GraphBuilder:
                     )
                 else:
                     # Existing logic for Python (and other languages)
-                    set_clauses = ["m.alias = $alias"]
+                    # For KùzuDB, Module schema only has: name, lang, full_import_name.
+                    # 'alias' belongs on the relationship.
+
+                    set_clauses = []
                     if "full_import_name" in imp:
                         set_clauses.append("m.full_import_name = $full_import_name")
-                    set_clause_str = ", ".join(set_clauses)
+
+                    set_clause_str = (
+                        ("SET " + ", ".join(set_clauses)) if set_clauses else ""
+                    )
 
                     # Build relationship properties
                     rel_props = {}
@@ -669,17 +700,23 @@ class GraphBuilder:
                     if imp.get("alias"):
                         rel_props["alias"] = imp.get("alias")
 
+                    # Ensure full_import_name is available in params for SET clause
+                    params = imp.copy()
+                    params["path"] = file_path_str
+                    params["rel_props"] = rel_props
+                    params["module_name"] = imp.get(
+                        "name"
+                    )  # Use 'name' from imp as module name
+
                     session.run(
                         f"""
                         MATCH (f:File {{path: $path}})
-                        MERGE (m:Module {{name: $name}})
-                        SET {set_clause_str}
+                        MERGE (m:Module {{name: $module_name}})
+                        {set_clause_str}
                         MERGE (f)-[r:IMPORTS]->(m)
                         SET r += $rel_props
                     """,
-                        path=file_path_str,
-                        rel_props=rel_props,
-                        **imp,
+                        **params,
                     )
 
             # Handle CONTAINS relationship between class to their children like variables
@@ -714,9 +751,25 @@ class GraphBuilder:
             # Function calls are also handled in a separate pass after all files are processed.
 
     # Second pass to create relationships that depend on all files being present like call functions and class inheritance
+    def _safe_run_create(self, session, query, params) -> bool:
+        """Helper to run a creation query safely, catching exceptions and checking result."""
+        try:
+            result = session.run(query, **params)
+            row = result.single()
+            return row is not None and row.get("created", 0) > 0
+        except Exception as e:
+            # Optionally log, but suppress to allow fallback
+            return False
+
     def _create_function_calls(self, session, file_data: Dict, imports_map: dict):
         """Create CALLS relationships with a unified, prioritized logic flow for all call types."""
         caller_file_path = str(Path(file_data["path"]).resolve())
+        num_calls = len(file_data.get("function_calls", []))
+        if num_calls > 0:
+            debug_log(
+                f"Creating function calls for {caller_file_path} (Count: {num_calls})"
+            )
+
         local_names = {f["name"] for f in file_data.get("functions", [])} | {
             c["name"] for c in file_data.get("classes", [])
         }
@@ -732,6 +785,7 @@ class GraphBuilder:
 
         for call in file_data.get("function_calls", []):
             called_name = call["name"]
+            # debug_log(f"Processing call: {called_name}")
             if called_name in __builtins__:
                 continue
 
@@ -855,62 +909,149 @@ class GraphBuilder:
                 and caller_context[0] is not None
             ):
                 caller_name, _, caller_line_number = caller_context
-                # if called_name == "sumOfSquares":
-                # print(f"DEBUG_CYPHER: caller={caller_name}, caller_line={caller_line_number}, called={called_name}, path={resolved_path}")
 
-                session.run(
+                # KùzuDB workaround: Try Function->Function first, then other combinations
+                # This avoids polymorphic MERGE which KùzuDB doesn't support
+                call_params = {
+                    "caller_name": caller_name,
+                    "caller_file_path": caller_file_path,
+                    "caller_line_number": caller_line_number,
+                    "called_name": called_name,
+                    "called_file_path": resolved_path,
+                    "line_number": call["line_number"],
+                    "args": call.get("args", []),
+                    "full_call_name": call.get("full_name", called_name),
+                }
+
+                # Try Function caller -> Function callee
+                if not self._safe_run_create(
+                    session,
                     """
-                    MATCH (caller) WHERE (caller:Function OR caller:Class) 
-                      AND caller.name = $caller_name 
-                      AND caller.path = $caller_file_path 
-                      AND caller.line_number = $caller_line_number
-                    MATCH (called) WHERE (called:Function OR called:Class)
-                      AND called.name = $called_name 
-                      AND called.path = $called_file_path
-                    
+                    OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
+                    OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
                     WITH caller, called
-                    OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
-                    WHERE called:Class AND init.name IN ["__init__", "constructor"]
-                    WITH caller, COALESCE(init, called) as final_target
-                    
-                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
+                    WHERE caller IS NOT NULL AND called IS NOT NULL
+                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                    RETURN count(*) as created
                 """,
-                    caller_name=caller_name,
-                    caller_file_path=caller_file_path,
-                    caller_line_number=caller_line_number,
-                    called_name=called_name,
-                    called_file_path=resolved_path,
-                    line_number=call["line_number"],
-                    args=call.get("args", []),
-                    full_call_name=call.get("full_name", called_name),
-                )
+                    call_params,
+                ):
+                    # Try Function caller -> Class callee (with __init__ resolution)
+                    if not self._safe_run_create(
+                        session,
+                        """
+                        OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
+                        OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
+                        OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
+                        WHERE init.name IN ["__init__", "constructor"]
+                        WITH caller, COALESCE(init, called) as final_target
+                        WHERE caller IS NOT NULL AND final_target IS NOT NULL
+                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
+                        RETURN count(*) as created
+                    """,
+                        call_params,
+                    ):
+                        # Try Class caller -> Function callee
+                        if not self._safe_run_create(
+                            session,
+                            """
+                            OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
+                            OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
+                            WITH caller, called
+                            WHERE caller IS NOT NULL AND called IS NOT NULL
+                            MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                            RETURN count(*) as created
+                        """,
+                            call_params,
+                        ):
+                            # Try Class caller -> Class callee
+                            if not self._safe_run_create(
+                                session,
+                                """
+                                OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
+                                OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
+                                OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
+                                WHERE init.name IN ["__init__", "constructor"]
+                                WITH caller, COALESCE(init, called) as final_target
+                                WHERE caller IS NOT NULL AND final_target IS NOT NULL
+                                MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
+                                RETURN count(*) as created
+                            """,
+                                call_params,
+                            ):
+                                # Fallback: Relaxed Global Search (Caller: Function/Class -> Callee: Function)
+                                # Used when path resolution failed or was ambiguous
+                                self._safe_run_create(
+                                    session,
+                                    """
+                                    OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path}) 
+                                    OPTIONAL MATCH (callerClass:Class {name: $caller_name, path: $caller_file_path})
+                                    WITH COALESCE(caller, callerClass) as final_caller
+                                    OPTIONAL MATCH (called:Function {name: $called_name})
+                                    WITH final_caller, called
+                                    WHERE final_caller IS NOT NULL AND called IS NOT NULL
+                                    MERGE (final_caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                                """,
+                                    call_params,
+                                )
             else:
-                session.run(
-                    """
-                    MATCH (caller:File {path: $caller_file_path})
-                    MATCH (called) WHERE (called:Function OR called:Class)
-                      AND called.name = $called_name 
-                      AND called.path = $called_file_path
-                    
-                    WITH caller, called
-                    OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
-                    WHERE called:Class AND init.name IN ["__init__", "constructor"]
-                    WITH caller, COALESCE(init, called) as final_target
+                # File-level calls: Try Function first, then Class
+                call_params = {
+                    "caller_file_path": caller_file_path,
+                    "called_name": called_name,
+                    "called_file_path": resolved_path,
+                    "line_number": call["line_number"],
+                    "args": call.get("args", []),
+                    "full_call_name": call.get("full_name", called_name),
+                }
 
-                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
+                if not self._safe_run_create(
+                    session,
+                    """
+                    OPTIONAL MATCH (caller:File {path: $caller_file_path})
+                    OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
+                    WITH caller, called
+                    WHERE caller IS NOT NULL AND called IS NOT NULL
+                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                    RETURN count(*) as created
                 """,
-                    caller_file_path=caller_file_path,
-                    called_name=called_name,
-                    called_file_path=resolved_path,
-                    line_number=call["line_number"],
-                    args=call.get("args", []),
-                    full_call_name=call.get("full_name", called_name),
-                )
+                    call_params,
+                ):
+                    if not self._safe_run_create(
+                        session,
+                        """
+                        OPTIONAL MATCH (caller:File {path: $caller_file_path})
+                        OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
+                        OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
+                        WHERE init.name IN ["__init__", "constructor"]
+                        WITH caller, COALESCE(init, called) as final_target
+                        WHERE caller IS NOT NULL AND final_target IS NOT NULL
+                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
+                        RETURN count(*) as created
+                    """,
+                        call_params,
+                    ):
+                        # Fallback: Relaxed Global Search (Caller: File -> Callee: Function)
+                        self._safe_run_create(
+                            session,
+                            """
+                            OPTIONAL MATCH (caller:File {path: $caller_file_path})
+                            OPTIONAL MATCH (called:Function {name: $called_name})
+                            WITH caller, called
+                            WHERE caller IS NOT NULL AND called IS NOT NULL
+                            MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                        """,
+                            call_params,
+                        )
 
     def _create_all_function_calls(self, all_file_data: list[Dict], imports_map: dict):
         """Create CALLS relationships for all functions after all files have been processed."""
+        debug_log(f"_create_all_function_calls called with {len(all_file_data)} files")
         with self.driver.session() as session:
-            for file_data in all_file_data:
+            for idx, file_data in enumerate(all_file_data):
+                debug_log(
+                    f"Processing file {idx + 1}/{len(all_file_data)}: {file_data.get('path', 'unknown')}"
+                )
                 self._create_function_calls(session, file_data, imports_map)
 
     def _create_inheritance_links(self, session, file_data: Dict, imports_map: dict):

@@ -16,7 +16,7 @@ CONFIG_DIR = Path.home() / ".codegraphcontext"
 CONFIG_FILE = CONFIG_DIR / ".env"
 
 # Database credential keys (stored in same .env file but not managed as config)
-DATABASE_CREDENTIAL_KEYS = {"NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"}
+DATABASE_CREDENTIAL_KEYS = {"NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE"}
 
 # Default configuration values
 DEFAULT_CONFIG = {
@@ -28,6 +28,7 @@ DEFAULT_CONFIG = {
     "DEBUG_LOGS": "false",
     "DEBUG_LOG_PATH": str(Path.home() / "mcp_debug.log"),
     "ENABLE_APP_LOGS": "CRITICAL",
+    "LIBRARY_LOG_LEVEL": "WARNING",
     "LOG_FILE_PATH": str(CONFIG_DIR / "logs" / "cgc.log"),
     "MAX_FILE_SIZE_MB": "10",
     "IGNORE_TEST_FILES": "false",
@@ -47,7 +48,7 @@ DEFAULT_CONFIG = {
 
 # Configuration key descriptions
 CONFIG_DESCRIPTIONS = {
-    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb)",
+    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|kuzudb)",
     "FALKORDB_PATH": "Path to FalkorDB database file",
     "FALKORDB_SOCKET_PATH": "Path to FalkorDB Unix socket",
     "INDEX_VARIABLES": "Index variable nodes in the graph (lighter graph if false)",
@@ -55,6 +56,7 @@ CONFIG_DESCRIPTIONS = {
     "DEBUG_LOGS": "Enable debug logging (for development/troubleshooting)",
     "DEBUG_LOG_PATH": "Path to debug log file",
     "ENABLE_APP_LOGS": "Application log level (DEBUG|INFO|WARNING|ERROR|CRITICAL|DISABLED)",
+    "LIBRARY_LOG_LEVEL": "Log level for third-party libraries (neo4j, asyncio, urllib3) (DEBUG|INFO|WARNING|ERROR|CRITICAL)",
     "LOG_FILE_PATH": "Path to application log file",
     "MAX_FILE_SIZE_MB": "Maximum file size to index (in MB)",
     "IGNORE_TEST_FILES": "Skip test files during indexing",
@@ -73,11 +75,12 @@ CONFIG_DESCRIPTIONS = {
 
 # Valid values for each config key
 CONFIG_VALIDATORS = {
-    "DEFAULT_DATABASE": ["neo4j", "falkordb"],
+    "DEFAULT_DATABASE": ["neo4j", "falkordb", "kuzudb"],
     "INDEX_VARIABLES": ["true", "false"],
     "ALLOW_DB_DELETION": ["true", "false"],
     "DEBUG_LOGS": ["true", "false"],
     "ENABLE_APP_LOGS": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "DISABLED"],
+    "LIBRARY_LOG_LEVEL": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     "IGNORE_TEST_FILES": ["true", "false"],
     "IGNORE_HIDDEN_FILES": ["true", "false"],
     "ENABLE_AUTO_WATCH": ["true", "false"],
@@ -86,12 +89,14 @@ CONFIG_VALIDATORS = {
     "SCIP_INDEXER": ["true", "false"],
     "SKIP_EXTERNAL_RESOLUTION": ["true", "false"],
 }
+def ensure_config_dir(path: Path = CONFIG_DIR):
+    """
+    Ensure that the configuration directory exists.
+    Creates the directory and a logs subdirectory if they do not already exist.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "logs").mkdir(parents=True, exist_ok=True)
 
-
-def ensure_config_dir():
-    """Ensure configuration directory exists."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    (CONFIG_DIR / "logs").mkdir(parents=True, exist_ok=True)
 
 
 def load_config() -> Dict[str, str]:

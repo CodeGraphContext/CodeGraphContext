@@ -70,10 +70,11 @@ def visualize_graph_query(db_manager, **args) -> Dict[str, Any]:
     if not cypher_query:
         return {"error": "Cypher query cannot be empty."}
 
-    # Check DB Type: FalkorDBManager vs DatabaseManager
+    # Check DB Type: FalkorDBManager vs DatabaseManager vs KuzuDBManager
     is_falkor = "FalkorDB" in db_manager.__class__.__name__
+    is_kuzu = "KuzuDB" in db_manager.__class__.__name__
 
-    if is_falkor:
+    if is_falkor or is_kuzu:
         try:
             data_nodes = []
             data_edges = []

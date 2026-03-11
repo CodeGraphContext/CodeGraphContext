@@ -56,6 +56,9 @@ LANGUAGE_ALIASES = {
     "perl": "perl",
     "pl": "perl",
     "pm": "perl",
+    "elixir": "elixir",
+    "ex": "elixir",
+    "exs": "elixir",
 }
 
 

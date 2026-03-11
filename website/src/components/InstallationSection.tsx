@@ -78,7 +78,7 @@ const copyToClipboard = (text: string) => {
 
 const InstallationSection = () => {
   return (
-    <section className="py-24 px-4 bg-muted/20">
+    <section id="installation" className="py-24 px-4 bg-muted/20">
       <div className="container mx-auto max-w-5xl text-center">
         <div className="text-center mb-6">
           <h2 className="text-4xl md:text-5xl font-bold mb-6 bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent">
@@ -106,18 +106,17 @@ const InstallationSection = () => {
             ].map((mode, idx) => (
               <Card
                 key={mode.title}
-                className={`flex-1 flex flex-col border-border/50 hover:border-primary/30 transition-smooth group hover:shadow-glow animate-float-up dark:bg-gradient-card dark:bg-card/50 dark:border-border/30 dark:hover:border-primary/40 bg-white/95 border-gray-200/50 hover:border-primary/50 shadow-sm h-full text-left min-h-[240px]`}
-                style={{ animationDelay: `${idx * 0.1}s` }}
+                className="flex-1 flex flex-col border-border/50 hover:border-primary/30 transition-smooth group hover:shadow-glow bg-card/50 backdrop-blur-sm h-full text-left min-h-[240px]"
               >
                 <CardHeader className="flex-1 flex flex-col justify-between">
                   <div>
                     <div className="flex items-center gap-4 mb-4">
-                      <div className={`p-3 rounded-xl bg-${mode.color}/10 border border-${mode.color}/20 group-hover:bg-${mode.color}/20 transition-smooth dark:bg-${mode.color}/20 dark:border-${mode.color}/30 bg-${mode.color}/5 border-${mode.color}/15`}>
+                      <div className={`p-3 rounded-xl bg-${mode.color}/10 border border-${mode.color}/20 group-hover:bg-${mode.color}/20 transition-smooth`}>
                         <mode.icon className={`h-6 w-6 text-${mode.color}`} />
                       </div>
-                      <CardTitle className="text-xl font-semibold dark:text-foreground text-gray-900">{mode.title}</CardTitle>
+                      <CardTitle className="text-xl font-semibold">{mode.title}</CardTitle>
                     </div>
-                    <CardDescription className="text-base text-muted-foreground leading-relaxed dark:text-muted-foreground text-gray-600">
+                    <CardDescription className="text-base text-muted-foreground leading-relaxed">
                       {mode.description}
                     </CardDescription>
                   </div>

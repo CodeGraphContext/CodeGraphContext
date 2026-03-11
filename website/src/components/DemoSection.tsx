@@ -51,7 +51,7 @@ const itemVariants: Variants = {
 
 
   return (
-    <section
+    <section id="demo"
       className="py-20 px-4 bg-gradient-to-b from-background to-secondary/10"
       data-aos="fade-in"
       data-aos-duration="800"

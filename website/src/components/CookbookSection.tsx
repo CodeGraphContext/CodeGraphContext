@@ -221,7 +221,7 @@ const CookbookSection = () => {
   );
 
   return (
-    <section className="py-20 px-4 bg-gradient-subtle relative overflow-hidden" data-aos="fade-in">
+    <section id="cookbook" className="py-20 px-4 bg-gradient-subtle relative overflow-hidden" data-aos="fade-in">
       <div className="absolute inset-0 bg-grid-pattern opacity-20" />
       <div className="container mx-auto max-w-6xl relative z-10">
         <div className="text-center mb-16" data-aos="fade-down">

@@ -60,25 +60,39 @@ def _json_for_inline_script(data: Any) -> str:
 
 
 def get_node_color(node_type: str) -> Dict[str, str]:
-    """Return color configuration based on node type."""
+    """Return color configuration based on node type with a modern palette."""
+    # Using HSL-based harmonious colors for a premium look
     colors = {
-        "Function": {"background": "#4caf50", "border": "#388e3c"},  # Green
-        "Class": {"background": "#ff9800", "border": "#f57c00"},  # Orange
-        "Module": {"background": "#9c27b0", "border": "#7b1fa2"},  # Purple
-        "File": {"background": "#2196f3", "border": "#1976d2"},  # Blue
-        "Repository": {"background": "#e91e63", "border": "#c2185b"},  # Pink
-        "Package": {"background": "#607d8b", "border": "#455a64"},  # Grey
-        "Variable": {"background": "#795548", "border": "#5d4037"},  # Brown
-        "Caller": {"background": "#00bcd4", "border": "#0097a7"},  # Cyan
-        "Callee": {"background": "#8bc34a", "border": "#689f38"},  # Light Green
-        "Target": {"background": "#f44336", "border": "#d32f2f"},  # Red
-        "Source": {"background": "#3f51b5", "border": "#303f9f"},  # Indigo
-        "Parent": {"background": "#ff5722", "border": "#e64a19"},  # Deep Orange
-        "Child": {"background": "#009688", "border": "#00796b"},  # Teal
-        "Override": {"background": "#673ab7", "border": "#512da8"},  # Deep Purple
-        "default": {"background": "#97c2fc", "border": "#2b7ce9"},  # Default blue
+        "Function": {"background": "#D1FAE5", "border": "#10B981", "highlight": "#34D399"},  # Teal/Emerald
+        "Class": {"background": "#DBEAFE", "border": "#3B82F6", "highlight": "#60A5FA"},     # Blue
+        "Module": {"background": "#F3E8FF", "border": "#A855F7", "highlight": "#C084FC"},    # Purple
+        "File": {"background": "#E0E7FF", "border": "#6366F1", "highlight": "#818CF8"},      # Indigo
+        "Repository": {"background": "#FFE4E6", "border": "#F43F5E", "highlight": "#FB7185"},# Rose
+        "Package": {"background": "#F1F5F9", "border": "#64748B", "highlight": "#94A3B8"},   # Slate
+        "Variable": {"background": "#FEF3C7", "border": "#F59E0B", "highlight": "#FBBF24"},  # Amber
+        "Caller": {"background": "#CFFAFE", "border": "#06B6D4", "highlight": "#22D3EE"},    # Cyan
+        "Callee": {"background": "#ECFDF5", "border": "#10B981", "highlight": "#34D399"},    # Emerald
+        "Target": {"background": "#FEE2E2", "border": "#EF4444", "highlight": "#F87171"},    # Red
+        "Source": {"background": "#E0F2FE", "border": "#0EA5E9", "highlight": "#38BDF8"},    # Sky Blue
+        "Parent": {"background": "#FFEDD5", "border": "#F97316", "highlight": "#FB923C"},    # Orange
+        "Child": {"background": "#F0FDFA", "border": "#14B8A6", "highlight": "#2DD4BF"},     # Teal
+        "Override": {"background": "#EDE9FE", "border": "#8B5CF6", "highlight": "#A78BFA"},   # Violet
+        "default": {"background": "#F1F5F9", "border": "#94A3B8", "highlight": "#CBD5E1"},   # Default Slate
     }
-    return colors.get(node_type, colors["default"])
+    config = colors.get(node_type, colors["default"])
+    # Vis-network expects specific keys or hex
+    return {
+        "background": config["background"],
+        "border": config["border"],
+        "highlight": {
+            "background": config["highlight"],
+            "border": config["border"]
+        },
+        "hover": {
+            "background": config["highlight"],
+            "border": config["border"]
+        }
+    }
 
 
 def generate_html_template(
@@ -176,267 +190,562 @@ def generate_html_template(
     safe_edges: List[Dict[str, Any]] = [dict(edge) for edge in edges]
     
     html_content = f"""<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>{safe_title} - CodeGraphContext</title>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{safe_title} | CodeGraphContext</title>
+    
+    <!-- Modern Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Vis Network Library -->
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    
     <style type="text/css">
+        :root {{
+            --primary: #6366f1;
+            --primary-glow: rgba(99, 102, 241, 0.4);
+            --bg-dark: #0f172a;
+            --bg-card: rgba(30, 41, 59, 0.7);
+            --border: rgba(255, 255, 255, 0.1);
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --accent: #818cf8;
+        }}
+
         * {{
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }}
+
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #ffffff;
-            min-height: 100vh;
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(129, 140, 248, 0.1) 0px, transparent 50%);
+            color: var(--text-main);
+            overflow: hidden;
+            height: 100vh;
         }}
+
+        /* --- Header & Glassmorphism --- */
         .header {{
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
+            top: 20px;
+            left: 20px;
+            right: 20px;
             z-index: 1000;
-            background: rgba(26, 26, 46, 0.95);
-            backdrop-filter: blur(10px);
-            padding: 15px 25px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 12px 24px;
+            border-radius: 16px;
+            border: 1px solid var(--border);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+            animation: slideDown 0.6s cubic-bezier(0.16, 1, 0.3, 1);
         }}
-        .header-left {{
+
+        @keyframes slideDown {{
+            from {{ transform: translateY(-100%); opacity: 0; }}
+            to {{ transform: translateY(0); opacity: 1; }}
+        }}
+
+        .logo-group {{
             display: flex;
             align-items: center;
-            gap: 15px;
+            gap: 12px;
         }}
-        .logo {{
-            font-size: 1.4em;
+
+        .logo-icon {{
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 18px;
+            box-shadow: 0 0 15px var(--primary-glow);
+        }}
+
+        .logo-text {{
+            font-size: 1.25rem;
             font-weight: 700;
-            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            letter-spacing: -0.02em;
+            background: linear-gradient(to right, #fff, #94a3b8);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            background-clip: text;
         }}
-        .title {{
-            font-size: 1.1em;
-            color: #a0a0a0;
+
+        .viz-title {{
+            font-size: 0.9rem;
+            color: var(--text-dim);
+            font-weight: 400;
+            padding-left: 12px;
+            border-left: 1px solid var(--border);
+            margin-left: 12px;
         }}
-        .stats {{
+
+        .stats-group {{
             display: flex;
-            gap: 20px;
-            font-size: 0.9em;
+            gap: 24px;
         }}
-        .stat {{
+
+        .stat-item {{
             display: flex;
-            align-items: center;
-            gap: 5px;
+            flex-direction: column;
+            align-items: flex-end;
         }}
-        .stat-value {{
-            color: #00d4ff;
+
+        .stat-label {{
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-dim);
+        }}
+
+        .stat-count {{
+            font-size: 1.1rem;
             font-weight: 600;
+            color: var(--accent);
         }}
-        .description {{
-            color: #888;
-            font-size: 0.85em;
-            margin-top: 5px;
+
+        .search-container {{
+            position: fixed;
+            top: 100px;
+            left: 20px;
+            z-index: 1000;
+            width: 200px;
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            padding: 12px;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            animation: slideLeft 0.6s cubic-bezier(0.16, 1, 0.3, 1);
         }}
+
+        @keyframes slideLeft {{
+            from {{ transform: translateX(-100%); opacity: 0; }}
+            to {{ transform: translateX(0); opacity: 1; }}
+        }}
+
+        .search-input {{
+            background: rgba(0,0,0,0.2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: white;
+            font-family: inherit;
+            font-size: 0.85rem;
+            outline: none;
+            width: 100%;
+        }}
+
+        .search-input:focus {{
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px var(--primary-glow);
+        }}
+
+        /* --- Main Network Container --- */
         #mynetwork {{
             width: 100%;
             height: 100vh;
-            padding-top: 70px;
+            cursor: grab;
         }}
+
+        #mynetwork:active {{
+            cursor: grabbing;
+        }}
+
+        /* --- Side Info Panel --- */
+        .info-panel {{
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            width: 340px;
+            max-height: calc(100vh - 140px);
+            background: var(--bg-card);
+            backdrop-filter: blur(16px);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            padding: 24px;
+            z-index: 900;
+            transform: translateX(400px);
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            overflow-y: auto;
+            box-shadow: -8px 0 32px rgba(0,0,0,0.2);
+        }}
+
+        .info-panel.active {{
+            transform: translateX(0);
+        }}
+
+        .info-header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 12px;
+        }}
+
+        .node-type-badge {{
+            font-size: 0.7rem;
+            padding: 4px 10px;
+            border-radius: 20px;
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+        }}
+
+        .node-name {{
+            font-size: 1.4rem;
+            font-weight: 700;
+            word-break: break-all;
+            margin-top: 8px;
+        }}
+
+        .info-section {{
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }}
+
+        .info-label {{
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }}
+
+        .info-value {{
+            font-size: 0.9rem;
+            color: var(--text-main);
+            font-family: 'JetBrains Mono', monospace;
+            word-break: break-all;
+            background: rgba(0,0,0,0.2);
+            padding: 8px;
+            border-radius: 8px;
+        }}
+
+        /* --- Legend --- */
         .legend {{
             position: fixed;
             bottom: 20px;
             left: 20px;
-            background: rgba(26, 26, 46, 0.95);
-            backdrop-filter: blur(10px);
-            padding: 15px;
-            border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.1);
-            font-size: 0.85em;
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            padding: 20px;
+            border-radius: 16px;
+            border: 1px solid var(--border);
             z-index: 1000;
+            width: 200px;
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
         }}
+
+        @keyframes slideUp {{
+            from {{ transform: translateY(100%); opacity: 0; }}
+            to {{ transform: translateY(0); opacity: 1; }}
+        }}
+
         .legend-title {{
-            font-weight: 600;
-            margin-bottom: 10px;
-            color: #00d4ff;
+            font-weight: 700;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            color: var(--text-dim);
         }}
+
         .legend-item {{
             display: flex;
             align-items: center;
-            gap: 8px;
-            margin: 5px 0;
+            gap: 10px;
+            margin: 8px 0;
+            font-size: 0.85rem;
+            color: #ccc;
+            cursor: pointer;
+            transition: color 0.2s;
         }}
+
+        .legend-item:hover {{
+            color: #fff;
+        }}
+
         .legend-color {{
-            width: 12px;
-            height: 12px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
+            box-shadow: 0 0 8px currentColor;
         }}
+
+        /* --- Controls & Utilities --- */
         .controls {{
             position: fixed;
             bottom: 20px;
             right: 20px;
-            background: rgba(26, 26, 46, 0.95);
-            backdrop-filter: blur(10px);
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.1);
-            font-size: 0.8em;
-            z-index: 1000;
-            color: #888;
+            background: rgba(0,0,0,0.4);
+            padding: 8px 16px;
+            border-radius: 30px;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            z-index: 800;
+        }}
+
+        .close-btn {{
+            cursor: pointer;
+            color: var(--text-dim);
+            transition: color 0.2s;
+        }}
+
+        .close-btn:hover {{ color: #fff; }}
+
+        ::-webkit-scrollbar {{
+            width: 6px;
+        }}
+        ::-webkit-scrollbar-track {{
+            background: transparent;
+        }}
+        ::-webkit-scrollbar-thumb {{
+            background: var(--border);
+            border-radius: 10px;
         }}
     </style>
 </head>
 <body>
     <div class="header">
-        <div class="header-left">
-            <span class="logo">CodeGraphContext</span>
-            <span class="title">{safe_title}</span>
+        <div class="logo-group">
+            <div class="logo-icon">C</div>
+            <div class="logo-text">CodeGraphContext</div>
+            <div class="viz-title">{safe_title}</div>
         </div>
-        <div class="stats">
-            <div class="stat">
-                <span>Nodes:</span>
-                <span class="stat-value">{len(nodes)}</span>
+        <div class="stats-group">
+            <div class="stat-item">
+                <span class="stat-label">Nodes</span>
+                <span class="stat-count">{len(nodes)}</span>
             </div>
-            <div class="stat">
-                <span>Edges:</span>
-                <span class="stat-value">{len(edges)}</span>
+            <div class="stat-item">
+                <span class="stat-label">Edges</span>
+                <span class="stat-count">{len(edges)}</span>
             </div>
         </div>
     </div>
-    {f'<div class="description">{safe_description}</div>' if description else ''}
-    
+
+    <div id="info-panel" class="info-panel">
+        <div class="info-header">
+            <div id="node-badge" class="node-type-badge">TYPE</div>
+            <div class="close-btn" onclick="closePanel()">✕</div>
+        </div>
+        <div id="node-name" class="node-name">Symbol Name</div>
+        
+        <div class="info-section">
+            <span class="info-label">File Path</span>
+            <div id="node-path" class="info-value">/path/to/file.py</div>
+        </div>
+        
+        <div class="info-section">
+            <span class="info-label">Context</span>
+            <div id="node-context" class="info-value">None</div>
+        </div>
+
+        <div id="extra-info"></div>
+    </div>
+
+    <div class="search-container">
+        <div class="legend-title" style="margin-bottom: 4px;">Quick Search</div>
+        <input type="text" id="node-search" class="search-input" placeholder="Find symbol...">
+    </div>
+
     <div id="mynetwork"></div>
 
     <div class="legend">
-        <div class="legend-title">Legend</div>
+        <div class="legend-title">Entity Types</div>
         <div id="legend-items"></div>
     </div>
 
     <div class="controls">
-        Drag to pan • Scroll to zoom • Click node to highlight
+        Scroll to zoom • Click to inspect • Drag to explore
     </div>
 
     <script type="text/javascript">
-        var nodesData = {_json_for_inline_script(safe_nodes)};
-        var edgesData = {_json_for_inline_script(safe_edges)};
+        const nodesData = {_json_for_inline_script(safe_nodes)};
+        const edgesData = {_json_for_inline_script(safe_edges)};
 
-        var nodes = new vis.DataSet(nodesData);
-        var edges = new vis.DataSet(edgesData);
+        const nodes = new vis.DataSet(nodesData);
+        const edges = new vis.DataSet(edgesData);
 
-        var container = document.getElementById('mynetwork');
-        var data = {{
-            nodes: nodes,
-            edges: edges
-        }};
+        const container = document.getElementById('mynetwork');
+        const data = {{ nodes, edges }};
         
-        var options = {{
+        const options = {{
             nodes: {{
                 shape: 'dot',
-                size: 20,
+                size: 24,
                 font: {{
-                    color: '#ffffff',
+                    color: '#e2e8f0',
                     size: 14,
-                    face: 'arial'
+                    face: 'Outfit'
                 }},
                 borderWidth: 2,
                 shadow: {{
                     enabled: true,
-                    color: 'rgba(0,0,0,0.3)',
-                    size: 5
+                    color: 'rgba(0,0,0,0.5)',
+                    size: 10,
+                    x: 0,
+                    y: 4
                 }}
             }},
             edges: {{
-                width: 2,
+                width: 1.5,
                 color: {{
-                    color: '#666666',
-                    highlight: '#00d4ff',
-                    hover: '#00d4ff'
+                    color: 'rgba(148, 163, 184, 0.3)',
+                    highlight: '#6366f1',
+                    hover: '#818cf8'
                 }},
                 font: {{
                     size: 11,
-                    align: 'middle',
-                    color: '#aaaaaa',
+                    face: 'Outfit',
+                    color: '#94a3b8',
                     strokeWidth: 0
                 }},
                 smooth: {{
                     type: 'cubicBezier',
-                    forceDirection: 'none'
+                    forceDirection: 'none',
+                    roundness: 0.5
                 }},
                 arrows: {{
                     to: {{
                         enabled: true,
-                        scaleFactor: 0.8
+                        scaleFactor: 0.5
                     }}
                 }}
             }},
             interaction: {{
                 hover: true,
-                tooltipDelay: 200,
+                tooltipDelay: 300,
                 hideEdgesOnDrag: true,
-                navigationButtons: true,
+                navigationButtons: false,
                 keyboard: true
+            }},
+            physics: {{
+                enabled: true,
+                stabilization: {{
+                    enabled: true,
+                    iterations: 150
+                }},
+                barnesHut: {{
+                    gravitationalConstant: -2000,
+                    centralGravity: 0.3,
+                    springLength: 120,
+                    springConstant: 0.04,
+                    damping: 0.09
+                }}
             }},
             {layout_options}
         }};
 
-        var network = new vis.Network(container, data, options);
+        const network = new vis.Network(container, data, options);
+
+        // Sidebar logic
+        function closePanel() {{
+            document.getElementById('info-panel').classList.remove('active');
+        }}
+
+        network.on('click', function(params) {{
+            if (params.nodes.length > 0) {{
+                const nodeId = params.nodes[0];
+                const node = nodes.get(nodeId);
+                const panel = document.getElementById('info-panel');
+                
+                document.getElementById('node-name').textContent = node.label;
+                document.getElementById('node-badge').textContent = node.group;
+                document.getElementById('node-badge').style.backgroundColor = node.color.border + '22';
+                document.getElementById('node-badge').style.color = node.color.border;
+                document.getElementById('node-badge').style.border = `1px solid ${{node.color.border}}`;
+                
+                // Parse tooltip for extra info
+                const tooltipText = node.title || "";
+                const lines = tooltipText.split('\\n');
+                let path = "Unknown";
+                let context = "None";
+                
+                lines.forEach(l => {{
+                    if (l.startsWith('File:')) path = l.replace('File:', '').trim();
+                    if (l.startsWith('Line:')) context = 'Line ' + l.replace('Line:', '').trim();
+                }});
+                
+                document.getElementById('node-path').textContent = path;
+                document.getElementById('node-context').textContent = context;
+                
+                panel.classList.add('active');
+
+                // Visual highlight
+                const connectedNodes = network.getConnectedNodes(nodeId);
+                nodes.forEach(n => {{
+                    nodes.update({{id: n.id, opacity: 0.15}});
+                }});
+                nodes.update({{id: nodeId, opacity: 1}});
+                connectedNodes.forEach(id => {{
+                    nodes.update({{id: id, opacity: 1}});
+                }});
+            }} else {{
+                closePanel();
+                nodes.forEach(n => {{
+                    nodes.update({{id: n.id, opacity: 1}});
+                }});
+            }}
+        }});
 
         // Build legend from unique groups
-        var groups = [...new Set(nodesData.map(n => n.group))];
-        var legendContainer = document.getElementById('legend-items');
-        groups.forEach(function(group) {{
-            var node = nodesData.find(n => n.group === group);
-            var color = node && node.color ? node.color.background : '#97c2fc';
-            var item = document.createElement('div');
+        const groups = [...new Set(nodesData.map(n => n.group))];
+        const legendContainer = document.getElementById('legend-items');
+        groups.forEach(group => {{
+            const node = nodesData.find(n => n.group === group);
+            const color = node?.color?.border || '#94a3b8';
+            
+            const item = document.createElement('div');
             item.className = 'legend-item';
-
-            var colorBox = document.createElement('div');
-            colorBox.className = 'legend-color';
-            if (color) {{
-                colorBox.style.background = color;
-            }}
-
-            var label = document.createElement('span');
-            label.textContent = String(group);
-
-            item.appendChild(colorBox);
-            item.appendChild(label);
+            item.innerHTML = `
+                <div class="legend-color" style="background: ${{color}}; color: ${{color}}"></div>
+                <span>${{group}}</span>
+            `;
+            
+            item.onclick = () => {{
+                // Highlight nodes of this group
+                nodes.forEach(n => {{
+                    nodes.update({{id: n.id, opacity: n.group === group ? 1 : 0.15}});
+                }});
+            }};
+            
             legendContainer.appendChild(item);
         }});
 
-        // Highlight connected nodes on click
-        network.on('click', function(params) {{
-            if (params.nodes.length > 0) {{
-                var nodeId = params.nodes[0];
-                var connectedNodes = network.getConnectedNodes(nodeId);
-                var connectedEdges = network.getConnectedEdges(nodeId);
-                
-                // Reset all nodes
-                nodes.forEach(function(node) {{
-                    nodes.update({{id: node.id, opacity: 0.3}});
-                }});
-                
-                // Highlight selected and connected
-                nodes.update({{id: nodeId, opacity: 1}});
-                connectedNodes.forEach(function(id) {{
-                    nodes.update({{id: id, opacity: 1}});
-                }});
+        // Search logic
+        const searchInput = document.getElementById('node-search');
+        searchInput.oninput = (e) => {{
+            const term = e.target.value.toLowerCase();
+            if (!term) {{
+                nodes.forEach(n => nodes.update({{id: n.id, opacity: 1}}));
+                return;
             }}
-        }});
-
-        // Reset on background click
-        network.on('click', function(params) {{
-            if (params.nodes.length === 0 && params.edges.length === 0) {{
-                nodes.forEach(function(node) {{
-                    nodes.update({{id: node.id, opacity: 1}});
-                }});
-            }}
-        }});
+            
+            nodes.forEach(n => {{
+                const matches = n.label.toLowerCase().includes(term);
+                nodes.update({{id: n.id, opacity: matches ? 1 : 0.1}});
+            }});
+        }};
     </script>
 </body>
 </html>

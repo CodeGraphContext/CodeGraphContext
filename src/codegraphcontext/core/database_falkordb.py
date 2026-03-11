@@ -3,6 +3,13 @@
 This module provides a thread-safe singleton manager for the FalkorDB Lite database connection.
 FalkorDB Lite is an embedded graph database that requires no external server setup.
 """
+
+class FalkorDBUnavailableError(RuntimeError):
+    """
+    Raised when FalkorDB Lite is installed but cannot actually run in this
+    environment (e.g. falkordb.so not found in a PyInstaller bundle,
+    or GRAPH.QUERY not available). Callers should fall back to KùzuDB.
+    """
 import os
 import sys
 import subprocess
@@ -167,15 +174,16 @@ class FalkorDBManager:
             try:
                 from falkordb import FalkorDB
                 d = FalkorDB(unix_socket_path=self.socket_path)
-                try:
-                    d.execute_command("PING")
-                except AttributeError:
-                    pass
-                info_logger("Connected to existing FalkorDB Lite process.")
+                # Test not just connectivity (PING), but functionality (GRAPH.QUERY)
+                # This ensures we don't connect to a "stale" process that doesn't have the module loaded
+                test_graph = d.select_graph('__cgc_health_check')
+                test_graph.query("RETURN 1")
+                info_logger("Connected to existing (functional) FalkorDB Lite process.")
                 return
-            except Exception:
-                # Stale socket or unresponsive
-                info_logger("Found stale socket, cleaning up...")
+            except Exception as e:
+                # Stale socket, unresponsive, or "brainless" (unknown command GRAPH.QUERY)
+                info_logger(f"Existing FalkorDB process at {self.socket_path} is stale or non-functional: {e}")
+                info_logger("Cleaning up and attempting fresh start...")
                 try:
                     os.remove(self.socket_path)
                 except OSError:
@@ -190,7 +198,21 @@ class FalkorDBManager:
         python_exe = sys.executable
         
         # We assume codegraphcontext is installed or in python path
-        cmd = [python_exe, '-m', 'codegraphcontext.core.falkor_worker']
+        if getattr(sys, 'frozen', False):
+            # In frozen mode, the executable is the bundle itself.
+            # We tell the bundle to run the worker instead of the app via environment variable.
+            env['CGC_RUN_FALKOR_WORKER'] = 'true'
+            cmd = [python_exe]
+        else:
+            # If not frozen, sys.executable should be python.
+            # But on some platforms (like PIP installs), it might be the 'cgc' entry point script.
+            # We check if it looks like python, otherwise search the PATH.
+            import shutil
+            exe_name = os.path.basename(python_exe).lower()
+            if not any(x in exe_name for x in ['python', 'py.exe', 'pypy']):
+                python_exe = shutil.which('python3') or shutil.which('python') or sys.executable
+            
+            cmd = [python_exe, '-m', 'codegraphcontext.core.falkor_worker']
         
         info_logger("Starting FalkorDB Lite worker subprocess...")
         self._process = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -209,7 +231,15 @@ class FalkorDBManager:
             # Check if process died
             if self._process.poll() is not None:
                 out, err = self._process.communicate()
-                raise RuntimeError(f"FalkorDB worker failed to start (Exit Code {self._process.returncode}):\nSTDOUT: {out.decode()}\nSTDERR: {err.decode()}")
+                returncode = self._process.returncode
+                
+                # Any non-zero exit code during startup means this backend is toast
+                # Raise FalkorDBUnavailableError to trigger the automatic KùzuDB fallback
+                raise FalkorDBUnavailableError(
+                    f"FalkorDB Lite worker failed to start (Exit Code {returncode}).\n"
+                    f"STDOUT: {out.decode().strip()}\n"
+                    f"STDERR: {err.decode().strip()}"
+                )
             
             time.sleep(0.5)
             
@@ -217,8 +247,10 @@ class FalkorDBManager:
 
     def close_driver(self):
         """Closes the connection."""
-        self._driver = None
-        self._graph = None
+        if self._driver is not None:
+            info_logger("Closing FalkorDB Lite connection")
+            self._driver = None
+            self._graph = None
 
     def shutdown(self):
         """Kills the subprocess on exit."""
