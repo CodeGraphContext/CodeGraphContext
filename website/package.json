@@ -46,6 +46,7 @@
     "@tanstack/react-query": "^5.83.0",
     "@types/aos": "^3.0.7",
     "@types/three": "^0.183.1",
+    "@vercel/analytics": "^2.0.1",
     "aos": "^2.3.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
