@@ -36,10 +36,21 @@ async def get_graph(repo_path: Optional[str] = None):
     if not db_manager:
         raise HTTPException(status_code=500, detail="Database not initialized")
     
+    def _kuzu_id(id_dict):
+        """Convert KuzuDB internal id dict to a stable string key."""
+        if isinstance(id_dict, dict) and 'table' in id_dict and 'offset' in id_dict:
+            return f"{id_dict['table']}:{id_dict['offset']}"
+        return str(id_dict)
+
     def get_eid(element):
         if not element: return None
         if isinstance(element, (int, str)):
             return str(element)
+        # KuzuDB dict-based results
+        if isinstance(element, dict):
+            if '_id' in element:
+                return _kuzu_id(element['_id'])
+            return str(id(element))
         # Try various ways to get ID (Neo4j, FalkorDB, etc.)
         for attr in ['element_id', 'id', '_id']:
             if hasattr(element, attr):
@@ -74,51 +85,81 @@ async def get_graph(repo_path: Optional[str] = None):
                     if node:
                         eid = get_eid(node)
                         if eid not in nodes_dict:
-                            # FalkorDB / Neo4j labels compatibility
-                            labels = []
-                            if hasattr(node, 'labels'):
-                                labels = list(node.labels)
-                            
-                            # FalkorDB / Neo4j properties compatibility
-                            props = {}
-                            if hasattr(node, 'properties'):
-                                props = node.properties
-                            elif hasattr(node, 'items'):
-                                props = dict(node.items())
-                                
-                            nodes_dict[eid] = {
-                                "id": eid,
-                                "label": props.get('name', props.get('label', 'Unknown')),
-                                "type": labels[0].lower() if labels else "default",
-                                "file": props.get('path', ''),
-                                "properties": props
-                            }
-                
+                            # KuzuDB dict-based results
+                            if isinstance(node, dict):
+                                label = node.get('_label', 'default')
+                                props = {k: v for k, v in node.items()
+                                         if not k.startswith('_') and v is not None}
+                                nodes_dict[eid] = {
+                                    "id": eid,
+                                    "label": props.get('name', props.get('label', 'Unknown')),
+                                    "type": label.lower() if label else "default",
+                                    "file": props.get('path', ''),
+                                    "properties": {**props, "_label": label,
+                                                   "_id": node.get('_id')}
+                                }
+                            else:
+                                # FalkorDB / Neo4j labels compatibility
+                                labels = []
+                                if hasattr(node, 'labels'):
+                                    labels = list(node.labels)
+
+                                # FalkorDB / Neo4j properties compatibility
+                                props = {}
+                                if hasattr(node, 'properties'):
+                                    props = node.properties
+                                elif hasattr(node, 'items'):
+                                    props = dict(node.items())
+
+                                nodes_dict[eid] = {
+                                    "id": eid,
+                                    "label": props.get('name', props.get('label', 'Unknown')),
+                                    "type": labels[0].lower() if labels else "default",
+                                    "file": props.get('path', ''),
+                                    "properties": props
+                                }
+
                 rel = record['rel']
                 if rel:
-                    rid = get_eid(rel)
-                    
-                    # FalkorDB / Neo4j compatibility for source/target nodes
-                    start_node = getattr(rel, 'start_node', getattr(rel, 'src_node', None))
-                    end_node = getattr(rel, 'end_node', getattr(rel, 'dest_node', None))
-                    
-                    source = get_eid(start_node)
-                    target = get_eid(end_node)
-                    
-                    if source and target:
-                        # relationship type/relation
-                        rel_type = "related"
-                        if hasattr(rel, 'type'):
-                            rel_type = rel.type
-                        elif hasattr(rel, 'relation'):
-                            rel_type = rel.relation
-                            
-                        edges.append({
-                            "id": rid,
-                            "source": source,
-                            "target": target,
-                            "type": str(rel_type).lower()
-                        })
+                    # KuzuDB dict-based results
+                    if isinstance(rel, dict):
+                        rid = _kuzu_id(rel.get('_id', {}))
+                        source = _kuzu_id(rel['_src']) if '_src' in rel else None
+                        target = _kuzu_id(rel['_dst']) if '_dst' in rel else None
+                        rel_type = rel.get('_label', 'related')
+
+                        if source and target:
+                            edges.append({
+                                "id": rid,
+                                "source": source,
+                                "target": target,
+                                "type": str(rel_type).lower(),
+                                "label": str(rel_type)
+                            })
+                    else:
+                        rid = get_eid(rel)
+
+                        # FalkorDB / Neo4j compatibility for source/target nodes
+                        start_node = getattr(rel, 'start_node', getattr(rel, 'src_node', None))
+                        end_node = getattr(rel, 'end_node', getattr(rel, 'dest_node', None))
+
+                        source = get_eid(start_node)
+                        target = get_eid(end_node)
+
+                        if source and target:
+                            # relationship type/relation
+                            rel_type = "related"
+                            if hasattr(rel, 'type'):
+                                rel_type = rel.type
+                            elif hasattr(rel, 'relation'):
+                                rel_type = rel.relation
+
+                            edges.append({
+                                "id": rid,
+                                "source": source,
+                                "target": target,
+                                "type": str(rel_type).lower()
+                            })
 
         return {
             "nodes": list(nodes_dict.values()), 
