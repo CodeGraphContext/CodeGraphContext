@@ -384,7 +384,11 @@ def visualize_helper(repo_path: Optional[str] = None, port: int = 8000):
     threading.Thread(target=open_browser, daemon=True).start()
     
     try:
-        run_server(host="127.0.0.1", port=port, static_dir=str(static_dir))
+        # Build list of allowed directories for file access
+        allowed_dirs = []
+        if repo_path:
+            allowed_dirs.append(str(Path(repo_path).resolve()))
+        run_server(host="127.0.0.1", port=port, static_dir=str(static_dir), allowed_dirs=allowed_dirs)
     except Exception as e:
         console.print(f"[bold red]An error occurred while running the server:[/bold red] {e}")
     finally:

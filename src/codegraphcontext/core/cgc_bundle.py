@@ -20,6 +20,8 @@ Bundle Structure:
 """
 
 import json
+import os
+import re
 import zipfile
 import tempfile
 from pathlib import Path
@@ -34,7 +36,23 @@ class CGCBundle:
     """Handles creation and loading of .cgc bundle files."""
     
     VERSION = "0.1.0"  # CGC bundle format version
-    
+    _CYPHER_IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+    @staticmethod
+    def _validate_cypher_identifier(value: str) -> bool:
+        """Validate that a value is safe to use as a Cypher label or relationship type."""
+        return bool(CGCBundle._CYPHER_IDENTIFIER_RE.match(value))
+
+    @staticmethod
+    def _safe_extract_zip(zip_ref: zipfile.ZipFile, dest: Path) -> None:
+        """Extract a ZIP archive, raising ValueError if any entry would escape dest."""
+        dest_resolved = str(dest.resolve()) + os.sep
+        for member in zip_ref.namelist():
+            member_path = (dest / member).resolve()
+            if not str(member_path).startswith(dest_resolved):
+                raise ValueError(f"Zip entry would escape extraction directory: {member}")
+        zip_ref.extractall(dest)
+
     def __init__(self, db_manager):
         """
         Initialize the CGC Bundle handler.
@@ -161,10 +179,10 @@ class CGCBundle:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 
-                # Step 1: Extract ZIP
+                # Step 1: Extract ZIP (with path traversal protection)
                 info_logger("Extracting bundle...")
                 with zipfile.ZipFile(bundle_path, 'r') as zip_ref:
-                    zip_ref.extractall(temp_path)
+                    self._safe_extract_zip(zip_ref, temp_path)
                 
                 # Step 2: Validate bundle
                 info_logger("Validating bundle...")
@@ -711,7 +729,12 @@ cgc import <bundle-file>.cgc
         for labels, properties, old_id in batch:
             if not labels:
                 continue
-            
+
+            # Validate labels to prevent Cypher injection
+            if not all(self._validate_cypher_identifier(label) for label in labels):
+                warning_logger(f"Skipping node with invalid label(s): {labels}")
+                continue
+
             # Create node with labels
             label_str = ':'.join(labels)
             query = f"CREATE (n:{label_str}) SET n = $props RETURN {id_function}(n) as new_id"
@@ -765,7 +788,12 @@ cgc import <bundle-file>.cgc
             if not new_from or not new_to:
                 warning_logger(f"Skipping edge: node IDs not found in mapping")
                 continue
-            
+
+            # Validate relationship type to prevent Cypher injection
+            if not rel_type or not self._validate_cypher_identifier(rel_type):
+                warning_logger(f"Skipping edge with invalid relationship type: '{rel_type}'")
+                continue
+
             # Create relationship
             query = f"""
                 MATCH (a), (b)

@@ -14,10 +14,15 @@ from ..utils.debug_log import debug_log
 
 app = FastAPI()
 
-# Enable CORS for development
+# Enable CORS - restrict to local origins only
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -26,6 +31,8 @@ app.add_middleware(
 db_manager: Optional[DatabaseManager] = None
 # Path to static directory
 _static_dir: Optional[str] = None
+# Allowed base directories for file access (set when server starts)
+_allowed_dirs: List[str] = []
 
 def set_db_manager(manager: DatabaseManager):
     global db_manager
@@ -135,10 +142,17 @@ async def get_graph(repo_path: Optional[str] = None):
 
 @app.get("/api/file")
 async def get_file(path: str):
-    file_path = Path(path)
+    file_path = Path(path).resolve()
+
+    # Validate that the resolved path is within an allowed directory
+    if not _allowed_dirs or not any(
+        str(file_path).startswith(allowed) for allowed in _allowed_dirs
+    ):
+        raise HTTPException(status_code=403, detail="Access denied: path outside allowed directories")
+
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
-    
+
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             return {"content": f.read()}
@@ -167,12 +181,14 @@ async def spa_fallback(request: Request, full_path: str):
     
     return HTMLResponse("Not Found", status_code=404)
 
-def run_server(host: str = "127.0.0.1", port: int = 8000, static_dir: Optional[str] = None):
-    global _static_dir
+def run_server(host: str = "127.0.0.1", port: int = 8000, static_dir: Optional[str] = None, allowed_dirs: Optional[List[str]] = None):
+    global _static_dir, _allowed_dirs
     _static_dir = static_dir
+    if allowed_dirs:
+        _allowed_dirs = [str(Path(d).resolve()) for d in allowed_dirs]
     if static_dir:
         # Mount API first
         # We don't mount "/" with StaticFiles because we use spa_fallback for all routes
         pass
-    
+
     uvicorn.run(app, host=host, port=port)
