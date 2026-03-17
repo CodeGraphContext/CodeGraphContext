@@ -1284,49 +1284,97 @@ def visualize_cypher_results(
     nodes = []
     edges = []
     seen_nodes = set()
+    seen_edges = set()
+
+    def extract_graph_id(value: Any) -> str:
+        """Normalize Kuzu/graph element ids into a stable string form."""
+        if isinstance(value, dict):
+            if "table" in value and "offset" in value:
+                return f"{value['table']}:{value['offset']}"
+            if "_id" in value:
+                return extract_graph_id(value["_id"])
+            if "id" in value:
+                return str(value["id"])
+            if "name" in value:
+                return str(value["name"])
+        return str(value)
+
+    def add_node(node: Dict[str, Any], fallback_group: str = "Node") -> None:
+        """Add a node dict from raw Cypher output if we have not seen it before."""
+        node_id = extract_graph_id(node.get("_id", node.get("id", node.get("name", f"node_{len(seen_nodes)}"))))
+        if node_id in seen_nodes:
+            return
+
+        label = node.get("_label")
+        if not label:
+            labels = node.get("labels", [fallback_group])
+            label = labels[0] if isinstance(labels, list) and labels else str(labels)
+
+        name = node.get("name", node_id)
+        color = get_node_color(label)
+        nodes.append({
+            "id": str(node_id),
+            "label": str(name) if name else str(node_id),
+            "group": label,
+            "title": _safe_json_dumps(node),
+            "color": color
+        })
+        seen_nodes.add(str(node_id))
+
+    def add_edge(rel: Dict[str, Any]) -> None:
+        """Add a relationship dict from raw Cypher output if we have not seen it before."""
+        source = rel.get("_src") or rel.get("src") or rel.get("source")
+        target = rel.get("_dst") or rel.get("dst") or rel.get("target")
+        if not source or not target:
+            return
+
+        source_id = extract_graph_id(source)
+        target_id = extract_graph_id(target)
+        edge_label = str(rel.get("_label", rel.get("label", rel.get("type", "RELATED"))))
+        edge_id = extract_graph_id(rel.get("_id", rel.get("id", f"{source_id}:{edge_label}:{target_id}")))
+
+        if edge_id in seen_edges:
+            return
+
+        edges.append({
+            "id": str(edge_id),
+            "from": str(source_id),
+            "to": str(target_id),
+            "label": edge_label,
+            "arrows": "to",
+            "title": _safe_json_dumps(rel),
+        })
+        seen_edges.add(str(edge_id))
 
     for record in records:
         for key, value in record.items():
             if isinstance(value, dict):
-                # Likely a node
-                node_id = value.get("id", value.get("name", f"node_{len(seen_nodes)}"))
-                if str(node_id) not in seen_nodes:
-                    labels = value.get("labels", [key])
-                    label = labels[0] if isinstance(labels, list) and labels else str(labels)
-                    name = value.get("name", str(node_id))
-                    
-                    color = get_node_color(label)
-                    nodes.append({
-                        "id": str(node_id),
-                        "label": str(name) if name else str(node_id),
-                        "group": label,
-                        "title": _safe_json_dumps(value),
-                        "color": color
-                    })
-                    seen_nodes.add(str(node_id))
+                if "_nodes" in value and "_rels" in value:
+                    # Kuzu path shape from RETURN p
+                    for node in value.get("_nodes", []):
+                        if isinstance(node, dict):
+                            add_node(node, fallback_group=key)
+                    for rel in value.get("_rels", []):
+                        if isinstance(rel, dict):
+                            add_edge(rel)
+                elif "_src" in value and "_dst" in value:
+                    # Explicit relationship from RETURN a, r, b
+                    add_edge(value)
+                else:
+                    # Likely a node
+                    add_node(value, fallback_group=key)
             elif isinstance(value, list):
-                # Could be a path or list of nodes
+                # Could be a list of nodes and/or relationships
                 for item in value:
                     if isinstance(item, dict):
-                        node_id = item.get("id", item.get("name", f"node_{len(seen_nodes)}"))
-                        if str(node_id) not in seen_nodes:
-                            name = item.get("name", str(node_id))
-                            labels = item.get("labels", ["Node"])
-                            label = labels[0] if isinstance(labels, list) and labels else "Node"
-                            
-                            color = get_node_color(label)
-                            nodes.append({
-                                "id": str(node_id),
-                                "label": str(name) if name else str(node_id),
-                                "group": label,
-                                "title": _safe_json_dumps(item),
-                                "color": color
-                            })
-                            seen_nodes.add(str(node_id))
+                        if "_src" in item and "_dst" in item:
+                            add_edge(item)
+                        else:
+                            add_node(item)
 
-    # NOTE: We intentionally do not infer edges when the Cypher query doesn't
-    # explicitly return relationships. Auto-linking sequential nodes can be
-    # misleading when the result set contains unrelated nodes.
+    # We still do not infer edges when the Cypher query doesn't explicitly
+    # return relationships. But when relationships are present in raw Kuzu path
+    # objects or explicit relationship columns, render them as edges.
 
     title = "Cypher Query Results"
     # Truncate query for description
