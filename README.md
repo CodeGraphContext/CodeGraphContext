@@ -36,6 +36,9 @@
   <a href="https://github.com/CodeGraphContext/CodeGraphContext/network/members">
     <img src="https://img.shields.io/github/forks/CodeGraphContext/CodeGraphContext?style=flat-square&logo=github" alt="Forks">
   </a>
+  <a href="https://gitcgr.com/CodeGraphContext/CodeGraphContext">
+    <img src="https://gitcgr.com/badge/CodeGraphContext/CodeGraphContext.svg" alt="gitcgr" />
+  </a>
   <a href="https://github.com/CodeGraphContext/CodeGraphContext/issues">
     <img src="https://img.shields.io/github/issues-raw/CodeGraphContext/CodeGraphContext?style=flat-square&logo=github" alt="Issues">
   </a>
