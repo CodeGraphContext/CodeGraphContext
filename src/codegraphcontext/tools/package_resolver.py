@@ -422,6 +422,8 @@ def get_local_package_path(package_name: str, language: str) -> Optional[str]:
         "python": _get_python_package_path,
         "javascript": _get_npm_package_path,
         "typescript": _get_typescript_package_path,
+        "vue": _get_npm_package_path,
+        "svelte": _get_npm_package_path,
         "java": _get_java_package_path,
         "c": _get_c_package_path,
         "go": _get_go_package_path,  

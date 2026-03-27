@@ -35,11 +35,16 @@ class TreeSitterParser:
     def __init__(self, language_name: str):
         self.language_name = language_name
         self.ts_manager = get_tree_sitter_manager()
-        
-        # Get the language (cached) and create a new parser for this instance
-        self.language: Language = self.ts_manager.get_language_safe(language_name)
-        # In tree-sitter 0.25+, Parser takes language in constructor
-        self.parser = Parser(self.language)
+
+        # Vue/Svelte parsers extract script blocks and delegate parsing to JS/TS parsers.
+        # They don't need a dedicated tree-sitter parser initialized here.
+        self.language: Optional[Language] = None
+        self.parser: Optional[Parser] = None
+        if self.language_name not in {'vue', 'svelte'}:
+            # Get the language (cached) and create a new parser for this instance
+            self.language = self.ts_manager.get_language_safe(language_name)
+            # In tree-sitter 0.25+, Parser takes language in constructor
+            self.parser = Parser(self.language)
 
         self.language_specific_parser = None
         if self.language_name == 'python':
@@ -96,6 +101,12 @@ class TreeSitterParser:
         elif self.language_name == 'elixir':
             from .languages.elixir import ElixirTreeSitterParser
             self.language_specific_parser = ElixirTreeSitterParser(self)
+        elif self.language_name == 'vue':
+            from .languages.vue import VueTreeSitterParser
+            self.language_specific_parser = VueTreeSitterParser(self)
+        elif self.language_name == 'svelte':
+            from .languages.svelte import SvelteTreeSitterParser
+            self.language_specific_parser = SvelteTreeSitterParser(self)
 
 
 
@@ -145,6 +156,8 @@ class GraphBuilder:
             '.pm': TreeSitterParser('perl'),
             '.ex': TreeSitterParser('elixir'),
             '.exs': TreeSitterParser('elixir'),
+            '.vue': TreeSitterParser('vue'),
+            '.svelte': TreeSitterParser('svelte'),
         }
         self.create_schema()
 
@@ -289,6 +302,12 @@ class GraphBuilder:
         if '.exs' in files_by_lang:
             from .languages import elixir as elixir_lang_module
             imports_map.update(elixir_lang_module.pre_scan_elixir(files_by_lang['.exs'], self.parsers['.exs']))
+        if '.vue' in files_by_lang:
+            from .languages import vue as vue_lang_module
+            imports_map.update(vue_lang_module.pre_scan_vue(files_by_lang['.vue'], self.parsers['.vue']))
+        if '.svelte' in files_by_lang:
+            from .languages import svelte as svelte_lang_module
+            imports_map.update(svelte_lang_module.pre_scan_svelte(files_by_lang['.svelte'], self.parsers['.svelte']))
 
         return imports_map
 
