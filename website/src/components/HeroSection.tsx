@@ -1,15 +1,13 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Github, ExternalLink, Copy, Check, Sparkles, FolderUp } from "lucide-react";
+import { Github, ExternalLink, Copy, Check, Sparkles, TerminalSquare, Network } from "lucide-react";
 import heroGraph from "@/assets/hero-graph.jpg";
 import { useState, useEffect } from "react";
 import ShowDownloads from "@/components/ShowDownloads";
-import { ThemeToggle } from "@/components/ThemeToggle";
+
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-
-const OUTLINE_BUTTON_CLASSES = "border-gray-300 hover:border-primary/60 bg-white/80 backdrop-blur-sm shadow-sm transition-smooth text-gray-900 dark:bg-transparent dark:text-foreground dark:border-primary/30 w-full sm:w-auto";
 
 const HeroSection = () => {
   const [stars, setStars] = useState<number | null>(null);
@@ -60,134 +58,147 @@ const HeroSection = () => {
   };
 
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-      <motion.div
-        key="hero"
-        exit={{ opacity: 0, scale: 0.95 }}
-        transition={{ duration: 0.4 }}
-        className="absolute inset-0 w-full h-full"
-      >
-        {/* Header with Theme Toggle */}
-        <div className="absolute top-0 left-0 right-0 z-20 p-4" data-aos="fade-down">
-          <div className="container mx-auto flex justify-end">
-            <div className="rounded-full bg-white/60 backdrop-blur-md border border-gray-200 shadow-sm p-2 dark:bg-transparent dark:border-transparent dark:shadow-none">
-              <ThemeToggle />
-            </div>
-          </div>
-        </div>
+    <>
+      
+      
+      <section className="relative flex items-center justify-center min-h-[95vh] pt-20 overflow-hidden">
+        
+        
 
-        {/* Background Image */}
-        <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-20 brightness-110 saturate-110 dark:opacity-30 dark:brightness-100 dark:saturate-100"
-          style={{ backgroundImage: `url(${heroGraph})` }}
-        />
-
-        {/* Gradient Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-b from-white/60 via-white/40 to-white/80 dark:from-background/90 dark:via-background/80 dark:to-background/90" />
-
-        {/* Content (2-Column Grid) */}
-        <div className="relative z-10 w-full h-full max-w-7xl mx-auto px-6 pt-32 pb-20 flex flex-col justify-center">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
-            
-            {/* LEFT COLUMN: Explore CTA instead of LocalUploader */}
-            <div className="lg:col-span-5 w-full flex justify-center lg:justify-end animate-float-up" data-aos="fade-right">
-              <div className="w-full max-w-md p-8 border border-white/10 dark:border-white/20 rounded-[2rem] bg-black/40 backdrop-blur-xl shadow-2xl relative overflow-hidden flex flex-col items-center text-center">
-                <div className="bg-gradient-to-br from-purple-500/20 to-indigo-500/20 p-5 rounded-full mb-6 border border-purple-500/30">
-                  <FolderUp className="w-10 h-10 text-purple-400" />
+        <motion.div
+          key="hero"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className="w-full h-full relative z-10"
+        >
+          <div className="max-w-[1400px] mx-auto px-6 lg:px-12 flex flex-col justify-center h-full">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 lg:gap-8 items-center">
+              
+              {/* LEFT COLUMN: Text Content */}
+              <div className="lg:col-span-7 flex flex-col justify-center text-left mt-10 lg:mt-0" data-aos="fade-right">
+                
+                <div className="flex mb-8">
+                  <Badge variant="outline" className="text-xs font-semibold px-3 py-1.5 border-border bg-background/50 dark:border-white/10 dark:bg-white/5 backdrop-blur-md text-foreground rounded-full shadow-sm">
+                    <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse" />
+                    v{version || "Loading..."} &bull; Open Source
+                  </Badge>
                 </div>
-                <h3 className="text-2xl font-bold mb-3 text-white">Browser Graph Explorer</h3>
-                <p className="text-gray-400 text-sm mb-6 max-w-[280px]">
-                  Instantly visualize the architecture of any local or GitHub repository seamlessly in a 2D physics graph. Complete privacy via WebAssembly.
+
+                <h1 className="text-5xl sm:text-6xl lg:text-[5rem] font-extrabold mb-6 leading-[1.1] tracking-tight text-foreground drop-shadow-sm">
+                  Turn code into
+                  <span className="block mt-2 bg-gradient-to-r from-primary via-[#A78BFA] to-accent bg-clip-text text-transparent pb-2">
+                    knowledge graphs.
+                  </span>
+                </h1>
+
+                <p className="text-lg md:text-xl text-muted-foreground mb-10 leading-relaxed max-w-[600px] font-medium">
+                  The ultimate CLI toolkit & MCP server that parses your codebase into a structural semantic graph, supercharging your AI assistants with flawless local context.
                 </p>
-                <Link to="/explore">
-                  <Button className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white rounded-full px-10 py-6 text-lg w-full max-w-[280px] shadow-[0_0_20px_rgba(59,130,246,0.3)] border-none transition-all duration-300 hover:scale-105">
-                    Launch Explorer <Sparkles className="w-5 h-5 ml-2" />
+
+                {/* Primary Actions */}
+                <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center mb-12">
+                  <Button 
+                    size="lg" 
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_30px_-5px_hsl(var(--primary))] border border-primary/50 h-14 px-8 text-base rounded-full font-semibold transition-all hover:scale-[1.02]"
+                    onClick={handleCopy}
+                  >
+                    {copied ? (
+                      <Check className="mr-2 h-5 w-5" />
+                    ) : (
+                      <TerminalSquare className="mr-2 h-5 w-5" />
+                    )}
+                    pip install codegraphcontext
                   </Button>
-                </Link>
-                {/* Decorative Blob */}
-                <div className="absolute -bottom-32 -right-32 w-80 h-80 bg-purple-600/15 blur-3xl rounded-full z-0 pointer-events-none"></div>
+
+                  <div className="flex gap-4">
+                    <Button variant="outline" size="lg" asChild className="h-14 px-6 rounded-full border-border bg-background/50 hover:bg-accent/10 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10 text-foreground backdrop-blur-md transition-all font-medium">
+                      <a href="https://github.com/CodeGraphContext/CodeGraphContext" target="_blank" rel="noopener noreferrer">
+                        <Github className="mr-2 h-5 w-5" />
+                        GitHub
+                      </a>
+                    </Button>
+                    <Button variant="outline" size="lg" asChild className="h-14 px-6 rounded-full border-border bg-background/50 hover:bg-accent/10 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10 text-foreground backdrop-blur-md transition-all font-medium">
+                      <a href="https://codegraphcontext.github.io/CodeGraphContext/" target="_blank" rel="noopener noreferrer">
+                        Documentation
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Stats */}
+                <div className="flex flex-wrap items-center gap-6 sm:gap-10 text-sm text-muted-foreground font-semibold">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 bg-yellow-400 rounded-full shadow-[0_0_10px_rgba(250,204,21,0.5)]" />
+                    <span>{typeof stars === 'number' ? stars.toLocaleString() : "..."} Stars</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 bg-blue-400 rounded-full shadow-[0_0_10px_rgba(96,165,250,0.5)]" />
+                    <span>{typeof forks === 'number' ? forks.toLocaleString() : "..."} Forks</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 bg-green-400 rounded-full shadow-[0_0_10px_rgba(74,222,128,0.5)]" />
+                    <span><ShowDownloads /></span>
+                  </div>
+                </div>
               </div>
+
+              {/* RIGHT COLUMN: Interactive Graphic / Mockup */}
+              <div className="lg:col-span-5 w-full relative perspective-[2000px]" data-aos="fade-left" data-aos-delay="200">
+                {/* Floating graphic elements */}
+                <div className="relative w-full aspect-square max-w-[500px] mx-auto lg:ml-auto rounded-3xl border border-border/50 dark:border-white/10 bg-card/70 dark:bg-gradient-to-b dark:from-white/5 dark:to-transparent backdrop-blur-xl shadow-2xl overflow-hidden group transform-gpu rotate-y-[-5deg] rotate-x-[5deg] hover:rotate-y-0 hover:rotate-x-0 transition-transform duration-700 ease-out">
+                  
+                  {/* Top bar */}
+                  <div className="absolute top-0 inset-x-0 h-12 border-b border-border/50 dark:border-white/10 bg-foreground/5 dark:bg-white/5 flex items-center px-4 gap-2">
+                    <div className="w-3 h-3 rounded-full bg-red-500/80" />
+                    <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
+                    <div className="w-3 h-3 rounded-full bg-green-500/80" />
+                    <div className="ml-4 text-xs font-mono text-muted-foreground flex items-center gap-2">
+                      <Network className="w-3 h-3" />
+                      graph_explorer.exe
+                    </div>
+                  </div>
+
+                  {/* Body visualization mock */}
+                  <div className="absolute top-12 inset-0 p-6 flex flex-col items-center justify-center bg-[url('https://grainy-gradients.vercel.app/noise.svg')] bg-repeat opacity-90 mix-blend-overlay pointer-events-none" />
+                  
+                  <div className="pt-20 pb-10 px-8 h-full flex flex-col items-center justify-center relative z-10">
+                     <div className="w-24 h-24 rounded-2xl bg-gradient-to-tr from-primary/30 to-accent/30 border border-border/50 dark:border-white/20 flex items-center justify-center mb-6 shadow-[0_0_40px_rgba(139,92,246,0.3)] group-hover:scale-110 transition-transform duration-500">
+                        <Network className="w-12 h-12 text-primary dark:text-white drop-shadow-md" />
+                     </div>
+                     <h3 className="text-2xl font-bold text-foreground mb-2 text-center">Browser Graph Explorer</h3>
+                     <p className="text-center text-sm text-muted-foreground mb-8">
+                       Instantly visualize the architecture of any local or GitHub repository seamlessly in a 2D physics graph. Complete privacy via WebAssembly.
+                     </p>
+                     
+                     <Link to="/explore" className="w-full">
+                       <Button className="w-full bg-foreground/5 hover:bg-foreground/10 dark:bg-white/10 dark:hover:bg-white/20 text-foreground dark:text-white rounded-xl py-6 border border-border/50 dark:border-white/10 backdrop-blur-md shadow-lg transition-all hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] group-hover:-translate-y-1">
+                          Launch Explorer <Sparkles className="w-4 h-4 ml-2 text-accent" />
+                       </Button>
+                     </Link>
+                  </div>
+
+                  {/* Decorative glowing dots representing nodes */}
+                  <div className="absolute top-[30%] left-[20%] w-2 h-2 rounded-full bg-accent animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.8)]" />
+                  <div className="absolute top-[40%] right-[25%] w-3 h-3 rounded-full bg-primary animate-pulse shadow-[0_0_15px_rgba(139,92,246,0.8)]" style={{animationDelay: '0.5s'}} />
+                  <div className="absolute bottom-[35%] left-[30%] w-2.5 h-2.5 rounded-full bg-purple-400 animate-pulse shadow-[0_0_12px_rgba(192,132,252,0.8)]" style={{animationDelay: '1s'}} />
+                  
+                  {/* Edges mock */}
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-20" data-aos="fade-in" data-aos-delay="500">
+                     <path d="M 120 180 Q 200 200 280 220" stroke="currentColor" strokeWidth="1" fill="none" className="text-accent stroke-dasharray-[5_5] animate-[dash_20s_linear_infinite]" />
+                     <path d="M 280 220 Q 250 300 180 320" stroke="currentColor" strokeWidth="1" fill="none" className="text-primary stroke-dasharray-[5_5]" />
+                  </svg>
+                </div>
+                
+                {/* Backglow for the mockup box */}
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80%] h-[80%] bg-primary/30 blur-[100px] rounded-full z-[-1]" />
+              </div>
+
             </div>
-
-            {/* RIGHT COLUMN: Value Proposition & Commands */}
-            <div className="lg:col-span-7 flex flex-col justify-center text-left" data-aos="fade-left">
-              <div className="flex mb-6">
-                <Badge variant="secondary" className="text-sm font-medium px-4 py-1.5 shadow-sm bg-white/50 backdrop-blur dark:bg-white/10">
-                  <div className="w-2.5 h-2.5 bg-accent rounded-full mr-2.5 animate-graph-pulse" />
-                  Version {version} &bull; MIT License
-                </Badge>
-              </div>
-
-              <h1 className="text-4xl sm:text-5xl lg:text-7xl font-bold mb-6 bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-900 dark:bg-gradient-primary bg-clip-text py-2 text-transparent leading-tight tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.15)]">
-                CodeGraphContext
-              </h1>
-
-              <p className="text-xl md:text-2xl text-muted-foreground mb-3 leading-relaxed max-w-2xl">
-                A powerful CLI toolkit &amp; MCP server that indexes local code into a
-              </p>
-              <p className="text-xl md:text-2xl text-accent font-semibold mb-10">
-                knowledge graph for AI assistants
-              </p>
-
-              <div className="flex flex-col sm:flex-row gap-4 items-start mb-12">
-                <Button 
-                  size="lg" 
-                  className="bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-800 text-primary-foreground hover:opacity-90 transition-all duration-300 shadow-glow ring-1 ring-primary/20 dark:bg-gradient-primary cursor-pointer w-full sm:w-auto min-w-[280px] h-14 text-lg rounded-xl"
-                  onClick={handleCopy}
-                  title="Click to copy install command"
-                >
-                  {copied ? (
-                    <Check className="mr-3 h-5 w-5 animate-in zoom-in duration-300" />
-                  ) : (
-                    <Copy className="mr-3 h-5 w-5" />
-                  )}
-                  pip install codegraphcontext
-                </Button>
-
-                <div className="flex gap-4 w-full sm:w-auto">
-                  <Button variant="outline" size="lg" asChild className={`${OUTLINE_BUTTON_CLASSES} h-14 rounded-xl`}>
-                    <a href="https://github.com/CodeGraphContext/CodeGraphContext" target="_blank" rel="noopener noreferrer">
-                      <Github className="mr-2 h-5 w-5" />
-                      GitHub
-                      <ExternalLink className="ml-2 h-4 w-4 text-muted-foreground" />
-                    </a>
-                  </Button>
-                  <Button variant="outline" size="lg" asChild className={`${OUTLINE_BUTTON_CLASSES} h-14 rounded-xl`}>
-                    <a href="https://codegraphcontext.github.io/CodeGraphContext/" target="_blank" rel="noopener noreferrer">
-                      Docs
-                      <ExternalLink className="ml-2 h-4 w-4 text-muted-foreground" />
-                    </a>
-                  </Button>
-                </div>
-              </div>
-
-              {/* Stats */}
-              <div className="flex flex-wrap items-center gap-8 text-sm text-muted-foreground font-medium">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-graph-node-1 rounded-full animate-graph-pulse" />
-                  {stars !== null ? <span>{stars} GitHub Stars</span> : <span>Loading...</span>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-graph-node-2 rounded-full animate-graph-pulse" style={{ animationDelay: '0.5s' }} />
-                  {forks !== null ? <span>{forks} Forks</span> : <span>Loading...</span>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-graph-node-3 rounded-full animate-graph-pulse" style={{ animationDelay: '1s' }} />
-                  <span><ShowDownloads /></span>
-                </div>
-              </div>
-            </div>
-
           </div>
-        </div>
-
-        {/* Floating Graph Nodes Background Decoration */}
-        <div className="absolute top-20 left-10 w-8 h-8 graph-node animate-graph-pulse" style={{ animationDelay: '0.2s' }} />
-        <div className="absolute top-40 right-20 w-6 h-6 graph-node animate-graph-pulse" style={{ animationDelay: '0.8s' }} />
-        <div className="absolute bottom-32 left-20 w-10 h-10 graph-node animate-graph-pulse" style={{ animationDelay: '1.2s' }} />
-        <div className="absolute bottom-20 right-10 w-7 h-7 graph-node animate-graph-pulse" style={{ animationDelay: '0.6s' }} />
-      </motion.div>
-    </section>
+        </motion.div>
+      </section>
+    </>
   );
 };
 

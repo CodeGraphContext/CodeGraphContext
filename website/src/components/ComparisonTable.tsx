@@ -161,7 +161,7 @@ export default function ComparisonTable() {
   return (
     <section
       ref={containerRef}
-      className="relative min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-secondary/5 overflow-hidden"
+      className="relative min-h-screen flex items-center justify-center overflow-hidden"
       style={{ maxWidth: "100vw", overflow: "hidden", padding: "2rem 1rem" }}
       data-aos="zoom-in"
     >

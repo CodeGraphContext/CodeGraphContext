@@ -1,11 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
 html,
 body {
   width: 100%;
-  overflow-x: hidden;
+  font-family: 'Inter', sans-serif;
 }
 #root {
   width: 100%;
-  overflow-x: hidden;
 }
 @tailwind base;
 @tailwind components;
@@ -16,32 +17,32 @@ body {
 
 @layer base {
   :root {
-    /* Dark background with subtle warmth */
-    --background: 222 47% 5%;
-    --foreground: 210 40% 98%;
+    /* Dark background with subtle warmth -> Deep Vercel/Linear dark */
+    --background: 240 10% 4%;
+    --foreground: 0 0% 98%;
 
     /* Cards with subtle transparency */
-    --card: 222 47% 8%;
-    --card-foreground: 210 40% 98%;
+    --card: 240 10% 6%;
+    --card-foreground: 0 0% 98%;
 
-    --popover: 222 47% 8%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 240 10% 6%;
+    --popover-foreground: 0 0% 98%;
 
-    /* Graph-inspired primary colors - deep purple-blue */
-    --primary: 263 70% 65%;
-    --primary-foreground: 222 47% 5%;
+    /* Graph-inspired primary colors - vibrant purple */
+    --primary: 260 85% 65%;
+    --primary-foreground: 0 0% 100%;
 
-    /* Secondary with graph node accent */
-    --secondary: 222 47% 12%;
-    --secondary-foreground: 210 40% 98%;
+    /* Secondary */
+    --secondary: 240 10% 12%;
+    --secondary-foreground: 0 0% 98%;
 
     /* Muted tones for subtlety */
-    --muted: 222 47% 10%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 240 10% 12%;
+    --muted-foreground: 240 5% 65%;
 
     /* Bright cyan accent for highlights */
-    --accent: 180 100% 70%;
-    --accent-foreground: 222 47% 5%;
+    --accent: 190 90% 65%;
+    --accent-foreground: 240 10% 4%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
@@ -59,9 +60,9 @@ body {
     --graph-edge: 222 47% 25%;
 
     /* Gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(263 70% 65%), hsl(180 100% 70%));
-    --gradient-hero: linear-gradient(135deg, hsl(222 47% 5%) 0%, hsl(222 47% 8%) 100%);
-    --gradient-card: linear-gradient(135deg, hsl(222 47% 8%) 0%, hsl(222 47% 10%) 100%);
+    --gradient-primary: linear-gradient(135deg, hsl(260 85% 65%), hsl(190 90% 65%));
+    --gradient-hero: linear-gradient(135deg, hsl(240 10% 4%) 0%, hsl(240 10% 6%) 100%);
+    --gradient-card: linear-gradient(135deg, hsl(240 10% 6%) 0%, hsl(240 10% 8%) 100%);
 
     /* Shadows with graph glow */
     --shadow-glow: 0 0 40px hsl(263 70% 65% / 0.15);
@@ -123,11 +124,12 @@ body {
   }
 
   body {
-    @apply bg-background text-foreground overflow-x-hidden;
+    @apply bg-background text-foreground;
+    overflow-x: hidden;
     background: hsl(var(--background));
     background-image: 
-      radial-gradient(circle at 20% 20%, hsl(263 70% 65% / 0.05) 0%, transparent 50%),
-      radial-gradient(circle at 80% 80%, hsl(180 100% 70% / 0.05) 0%, transparent 50%);
+      radial-gradient(circle at 15% 50%, hsl(260 var(--tw-bg-opacity, 85%) 65% / 0.15) 0%, transparent 40%),
+      radial-gradient(circle at 85% 30%, hsl(190 var(--tw-bg-opacity, 90%) 65% / 0.15) 0%, transparent 40%);
   }
 
   /* Smooth scrolling */
@@ -257,6 +259,9 @@ body {
 
   * {
     @apply border-border;
+  }
+  body, button, input, optgroup, select, textarea {
+    font-family: 'Inter', sans-serif;
   }
   body {
     @apply bg-background text-foreground;

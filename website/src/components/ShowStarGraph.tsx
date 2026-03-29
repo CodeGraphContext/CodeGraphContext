@@ -53,7 +53,7 @@ export default function ShowStarGraph() {
 
   return (
     <>
-      <section className="px-4 bg-gradient-to-b from-secondary/10 to-background" data-aos="fade-up">
+      <section className="px-4 py-16" data-aos="fade-up">
         <div className="container mx-auto max-w-6xl">
           <div className="text-center mb-12" data-aos="fade-down">
             <div className="flex items-center justify-center gap-2 mb-4">

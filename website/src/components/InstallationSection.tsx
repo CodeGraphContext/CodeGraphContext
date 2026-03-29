@@ -78,7 +78,7 @@ const copyToClipboard = (text: string) => {
 
 const InstallationSection = () => {
   return (
-    <section className="py-24 px-4 bg-muted/20">
+    <section className="py-24 px-4">
       <div className="container mx-auto max-w-5xl text-center">
         <div className="text-center mb-6">
           <h2 className="text-4xl md:text-5xl font-bold mb-6 bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent">
