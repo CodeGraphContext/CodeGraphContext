@@ -121,6 +121,10 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 
 ---
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/shashankss1205-codegraphcontext).
+
 ## Features
 -   **Code Indexing:** Analyzes code and builds a knowledge graph of its components.
 -   **Relationship Analysis:** Query for callers, callees, class hierarchies, call chains and more.
