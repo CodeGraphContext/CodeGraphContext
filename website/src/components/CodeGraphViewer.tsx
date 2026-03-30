@@ -181,6 +181,15 @@ const MIN_SIDEBAR_W = 180;
 const MAX_SIDEBAR_W = 520;
 const DEFAULT_SIDEBAR_W = 300;
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getGraphAwareNodeScale(totalNodes: number): number {
+  const safeNodeCount = Math.max(totalNodes, 1);
+  return clamp(1 + Math.log10(safeNodeCount) * 0.22, 1, 2);
+}
+
 export default function CodeGraphViewer({ data, onClose }: { data: any, onClose: () => void }) {
   const fgRef = useRef<any>();
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -247,6 +256,21 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   };
 
+  const filteredData = useMemo(() => {
+    const visibleNodes = data.nodes.filter((n: any) => visibleNodeTypes.has(n.type));
+    const nodeIds = new Set(visibleNodes.map((n: any) => n.id));
+    const visibleLinks = data.links.filter((l: any) =>
+      nodeIds.has(typeof l.source === 'object' ? l.source.id : l.source) &&
+      nodeIds.has(typeof l.target === 'object' ? l.target.id : l.target)
+    );
+    return { nodes: visibleNodes, links: visibleLinks };
+  }, [data, visibleNodeTypes]);
+
+  const graphAwareNodeScale = useMemo(
+    () => getGraphAwareNodeScale(filteredData.nodes.length),
+    [filteredData.nodes.length]
+  );
+
   const nodeCanvasObject = useCallback((node: any, ctx: any, globalScale: number) => {
     if (!visibleNodeTypes.has(node.type)) return;
 
@@ -254,10 +278,10 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     const isFocused = focusSet ? focusSet.nodes.has(node.id) : true;
 
     const baseColor = nodeColors[node.type] || nodeColors.Other;
-    const radius = node.val * 0.8 * nodeSize;
+    const radius = node.val * 0.8 * nodeSize * graphAwareNodeScale;
     const opacity = isFocused ? (isHovered ? 1 : 0.9) : 0.05;
 
-    const isMassive = data.nodes && data.nodes.length > 3000;
+    const isMassive = filteredData.nodes.length > 3000;
 
     if (isMassive && !isFocused && !isHovered) {
       ctx.fillStyle = getRGBA(baseColor, opacity);
@@ -289,7 +313,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       ctx.fillText(node.name || 'Unknown', node.x, node.y + radius + (fontSize / 2) + 4);
       if (isFocused && !isMassive) ctx.shadowBlur = 0;
     }
-  }, [hoverNode, selectedFile, nodeColors, visibleNodeTypes, focusSet, data, nodeSize]);
+  }, [filteredData.nodes.length, focusSet, graphAwareNodeScale, hoverNode, nodeColors, nodeSize, selectedFile, visibleNodeTypes]);
 
   const handleZoom = (inOut: number) => {
     fgRef.current?.zoom(fgRef.current.zoom() * inOut, 400);
@@ -303,16 +327,6 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   };
 
   const fileTree = useMemo(() => buildTree(data.files || []), [data.files]);
-
-  const filteredData = useMemo(() => {
-    const visibleNodes = data.nodes.filter((n: any) => visibleNodeTypes.has(n.type));
-    const nodeIds = new Set(visibleNodes.map((n: any) => n.id));
-    const visibleLinks = data.links.filter((l: any) =>
-      nodeIds.has(typeof l.source === 'object' ? l.source.id : l.source) &&
-      nodeIds.has(typeof l.target === 'object' ? l.target.id : l.target)
-    );
-    return { nodes: visibleNodes, links: visibleLinks };
-  }, [data, visibleNodeTypes]);
 
   const onFileClick = (path: string | null) => {
     if (!path) {
