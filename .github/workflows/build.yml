@@ -44,7 +44,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install .[parsing]
           pip install pyinstaller
-          pip install falkordb falkordblite || true
+          pip install falkordblite || true
           # Optionally check for directories (will not fail if missing)
           if [ ! -d tree_sitter_c_sharp ]; then echo "tree_sitter_c_sharp directory not found, skipping clone"; fi
           if [ ! -d kuzu ]; then echo "kuzu directory not found, skipping clone"; fi
@@ -73,7 +73,7 @@ jobs:
               python3 -m pip install --upgrade pip
 
               pip3 install .[parsing] pyinstaller
-              pip3 install falkordb falkordblite || true
+              pip3 install falkordblite || true
               # Only install extra runtime dependencies not covered by [parsing] extras
               # Only install redislite on non-Windows platforms
               if [ "$RUNNER_OS" != "Windows" ]; then
