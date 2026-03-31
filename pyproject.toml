@@ -44,7 +44,10 @@ parsing = [
     "tree_sitter_yaml",
     "tree_sitter_embedded_template",
     "tree_sitter_c_sharp",
-    "kuzu"
+    "kuzu",
+    "redislite",
+    "falkordb",
+    "falkordblite"
 ]
 dev = [
     "pytest>=7.4.0",
