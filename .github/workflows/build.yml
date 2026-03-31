@@ -35,12 +35,14 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
+
       - name: Install dependencies (Windows/Mac)
         if: runner.os != 'Linux'
         run: |
           python -m pip install --upgrade pip
           pip install .[parsing]
           pip install pyinstaller
+          pip install tree_sitter_yaml tree_sitter_embedded_template tree_sitter_c_sharp redislite falkordb falkordblite
 
       - name: Build with PyInstaller (Windows/Mac)
         if: runner.os != 'Linux'
@@ -60,6 +62,7 @@ jobs:
               yum install -y python3 python3-devel
               python3 -m pip install --upgrade pip
               pip3 install .[parsing] pyinstaller
+              pip3 install tree_sitter_yaml tree_sitter_embedded_template tree_sitter_c_sharp redislite falkordb falkordblite
               pyinstaller cgc.spec --clean
             "
           sudo chown -R $USER:$USER dist build
