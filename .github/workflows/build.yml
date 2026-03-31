@@ -42,7 +42,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install .[parsing]
           pip install pyinstaller
-          pip install tree_sitter_yaml tree_sitter_embedded_template tree_sitter_c_sharp redislite falkordb falkordblite
+          # Only install extra runtime dependencies not covered by [parsing] extras
+          pip install redislite falkordblite
+          # falkordb is not on PyPI; falkordblite is its replacement for Python 3.12+
 
       - name: Build with PyInstaller (Windows/Mac)
         if: runner.os != 'Linux'
@@ -62,7 +64,9 @@ jobs:
               yum install -y python3 python3-devel
               python3 -m pip install --upgrade pip
               pip3 install .[parsing] pyinstaller
-              pip3 install tree_sitter_yaml tree_sitter_embedded_template tree_sitter_c_sharp redislite falkordb falkordblite
+              # Only install extra runtime dependencies not covered by [parsing] extras
+              pip3 install redislite falkordblite
+              # falkordb is not on PyPI; falkordblite is its replacement for Python 3.12+
               pyinstaller cgc.spec --clean
             "
           sudo chown -R $USER:$USER dist build
