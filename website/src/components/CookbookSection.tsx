@@ -152,73 +152,82 @@ const CookbookSection = () => {
     }
   ];
 
+  interface Example {
+    id: string;
+    title: string;
+    description: string;
+    tool: string;
+    args: string;
+  }
   const ExampleCard = ({
     example,
     isOpen,
     onToggle,
   }: {
-    example: any;
+    example: Example;
     isOpen: boolean;
     onToggle: () => void;
-  }) => (
-    <div data-aos="fade-up" data-aos-delay="100">
-      <Collapsible open={isOpen} onOpenChange={onToggle}>
-        <CollapsibleTrigger asChild>
-          <Card className="cursor-pointer hover:bg-muted/30 transition-all duration-200 border border-border/50">
-            <CardHeader>
-              <div className="flex flex-col-reverse gap-5 md:gap-0 md:flex-row items-center md:items-start justify-between">
-                <div className="text-center md:text-left">
-                  <CardTitle className="text-base font-medium text-foreground">
-                    {example.title}
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {example.description}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 self-start sm:self-auto">
-                  <div className="flex items-center gap-1 bg-secondary text-secondary-foreground px-2 py-1 rounded-md text-xs">
-                    <span>{example.tool}</span>
-                    <ChevronDown
-                      className={`h-3.5 w-3.5 transition-transform ${
-                        isOpen ? "rotate-180" : ""
-                      }`}
-                    />
+  }) => {
+    return (
+      <div data-aos="fade-up" data-aos-delay="100">
+        <Collapsible open={isOpen} onOpenChange={onToggle}>
+          <CollapsibleTrigger asChild>
+            <Card className="cursor-pointer hover:bg-muted/30 transition-all duration-200 border border-border/50">
+              <CardHeader>
+                <div className="flex flex-col-reverse gap-5 md:gap-0 md:flex-row items-center md:items-start justify-between">
+                  <div className="text-center md:text-left">
+                    <CardTitle className="text-base font-medium text-foreground">
+                      {example.title}
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {example.description}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <div className="flex items-center gap-1 bg-secondary text-secondary-foreground px-2 py-1 rounded-md text-xs">
+                      <span>{example.tool}</span>
+                      <ChevronDown
+                        className={`h-3.5 w-3.5 transition-transform ${
+                          isOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </CardHeader>
-          </Card>
-        </CollapsibleTrigger>
+              </CardHeader>
+            </Card>
+          </CollapsibleTrigger>
 
-        <CollapsibleContent>
-          <Card className="mt-2 border border-border/30 bg-muted/20">
-            <CardContent className="p-4">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <span className="text-sm font-medium text-muted-foreground">
-                    JSON Arguments:
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => copyToClipboard(example.args)}
-                    className="h-7"
-                  >
-                    <Copy className="h-3 w-3" />
-                  </Button>
+          <CollapsibleContent>
+            <Card className="mt-2 border border-border/30 bg-muted/20">
+              <CardContent className="p-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="text-sm font-medium text-muted-foreground">
+                      JSON Arguments:
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => copyToClipboard(example.args)}
+                      className="h-7"
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <pre className="bg-muted/50 rounded-md p-3 text-sm overflow-x-auto border border-border/30">
+                    <code className="text-foreground break-words">
+                      {example.args}
+                    </code>
+                  </pre>
                 </div>
-                <pre className="bg-muted/50 rounded-md p-3 text-sm overflow-x-auto border border-border/30">
-                  <code className="text-foreground break-words">
-                    {example.args}
-                  </code>
-                </pre>
-              </div>
-            </CardContent>
-          </Card>
-        </CollapsibleContent>
-      </Collapsible>
-    </div>
-  );
+              </CardContent>
+            </Card>
+          </CollapsibleContent>
+        </Collapsible>
+      </div>
+    );
+  };
 
   return (
     <section className="py-20 px-4 bg-gradient-subtle relative overflow-hidden" data-aos="fade-in">
