@@ -137,9 +137,9 @@ hidden_imports = [
     'httpcore',
     'importlib',
     'asyncio',
+
     'pkg_resources',
     'threading',
-# ...existing code...
     'subprocess',
     'socket',
     'atexit',
@@ -147,11 +147,6 @@ hidden_imports = [
 # Only add falkordblite if not on Windows and Python >= 3.12
 if not is_win and sys.version_info >= (3, 12):
     hidden_imports.append('falkordblite')
-# Only add falkordblite if not on Windows and Python >= 3.12
-if not is_win and sys.version_info >= (3, 12):
-    hidden_imports.append('falkordblite')
-    'atexit',
-]
 
 
 # Bin extensions by platform
