@@ -46,7 +46,7 @@ parsing = [
     "tree_sitter_c_sharp",
     "kuzu",
     "falkordb",
-    "falkordblite"
+    "falkordblite; platform_system != 'Windows'"
 ]
 dev = [
     "pytest>=7.4.0",
