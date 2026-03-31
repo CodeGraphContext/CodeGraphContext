@@ -34,7 +34,6 @@ print(f"Searching for dependencies in: {[str(p) for p in search_paths]}")
 
 # ── 1. Component Lists (Binaries, Datas, Hidden Imports) ───────────────────
 binaries = []
-datas = []
 hidden_imports = [
     'codegraphcontext',
     'codegraphcontext.cli',
@@ -108,7 +107,6 @@ hidden_imports = [
     'codegraphcontext.utils.debug_log',
     'codegraphcontext.utils.tree_sitter_manager',
     'codegraphcontext.utils.visualize_graph',
-
     'kuzu',
     'falkordb',
     'redislite',
@@ -143,6 +141,11 @@ hidden_imports = [
     'threading',
     'subprocess',
     'socket',
+    'atexit',
+]
+# Only add falkordblite if not on Windows and Python >= 3.12
+if not is_win and sys.version_info >= (3, 12):
+    hidden_imports.append('falkordblite')
     'atexit',
 ]
 
@@ -180,16 +183,19 @@ add_binary('tree_sitter_language_pack/bindings', ext)
 # other tree-sitter bindings
 add_binary('tree_sitter_yaml', ext)
 add_binary('tree_sitter_embedded_template', ext)
-add_binary('tree_sitter_c_sharp', ext)
+# Only add tree_sitter_c_sharp if present (skip on Windows if not needed)
+if not is_win:
+    add_binary('tree_sitter_c_sharp', ext)
 
 # KùzuDB complete collection
-# We use find_pkg_dir to add the entire folder to datas, ensuring we don't miss any .so, .pyd, or .dylib files
-kuzu_dir = find_pkg_dir('kuzu')
-if kuzu_dir:
-    print(f"Force bundling entire Kuzu directory: {kuzu_dir}")
-    datas.append((str(kuzu_dir), 'kuzu'))
-else:
-    print("WARNING: Could not find 'kuzu' directory to bundle!")
+# Only add kuzu if present and not on Windows
+if not is_win:
+    kuzu_dir = find_pkg_dir('kuzu')
+    if kuzu_dir:
+        print(f"Force bundling entire Kuzu directory: {kuzu_dir}")
+        datas.append((str(kuzu_dir), 'kuzu'))
+    else:
+        print("WARNING: Could not find 'kuzu' directory to bundle!")
 # ── 2. Bundle Logic (Aggressive FalkorDB Collection) ──────────────────────────
 
 # Native dependencies detection
