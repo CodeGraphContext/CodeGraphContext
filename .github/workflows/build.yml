@@ -43,7 +43,7 @@ jobs:
           pip install .[parsing]
           pip install pyinstaller
           # Only install extra runtime dependencies not covered by [parsing] extras
-          pip install redislite falkordblite
+          pip install redislite
           # falkordb is not on PyPI; falkordblite is its replacement for Python 3.12+
 
       - name: Build with PyInstaller (Windows/Mac)
@@ -65,7 +65,7 @@ jobs:
               python3 -m pip install --upgrade pip
               pip3 install .[parsing] pyinstaller
               # Only install extra runtime dependencies not covered by [parsing] extras
-              pip3 install redislite falkordblite
+              pip3 install redislite
               # falkordb is not on PyPI; falkordblite is its replacement for Python 3.12+
               pyinstaller cgc.spec --clean
             "
