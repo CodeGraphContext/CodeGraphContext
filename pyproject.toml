@@ -45,7 +45,6 @@ parsing = [
     "tree_sitter_embedded_template",
     "tree_sitter_c_sharp",
     "kuzu",
-    "redislite",
     "falkordb",
     "falkordblite"
 ]
