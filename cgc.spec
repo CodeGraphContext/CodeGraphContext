@@ -139,9 +139,14 @@ hidden_imports = [
     'asyncio',
     'pkg_resources',
     'threading',
+# ...existing code...
     'subprocess',
-    'socket'
-#]
+    'socket',
+    'atexit',
+]
+# Only add falkordblite if not on Windows and Python >= 3.12
+if not is_win and sys.version_info >= (3, 12):
+    hidden_imports.append('falkordblite')
 # Only add falkordblite if not on Windows and Python >= 3.12
 if not is_win and sys.version_info >= (3, 12):
     hidden_imports.append('falkordblite')
