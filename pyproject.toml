@@ -41,6 +41,10 @@ parsing = [
     "tree-sitter>=0.21.0",
     "tree-sitter-language-pack>=0.6.0",
     "tree-sitter-c-sharp>=0.21.0",
+    "tree_sitter_yaml",
+    "tree_sitter_embedded_template",
+    "tree_sitter_c_sharp",
+    "kuzu"
 ]
 dev = [
     "pytest>=7.4.0",
