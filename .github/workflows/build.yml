@@ -44,11 +44,11 @@ jobs:
           pip install .[parsing]
           pip install pyinstaller
           # Only install extra runtime dependencies not covered by [parsing] extras
-          # Only install redislite on non-Windows platforms
-          if [ "$RUNNER_OS" != "Windows" ]; then
-            pip install redislite
-          fi
           # falkordb is not on PyPI; falkordblite is its replacement for Python 3.12+
+
+      - name: Install redislite (Non-Windows only)
+        if: runner.os != 'Windows'
+        run: pip install redislite
 
       - name: Build with PyInstaller (Windows/Mac)
         if: runner.os != 'Linux'
