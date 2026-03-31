@@ -24,7 +24,7 @@ from importlib.metadata import version as pkg_version, PackageNotFoundError
 
 from codegraphcontext.server import MCPServer
 from codegraphcontext.core.database import DatabaseManager
-from .setup_wizard import run_neo4j_setup_wizard, configure_mcp_client
+from .setup_wizard import run_neo4j_setup_wizard, configure_mcp_client, run_spanner_setup_wizard
 from . import config_manager
 # Import the new helper functions
 from .cli_helpers import (
@@ -213,6 +213,26 @@ def neo4j_setup_alias():
     neo4j_setup()
 
 
+# Create Spanner command group
+spanner_app = typer.Typer(help="Spanner database configuration commands")
+app.add_typer(spanner_app, name="spanner")
+
+@spanner_app.command("setup")
+def spanner_setup():
+    """
+    Configure Google Cloud Spanner Database Connection.
+    """
+    console.print("\n[bold cyan]Spanner Database Setup[/bold cyan]")
+    console.print("Configure Spanner database connection for CodeGraphContext.\n")
+    run_spanner_setup_wizard()
+
+# Abbreviation for spanner setup
+@app.command("s", rich_help_panel="Shortcuts")
+def spanner_setup_alias():
+    """Shortcut for 'cgc spanner setup'"""
+    spanner_setup()
+
+
 # ============================================================================
 # CREDENTIALS LOADING PRECEDENCE
 # ============================================================================
@@ -344,6 +364,8 @@ def _load_credentials():
         console.print("[cyan]Using database: FalkorDB Lite[/cyan]")
     elif default_db == "kuzudb":
         console.print("[cyan]Using database: KùzuDB[/cyan]")
+    elif default_db == "spanner":
+        console.print(f"[cyan]Using database: Spanner (project: {os.environ.get('GOOGLE_CLOUD_PROJECT', 'default')}, instance: {os.environ.get('SPANNER_INSTANCE_ID', 'default')}, database: {os.environ.get('SPANNER_DATABASE_ID', 'default')})[/cyan]")
     elif default_db == "falkordb-remote":
         host = os.environ.get("FALKORDB_HOST")
         if host:

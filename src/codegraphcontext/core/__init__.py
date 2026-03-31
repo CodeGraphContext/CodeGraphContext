@@ -55,7 +55,11 @@ def _is_neo4j_configured() -> bool:
         os.getenv('NEO4J_PASSWORD')
     ])
 
-def get_database_manager() -> Union['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager']:
+def _is_spanner_configured() -> bool:
+    """Check if Google Cloud Spanner is configured via environment variables."""
+    return bool(os.getenv('SPANNER_INSTANCE_ID') and os.getenv('SPANNER_DATABASE_ID'))
+
+def get_database_manager() -> Union['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager', 'SpannerDBManager']:
     """
     Factory function to get the appropriate database manager based on configuration.
 
@@ -122,8 +126,14 @@ def get_database_manager() -> Union['DatabaseManager', 'FalkorDBManager', 'Falko
             from .database import DatabaseManager
             info_logger("Using Neo4j Server (explicit)")
             return DatabaseManager()
+        elif db_type == 'spanner':
+            if not _is_spanner_configured():
+                raise ValueError("Database set to 'spanner' but it is not configured.\nSet SPANNER_INSTANCE_ID and SPANNER_DATABASE_ID.")
+            from .database_spanner import SpannerDBManager
+            info_logger("Using Google Cloud Spanner Server (explicit)")
+            return SpannerDBManager()
         else:
-            raise ValueError(f"Unknown database type: '{db_type}'. Use 'kuzudb', 'falkordb', 'falkordb-remote', or 'neo4j'.")
+            raise ValueError(f"Unknown database type: '{db_type}'. Use 'kuzudb', 'falkordb', 'falkordb-remote', 'neo4j', or 'spanner'.")
 
     # 4. Auto-detect: Remote FalkorDB (if FALKORDB_HOST is set)
     # This takes priority over zero-config local backends because it's an explicit signal
@@ -152,7 +162,13 @@ def get_database_manager() -> Union['DatabaseManager', 'FalkorDBManager', 'Falko
         info_logger("Using KùzuDB (default)")
         return KuzuDBManager()
 
-    # 7. Fallback if configured
+    # 7. Fallback if configured -> Spanner
+    if _is_spanner_configured():
+        from .database_spanner import SpannerDBManager
+        info_logger("Using Google Cloud Spanner Server (auto-detected)")
+        return SpannerDBManager()
+
+    # 8. Fallback if configured -> Neo4j
     if _is_neo4j_configured():
         from .database import DatabaseManager
         info_logger("Using Neo4j Server (auto-detected)")
@@ -173,5 +189,6 @@ from .database import DatabaseManager
 from .database_falkordb import FalkorDBManager
 from .database_falkordb_remote import FalkorDBRemoteManager
 from .database_kuzu import KuzuDBManager
+from .database_spanner import SpannerDBManager
 
-__all__ = ['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager', 'get_database_manager']
+__all__ = ['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager', 'SpannerDBManager', 'get_database_manager']

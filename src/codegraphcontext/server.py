@@ -291,9 +291,10 @@ class MCPServer:
                     result = _strip_workspace_prefix(result)
 
                     if "error" in result:
+                        error_msg = result["error"]
                         response = {
                             "jsonrpc": "2.0", "id": request_id,
-                            "error": {"code": -32000, "message": "Tool execution error", "data": result}
+                            "error": {"code": -32000, "message": f"Tool execution error: {error_msg}", "data": result}
                         }
                     else:
                         response = {

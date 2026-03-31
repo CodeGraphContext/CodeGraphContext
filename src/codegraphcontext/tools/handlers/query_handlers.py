@@ -58,10 +58,14 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
             "query": cypher_query
         }
     except Exception as e:
+        import traceback
+        import sys
+        print(f"ERROR EXECUTING CYPHER: {cypher_query}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         debug_log(f"Error executing Cypher query: {str(e)}")
         return {
-            "error": "An unexpected error occurred while executing the query.",
-            "details": str(e)
+            "error": f"An unexpected error occurred while executing the query: {str(e)}",
+            "details": traceback.format_exc()
         }
 
 def visualize_graph_query(db_manager, **args) -> Dict[str, Any]:

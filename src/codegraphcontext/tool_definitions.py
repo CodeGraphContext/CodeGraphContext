@@ -60,7 +60,7 @@ TOOLS = {
     },
     "execute_cypher_query": {
         "name": "execute_cypher_query",
-        "description": "Fallback tool to run a direct, read-only Cypher query against the code graph. Use this for complex questions not covered by other tools. The graph contains nodes representing code structures and relationships between them. **Schema Overview:**\n- **Nodes:** `Repository`, `File`, `Module`, `Class`, `Function`.\n- **Properties:** Nodes have properties like `name`, `path`, `cyclomatic_complexity` (on Function nodes), and `source`.\n- **Relationships:** `CONTAINS` (e.g., File-[:CONTAINS]->Function), `CALLS` (Function-[:CALLS]->Function or File-[:CALLS]->Function), `IMPORTS` (File-[:IMPORTS]->Module), `INHERITS` (Class-[:INHERITS]->Class).",
+        "description": "Fallback tool to run a direct, read-only Cypher query against the code graph. Use this for complex questions not covered by other tools. The graph contains nodes representing code structures and relationships between them. **Schema Overview:**\n- **Nodes:** `Repository`, `File`, `Module`, `Class`, `Function`.\n- **Properties:** Nodes have properties like `name`, `path`, `cyclomatic_complexity` (on Function nodes), and `source`.\n- **Relationships:** `CONTAINS`, `CALLS`, `IMPORTS`, `INHERITS`.\n\nCRITICAL SPANNER RULE: You MUST explicitly use `AS` to alias any returned property or function call. E.g., `RETURN labels(n) AS labels, n.name AS name, n.path AS path`. Failure to alias will crash the Spanner GQL backend.",
         "inputSchema": {
             "type": "object",
             "properties": { "cypher_query": {"type": "string", "description": "The read-only Cypher query to execute."} },

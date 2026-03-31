@@ -968,3 +968,83 @@ def setup_local_binary():
     }
     _save_neo4j_credentials(creds)
     console.print("\n[bold green]All done! Your local Neo4j instance is ready to use.[/bold green]")
+
+
+def _save_spanner_credentials(creds):
+    """
+    Save Spanner credentials to .env file (database setup only).
+    """
+    from codegraphcontext.cli.config_manager import load_config, save_config, ensure_config_dir
+    
+    ensure_config_dir()
+    
+    config = load_config()
+    
+    config["SPANNER_INSTANCE_ID"] = creds.get('instance_id', 'infrastream-core')
+    config["SPANNER_DATABASE_ID"] = creds.get('database_id', 'infrastream-state')
+    config["GOOGLE_CLOUD_PROJECT"] = creds.get('project', '')
+    
+    config["DEFAULT_DATABASE"] = "spanner"
+    
+    save_config(config, preserve_db_credentials=False)
+    
+    console.print("\n[bold green]✅ Spanner setup complete![/bold green]")
+    console.print(f"[cyan]📝 Credentials saved to ~/.codegraphcontext/.env[/cyan]")
+    console.print(f"[cyan]🔧 Default database set to 'spanner'[/cyan]")
+    console.print("\n[dim]You can now use cgc commands with Spanner:[/dim]")
+    console.print("[dim]  • cgc index .          - Index your code[/dim]")
+    console.print("[dim]  • cgc find function    - Search your codebase[/dim]")
+
+
+def run_spanner_setup_wizard():
+    """Guides the user through setting up Spanner database for CodeGraphContext."""
+    console.print("\n[bold cyan]Welcome to the Spanner Setup Wizard![/bold cyan]")
+    console.print("Please enter your Google Cloud Spanner connection details.")
+    console.print("[dim]CodeGraphContext will use these details to connect to Google Cloud Spanner.[/dim]\n")
+    
+    while True:
+        questions = [
+            {"type": "input", "message": "Google Cloud Project ID:", "name": "project"},
+            {"type": "input", "message": "Spanner Instance ID:", "name": "instance_id", "default": "my-spanner-instance"},
+            {"type": "input", "message": "Spanner Database ID:", "name": "database_id", "default": "my-graph-database"},
+        ]
+        
+        creds = prompt(questions)
+        if not creds:
+            return # User cancelled
+            
+        console.print("\n[cyan]🔗 Validating configuration locally...[/cyan]")
+        
+        # Test Spanner via environmental mock
+        old_proj = os.environ.get("GOOGLE_CLOUD_PROJECT")
+        old_inst = os.environ.get("SPANNER_INSTANCE_ID")
+        old_db = os.environ.get("SPANNER_DATABASE_ID")
+        
+        os.environ["GOOGLE_CLOUD_PROJECT"] = creds.get("project", "")
+        os.environ["SPANNER_INSTANCE_ID"] = creds.get("instance_id", "")
+        os.environ["SPANNER_DATABASE_ID"] = creds.get("database_id", "")
+        
+        try:
+            from codegraphcontext.core.database_spanner import SpannerDBManager
+            mgr = SpannerDBManager()
+            
+            console.print("\n[cyan]🔗 Testing connection (requires active gcloud auth)...[/cyan]")
+            mgr.get_driver() # Check connection
+            
+            console.print("[green]✅ Connection successful![/green]")
+            mgr.provision_schema(console)
+            _save_spanner_credentials(creds)
+            break
+        except Exception as e:
+            console.print(f"[red]❌ Connection failed: {e}[/red]")
+            console.print("[dim]Please make sure you have authenticated using exactly 'gcloud auth application-default login' on this terminal.[/dim]")
+            retry = prompt([{"type": "confirm", "message": "Try again?", "name": "retry", "default": True}])
+            if not retry.get("retry"):
+                break
+        finally:
+            if old_proj is not None: os.environ["GOOGLE_CLOUD_PROJECT"] = old_proj
+            elif "GOOGLE_CLOUD_PROJECT" in os.environ: del os.environ["GOOGLE_CLOUD_PROJECT"]
+            if old_inst is not None: os.environ["SPANNER_INSTANCE_ID"] = old_inst
+            elif "SPANNER_INSTANCE_ID" in os.environ: del os.environ["SPANNER_INSTANCE_ID"]
+            if old_db is not None: os.environ["SPANNER_DATABASE_ID"] = old_db
+            elif "SPANNER_DATABASE_ID" in os.environ: del os.environ["SPANNER_DATABASE_ID"]

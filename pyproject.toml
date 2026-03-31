@@ -24,7 +24,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "tree-sitter>=0.21.0",
     "tree-sitter-language-pack>=0.6.0",
-    "tree-sitter-c-sharp>=0.21.0",
+    "tree-sitter-c-sharp>=0.21.2",
     "pyyaml",
     "nbformat",
     "nbconvert>=7.16.6",
@@ -33,14 +33,15 @@ dependencies = [
     "requests>=2.28.0",
     "falkordblite>=0.1.0; sys_platform != 'win32' and python_version >= '3.12'",
     "fastapi>=0.100.0",
-    "uvicorn>=0.22.0"
+    "uvicorn>=0.22.0",
+    "google-cloud-spanner>=3.40.0"
 ]
 
 [project.optional-dependencies]
 parsing = [
     "tree-sitter>=0.21.0",
     "tree-sitter-language-pack>=0.6.0",
-    "tree-sitter-c-sharp>=0.21.0",
+    "tree-sitter-c-sharp>=0.21.2"
 ]
 dev = [
     "pytest>=7.4.0",

@@ -1509,18 +1509,17 @@ class GraphBuilder:
             if job_id:
                 self.job_manager.update_job(job_id, status=JobStatus.COMPLETED, end_time=datetime.now())
         except Exception as e:
-            error_message=str(e)
+            error_message = str(e)
             error_logger(f"Failed to build graph for path {path}: {error_message}")
             if job_id:
-                '''checking if the repo got deleted '''
-                if "no such file found" in error_message or "deleted" in error_message or "not found" in error_message:
-                    status=JobStatus.CANCELLED
-                    
+                # Only cancel if the directory itself was deleted during indexing
+                if isinstance(e, FileNotFoundError) or isinstance(e, NotADirectoryError):
+                    status = JobStatus.CANCELLED
                 else:
-                    status=JobStatus.FAILED
+                    status = JobStatus.FAILED
 
                 self.job_manager.update_job(
-                    job_id, status=status, end_time=datetime.now(), errors=[str(e)]
+                    job_id, status=status, end_time=datetime.now(), errors=[error_message]
                 )
 
     # Create a minimal File node for unsupported file types.
