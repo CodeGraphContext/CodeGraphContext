@@ -41,10 +41,9 @@ jobs:
         if: runner.os != 'Linux'
         shell: bash
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
           pip install .[parsing]
           pip install pyinstaller
-          pip install falkordblite || true
           # Optionally check for directories (will not fail if missing)
           if [ ! -d tree_sitter_c_sharp ]; then echo "tree_sitter_c_sharp directory not found, skipping clone"; fi
           if [ ! -d kuzu ]; then echo "kuzu directory not found, skipping clone"; fi
@@ -72,9 +71,8 @@ jobs:
               yum install -y python3 python3-devel
               python3 -m pip install --upgrade pip
 
+              pip3 install --upgrade setuptools wheel
               pip3 install .[parsing] pyinstaller
-              # falkordblite is optional and not on PyPI for all platforms; ignore install failure
-              pip3 install falkordblite || true
               # Only install extra runtime dependencies not covered by [parsing] extras
               # Only install redislite on non-Windows platforms
               if [ "$RUNNER_OS" != "Windows" ]; then

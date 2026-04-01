@@ -3,6 +3,9 @@ import os
 import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
 
+# Skip the entire module when the falkordb client is not installed
+pytest.importorskip("falkordb")
+
 
 class TestFalkorDBRemoteManager:
     """
