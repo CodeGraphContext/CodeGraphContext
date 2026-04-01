@@ -62,8 +62,10 @@ jobs:
       - name: Build with PyInstaller (Linux - Manylinux)
         if: runner.os == 'Linux'
         run: |
+          mkdir -p /tmp/cgc
+          cp -r ${{ github.workspace }}/* /tmp/cgc/
           docker run --rm \
-            -v ${{ github.workspace }}:/src \
+            -v /tmp/cgc:/src \
             quay.io/pypa/manylinux2014_x86_64 \
             /bin/bash -c '
               set -e
@@ -72,7 +74,7 @@ jobs:
               python3 -m pip install --upgrade pip
 
               pip3 install --upgrade setuptools wheel
-              pip3 install .[parsing] 'pyinstaller>=5.13'
+              pip3 install .[parsing] "pyinstaller>=5.13"
               # Only install extra runtime dependencies not covered by [parsing] extras
               # Only install redislite on non-Windows platforms
               if [ "$RUNNER_OS" != "Windows" ]; then
@@ -84,7 +86,9 @@ jobs:
               # falkordb is not on PyPI; falkordblite is its replacement for Python 3.12+
               pyinstaller cgc.spec --clean
             '
-          sudo chown -R $USER:$USER dist build
+          cp -r /tmp/cgc/dist ${{ github.workspace }}/dist || true
+          cp -r /tmp/cgc/build ${{ github.workspace }}/build || true
+          sudo chown -R $USER:$USER ${{ github.workspace }}/dist ${{ github.workspace }}/build || true
 
       - name: Rename artifact (Linux/Mac)
         if: runner.os != 'Windows'
