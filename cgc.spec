@@ -4,6 +4,7 @@
 
 import sys
 import os
+import importlib.util
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_all
 
@@ -35,6 +36,15 @@ print(f"Searching for dependencies in: {[str(p) for p in search_paths]}")
 # ── 1. Component Lists (Binaries, Datas, Hidden Imports) ───────────────────
 binaries = []
 datas = []
+
+
+def module_available(name):
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+
+
 hidden_imports = [
     'codegraphcontext',
     'codegraphcontext.cli',
@@ -146,7 +156,7 @@ hidden_imports = [
     'atexit',
 ]
 # Only add falkordblite if not on Windows and Python >= 3.12
-if not is_win and sys.version_info >= (3, 12):
+if not is_win and sys.version_info >= (3, 12) and module_available('falkordblite'):
     hidden_imports.append('falkordblite')
 
 
@@ -232,6 +242,9 @@ binaries.extend(find_all_native_binaries())
 # Tricky packages collection (redislite, falkordb, falkordblite)
 if not is_win:
     for pkg in ['redislite', 'falkordb', 'falkordblite']:
+        if not module_available(pkg):
+            print(f"Warning: optional package not installed, skipping bundle collection: {pkg}")
+            continue
         try:
             t_datas, t_binaries, t_hiddenimports = collect_all(pkg)
             datas += t_datas

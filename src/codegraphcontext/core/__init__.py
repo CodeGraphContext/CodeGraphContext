@@ -38,9 +38,11 @@ def _is_falkordb_available() -> bool:
     if sys.version_info < (3, 12):
         return False
     try:
-        import redislite
-        return hasattr(redislite, 'falkordb_client')
-    except ImportError:
+        return (
+            importlib.util.find_spec("redislite.falkordb_client") is not None
+            and importlib.util.find_spec("falkordb") is not None
+        )
+    except (ImportError, ModuleNotFoundError, ValueError):
         return False
 
 def _is_falkordb_remote_configured() -> bool:

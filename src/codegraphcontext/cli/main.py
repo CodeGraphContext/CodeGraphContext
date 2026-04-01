@@ -777,11 +777,16 @@ def doctor():
         else:
             # FalkorDB
             try:
-                import falkordb
-                console.print(f"   [green]✓[/green] FalkorDB Lite is installed")
-            except ImportError:
+                from codegraphcontext.core import _is_falkordb_available
+
+                if _is_falkordb_available():
+                    console.print(f"   [green]✓[/green] FalkorDB Lite is installed")
+                else:
+                    console.print(f"   [yellow]⚠[/yellow] FalkorDB Lite not installed (Python 3.12+ only)")
+                    console.print(f"       FalkorDB support is optional; KùzuDB remains available.")
+            except Exception:
                 console.print(f"   [yellow]⚠[/yellow] FalkorDB Lite not installed (Python 3.12+ only)")
-                console.print(f"       Run: pip install falkordblite")
+                console.print(f"       FalkorDB support is optional; KùzuDB remains available.")
     except Exception as e:
         console.print(f"   [red]✗[/red] Database check error: {e}")
         all_checks_passed = False
