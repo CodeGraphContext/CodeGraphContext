@@ -75,7 +75,8 @@ jobs:
               $PY -m pip install --upgrade pip
 
               $PIP install --upgrade setuptools wheel
-              $PIP install .[parsing] "pyinstaller>=5.13"
+              $PIP install . "pyinstaller>=5.13"
+              $PIP install tree_sitter_yaml tree_sitter_embedded_template
               # Only install redislite (always non-Windows inside Docker)
               $PIP install redislite
               # Optionally check for directories (will not fail if missing)
