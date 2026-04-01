@@ -89,13 +89,28 @@ CONFIG_VALIDATORS = {
     "SCIP_INDEXER": ["true", "false"],
     "SKIP_EXTERNAL_RESOLUTION": ["true", "false"],
 }
-def ensure_config_dir(path: Path = CONFIG_DIR):
+def ensure_config_dir(path: Path = CONFIG_DIR, silent: bool = True) -> bool:
     """
     Ensure that the configuration directory exists.
     Creates the directory and a logs subdirectory if they do not already exist.
+    
+    Args:
+        path: Path to the configuration directory.
+        silent: If False, prints a message about whether the directory existed or was created.
+
+    Returns:
+        bool: True if the directory already existed, False if it was created.
     """
-    path.mkdir(parents=True, exist_ok=True)
-    (path / "logs").mkdir(parents=True, exist_ok=True)
+    existed = path.exists()
+    if not existed:
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "logs").mkdir(parents=True, exist_ok=True)
+        if not silent:
+            console.print(f"[green]✓ Created CodeGraphContext directory at {path}[/green]")
+    else:
+        if not silent:
+            console.print(f"[cyan]ℹ CodeGraphContext directory already exists at {path}[/cyan]")
+    return existed
 
 
 
@@ -349,7 +364,8 @@ def ensure_config_file():
     """
     Create default .env config file on first run if it does not exist.
     """
-    ensure_config_dir()
+    # During setup/config show, we want to inform the user about the directory state
+    folder_existed = ensure_config_dir(silent=False)
 
     if CONFIG_FILE.exists():
         return False  # file already exists

@@ -26,7 +26,7 @@ def _save_neo4j_credentials(creds):
     """
     from codegraphcontext.cli.config_manager import load_config, save_config, ensure_config_dir
     
-    ensure_config_dir()
+    ensure_config_dir(silent=False)
     
     # Load existing config (or defaults if no file exists)
     config = load_config()
