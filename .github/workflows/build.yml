@@ -59,35 +59,22 @@ jobs:
         run: |
           pyinstaller cgc.spec --clean
 
-      - name: Build with PyInstaller (Linux - Manylinux)
+      - name: Ensure extra dependencies and check directories (Linux)
         if: runner.os == 'Linux'
+        shell: bash
         run: |
-          mkdir -p /tmp/cgc
-          cp -r ${{ github.workspace }}/* /tmp/cgc/
-          docker run --rm \
-            -v /tmp/cgc:/src \
-            quay.io/pypa/manylinux2014_x86_64 \
-            /bin/bash -c '
-              set -e
-              cd /src
-              export PY=/opt/python/cp311-cp311/bin/python3
-              export PIP=/opt/python/cp311-cp311/bin/pip3
-              $PY -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
+          pip install . "pyinstaller>=5.13"
+          pip install tree_sitter_yaml tree_sitter_embedded_template
+          # Optionally check for directories (will not fail if missing)
+          if [ ! -d tree_sitter_c_sharp ]; then echo "tree_sitter_c_sharp directory not found, skipping clone"; fi
+          if [ ! -d kuzu ]; then echo "kuzu directory not found, skipping clone"; fi
 
-              $PIP install --upgrade setuptools wheel
-              $PIP install . "pyinstaller>=5.13"
-              $PIP install tree_sitter_yaml tree_sitter_embedded_template
-              # Only install redislite (always non-Windows inside Docker)
-              $PIP install redislite
-              # Optionally check for directories (will not fail if missing)
-              if [ ! -d tree_sitter_c_sharp ]; then echo "tree_sitter_c_sharp directory not found, skipping clone"; fi
-              if [ ! -d kuzu ]; then echo "kuzu directory not found, skipping clone"; fi
-              # falkordb is not on PyPI; falkordblite is its replacement for Python 3.12+
-              $PY -m PyInstaller cgc.spec --clean
-            '
-          cp -r /tmp/cgc/dist ${{ github.workspace }}/dist || true
-          cp -r /tmp/cgc/build ${{ github.workspace }}/build || true
-          sudo chown -R $USER:$USER ${{ github.workspace }}/dist ${{ github.workspace }}/build || true
+      - name: Build with PyInstaller (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          pyinstaller cgc.spec --clean
 
       - name: Rename artifact (Linux/Mac)
         if: runner.os != 'Windows'
