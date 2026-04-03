@@ -344,7 +344,7 @@ def cypher_helper_visual(query: str):
 
 import uvicorn
 import urllib.parse
-from ..viz.server import run_server, set_db_manager
+from ..viz.server import run_server, set_db_manager, set_allowed_base_dir
 
 def visualize_helper(repo_path: Optional[str] = None, port: int = 8000):
     """"Generates an interactive visualization using the Playground UI."""
@@ -356,6 +356,12 @@ def visualize_helper(repo_path: Optional[str] = None, port: int = 8000):
     
     # Set the DB manager for the server
     set_db_manager(db_manager)
+
+    # Restrict /api/file reads to the repository being visualized (or cwd)
+    if repo_path:
+        set_allowed_base_dir(str(Path(repo_path).resolve()))
+    else:
+        set_allowed_base_dir(str(Path.cwd()))
     
     # Determine the static directory (built React app)
     # This points to src/codegraphcontext/viz/dist where we build the website

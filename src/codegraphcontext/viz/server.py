@@ -26,10 +26,35 @@ app.add_middleware(
 db_manager: Optional[DatabaseManager] = None
 # Path to static directory
 _static_dir: Optional[str] = None
+# Allowed base directory for /api/file reads (security: path traversal prevention)
+_allowed_base_dir: Optional[str] = None
 
 def set_db_manager(manager: DatabaseManager):
     global db_manager
     db_manager = manager
+
+def set_allowed_base_dir(base_dir: Optional[str]):
+    """Set the allowed base directory for file reads via /api/file.
+
+    Only files whose resolved path falls within this directory (after
+    symlink resolution) will be served. If *base_dir* is ``None``, all
+    file-read requests will be rejected with 403.
+    """
+    global _allowed_base_dir
+    _allowed_base_dir = str(Path(base_dir).resolve()) if base_dir else None
+
+def _is_path_within_base(file_path: Path, base_dir: str) -> bool:
+    """Return True if *file_path* resolves to a location inside *base_dir*.
+
+    Uses ``Path.resolve()`` to canonicalise both paths (resolving symlinks
+    and ``..`` components) so that traversal and symlink-escape attacks are
+    blocked.
+    """
+    try:
+        resolved = file_path.resolve()
+        return resolved.is_relative_to(Path(base_dir).resolve())
+    except (OSError, ValueError):
+        return False
 
 @app.get("/api/graph")
 async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str] = None):
@@ -235,12 +260,19 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
 
 @app.get("/api/file")
 async def get_file(path: str):
+    if not _allowed_base_dir:
+        raise HTTPException(status_code=403, detail="File serving is not configured")
+
     file_path = Path(path)
-    if not file_path.exists():
+    if not _is_path_within_base(file_path, _allowed_base_dir):
+        raise HTTPException(status_code=403, detail="Access denied: path is outside the allowed directory")
+
+    resolved_path = file_path.resolve()
+    if not resolved_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(resolved_path, "r", encoding="utf-8") as f:
             return {"content": f.read()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
