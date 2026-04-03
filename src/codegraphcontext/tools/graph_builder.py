@@ -1,7 +1,11 @@
 
 # src/codegraphcontext/tools/graph_builder.py
 import asyncio
+import os
 import pathspec
+import sys
+import time
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Coroutine, Dict, Optional, Tuple
 from datetime import datetime
@@ -16,6 +20,13 @@ from ..utils.tree_sitter_manager import get_tree_sitter_manager
 from ..cli.config_manager import get_config_value
 from ..utils.path_ignore import file_path_has_ignore_dir_segment
 import fnmatch
+
+GRAPH_BUILDER_DEBUG_STDERR = os.getenv("CGC_GRAPH_DEBUG", "false").lower() == "true"
+
+
+def _graph_debug_stderr(message: str):
+    if GRAPH_BUILDER_DEBUG_STDERR:
+        print(message, file=sys.stderr, flush=True)
  
 DEFAULT_IGNORE_PATTERNS = [
     # Vendor / env dirs (gitignore-style; complements IGNORE_DIRS during indexing)
@@ -371,6 +382,32 @@ class GraphBuilder:
 
         return imports_map
 
+    def build_file_symbol_index(self, imports_map: dict) -> Dict[str, set[str]]:
+        """Invert the aggregate imports map into a per-file symbol cache."""
+        file_symbol_index: Dict[str, set[str]] = {}
+        for symbol, paths in imports_map.items():
+            for path in paths:
+                path_str = str(Path(path).resolve())
+                file_symbol_index.setdefault(path_str, set()).add(symbol)
+        return file_symbol_index
+
+    def pre_scan_files_to_symbol_index(self, files: list[Path]) -> Dict[str, set[str]]:
+        """Pre-scan only the provided files and return symbols grouped by file path."""
+        normalized_files = [Path(file).resolve() for file in files]
+        file_symbol_index: Dict[str, set[str]] = {
+            str(path): set() for path in normalized_files
+        }
+
+        if not normalized_files:
+            return file_symbol_index
+
+        imports_map = self._pre_scan_for_imports(normalized_files)
+        inverted_index = self.build_file_symbol_index(imports_map)
+        for path_str, symbols in inverted_index.items():
+            file_symbol_index.setdefault(path_str, set()).update(symbols)
+
+        return file_symbol_index
+
     # Language-agnostic method
     def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False):
         """Adds a repository node using its absolute path as the unique key."""
@@ -388,7 +425,7 @@ class GraphBuilder:
             )
 
     # First pass to add file and its contents
-    def add_file_to_graph(self, file_data: Dict, repo_name: str, imports_map: dict):
+    def add_file_to_graph(self, file_data: Dict, repo_name: str, imports_map: dict, session=None):
         calls_count = len(file_data.get('function_calls', []))
         debug_log(f"Executing add_file_to_graph for {file_data.get('path', 'unknown')} - Calls found: {calls_count}")
         """Adds a file and its contents within a single, unified session."""
@@ -396,7 +433,8 @@ class GraphBuilder:
         file_name = Path(file_path_str).name
         is_dependency = file_data.get('is_dependency', False)
 
-        with self.driver.session() as session:
+        session_cm = nullcontext(session) if session is not None else self.driver.session()
+        with session_cm as session:
             try:
                 # Match repository by path, not name, to avoid conflicts with same-named folders at different locations
                 repo_result = session.run("MATCH (r:Repository {path: $repo_path}) RETURN r.path as path", repo_path=str(Path(file_data['repo_path']).resolve())).single()
@@ -638,10 +676,21 @@ class GraphBuilder:
         if num_calls > 0:
             debug_log(f"Creating function calls for {caller_file_path} (Count: {num_calls})")
         
-        local_names = {f['name'] for f in file_data.get('functions', [])} | \
-                      {c['name'] for c in file_data.get('classes', [])}
+        local_function_names = {f['name'] for f in file_data.get('functions', [])}
+        local_class_names = {c['name'] for c in file_data.get('classes', [])}
+        local_names = local_function_names | local_class_names
         local_imports = {imp.get('alias') or imp['name'].split('.')[-1]: imp['name'] 
                         for imp in file_data.get('imports', [])}
+        class_context_types = {
+            'class_definition',
+            'class_declaration',
+            'abstract_class_declaration',
+            'struct_declaration',
+            'record_declaration',
+            'interface_declaration',
+            'struct_item',
+            'class_specifier',
+        }
         
         # Check if we should skip external resolution attempts - 
         skip_external = (get_config_value("SKIP_EXTERNAL_RESOLUTION") or "false").lower() == "true"
@@ -753,7 +802,16 @@ class GraphBuilder:
 
             caller_context = call.get('context')
             if caller_context and len(caller_context) == 3 and caller_context[0] is not None:
-                caller_name, _, caller_line_number = caller_context
+                caller_name, caller_context_type, caller_line_number = caller_context
+                if caller_context_type in class_context_types:
+                    should_try_function_caller = False
+                    should_try_class_caller = True
+                elif caller_context_type is not None:
+                    should_try_function_caller = True
+                    should_try_class_caller = False
+                else:
+                    should_try_function_caller = caller_name in local_function_names or caller_name not in local_class_names
+                    should_try_class_caller = caller_name in local_class_names or caller_name not in local_function_names
                 
                 # KùzuDB workaround: Try Function->Function first, then other combinations
                 # This avoids polymorphic MERGE which KùzuDB doesn't support
@@ -767,84 +825,97 @@ class GraphBuilder:
                     'args': call.get('args', []),
                     'full_call_name': call.get('full_name', called_name)
                 })
+                call_created = False
 
-                # Try Function caller -> Function callee
-                if not self._safe_run_create(session, """
-                    OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
-                    OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
-                    WITH caller, called
-                    WHERE caller IS NOT NULL AND called IS NOT NULL
-                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
-                    RETURN count(*) as created
-                """, call_params):
-
-                    # Try Function caller -> Class.__init__ / constructor
-                    if not self._safe_run_create(session, """
+                if should_try_function_caller:
+                    # Try Function caller -> Function callee
+                    call_created = self._safe_run_create(session, """
                         OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
-                        OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
-                        OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
-                        WHERE init.name IN ["__init__", "constructor"]
-                        WITH caller, init
-                        WHERE caller IS NOT NULL AND init IS NOT NULL
-                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(init)
+                        OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
+                        WITH caller, called
+                        WHERE caller IS NOT NULL AND called IS NOT NULL
+                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
                         RETURN count(*) as created
-                    """, call_params):
-                        # No __init__ found - link directly to the Class node
-                        self._safe_run_create(session, """
+                    """, call_params)
+
+                    if not call_created:
+                        # Try Function caller -> Class.__init__ / constructor
+                        call_created = self._safe_run_create(session, """
                             OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
                             OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
-                            WITH caller, called
-                            WHERE caller IS NOT NULL AND called IS NOT NULL
-                            MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                            OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
+                            WHERE init.name IN ["__init__", "constructor"]
+                            WITH caller, init
+                            WHERE caller IS NOT NULL AND init IS NOT NULL
+                            MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(init)
                             RETURN count(*) as created
                         """, call_params)
 
-                # Try Class caller -> Function callee
-                if not self._safe_run_create(session, """
-                    OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
-                    OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
-                    WITH caller, called
-                    WHERE caller IS NOT NULL AND called IS NOT NULL
-                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
-                    RETURN count(*) as created
-                """, call_params):
-
-                    # Try Class caller -> Class.__init__ / constructor
-                    if not self._safe_run_create(session, """
-                        OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
-                        OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
-                        OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
-                        WHERE init.name IN ["__init__", "constructor"]
-                        WITH caller, init
-                        WHERE caller IS NOT NULL AND init IS NOT NULL
-                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(init)
-                        RETURN count(*) as created
-                    """, call_params):
-                        # No __init__ - link directly to the Class node
-                        if not self._safe_run_create(session, """
-                            OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
-                            OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
-                            WITH caller, called
-                            WHERE caller IS NOT NULL AND called IS NOT NULL
-                            MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
-                            RETURN count(*) as created
-                        """, call_params):
-                            # Fallback: Relaxed Global Search (Function caller -> any Function callee)
-                            if not self._safe_run_create(session, """
+                        if not call_created:
+                            # No __init__ found - link directly to the Class node
+                            call_created = self._safe_run_create(session, """
                                 OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
-                                OPTIONAL MATCH (called:Function {name: $called_name})
+                                OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
                                 WITH caller, called
                                 WHERE caller IS NOT NULL AND called IS NOT NULL
                                 MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
-                            """, call_params):
-                                # Fallback: Class caller -> any Function callee
-                                self._safe_run_create(session, """
-                                    OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
-                                    OPTIONAL MATCH (called:Function {name: $called_name})
-                                    WITH caller, called
-                                    WHERE caller IS NOT NULL AND called IS NOT NULL
-                                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
-                                """, call_params)
+                                RETURN count(*) as created
+                            """, call_params)
+
+                if should_try_class_caller and not call_created:
+                    # Try Class caller -> Function callee
+                    call_created = self._safe_run_create(session, """
+                        OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
+                        OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
+                        WITH caller, called
+                        WHERE caller IS NOT NULL AND called IS NOT NULL
+                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                        RETURN count(*) as created
+                    """, call_params)
+
+                    if not call_created:
+                        # Try Class caller -> Class.__init__ / constructor
+                        call_created = self._safe_run_create(session, """
+                            OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
+                            OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
+                            OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
+                            WHERE init.name IN ["__init__", "constructor"]
+                            WITH caller, init
+                            WHERE caller IS NOT NULL AND init IS NOT NULL
+                            MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(init)
+                            RETURN count(*) as created
+                        """, call_params)
+
+                        if not call_created:
+                            # No __init__ - link directly to the Class node
+                            call_created = self._safe_run_create(session, """
+                                OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
+                                OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
+                                WITH caller, called
+                                WHERE caller IS NOT NULL AND called IS NOT NULL
+                                MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                                RETURN count(*) as created
+                            """, call_params)
+
+                if not call_created:
+                    # Fallback: Relaxed Global Search (Function caller -> any Function callee)
+                    if should_try_function_caller:
+                        call_created = self._safe_run_create(session, """
+                            OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
+                            OPTIONAL MATCH (called:Function {name: $called_name})
+                            WITH caller, called
+                            WHERE caller IS NOT NULL AND called IS NOT NULL
+                            MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                        """, call_params)
+                    if not call_created and should_try_class_caller:
+                        # Fallback: Class caller -> any Function callee
+                        self._safe_run_create(session, """
+                            OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
+                            OPTIONAL MATCH (called:Function {name: $called_name})
+                            WITH caller, called
+                            WHERE caller IS NOT NULL AND called IS NOT NULL
+                            MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                        """, call_params)
             else:
                 # File-level calls: Try Function first, then Class
                 call_params = self._sanitize_props({
@@ -898,10 +969,23 @@ class GraphBuilder:
     def _create_all_function_calls(self, all_file_data: list[Dict], imports_map: dict):
         """Create CALLS relationships for all functions after all files have been processed."""
         debug_log(f"_create_all_function_calls called with {len(all_file_data)} files")
+        start = time.perf_counter()
+        _graph_debug_stderr(
+            f"[graph-builder-debug] function call relink start files={len(all_file_data)}"
+        )
         with self.driver.session() as session:
             for idx, file_data in enumerate(all_file_data):
                 debug_log(f"Processing file {idx+1}/{len(all_file_data)}: {file_data.get('path', 'unknown')}")
                 self._create_function_calls(session, file_data, imports_map)
+                if (idx + 1) % 100 == 0:
+                    elapsed = time.perf_counter() - start
+                    _graph_debug_stderr(
+                        f"[graph-builder-debug] function call relink progress file={idx + 1}/{len(all_file_data)} elapsed={elapsed:.1f}s"
+                    )
+        elapsed = time.perf_counter() - start
+        _graph_debug_stderr(
+            f"[graph-builder-debug] function call relink complete elapsed={elapsed:.1f}s"
+        )
 
     def _create_inheritance_links(self, session, file_data: Dict, imports_map: dict):
         """Create INHERITS relationships with a more robust resolution logic."""
@@ -1036,18 +1120,32 @@ class GraphBuilder:
 
     def _create_all_inheritance_links(self, all_file_data: list[Dict], imports_map: dict):
         """Create INHERITS relationships for all classes after all files have been processed."""
+        start = time.perf_counter()
+        _graph_debug_stderr(
+            f"[graph-builder-debug] inheritance relink start files={len(all_file_data)}"
+        )
         with self.driver.session() as session:
-            for file_data in all_file_data:
+            for idx, file_data in enumerate(all_file_data):
                 # Handle C# separately
                 if file_data.get('lang') == 'c_sharp':
                     self._create_csharp_inheritance_and_interfaces(session, file_data, imports_map)
                 else:
                     self._create_inheritance_links(session, file_data, imports_map)
+                if (idx + 1) % 100 == 0:
+                    elapsed = time.perf_counter() - start
+                    _graph_debug_stderr(
+                        f"[graph-builder-debug] inheritance relink progress file={idx + 1}/{len(all_file_data)} elapsed={elapsed:.1f}s"
+                    )
+        elapsed = time.perf_counter() - start
+        _graph_debug_stderr(
+            f"[graph-builder-debug] inheritance relink complete elapsed={elapsed:.1f}s"
+        )
                 
-    def delete_file_from_graph(self, path: str):
+    def delete_file_from_graph(self, path: str, session=None):
         """Deletes a file and all its contained elements and relationships."""
         file_path_str = str(Path(path).resolve())
-        with self.driver.session() as session:
+        session_cm = nullcontext(session) if session is not None else self.driver.session()
+        with session_cm as session:
             parents_res = session.run("""
                 MATCH (f:File {path: $path})<-[:CONTAINS*]-(d:Directory)
                 RETURN d.path as path ORDER BY d.path DESC
@@ -1087,24 +1185,95 @@ class GraphBuilder:
             info_logger(f"Deleted repository and its contents from graph: {repo_path_str}")
             return True
 
+    def get_files_requiring_relink(self, changed_paths: list[str]) -> set[str]:
+        """
+        Returns the set of file paths that should be relinked after the given files change.
+
+        This includes:
+        - the changed files themselves
+        - files whose CALLS edges currently target functions/classes in changed files
+        - files whose classes currently INHERIT from classes in changed files
+        """
+        normalized_paths = [str(Path(path).resolve()) for path in changed_paths]
+        related_paths = set(normalized_paths)
+
+        if not normalized_paths:
+            return related_paths
+
+        with self.driver.session() as session:
+            call_rows = session.run(
+                """
+                UNWIND $paths AS changed_path
+                MATCH (target)
+                WHERE (target:Function OR target:Class) AND target.path = changed_path
+                MATCH (caller)-[:CALLS]->(target)
+                WHERE caller.path IS NOT NULL
+                RETURN DISTINCT caller.path AS path
+                """,
+                paths=normalized_paths,
+            )
+            for row in call_rows:
+                path = row.get("path")
+                if path:
+                    related_paths.add(path)
+
+            inheritance_rows = session.run(
+                """
+                UNWIND $paths AS changed_path
+                MATCH (target:Class)
+                WHERE target.path = changed_path
+                MATCH (child)-[:INHERITS]->(target)
+                WHERE child.path IS NOT NULL
+                RETURN DISTINCT child.path AS path
+                """,
+                paths=normalized_paths,
+            )
+            for row in inheritance_rows:
+                path = row.get("path")
+                if path:
+                    related_paths.add(path)
+
+        return related_paths
+
+    def update_files_in_graph(self, paths: list[Path], repo_path: Path, imports_map: dict):
+        """Updates multiple files' nodes in the graph using a single DB session."""
+        repo_name = repo_path.name
+        normalized_paths = []
+        parsed_updates = []
+        results = {}
+        seen_paths = set()
+
+        for raw_path in paths:
+            path_obj = Path(raw_path).resolve()
+            path_str = str(path_obj)
+            if path_str in seen_paths:
+                continue
+            seen_paths.add(path_str)
+            normalized_paths.append(path_obj)
+
+            if path_obj.exists():
+                file_data = self.parse_file(repo_path, path_obj)
+                if "error" not in file_data:
+                    parsed_updates.append(file_data)
+                    results[path_str] = file_data
+                else:
+                    error_logger(f"Skipping graph add for {path_str} due to parsing error: {file_data['error']}")
+                    results[path_str] = None
+            else:
+                results[path_str] = {"deleted": True, "path": path_str}
+
+        with self.driver.session() as session:
+            for path_obj in normalized_paths:
+                self.delete_file_from_graph(str(path_obj), session=session)
+            for file_data in parsed_updates:
+                self.add_file_to_graph(file_data, repo_name, imports_map, session=session)
+
+        return results
+
     def update_file_in_graph(self, path: Path, repo_path: Path, imports_map: dict):
         """Updates a single file's nodes in the graph."""
         file_path_str = str(path.resolve())
-        repo_name = repo_path.name
-        
-        self.delete_file_from_graph(file_path_str)
-
-        if path.exists():
-            file_data = self.parse_file(repo_path, path)
-            
-            if "error" not in file_data:
-                self.add_file_to_graph(file_data, repo_name, imports_map)
-                return file_data
-            else:
-                error_logger(f"Skipping graph add for {file_path_str} due to parsing error: {file_data['error']}")
-                return None
-        else:
-            return {"deleted": True, "path": file_path_str}
+        return self.update_files_in_graph([path], repo_path, imports_map).get(file_path_str)
 
     def parse_file(self, repo_path: Path, path: Path, is_dependency: bool = False) -> Dict:
         """Parses a file with the appropriate language parser and extracts code elements."""
