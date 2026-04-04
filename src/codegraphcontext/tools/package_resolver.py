@@ -1,5 +1,5 @@
 # src/codegraphcontext/tools/package_resolver.py
-import importlib
+import importlib.util
 import stdlibs
 from pathlib import Path
 import subprocess
@@ -10,25 +10,27 @@ from ..utils.debug_log import debug_log
 def _get_python_package_path(package_name: str) -> Optional[str]:
     """
     Finds the local installation path of a Python package.
+    Uses importlib.util.find_spec() to locate the module without executing its code.
     """
     try:
         debug_log(f"Getting local path for Python package: {package_name}")
-        module = importlib.import_module(package_name)
-        if hasattr(module, '__file__') and module.__file__:
-            module_file = Path(module.__file__)
+        spec = importlib.util.find_spec(package_name)
+        if spec is None:
+            return None
+        if spec.origin and spec.origin != "frozen":
+            module_file = Path(spec.origin)
             if module_file.name == '__init__.py':
                 return str(module_file.parent)
             elif package_name in stdlibs.module_names:
                 return str(module_file)
             else:
                 return str(module_file.parent)
-        elif hasattr(module, '__path__'):
-            if isinstance(module.__path__, list) and module.__path__:
-                return str(Path(module.__path__[0]))
-            else:
-                return str(Path(str(module.__path__)))
+        elif spec.submodule_search_locations:
+            locations = list(spec.submodule_search_locations)
+            if locations:
+                return str(Path(locations[0]))
         return None
-    except ImportError:
+    except (ModuleNotFoundError, ValueError):
         return None
     except Exception as e:
         debug_log(f"Error getting local path for {package_name}: {e}")

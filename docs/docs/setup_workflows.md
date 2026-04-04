@@ -706,13 +706,15 @@ cgc index .
 ```bash
 # Option 1: Use Neo4j instead of FalkorDB
 cgc neo4j setup
-cgc index . --db neo4j
+cgc --database neo4j index .
 
 # Option 2: Exclude test files and dependencies
-cgc index . --exclude "tests/*" --exclude "node_modules/*"
+cgc config set IGNORE_DIRS "tests,node_modules,venv,.venv"
+cgc index .
 
 # Option 3: Index in parallel
-cgc index . --parallel 4
+cgc config set PARALLEL_WORKERS 4
+cgc index .
 
 # Option 4: Use pre-built bundle if available
 cgc load <package-name>

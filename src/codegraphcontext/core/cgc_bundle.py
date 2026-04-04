@@ -161,9 +161,13 @@ class CGCBundle:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 
-                # Step 1: Extract ZIP
+                # Step 1: Extract ZIP (with Zip Slip protection)
                 info_logger("Extracting bundle...")
                 with zipfile.ZipFile(bundle_path, 'r') as zip_ref:
+                    for entry in zip_ref.namelist():
+                        resolved = (temp_path / entry).resolve()
+                        if not str(resolved).startswith(str(temp_path.resolve())):
+                            return False, f"Zip Slip detected: entry '{entry}' escapes target directory"
                     zip_ref.extractall(temp_path)
                 
                 # Step 2: Validate bundle

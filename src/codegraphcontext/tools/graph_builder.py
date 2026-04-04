@@ -14,7 +14,33 @@ from ..utils.debug_log import debug_log, info_logger, error_logger, warning_logg
 from tree_sitter import Language, Parser
 from ..utils.tree_sitter_manager import get_tree_sitter_manager
 from ..cli.config_manager import get_config_value
-
+from ..utils.path_ignore import file_path_has_ignore_dir_segment
+import fnmatch
+ 
+DEFAULT_IGNORE_PATTERNS = [
+    # Vendor / env dirs (gitignore-style; complements IGNORE_DIRS during indexing)
+    "node_modules/",
+    "venv/",
+    ".venv/",
+    "env/",
+    ".env/",
+    "dist/",
+    "build/",
+    "target/",
+    "out/",
+    ".git/",
+    "__pycache__/",
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.gif",
+    "*.svg",
+    "*.mp4",
+    "*.mp3",
+    "*.zip",
+    "*.tar",
+    "*.gz",
+]
 
 class TreeSitterParser:
     """A generic parser wrapper for a specific language using tree-sitter."""
@@ -113,40 +139,55 @@ class GraphBuilder:
         self.loop = loop
         self.driver = self.db_manager.get_driver()
         self.parsers = {
-            '.py': TreeSitterParser('python'),
-            '.ipynb': TreeSitterParser('python'),
-            '.js': TreeSitterParser('javascript'),
-            '.jsx': TreeSitterParser('javascript'),
-            '.mjs': TreeSitterParser('javascript'),
-            '.cjs': TreeSitterParser('javascript'),
-            '.go': TreeSitterParser('go'),
-            '.ts': TreeSitterParser('typescript'),
-            '.tsx': TreeSitterParser('typescript'),
-            '.cpp': TreeSitterParser('cpp'),
-            '.h': TreeSitterParser('cpp'),
-            '.hpp': TreeSitterParser('cpp'),
-            '.hh': TreeSitterParser('cpp'),
-            '.rs': TreeSitterParser('rust'),
-            '.c': TreeSitterParser('c'),
-            # '.h': TreeSitterParser('c'), # Need to write an algo for distinguishing C vs C++ headers
-            '.java': TreeSitterParser('java'),
-            '.rb': TreeSitterParser('ruby'),
-            '.cs': TreeSitterParser('c_sharp'),
-            '.php': TreeSitterParser('php'),
-            '.kt': TreeSitterParser('kotlin'),
-            '.scala': TreeSitterParser('scala'),
-            '.sc': TreeSitterParser('scala'),
-            '.swift': TreeSitterParser('swift'),
-            '.hs': TreeSitterParser('haskell'),
-            '.dart': TreeSitterParser('dart'),
-            '.pl': TreeSitterParser('perl'),
-            '.pm': TreeSitterParser('perl'),
-            '.ex': TreeSitterParser('elixir'),
-            '.exs': TreeSitterParser('elixir'),
-            '.vue': TreeSitterParser('vue'),
-            '.svelte': TreeSitterParser('svelte'),
+            '.py': 'python',
+            '.ipynb': 'python',
+            '.js': 'javascript',
+            '.jsx': 'javascript',
+            '.mjs': 'javascript',
+            '.cjs': 'javascript',
+            '.go': 'go',
+            '.ts': 'typescript',
+            '.tsx': 'typescript',
+            '.cpp': 'cpp',
+            '.h': 'cpp',
+            '.hpp': 'cpp',
+            '.hh': 'cpp',
+            '.rs': 'rust',
+            '.c': 'c',
+            # '.h': 'c', # Need to write an algo for distinguishing C vs C++ headers
+            '.java': 'java',
+            '.rb': 'ruby',
+            '.cs': 'c_sharp',
+            '.php': 'php',
+            '.kt': 'kotlin',
+            '.scala': 'scala',
+            '.sc': 'scala',
+            '.swift': 'swift',
+            '.hs': 'haskell',
+            '.dart': 'dart',
+            '.pl': 'perl',
+            '.pm': 'perl',
+            '.ex': 'elixir',
+            '.exs': 'elixir',
+                '.vue': 'vue',
+                '.svelte': 'svelte',
         }
+        self._parsed_cache = {}
         self.create_schema()
+
+    def get_parser(self, extension: str) -> Optional[TreeSitterParser]:
+        """Gets or creates a TreeSitterParser for the given extension."""
+        lang_name = self.parsers.get(extension)
+        if not lang_name:
+            return None
+        
+        if lang_name not in self._parsed_cache:
+            try:
+                self._parsed_cache[lang_name] = TreeSitterParser(lang_name)
+            except Exception as e:
+                warning_logger(f"Failed to initialize parser for {lang_name}: {e}")
+                return None
+        return self._parsed_cache[lang_name]
 
     # A general schema creation based on common features across languages
     def create_schema(self):
@@ -175,6 +216,7 @@ class GraphBuilder:
                 session.run("CREATE INDEX function_lang IF NOT EXISTS FOR (f:Function) ON (f.lang)")
                 session.run("CREATE INDEX class_lang IF NOT EXISTS FOR (c:Class) ON (c.lang)")
                 session.run("CREATE INDEX annotation_lang IF NOT EXISTS FOR (a:Annotation) ON (a.lang)")
+                
                 is_falkordb = getattr(self.db_manager, 'get_backend_type', lambda: 'neo4j')() != 'neo4j'
                 if is_falkordb:
                     # FalkorDB uses db.idx.fulltext.createNodeIndex per label
@@ -194,6 +236,56 @@ class GraphBuilder:
             except Exception as e:
                 warning_logger(f"Schema creation warning: {e}")
 
+    # Neo4j RANGE indexes have an ~8 kB key-size limit.  Long C++ template
+    # function names (e.g. from llama.cpp) can exceed this, causing
+    # "Property value is too large to index" errors.  We cap string properties
+    # at 4096 chars, which is comfortably under the 8 kB boundary.
+    _MAX_STR_LEN = 4096
+
+    @staticmethod
+    def _sanitize_props(props: Dict) -> Dict:
+        """Return a copy of *props* with all values coerced to database-safe types.
+
+        FalkorDB and KùzuDB only accept node properties that are primitives
+        (str, int, float, bool, None) or flat lists of primitives.  Complex
+        values such as tuples, dicts, or lists-of-dicts that come from language
+        parsers (e.g. C's ``detailed_args`` or Scala's tuple ``class_context``)
+        are serialized to a JSON string so the data is preserved rather than
+        being silently dropped.
+
+        Additionally, string values are truncated to _MAX_STR_LEN characters to
+        avoid Neo4j's RANGE-index 8 kB property-size limit (triggered by very
+        long C++ template-mangled function names).
+        """
+        import json
+
+        MAX = GraphBuilder._MAX_STR_LEN
+
+        def _is_primitive(v):
+            return isinstance(v, (str, int, float, bool)) or v is None
+
+        def _is_flat_list(v):
+            return isinstance(v, list) and all(_is_primitive(item) for item in v)
+
+        def _coerce(v):
+            if isinstance(v, str):
+                # Truncate long strings to stay within Neo4j RANGE index limits
+                return v[:MAX] if len(v) > MAX else v
+            if _is_primitive(v):
+                return v
+            if _is_flat_list(v):
+                # Truncate any long strings in lists too
+                return [s[:MAX] if isinstance(s, str) and len(s) > MAX else s for s in v]
+            # Tuples, dicts, lists-of-dicts, nested structures → JSON string
+            try:
+                serialized = json.dumps(v, default=str)
+                return serialized[:MAX] if len(serialized) > MAX else serialized
+            except Exception:
+                s = str(v)
+                return s[:MAX] if len(s) > MAX else s
+
+        return {k: _coerce(v) for k, v in props.items()}
+
 
     def _pre_scan_for_imports(self, files: list[Path]) -> dict:
         """Dispatches pre-scan to the correct language-specific implementation."""
@@ -210,91 +302,91 @@ class GraphBuilder:
 
         if '.py' in files_by_lang:
             from .languages import python as python_lang_module
-            imports_map.update(python_lang_module.pre_scan_python(files_by_lang['.py'], self.parsers['.py']))
+            imports_map.update(python_lang_module.pre_scan_python(files_by_lang['.py'], self.get_parser('.py')))
         if '.ipynb' in files_by_lang:
             from .languages import python as python_lang_module
-            imports_map.update(python_lang_module.pre_scan_python(files_by_lang['.ipynb'], self.parsers['.ipynb']))
+            imports_map.update(python_lang_module.pre_scan_python(files_by_lang['.ipynb'], self.get_parser('.ipynb')))
         if '.js' in files_by_lang:
             from .languages import javascript as js_lang_module
-            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.js'], self.parsers['.js']))
+            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.js'], self.get_parser('.js')))
         if '.jsx' in files_by_lang:
             from .languages import javascript as js_lang_module
-            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.jsx'], self.parsers['.jsx']))
+            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.jsx'], self.get_parser('.jsx')))
         if '.mjs' in files_by_lang:
             from .languages import javascript as js_lang_module
-            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.mjs'], self.parsers['.mjs']))
+            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.mjs'], self.get_parser('.mjs')))
         if '.cjs' in files_by_lang:
             from .languages import javascript as js_lang_module
-            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.cjs'], self.parsers['.cjs']))
+            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.cjs'], self.get_parser('.cjs')))
         if '.go' in files_by_lang:
              from .languages import go as go_lang_module
-             imports_map.update(go_lang_module.pre_scan_go(files_by_lang['.go'], self.parsers['.go']))
+             imports_map.update(go_lang_module.pre_scan_go(files_by_lang['.go'], self.get_parser('.go')))
         if '.ts' in files_by_lang:
             from .languages import typescript as ts_lang_module
-            imports_map.update(ts_lang_module.pre_scan_typescript(files_by_lang['.ts'], self.parsers['.ts']))
+            imports_map.update(ts_lang_module.pre_scan_typescript(files_by_lang['.ts'], self.get_parser('.ts')))
         if '.tsx' in files_by_lang:
             from .languages import typescriptjsx as tsx_lang_module
-            imports_map.update(tsx_lang_module.pre_scan_typescript(files_by_lang['.tsx'], self.parsers['.tsx']))
+            imports_map.update(tsx_lang_module.pre_scan_typescript(files_by_lang['.tsx'], self.get_parser('.tsx')))
         if '.cpp' in files_by_lang:
             from .languages import cpp as cpp_lang_module
-            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.cpp'], self.parsers['.cpp']))
+            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.cpp'], self.get_parser('.cpp')))
         if '.h' in files_by_lang:
             from .languages import cpp as cpp_lang_module
-            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.h'], self.parsers['.h']))
+            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.h'], self.get_parser('.h')))
         if '.hpp' in files_by_lang:
             from .languages import cpp as cpp_lang_module
-            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.hpp'], self.parsers['.hpp']))
+            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.hpp'], self.get_parser('.hpp')))
         if '.hh' in files_by_lang:
             from .languages import cpp as cpp_lang_module
-            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.hh'], self.parsers['.hh']))
+            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.hh'], self.get_parser('.hh')))
         if '.rs' in files_by_lang:
             from .languages import rust as rust_lang_module
-            imports_map.update(rust_lang_module.pre_scan_rust(files_by_lang['.rs'], self.parsers['.rs']))
+            imports_map.update(rust_lang_module.pre_scan_rust(files_by_lang['.rs'], self.get_parser('.rs')))
         if '.c' in files_by_lang:
             from .languages import c as c_lang_module
-            imports_map.update(c_lang_module.pre_scan_c(files_by_lang['.c'], self.parsers['.c']))
+            imports_map.update(c_lang_module.pre_scan_c(files_by_lang['.c'], self.get_parser('.c')))
         elif '.java' in files_by_lang:
             from .languages import java as java_lang_module
-            imports_map.update(java_lang_module.pre_scan_java(files_by_lang['.java'], self.parsers['.java']))
+            imports_map.update(java_lang_module.pre_scan_java(files_by_lang['.java'], self.get_parser('.java')))
         elif '.rb' in files_by_lang:
             from .languages import ruby as ruby_lang_module
-            imports_map.update(ruby_lang_module.pre_scan_ruby(files_by_lang['.rb'], self.parsers['.rb']))
+            imports_map.update(ruby_lang_module.pre_scan_ruby(files_by_lang['.rb'], self.get_parser('.rb')))
         elif '.cs' in files_by_lang:
             from .languages import csharp as csharp_lang_module
-            imports_map.update(csharp_lang_module.pre_scan_csharp(files_by_lang['.cs'], self.parsers['.cs']))
+            imports_map.update(csharp_lang_module.pre_scan_csharp(files_by_lang['.cs'], self.get_parser('.cs')))
         if '.kt' in files_by_lang:
             from .languages import kotlin as kotlin_lang_module
-            imports_map.update(kotlin_lang_module.pre_scan_kotlin(files_by_lang['.kt'], self.parsers['.kt']))
+            imports_map.update(kotlin_lang_module.pre_scan_kotlin(files_by_lang['.kt'], self.get_parser('.kt')))
         if '.scala' in files_by_lang:
             from .languages import scala as scala_lang_module
-            imports_map.update(scala_lang_module.pre_scan_scala(files_by_lang['.scala'], self.parsers['.scala']))
+            imports_map.update(scala_lang_module.pre_scan_scala(files_by_lang['.scala'], self.get_parser('.scala')))
         if '.sc' in files_by_lang:
             from .languages import scala as scala_lang_module
-            imports_map.update(scala_lang_module.pre_scan_scala(files_by_lang['.sc'], self.parsers['.sc']))
+            imports_map.update(scala_lang_module.pre_scan_scala(files_by_lang['.sc'], self.get_parser('.sc')))
         if '.swift' in files_by_lang:
             from .languages import swift as swift_lang_module
-            imports_map.update(swift_lang_module.pre_scan_swift(files_by_lang['.swift'], self.parsers['.swift']))
+            imports_map.update(swift_lang_module.pre_scan_swift(files_by_lang['.swift'], self.get_parser('.swift')))
         if '.dart' in files_by_lang:
             from .languages import dart as dart_lang_module
-            imports_map.update(dart_lang_module.pre_scan_dart(files_by_lang['.dart'], self.parsers['.dart']))
+            imports_map.update(dart_lang_module.pre_scan_dart(files_by_lang['.dart'], self.get_parser('.dart')))
         if '.pl' in files_by_lang:
             from .languages import perl as perl_lang_module
-            imports_map.update(perl_lang_module.pre_scan_perl(files_by_lang['.pl'], self.parsers['.pl']))
+            imports_map.update(perl_lang_module.pre_scan_perl(files_by_lang['.pl'], self.get_parser('.pl')))
         if '.pm' in files_by_lang:
             from .languages import perl as perl_lang_module
-            imports_map.update(perl_lang_module.pre_scan_perl(files_by_lang['.pm'], self.parsers['.pm']))
+            imports_map.update(perl_lang_module.pre_scan_perl(files_by_lang['.pm'], self.get_parser('.pm')))
         if '.ex' in files_by_lang:
             from .languages import elixir as elixir_lang_module
-            imports_map.update(elixir_lang_module.pre_scan_elixir(files_by_lang['.ex'], self.parsers['.ex']))
+            imports_map.update(elixir_lang_module.pre_scan_elixir(files_by_lang['.ex'], self.get_parser('.ex')))
         if '.exs' in files_by_lang:
             from .languages import elixir as elixir_lang_module
-            imports_map.update(elixir_lang_module.pre_scan_elixir(files_by_lang['.exs'], self.parsers['.exs']))
+            imports_map.update(elixir_lang_module.pre_scan_elixir(files_by_lang['.exs'], self.get_parser('.exs')))
         if '.vue' in files_by_lang:
             from .languages import vue as vue_lang_module
-            imports_map.update(vue_lang_module.pre_scan_vue(files_by_lang['.vue'], self.parsers['.vue']))
+            imports_map.update(vue_lang_module.pre_scan_vue(files_by_lang['.vue'], self.get_parser('.vue')))
         if '.svelte' in files_by_lang:
             from .languages import svelte as svelte_lang_module
-            imports_map.update(svelte_lang_module.pre_scan_svelte(files_by_lang['.svelte'], self.parsers['.svelte']))
+            imports_map.update(svelte_lang_module.pre_scan_svelte(files_by_lang['.svelte'], self.get_parser('.svelte')))
 
         return imports_map
 
@@ -400,7 +492,24 @@ class GraphBuilder:
                         MERGE (f)-[:CONTAINS]->(n)
                     """
 
-                    session.run(query, path=file_path_str, name=item['name'], line_number=item['line_number'], props=item)
+                    # Strip non-primitive fields (dicts, tuples, lists-of-dicts)
+                    # before writing to the database to avoid runtime errors such as
+                    # "Property values can only be of primitive types or arrays of
+                    # primitive types" raised by FalkorDB / KùzuDB.
+                    # _sanitize_props also truncates long strings to avoid Neo4j's
+                    # 8 kB RANGE-index limit (seen with long C++ template names).
+                    safe_props = self._sanitize_props(item)
+                    try:
+                        session.run(query, path=file_path_str, name=item['name'], line_number=item['line_number'], props=safe_props)
+                    except Exception as node_err:
+                        err_str = str(node_err)
+                        if "too large to index" in err_str or "property size" in err_str.lower():
+                            warning_logger(
+                                f"Skipping {label} '{item['name']}' in {file_path_str}: "
+                                f"property value too large for index (name length={len(item['name'])})"
+                            )
+                        else:
+                            raise  # Re-raise unexpected errors
                     
                     if label == 'Function':
                         for arg_name in item.get('args', []):
@@ -470,8 +579,12 @@ class GraphBuilder:
                     # Ensure full_import_name is available in params for SET clause
                     params = imp.copy()
                     params['path'] = file_path_str
-                    params['rel_props'] = rel_props
                     params['module_name'] = imp.get('name') # Use 'name' from imp as module name
+
+                    # Sanitize scalar params but keep rel_props as a dict
+                    # (FalkorDB SET r += $rel_props requires a map, not a string)
+                    sanitized = self._sanitize_props(params)
+                    sanitized['rel_props'] = rel_props
 
                     session.run(f"""
                         MATCH (f:File {{path: $path}})
@@ -479,21 +592,38 @@ class GraphBuilder:
                         {set_clause_str}
                         MERGE (f)-[r:IMPORTS]->(m)
                         SET r += $rel_props
-                    """, **params)
+                    """, **sanitized)
 
 
             # Handle CONTAINS relationship between class to their children like variables
             for func in file_data.get('functions', []):
                 if func.get('class_context'):
-                    session.run("""
+                    # Try same-file match first (Python, JS, etc.)
+                    if not self._safe_run_create(session, """
                         MATCH (c:Class {name: $class_name, path: $path})
                         MATCH (fn:Function {name: $func_name, path: $path, line_number: $func_line})
                         MERGE (c)-[:CONTAINS]->(fn)
-                    """, 
-                    class_name=func['class_context'],
-                    path=file_path_str,
-                    func_name=func['name'],
-                    func_line=func['line_number'])
+                        RETURN count(*) as created
+                    """, {
+                        'class_name': func['class_context'],
+                        'path': file_path_str,
+                        'func_name': func['name'],
+                        'func_line': func['line_number']
+                    }):
+                        # Cross-file match for C/C++ where class is in .h and method in .cpp.
+                        # Note: matches by class name only (no path constraint), so classes
+                        # with identical names in different files could get false links.
+                        self._safe_run_create(session, """
+                            MATCH (c:Class {name: $class_name})
+                            MATCH (fn:Function {name: $func_name, path: $path, line_number: $func_line})
+                            MERGE (c)-[:CONTAINS]->(fn)
+                            RETURN count(*) as created
+                        """, {
+                            'class_name': func['class_context'],
+                            'path': file_path_str,
+                            'func_name': func['name'],
+                            'func_line': func['line_number']
+                        })
 
             # --- NEW: Class INCLUDES Module (Ruby mixins) ---
             for inc in file_data.get('module_inclusions', []):
@@ -646,7 +776,7 @@ class GraphBuilder:
                 
                 # KùzuDB workaround: Try Function->Function first, then other combinations
                 # This avoids polymorphic MERGE which KùzuDB doesn't support
-                call_params = {
+                call_params = self._sanitize_props({
                     'caller_name': caller_name,
                     'caller_file_path': caller_file_path,
                     'caller_line_number': caller_line_number,
@@ -655,8 +785,8 @@ class GraphBuilder:
                     'line_number': call['line_number'],
                     'args': call.get('args', []),
                     'full_call_name': call.get('full_name', called_name)
-                }
-                
+                })
+
                 # Try Function caller -> Function callee
                 if not self._safe_run_create(session, """
                     OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
@@ -666,63 +796,86 @@ class GraphBuilder:
                     MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
                     RETURN count(*) as created
                 """, call_params):
-                
-                    # Try Function caller -> Class callee (with __init__ resolution)
+
+                    # Try Function caller -> Class.__init__ / constructor
                     if not self._safe_run_create(session, """
                         OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
                         OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
                         OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
                         WHERE init.name IN ["__init__", "constructor"]
-                        WITH caller, COALESCE(init, called) as final_target
-                        WHERE caller IS NOT NULL AND final_target IS NOT NULL
-                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
+                        WITH caller, init
+                        WHERE caller IS NOT NULL AND init IS NOT NULL
+                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(init)
                         RETURN count(*) as created
                     """, call_params):
-                
-                        # Try Class caller -> Function callee
+                        # No __init__ found - link directly to the Class node
+                        self._safe_run_create(session, """
+                            OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
+                            OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
+                            WITH caller, called
+                            WHERE caller IS NOT NULL AND called IS NOT NULL
+                            MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                            RETURN count(*) as created
+                        """, call_params)
+
+                # Try Class caller -> Function callee
+                if not self._safe_run_create(session, """
+                    OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
+                    OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
+                    WITH caller, called
+                    WHERE caller IS NOT NULL AND called IS NOT NULL
+                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                    RETURN count(*) as created
+                """, call_params):
+
+                    # Try Class caller -> Class.__init__ / constructor
+                    if not self._safe_run_create(session, """
+                        OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
+                        OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
+                        OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
+                        WHERE init.name IN ["__init__", "constructor"]
+                        WITH caller, init
+                        WHERE caller IS NOT NULL AND init IS NOT NULL
+                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(init)
+                        RETURN count(*) as created
+                    """, call_params):
+                        # No __init__ - link directly to the Class node
                         if not self._safe_run_create(session, """
                             OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
-                            OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
+                            OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
                             WITH caller, called
                             WHERE caller IS NOT NULL AND called IS NOT NULL
                             MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
                             RETURN count(*) as created
                         """, call_params):
-                
-                            # Try Class caller -> Class callee
+                            # Fallback: Relaxed Global Search (Function caller -> any Function callee)
                             if not self._safe_run_create(session, """
-                                OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
-                                OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
-                                OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
-                                WHERE init.name IN ["__init__", "constructor"]
-                                WITH caller, COALESCE(init, called) as final_target
-                                WHERE caller IS NOT NULL AND final_target IS NOT NULL
-                                MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
-                                RETURN count(*) as created
+                                OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path})
+                                OPTIONAL MATCH (called:Function {name: $called_name})
+                                WITH caller, called
+                                WHERE caller IS NOT NULL AND called IS NOT NULL
+                                MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
                             """, call_params):
-
-                                 # Fallback: Relaxed Global Search (Caller: Function/Class -> Callee: Function)
-                                 # Used when path resolution failed or was ambiguous
-                                 self._safe_run_create(session, """
-                                    OPTIONAL MATCH (caller:Function {name: $caller_name, path: $caller_file_path}) 
-                                    OPTIONAL MATCH (callerClass:Class {name: $caller_name, path: $caller_file_path})
-                                    WITH COALESCE(caller, callerClass) as final_caller
+                                # Fallback: Class caller -> any Function callee
+                                self._safe_run_create(session, """
+                                    OPTIONAL MATCH (caller:Class {name: $caller_name, path: $caller_file_path})
                                     OPTIONAL MATCH (called:Function {name: $called_name})
-                                    WITH final_caller, called
-                                    WHERE final_caller IS NOT NULL AND called IS NOT NULL
-                                    MERGE (final_caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                                    WITH caller, called
+                                    WHERE caller IS NOT NULL AND called IS NOT NULL
+                                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
                                 """, call_params)
             else:
                 # File-level calls: Try Function first, then Class
-                call_params = {
+                call_params = self._sanitize_props({
                     'caller_file_path': caller_file_path,
                     'called_name': called_name,
                     'called_file_path': resolved_path,
                     'line_number': call['line_number'],
                     'args': call.get('args', []),
                     'full_call_name': call.get('full_name', called_name)
-                }
-                
+                })
+
+
                 if not self._safe_run_create(session, """
                     OPTIONAL MATCH (caller:File {path: $caller_file_path})
                     OPTIONAL MATCH (called:Function {name: $called_name, path: $called_file_path})
@@ -731,26 +884,35 @@ class GraphBuilder:
                     MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
                     RETURN count(*) as created
                 """, call_params):
-                
+
+                    # Try File caller -> Class.__init__ / constructor
                     if not self._safe_run_create(session, """
                         OPTIONAL MATCH (caller:File {path: $caller_file_path})
                         OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
                         OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
                         WHERE init.name IN ["__init__", "constructor"]
-                        WITH caller, COALESCE(init, called) as final_target
-                        WHERE caller IS NOT NULL AND final_target IS NOT NULL
-                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
+                        WITH caller, init
+                        WHERE caller IS NOT NULL AND init IS NOT NULL
+                        MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(init)
                         RETURN count(*) as created
                     """, call_params):
-
-                         # Fallback: Relaxed Global Search (Caller: File -> Callee: Function)
-                         self._safe_run_create(session, """
+                        # No __init__ - link directly to the Class node
+                        if not self._safe_run_create(session, """
                             OPTIONAL MATCH (caller:File {path: $caller_file_path})
-                            OPTIONAL MATCH (called:Function {name: $called_name})
+                            OPTIONAL MATCH (called:Class {name: $called_name, path: $called_file_path})
                             WITH caller, called
                             WHERE caller IS NOT NULL AND called IS NOT NULL
                             MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
-                        """, call_params)
+                            RETURN count(*) as created
+                        """, call_params):
+                            # Fallback: Relaxed Global Search (File -> any Function)
+                            self._safe_run_create(session, """
+                                OPTIONAL MATCH (caller:File {path: $caller_file_path})
+                                OPTIONAL MATCH (called:Function {name: $called_name})
+                                WITH caller, called
+                                WHERE caller IS NOT NULL AND called IS NOT NULL
+                                MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(called)
+                            """, call_params)
 
     def _create_all_function_calls(self, all_file_data: list[Dict], imports_map: dict):
         """Create CALLS relationships for all functions after all files have been processed."""
@@ -965,7 +1127,7 @@ class GraphBuilder:
 
     def parse_file(self, repo_path: Path, path: Path, is_dependency: bool = False) -> Dict:
         """Parses a file with the appropriate language parser and extracts code elements."""
-        parser = self.parsers.get(path.suffix)
+        parser = self.get_parser(path.suffix)
         if not parser:
             warning_logger(f"No parser found for file extension {path.suffix}. Skipping {path}")
             return {"path": str(path), "error": f"No parser for {path.suffix}"}
@@ -1085,16 +1247,19 @@ class GraphBuilder:
 
             # Step 4: Write nodes to graph using existing add_file_to_graph()
             processed = 0
+            index_root = path.resolve()
             for abs_path_str, file_data in files_data.items():
-                file_data["repo_path"] = str(path.resolve())
+                file_path = Path(abs_path_str)
+                if file_path.is_file() and file_path_has_ignore_dir_segment(file_path, index_root):
+                    continue
+                file_data["repo_path"] = str(index_root)
                 if job_id:
                     self.job_manager.update_job(job_id, current_file=abs_path_str)
 
                 # Step 5: Tree-sitter supplement — add source text, complexity, imports and bases
-                file_path = Path(abs_path_str)
-                if file_path.exists() and file_path.suffix in self.parsers:
+                ts_parser = self.get_parser(file_path.suffix)
+                if file_path.exists() and ts_parser:
                     try:
-                        ts_parser = self.parsers[file_path.suffix]
                         ts_data = ts_parser.parse(file_path, is_dependency, index_source=True)
                         if "error" not in ts_data:
                             # 1. Functions: complexity, source, decorators
@@ -1231,35 +1396,56 @@ class GraphBuilder:
 
             # Search for .cgcignore upwards
             cgcignore_path = None
-            ignore_root = path.resolve()
-            
+            # ignore_root is always the indexed path itself so that file paths
+            # are matched relative to the project being indexed.  A parent
+            # .cgcignore is still loaded (for monorepo support), but anchoring
+            # to its directory would make patterns like "website/" incorrectly
+            # filter out every file when indexing the website sub-directory.
+            ignore_root = path.resolve() if path.is_dir() else path.resolve().parent
+
             # Start search from path (or parent if path is file)
-            curr = path.resolve()
-            if not curr.is_dir():
-                curr = curr.parent
+            curr = ignore_root
 
             # Walk up looking for .cgcignore
             while True:
                 candidate = curr / ".cgcignore"
                 if candidate.exists():
                     cgcignore_path = candidate
-                    ignore_root = curr
-                    debug_log(f"Found .cgcignore at {ignore_root}")
+                    debug_log(f"Found .cgcignore at {curr} (filtering relative to {ignore_root})")
                     break
                 if curr.parent == curr: # Root hit
                     break
                 curr = curr.parent
 
+            spec = None
             if cgcignore_path:
                 with open(cgcignore_path) as f:
-                    ignore_patterns = f.read().splitlines()
+                    user_patterns = [line.strip() for line in f.read().splitlines() if line.strip() and not line.strip().startswith('#')]
+                ignore_patterns = DEFAULT_IGNORE_PATTERNS + user_patterns
                 spec = pathspec.PathSpec.from_lines('gitwildmatch', ignore_patterns)
             else:
-                spec = None
+                # No .cgcignore found — create one in the project root with default patterns
+                # so the user can see and customize what's being ignored
+                project_root = path.resolve() if path.is_dir() else path.resolve().parent
+                new_cgcignore = project_root / ".cgcignore"
+                try:
+                    cgcignore_content = "# Auto-generated by CodeGraphContext\n"
+                    cgcignore_content += "# Default ignore patterns for binary/media files\n"
+                    cgcignore_content += "# Add your own patterns below\n\n"
+                    cgcignore_content += "\n".join(DEFAULT_IGNORE_PATTERNS) + "\n"
+                    new_cgcignore.write_text(cgcignore_content)
+                    info_logger(f"Created default .cgcignore at {new_cgcignore}")
+                except OSError as e:
+                    warning_logger(f"Could not create .cgcignore at {new_cgcignore}: {e}")
+                spec = pathspec.PathSpec.from_lines('gitwildmatch', DEFAULT_IGNORE_PATTERNS)
 
             supported_extensions = self.parsers.keys()
             all_files = path.rglob("*") if path.is_dir() else [path]
-            files = [f for f in all_files if f.is_file() and f.suffix in supported_extensions]
+
+            # Previously only files with supported extensions were indexed.
+            # Updated to include all files so that unsupported file types
+            # can still be represented as minimal File nodes in the graph.
+            files = [f for f in all_files if f.is_file()]
 
             # Filter default ignored directories
             ignore_dirs_str = get_config_value("IGNORE_DIRS") or ""
@@ -1310,10 +1496,28 @@ class GraphBuilder:
                         self.job_manager.update_job(job_id, current_file=str(file))
                     repo_path = path.resolve() if path.is_dir() else file.parent.resolve()
                     file_data = self.parse_file(repo_path, file, is_dependency)
+                    # Previously only files with supported extensions were indexed.
+                    # Updated to include all files so that unsupported file types
+                    # can still be represented as minimal File nodes in the graph.
                     if "error" not in file_data:
-                        self.add_file_to_graph(file_data, repo_name, imports_map)
+                        try:
+                            self.add_file_to_graph(file_data, repo_name, imports_map)
+                        except Exception as file_err:
+                            # Re-raise with the offending file path so the user
+                            # can identify which source file triggered the error.
+                            raise RuntimeError(
+                                f"{file_err} (while indexing file: {file})"
+                            ) from file_err
                         all_file_data.append(file_data)
+
+                    # Previously only files with supported extensions were indexed.
+                    # Updated to include all files so that unsupported file types
+                    # can still be represented as minimal File nodes in the graph.
+                    else:
+                        # create minimal node if parser not available
+                        self.add_minimal_file_node(file, repo_path, is_dependency)
                     processed_count += 1
+
                     if job_id:
                         self.job_manager.update_job(job_id, processed_files=processed_count)
                     await asyncio.sleep(0.01)
@@ -1337,3 +1541,67 @@ class GraphBuilder:
                 self.job_manager.update_job(
                     job_id, status=status, end_time=datetime.now(), errors=[str(e)]
                 )
+
+    # Create a minimal File node for unsupported file types.
+    # These files do not contain parsed entities but should still
+    # appear in the repository graph as requested in issue #707.
+    def add_minimal_file_node(self, file_path: Path, repo_path: Path, is_dependency: bool = False):
+
+        file_path_str = str(file_path.resolve())
+        file_name = file_path.name
+        repo_name = repo_path.name
+        repo_path_str = str(repo_path.resolve())
+
+        with self.driver.session() as session:
+
+            session.run(
+                """
+                MERGE (r:Repository {path: $repo_path})
+                SET r.name = $repo_name
+                """,
+                repo_path=repo_path_str,
+                repo_name=repo_name
+            )
+
+            session.run(
+                """
+                MERGE (f:File {path: $file_path})
+                SET f.name = $file_name,
+                    f.is_dependency = $is_dependency
+                """,
+                file_path=file_path_str,
+                file_name=file_name,
+                is_dependency=is_dependency
+            )
+
+            # Establish directory structure
+            file_path_obj = Path(file_path_str)
+            repo_path_obj = Path(repo_path_str)
+            try:
+                relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
+            except ValueError:
+                # Fallback if not relative
+                relative_path_to_file = Path(file_path_obj.name)
+            
+            parent_path = repo_path_str
+            parent_label = 'Repository'
+
+            for part in relative_path_to_file.parts[:-1]:
+                current_path = Path(parent_path) / part
+                current_path_str = str(current_path)
+                
+                session.run(f"""
+                    MATCH (p:{parent_label} {{path: $parent_path}})
+                    MERGE (d:Directory {{path: $current_path}})
+                    SET d.name = $part
+                    MERGE (p)-[:CONTAINS]->(d)
+                """, parent_path=parent_path, current_path=current_path_str, part=part)
+
+                parent_path = current_path_str
+                parent_label = 'Directory'
+
+            session.run(f"""
+                MATCH (p:{parent_label} {{path: $parent_path}})
+                MATCH (f:File {{path: $file_path}})
+                MERGE (p)-[:CONTAINS]->(f)
+            """, parent_path=parent_path, file_path=file_path_str)

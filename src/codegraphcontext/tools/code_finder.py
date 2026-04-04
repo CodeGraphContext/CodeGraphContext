@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pathlib import Path
 
 from ..core.database import DatabaseManager
+from ..utils.path_ignore import cypher_path_not_under_ignore_dirs
 
 logger = logging.getLogger(__name__)
 
@@ -539,9 +540,13 @@ class CodeFinder:
 
         with self.driver.session() as session:
             repo_filter = "AND func.path STARTS WITH $repo_path" if repo_path else ""
-            result = session.run(f"""
+            decorator_filter = "AND ALL(decorator_name IN $exclude_decorated_with WHERE NOT decorator_name IN func.decorators)" if exclude_decorated_with else ""
+            func_ignore = cypher_path_not_under_ignore_dirs("func.path")
+            caller_ignore = cypher_path_not_under_ignore_dirs("caller.path")
+            
+            query = f"""
                 MATCH (func:Function)
-                WHERE func.is_dependency = false {repo_filter}
+                WHERE func.is_dependency = false {repo_filter} {func_ignore}
                   AND NOT func.name IN ['main', 'setup', 'run']
                   AND NOT (func.name STARTS WITH '__' AND func.name ENDS WITH '__')
                   AND NOT func.name STARTS WITH '_test'
@@ -550,10 +555,10 @@ class CodeFinder:
                   AND NOT toLower(func.name) CONTAINS 'application'
                   AND NOT toLower(func.name) CONTAINS 'entry'
                   AND NOT toLower(func.name) CONTAINS 'entrypoint'
-                  AND ALL(decorator_name IN $exclude_decorated_with WHERE NOT decorator_name IN func.decorators)
+                  {decorator_filter}
                 WITH func
                 OPTIONAL MATCH (caller:Function)-[:CALLS]->(func)
-                WHERE caller.is_dependency = false
+                WHERE caller.is_dependency = false {caller_ignore}
                 WITH func, count(caller) as caller_count
                 WHERE caller_count = 0
                 OPTIONAL MATCH (file:File)-[:CONTAINS]->(func)
@@ -566,7 +571,15 @@ class CodeFinder:
                     file.name as file_name
                 ORDER BY func.path, func.line_number
                 LIMIT 50
-            """, exclude_decorated_with=exclude_decorated_with, repo_path=repo_path)
+            """
+            
+            params = {}
+            if repo_path:
+                params["repo_path"] = repo_path
+            if exclude_decorated_with:
+                params["exclude_decorated_with"] = exclude_decorated_with
+                
+            result = session.run(query, **params)
             
             return {
                 "potentially_unused_functions": result.data(),
@@ -581,8 +594,8 @@ class CodeFinder:
                 # KùzuDB-compatible: Use anonymous end node and filter with WHERE
                 query = f"""
                     MATCH p = (f:Function)-[:CALLS*]->()
-                    WITH f, p, nodes(p) as path_nodes
-                    WITH f, path_nodes, list_extract(path_nodes, size(path_nodes)) as target
+                    WITH f as f, p as p, nodes(p) as path_nodes
+                    WITH f as f, path_nodes as path_nodes, path_nodes[size(path_nodes)] as target
                     WHERE target.name = $function_name AND target.path = $path {repo_filter}
                     RETURN DISTINCT f.name AS caller_name, f.path AS caller_file_path, f.line_number AS caller_line_number, f.is_dependency AS caller_is_dependency
                     ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
@@ -593,8 +606,8 @@ class CodeFinder:
                 # KùzuDB-compatible: Use anonymous end node and filter with WHERE
                 query = f"""
                     MATCH p = (f:Function)-[:CALLS*]->()
-                    WITH f, p, nodes(p) as path_nodes
-                    WITH f, path_nodes, list_extract(path_nodes, size(path_nodes)) as target
+                    WITH f as f, p as p, nodes(p) as path_nodes
+                    WITH f as f, path_nodes as path_nodes, path_nodes[size(path_nodes)] as target
                     WHERE target.name = $function_name {repo_filter}
                     RETURN DISTINCT f.name AS caller_name, f.path AS caller_file_path, f.line_number AS caller_line_number, f.is_dependency AS caller_is_dependency
                     ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
@@ -612,8 +625,8 @@ class CodeFinder:
                 query = f"""
                     MATCH (caller:Function {{name: $function_name, path: $path}})
                     MATCH p = (caller)-[:CALLS*]->()
-                    WITH p, nodes(p) as path_nodes
-                    WITH list_extract(path_nodes, size(path_nodes)) as f
+                    WITH p as p, nodes(p) as path_nodes
+                    WITH path_nodes[size(path_nodes)] as f
                     {repo_filter}
                     RETURN DISTINCT f.name AS callee_name, f.path AS callee_file_path, f.line_number AS callee_line_number, f.is_dependency AS callee_is_dependency
                     ORDER BY callee_is_dependency ASC, callee_file_path, callee_line_number
@@ -625,8 +638,8 @@ class CodeFinder:
                 query = f"""
                     MATCH (caller:Function {{name: $function_name}})
                     MATCH p = (caller)-[:CALLS*]->()
-                    WITH p, nodes(p) as path_nodes
-                    WITH list_extract(path_nodes, size(path_nodes)) as f
+                    WITH p as p, nodes(p) as path_nodes
+                    WITH path_nodes[size(path_nodes)] as f
                     {repo_filter}
                     RETURN DISTINCT f.name AS callee_name, f.path AS callee_file_path, f.line_number AS callee_line_number, f.is_dependency AS callee_is_dependency
                     ORDER BY callee_is_dependency ASC, callee_file_path, callee_line_number
@@ -647,24 +660,12 @@ class CodeFinder:
             query = f"""
                 MATCH (start:Function {start_props}), (end_target:Function {end_props})
                 {repo_filter}
-                WITH start, end_target
+                WITH start as start, end_target as end_target
                 MATCH path = (start)-[:CALLS*1..{max_depth}]->()
-                WITH path, end_target, nodes(path) as func_nodes, relationships(path) as call_rels
-                WITH path, func_nodes, call_rels, list_extract(func_nodes, size(func_nodes)) as path_end
+                WITH path as path, end_target as end_target, nodes(path) as func_nodes, relationships(path) as call_rels
+                WITH path as path, func_nodes as func_nodes, call_rels as call_rels, end_target as end_target, func_nodes[size(func_nodes)] as path_end
                 WHERE path_end.name = end_target.name AND (end_target.path IS NULL OR path_end.path = end_target.path)
-                RETURN 
-                    [node in func_nodes | {{
-                        name: node.name,
-                        path: node.path,
-                        line_number: node.line_number,
-                        is_dependency: node.is_dependency
-                    }}] as function_chain,
-                    [rel in call_rels | {{
-                        call_line: rel.line_number,
-                        args: rel.args,
-                        full_call_name: rel.full_call_name
-                    }}] as call_details,
-                    length(path) as chain_length
+                RETURN func_nodes as function_nodes, call_rels as call_nodes, size(call_rels) as chain_length
                 ORDER BY chain_length ASC
                 LIMIT 20
             """
@@ -679,7 +680,67 @@ class CodeFinder:
             }
             
             result = session.run(query, **params)
-            return result.data()
+
+            # Post-process Node/Rel objects into plain dicts so CLI output stays stable
+            rows = result.data()
+            transformed: List[Dict[str, Any]] = []
+            for row in rows:
+                func_nodes = row.get("function_nodes") or []
+                rel_nodes = row.get("call_nodes") or []
+                chain_len = row.get("chain_length", 0)
+
+                function_chain = []
+                for n in func_nodes:
+                    # Depending on KùzuDB + driver wrapping, list elements can arrive
+                    # either as Node/Rel objects or already-materialized dicts.
+                    if isinstance(n, dict):
+                        props = n
+                    else:
+                        props = None
+                        try:
+                            props = n.get_properties()
+                        except Exception:
+                            props = getattr(n, "properties", None)
+                        if props is None:
+                            props = {}
+                    function_chain.append(
+                        {
+                            "name": props.get("name"),
+                            "path": props.get("path"),
+                            "line_number": props.get("line_number"),
+                            "is_dependency": props.get("is_dependency"),
+                        }
+                    )
+
+                call_details = []
+                for r in rel_nodes:
+                    if isinstance(r, dict):
+                        props = r
+                    else:
+                        props = None
+                        try:
+                            props = r.get_properties()
+                        except Exception:
+                            props = getattr(r, "properties", None)
+                        if props is None:
+                            props = {}
+                    call_details.append(
+                        {
+                            "call_line": props.get("line_number"),
+                            "args": props.get("args"),
+                            "full_call_name": props.get("full_call_name"),
+                        }
+                    )
+
+                transformed.append(
+                    {
+                        "function_chain": function_chain,
+                        "call_details": call_details,
+                        "chain_length": chain_len,
+                    }
+                )
+
+            return transformed
 
     def find_by_type(self, element_type: str, limit: int = 50) -> List[Dict]:
         """Find all elements of a specific type (Function, Class, File, Module)."""
@@ -988,9 +1049,10 @@ class CodeFinder:
         """Find the most complex functions based on cyclomatic complexity."""
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
+            path_ignore = cypher_path_not_under_ignore_dirs("f.path")
             query = f"""
                 MATCH (f:Function)
-                WHERE f.cyclomatic_complexity IS NOT NULL AND f.is_dependency = false {repo_filter}
+                WHERE f.cyclomatic_complexity IS NOT NULL AND f.is_dependency = false {repo_filter} {path_ignore}
                 RETURN f.name as function_name, f.path as path, f.cyclomatic_complexity as complexity, f.line_number as line_number
                 ORDER BY f.cyclomatic_complexity DESC
                 LIMIT $limit

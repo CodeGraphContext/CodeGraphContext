@@ -65,117 +65,23 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
         }
 
 def visualize_graph_query(db_manager, **args) -> Dict[str, Any]:
-    """Tool to generate a visualization URL (Neo4j URL or FalkorDB HTML file)."""
+    """Tool to generate a visualization URL for the local Playground UI."""
     cypher_query = args.get("cypher_query")
     if not cypher_query:
         return {"error": "Cypher query cannot be empty."}
 
-    # Check DB Type: FalkorDBManager vs DatabaseManager vs KuzuDBManager
-    is_falkor = "FalkorDB" in db_manager.__class__.__name__
-    is_kuzu = "KuzuDB" in db_manager.__class__.__name__
-
-    if is_falkor or is_kuzu:
-        try:
-            data_nodes = []
-            data_edges = []
-            seen_nodes = set()
-
-            with db_manager.get_driver().session() as session:
-                result = session.run(cypher_query)
-                for record in result:
-                    # Iterate all values in the record to find Nodes and Relationships
-                    # record is a FalkorDBRecord (dict-like), values() works
-                    for val in record.values():
-                        # Process Node
-                        if hasattr(val, 'labels') and hasattr(val, 'id'):
-                            nid = val.id
-                            if nid not in seen_nodes:
-                                seen_nodes.add(nid)
-                                lbl = list(val.labels)[0] if val.labels else "Node"
-                                props = getattr(val, 'properties', {}) or {}
-                                name = props.get('name', str(nid))
-                                
-                                color = "#97c2fc"
-                                if "Repository" in val.labels: color = "#ffb3ba"
-                                elif "File" in val.labels: color = "#baffc9"
-                                elif "Class" in val.labels: color = "#bae1ff"
-                                elif "Function" in val.labels: color = "#ffffba"
-                                
-                                data_nodes.append({
-                                    "id": nid, "label": name, "group": lbl, 
-                                    "title": str(props), "color": color
-                                })
-                        
-                        # Process Relationship
-                        src = getattr(val, 'src_node', None)
-                        if src is None: src = getattr(val, 'start_node', None)
-                        
-                        dst = getattr(val, 'dest_node', None)
-                        if dst is None: dst = getattr(val, 'end_node', None)
-
-                        if src is not None and dst is not None:
-                            lbl = getattr(val, 'relation', None) or getattr(val, 'type', 'REL')
-                            data_edges.append({
-                                "from": src,
-                                "to": dst,
-                                "label": lbl,
-                                "arrows": "to"
-                            })
-
-            # Generate HTML
-            html_content = f"""
-<!DOCTYPE html>
-<html>
-<head>
-  <title>CodeGraphContext Visualization</title>
-  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-  <style type="text/css">
-    #mynetwork {{ width: 100%; height: 100vh; border: 1px solid lightgray; }}
-  </style>
-</head>
-<body>
-  <div id="mynetwork"></div>
-  <script type="text/javascript">
-    var nodes = new vis.DataSet({json.dumps(data_nodes)});
-    var edges = new vis.DataSet({json.dumps(data_edges)});
-    var container = document.getElementById('mynetwork');
-    var data = {{ nodes: nodes, edges: edges }};
-    var options = {{
-        nodes: {{ shape: 'dot', size: 16 }},
-        physics: {{ stabilization: false }},
-        layout: {{ improvedLayout: false }}
-    }};
-    var network = new vis.Network(container, data, options);
-  </script>
-</body>
-</html>
-"""
-            filename = f"codegraph_viz.html"
-            out_path = Path(os.getcwd()) / filename
-            with open(out_path, "w") as f:
-                f.write(html_content)
-            
-            return {
-                "success": True,
-                "visualization_url": f"file://{out_path}",
-                "message": f"Visualization generated at {out_path}. Open this file in your browser."
-            }
-
-        except Exception as e:
-            debug_log(f"Error generating FalkorDB visualization: {str(e)}")
-            return {"error": f"Failed to generate visualization: {str(e)}"}
-
-    else:
-        # Neo4j fallback
-        try:
-            encoded_query = urllib.parse.quote(cypher_query)
-            visualization_url = f"http://localhost:7474/browser/?cmd=edit&arg={encoded_query}"
-            
-            return {
-                "success": True,
-                "visualization_url": visualization_url,
-                "message": "Open the URL in your browser to visualize the graph query. The query will be pre-filled for editing."
-            }
-        except Exception as e:
-            debug_log(f"Error generating visualization URL: {str(e)}")
-            return {"error": f"Failed to generate visualization URL: {str(e)}"}
+    try:
+        # We point to the local server started by 'cgc visualize'
+        # By default it runs on port 8000
+        port = 8000
+        encoded_query = urllib.parse.quote(cypher_query)
+        visualization_url = f"http://localhost:{port}/index.html?cypher_query={encoded_query}"
+        
+        return {
+            "success": True,
+            "visualization_url": visualization_url,
+            "message": "Click the URL to visualize this specific query in the Playground UI. (Ensure 'cgc visualize' is running)"
+        }
+    except Exception as e:
+        debug_log(f"Error generating visualization URL: {str(e)}")
+        return {"error": f"Failed to generate visualization URL: {str(e)}"}

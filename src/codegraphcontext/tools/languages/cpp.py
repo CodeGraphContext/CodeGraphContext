@@ -11,6 +11,7 @@ CPP_QUERIES = {
                 declarator: [
                     (identifier) @name
                     (field_identifier) @name
+                    (qualified_identifier) @qualified_name
                 ]
             )
         ) @function_node
@@ -35,6 +36,7 @@ CPP_QUERIES = {
                 (field_expression
                     field: (field_identifier) @method_name
                 )
+                (qualified_identifier) @scoped_name
             ]
         arguments: (argument_list) @args
     )
@@ -158,36 +160,40 @@ class CppTreeSitterParser:
         for match in execute_query(self.language, query_str, root_node):
             capture_name = match[1]
             node = match[0]
-            if capture_name == 'name':
-                # node is identifier
-                # node.parent is function_declarator
-                # node.parent.parent is function_definition
-                func_node = node.parent.parent
-                
-                # Double check to prevent crashes if AST is different (e.g. pointers)
-                if func_node.type != 'function_definition':
-                    # Fallback or try finding function_definition upwards
-                    curr = node
-                    while curr and curr.type != 'function_definition':
-                        curr = curr.parent
-                    func_node = curr
-                
+            if capture_name in ('name', 'qualified_name'):
+                # Find the enclosing function_definition node
+                func_node = node.parent
+                while func_node and func_node.type != 'function_definition':
+                    func_node = func_node.parent
+
                 if not func_node: continue
 
-                name = self._get_node_text(node)
-                
+                # For qualified names like QueueElement::execute, extract
+                # both the class context and the method name
+                raw_text = self._get_node_text(node)
+                class_context = None
+                if capture_name == 'qualified_name' and '::' in raw_text:
+                    parts = raw_text.rsplit('::', 1)
+                    class_context = parts[0]
+                    name = parts[1]
+                else:
+                    name = raw_text
+
                 params = self._extract_function_params(func_node)
-                
+
                 func_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": func_node.end_point[0] + 1,
                     "args": params,
                 }
-                
+
+                if class_context:
+                    func_data["class_context"] = class_context
+
                 if self.index_source:
                     func_data["source"] = self._get_node_text(func_node)
-                
+
                 functions.append(func_data)
         return functions
 
@@ -238,16 +244,51 @@ class CppTreeSitterParser:
             if capture_name == 'name':
                 class_node = node.parent
                 name = self._get_node_text(node)
+                bases = self._extract_base_classes(class_node)
                 class_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": class_node.end_point[0] + 1,
-                    "bases": [], # Placeholder
+                    "bases": bases,
                 }
                 if self.index_source:
                     class_data["source"] = self._get_node_text(class_node)
                 classes.append(class_data)
         return classes
+
+    def _extract_base_classes(self, class_node) -> list[str]:
+        """Extract base class names from a class_specifier node.
+
+        Handles: class Foo : public Bar, private Baz, virtual Base
+        Tree-sitter AST: class_specifier -> base_class_clause -> (base_class_specifier)+
+        Each base_class_specifier has an optional access_specifier and a type node.
+        """
+        bases = []
+        for child in class_node.children:
+            if child.type == 'base_class_clause':
+                for base_spec in child.children:
+                    if base_spec.type in ('base_class_specifier', 'type_identifier',
+                                          'qualified_identifier', 'template_type'):
+                        # base_class_specifier contains access specifier + type
+                        if base_spec.type == 'base_class_specifier':
+                            # Find the type identifier within the base specifier
+                            for sub in base_spec.children:
+                                if sub.type in ('type_identifier', 'qualified_identifier',
+                                                'template_type'):
+                                    base_name = self._get_node_text(sub)
+                                    # Strip template args for graph matching
+                                    if '<' in base_name:
+                                        base_name = base_name[:base_name.index('<')].strip()
+                                    bases.append(base_name)
+                                    break
+                        else:
+                            # Direct type node (no access specifier)
+                            base_name = self._get_node_text(base_spec)
+                            if '<' in base_name:
+                                base_name = base_name[:base_name.index('<')].strip()
+                            bases.append(base_name)
+                break  # Only one base_class_clause per class
+        return bases
 
     def _find_imports(self, root_node):
         imports = []
@@ -270,6 +311,7 @@ class CppTreeSitterParser:
         query_str = CPP_QUERIES['enums']
         for node, capture_name in execute_query(self.language, query_str, root_node):
             if capture_name == 'name':
+                name = self._get_node_text(node)
                 enum_node = node.parent
                 enum_data = {
                     "name": name,
@@ -346,17 +388,17 @@ class CppTreeSitterParser:
             if capture_name == 'name':
                 assignment_node = node.parent
                 lambda_node = assignment_node.child_by_field_name('value')
-            if lambda_node is None or lambda_node.type != 'lambda_expression':
-                continue
+                if lambda_node is None or lambda_node.type != 'lambda_expression':
+                    continue
 
-            params_node = lambda_node.child_by_field_name('declarator')
-            if params_node:
-                params_node = params_node.child_by_field_name('parameters')
+                params_node = lambda_node.child_by_field_name('declarator')
+                if params_node:
+                    params_node = params_node.child_by_field_name('parameters')
                 name = self._get_node_text(node)
                 params_node = lambda_node.child_by_field_name('parameters')
-                
+
                 context, context_type, _ = self._get_parent_context(assignment_node)
-                class_context, _, _ = self._get_parent_context(assignment_node, types=('class_definition',))
+                class_context, _, _ = self._get_parent_context(assignment_node, types=('class_specifier',))
 
                 func_data = {
                     "name": name,
@@ -402,7 +444,7 @@ class CppTreeSitterParser:
                 type_text = self._get_node_text(type_node) if type_node else None
 
                 context, _, _ = self._get_parent_context(node)
-                class_context, _, _ = self._get_parent_context(node, types=('class_definition',))
+                class_context, _, _ = self._get_parent_context(node, types=('class_specifier',))
 
                 variable_data = {
                     "name": name,
@@ -417,17 +459,24 @@ class CppTreeSitterParser:
                 variables.append(variable_data)
         return variables
     
-    def _get_parent_context(self, node, types=('function_definition', 'class_definition')):
+    def _get_parent_context(self, node, types=('function_definition', 'class_specifier')):
         curr = node.parent
         while curr:
             if curr.type in types:
                 if curr.type == 'function_definition':
-                    # Traverse declarator to find name
+                    # Traverse declarator to find name, handling qualified names
                     decl = curr.child_by_field_name('declarator')
                     while decl:
                         if decl.type == 'identifier':
                              return self._get_node_text(decl), curr.type, decl.start_point[0] + 1
-                        
+                        if decl.type == 'qualified_identifier':
+                            # e.g. QueueElement::execute — return just the method name
+                            text = self._get_node_text(decl)
+                            name = text.rsplit('::', 1)[-1] if '::' in text else text
+                            return name, curr.type, decl.start_point[0] + 1
+                        if decl.type == 'field_identifier':
+                            return self._get_node_text(decl), curr.type, decl.start_point[0] + 1
+
                         child = decl.child_by_field_name('declarator')
                         if child:
                             decl = child
@@ -435,6 +484,9 @@ class CppTreeSitterParser:
                             break
                     # Fallback or if not found
                     return None, curr.type, curr.start_point[0] + 1
+                elif curr.type == 'class_specifier':
+                    name_node = curr.child_by_field_name('name')
+                    return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
                 else:
                     name_node = curr.child_by_field_name('name')
                     return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
@@ -445,49 +497,43 @@ class CppTreeSitterParser:
         calls = []
         query_str = CPP_QUERIES['calls']
         for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name == "function_name":
-                func_name = self._get_node_text(node)
-                func_node = node.parent.parent  # function_declarator -> function_definition
-                full_name = self._get_full_name(func_node) or func_name
+            if capture_name in ("function_name", "method_name", "scoped_name"):
+                raw_text = self._get_node_text(node)
 
-                # Find return type node (captured separately)
-                return_type_node = None
-                for n, cap in execute_query(self.language, query_str, func_node):
-                    if cap == "return_type":
-                        return_type_node = n
-                        break
-                return_type = self._get_node_text(return_type_node) if return_type_node else None
+                # Determine the called function name and any object/class qualifier
+                inferred_obj_type = None
+                if capture_name == "scoped_name" and '::' in raw_text:
+                    # e.g. QueueElement::setStatus or std::move
+                    parts = raw_text.rsplit('::', 1)
+                    func_name = parts[1]
+                    inferred_obj_type = parts[0]
+                elif capture_name == "method_name":
+                    # e.g. obj.method() or ptr->method() — field_expression
+                    func_name = raw_text
+                    # Try to get the object expression for type inference
+                    field_expr = node.parent  # field_expression node
+                    if field_expr and field_expr.type == 'field_expression':
+                        obj_node = field_expr.child_by_field_name('argument')
+                        if obj_node:
+                            obj_text = self._get_node_text(obj_node)
+                            # Treat this->method like self.method for resolution
+                            if obj_text == 'this':
+                                inferred_obj_type = 'this'
+                            else:
+                                inferred_obj_type = obj_text
+                else:
+                    func_name = raw_text
 
-                # Extract parameters
-                args = []
-                parameters_node = func_node.child_by_field_name("declarator")
-                if parameters_node:
-                    param_list_node = parameters_node.child_by_field_name("parameters")
-                    if param_list_node:
-                        for param in param_list_node.children:
-                            if param.type == "parameter_declaration":
-                                type_node = param.child_by_field_name("type")
-                                name_node = param.child_by_field_name("declarator")
-
-                                param_type = self._get_node_text(type_node) if type_node else None
-                                param_name = self._get_node_text(name_node) if name_node else None
-
-                                args.append({
-                                    "type": param_type,
-                                    "name": param_name
-                                })
-                
-
-                # Get context info (function may be inside class)
+                # Get context info (which function/class contains this call)
                 context_name, context_type, context_line = self._get_parent_context(node)
-                class_context, _, _ = self._get_parent_context(node, types=("class_definition",))
+                class_context, _, _ = self._get_parent_context(node, types=("class_specifier",))
 
                 call_data = {
                     "name": func_name,
-                    "full_name": full_name,
+                    "full_name": raw_text,
                     "line_number": node.start_point[0] + 1,
-                    "args": args,
-                    "inferred_obj_type": None,
+                    "args": [],
+                    "inferred_obj_type": inferred_obj_type,
                     "context": (context_name, context_type, context_line),
                     "class_context": class_context,
                     "lang": self.language_name,
@@ -506,8 +552,12 @@ class CppTreeSitterParser:
         while curr:
             if curr.type in ("function_definition", "function_declarator"):
                 id_node = curr.child_by_field_name("declarator")
-                if id_node and id_node.type == "identifier":
-                    name_parts.insert(0, id_node.text.decode("utf8"))
+                if id_node:
+                    if id_node.type == "identifier":
+                        name_parts.insert(0, id_node.text.decode("utf8"))
+                    elif id_node.type == "qualified_identifier":
+                        # Already contains Class::method — use it directly
+                        return id_node.text.decode("utf8")
             elif curr.type == "class_specifier":
                 name_node = curr.child_by_field_name("name")
                 if name_node:
@@ -532,8 +582,9 @@ def pre_scan_cpp(files: list[Path], parser_wrapper) -> dict:
         (class_specifier name: (type_identifier) @name)
         (struct_specifier name: (type_identifier) @name)
         (function_definition declarator: (function_declarator declarator: (identifier) @name))
+        (function_definition declarator: (function_declarator declarator: (qualified_identifier) @qualified_name))
     """
-    
+
 
     for path in files:
         try:
@@ -542,9 +593,23 @@ def pre_scan_cpp(files: list[Path], parser_wrapper) -> dict:
                 tree = parser_wrapper.parser.parse(source_bytes)
 
             for node, capture_name in execute_query(parser_wrapper.language, query_str, tree.root_node):
+                resolved_path = str(path.resolve())
                 if capture_name == "name":
                     name = node.text.decode("utf-8")
-                    imports_map.setdefault(name, []).append(str(path.resolve()))
+                    paths = imports_map.setdefault(name, [])
+                    if resolved_path not in paths:
+                        paths.append(resolved_path)
+                elif capture_name == "qualified_name":
+                    # e.g. QueueElement::execute — index both the full name and the method name
+                    full_name = node.text.decode("utf-8")
+                    paths = imports_map.setdefault(full_name, [])
+                    if resolved_path not in paths:
+                        paths.append(resolved_path)
+                    if '::' in full_name:
+                        method_name = full_name.rsplit('::', 1)[1]
+                        paths = imports_map.setdefault(method_name, [])
+                        if resolved_path not in paths:
+                            paths.append(resolved_path)
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
 

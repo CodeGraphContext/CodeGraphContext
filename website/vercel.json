@@ -5,11 +5,7 @@
       "destination": "/api/pypi"
     },
     {
-      "source": "/api/proxy",
-      "destination": "/api/proxy"
-    },
-    {
-      "source": "/((?!api/|@vite/|@react-refresh|src/|node_modules/|.*\\..*).*)",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]

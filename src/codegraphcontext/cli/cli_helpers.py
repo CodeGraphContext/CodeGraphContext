@@ -340,7 +340,9 @@ def cypher_helper_visual(query: str):
         console.print(f"[bold red]An error occurred while executing query:[/bold red] {e}")
     finally:
         db_manager.close_driver()
-import webbrowser
+
+
+import uvicorn
 import urllib.parse
 from ..viz.server import run_server, set_db_manager
 
@@ -356,12 +358,42 @@ def visualize_helper(repo_path: Optional[str] = None, port: int = 8000):
     set_db_manager(db_manager)
     
     # Determine the static directory (built React app)
-    static_dir = Path(__file__).parent.parent / "viz" / "dist"
+    # This points to src/codegraphcontext/viz/dist where we build the website
+    # (relative to src/codegraphcontext/cli/cli_helpers.py)
+    # Using .resolve() is more robust for path comparison and existence checks
+    this_file = Path(__file__).resolve()
+    package_root = this_file.parent.parent
+    static_dir = package_root / "viz" / "dist"
+    
+    # Fallback for development if not yet built in viz/dist
     if not static_dir.exists():
-        console.print("[yellow]Warning: Visualizer UI assets not found in package. Using fallback static dir.[/yellow]")
-        # Fallback for development
-        static_dir = Path.cwd() / "website" / "dist"
-
+        # Look for website/dist in the project root (3 levels up from cli/cli_helpers.py, 4 parents)
+        # 1: cli/, 2: codegraphcontext/, 3: src/, 4: project_root/
+        project_root = this_file.parent.parent.parent.parent
+        dev_static_dir = project_root / "website" / "dist"
+        
+        # Also try one level up from package_root just in case of different layouts
+        alt_dev_dir = package_root.parent.parent / "website" / "dist"
+        
+        if dev_static_dir.exists():
+            static_dir = dev_static_dir
+        elif alt_dev_dir.exists():
+            static_dir = alt_dev_dir
+        else:
+            # Last resort: try current working directory
+            cwd_static_dir = Path.cwd() / "website" / "dist"
+            if cwd_static_dir.exists():
+                static_dir = cwd_static_dir
+            else:
+                console.print(f"[yellow]Warning: Visualization assets not found.[/yellow]")
+                console.print(f"[dim]Checked paths:[/dim]")
+                console.print(f"  [dim]- {static_dir}[/dim]")
+                console.print(f"  [dim]- {dev_static_dir}[/dim]")
+                console.print(f"  [dim]- {alt_dev_dir}[/dim]")
+                console.print(f"  [dim]- {cwd_static_dir}[/dim]")
+                console.print("[dim]Please run 'cd website && npm run build' first.[/dim]")
+                # We continue anyway to let the server start (helpful for dev)
+    
     # Construct the URL
     backend_url = f"http://localhost:{port}"
     params = {"backend": backend_url}
@@ -369,7 +401,7 @@ def visualize_helper(repo_path: Optional[str] = None, port: int = 8000):
         params["repo_path"] = str(Path(repo_path).resolve())
     
     query_string = urllib.parse.urlencode(params)
-    visualization_url = f"{backend_url}/playground?{query_string}"
+    visualization_url = f"{backend_url}/explore?{query_string}"
     
     console.print(f"[green]Starting visualizer server on {backend_url}...[/green]")
     console.print(f"[cyan]Opening Playground UI:[/cyan] {visualization_url}")
@@ -377,6 +409,7 @@ def visualize_helper(repo_path: Optional[str] = None, port: int = 8000):
     # Open browser in a separate thread/process if possible, or just before starting server
     def open_browser():
         import time
+        import webbrowser
         time.sleep(1.5) # Give the server a moment to start
         webbrowser.open(visualization_url)
     
@@ -387,243 +420,6 @@ def visualize_helper(repo_path: Optional[str] = None, port: int = 8000):
         run_server(host="127.0.0.1", port=port, static_dir=str(static_dir))
     except Exception as e:
         console.print(f"[bold red]An error occurred while running the server:[/bold red] {e}")
-    finally:
-        db_manager.close_driver()
-
-def _visualize_falkordb(db_manager):
-    console.print("[dim]Generating FalkorDB visualization (showing up to 500 relationships)...[/dim]")
-    try:
-        data_nodes = []
-        data_edges = []
-        
-        with db_manager.get_driver().session() as session:
-            # Fetch nodes and edges
-            q = "MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 500"
-            result = session.run(q)
-            
-            seen_nodes = set()
-            
-            for record in result:
-                # record values are Node/Relationship objects from falkordb client
-                n = record['n']
-                r = record['r']
-                m = record['m']
-                
-                # Process Node helper
-                def process_node(node):
-                    nid = getattr(node, 'id', -1)
-                    labels = getattr(node, 'labels', [])
-                    lbl = list(labels)[0] if labels else "Node"
-                    props = getattr(node, 'properties', {})
-                    name = props.get('name', str(nid))
-                    
-                    if nid not in seen_nodes:
-                        seen_nodes.add(nid)
-                        color = "#97c2fc" # Default blue
-                        if "Repository" in labels: color = "#ffb3ba" # Red
-                        elif "File" in labels: color = "#baffc9" # Green
-                        elif "Class" in labels: color = "#bae1ff" # Light Blue
-                        elif "Function" in labels: color = "#ffffba" # Yellow
-                        elif "Package" in labels: color = "#ffdfba" # Orange
-                        
-                        data_nodes.append({
-                            "id": nid, 
-                            "label": name, 
-                            "group": lbl, 
-                            "title": str(props),
-                            "color": color
-                        })
-                    return nid
-
-                nid = process_node(n)
-                mid = process_node(m)
-                
-                # Check Edge
-                e_type = getattr(r, 'relation', '') or getattr(r, 'type', 'REL')
-                data_edges.append({
-                    "from": nid,
-                    "to": mid,
-                    "label": e_type,
-                    "arrows": "to"
-                })
-        
-        filename = "codegraph_viz.html"
-        html_content = f"""
-<!DOCTYPE html>
-<html>
-<head>
-  <title>CodeGraphContext Visualization</title>
-  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-  <style type="text/css">
-    #mynetwork {{
-      width: 100%;
-      height: 100vh;
-      border: 1px solid lightgray;
-    }}
-  </style>
-</head>
-<body>
-  <div id="mynetwork"></div>
-  <script type="text/javascript">
-    var nodes = new vis.DataSet({json.dumps(data_nodes)});
-    var edges = new vis.DataSet({json.dumps(data_edges)});
-    var container = document.getElementById('mynetwork');
-    var data = {{ nodes: nodes, edges: edges }};
-    var options = {{
-        nodes: {{ shape: 'dot', size: 16 }},
-        physics: {{ stabilization: false }},
-        layout: {{ improvedLayout: false }}
-    }};
-    var network = new vis.Network(container, data, options);
-  </script>
-</body>
-</html>
-"""
-        
-        out_path = Path(filename).resolve()
-        with open(out_path, "w") as f:
-            f.write(html_content)
-            
-        console.print(f"[green]Visualization generated at:[/green] {out_path}")
-        console.print("Opening in default browser...")
-        webbrowser.open(f"file://{out_path}")
-
-    except Exception as e:
-        console.print(f"[bold red]Visualization failed:[/bold red] {e}")
-        import traceback
-        traceback.print_exc()
-    finally:
-        db_manager.close_driver()
-
-
-def _visualize_kuzudb(db_manager):
-    console.print("[dim]Generating KùzuDB visualization (showing up to 500 relationships)...[/dim]")
-    try:
-        data_nodes = []
-        data_edges = []
-        
-        with db_manager.get_driver().session() as session:
-            # Fetch nodes and edges
-            # KùzuDB returns dicts for n, r, m in the result
-            q = "MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 500"
-            result = session.run(q)
-            
-            seen_nodes = set()
-            
-            # Helper to extract Node ID and props
-            def process_node(node):
-                uid = None
-                lbl = 'Node'
-                props = {}
-                
-                # Handle Kuzu Node Object (processed by wrapper)
-                if hasattr(node, 'properties'):
-                    props = node.properties or {}
-                    if hasattr(node, 'labels') and node.labels:
-                        lbl = node.labels[0]
-                    if hasattr(node, 'id'):
-                        uid = str(node.id)
-                # Handle Dictionary (raw Kuzu result)
-                elif isinstance(node, dict):
-                    if '_id' in node:
-                        uid = f"{node['_id']['table']}_{node['_id']['offset']}"
-                    lbl = node.get('_label', 'Node')
-                    props = {k: v for k, v in node.items() if not k.startswith('_')}
-                
-                if not uid:
-                    uid = str(uuid.uuid4())
-                    
-                name = props.get('name', str(uid))
-                
-                if uid not in seen_nodes:
-                    seen_nodes.add(uid)
-                    color = "#97c2fc" # Default blue
-                    if "Repository" == lbl: color = "#ffb3ba"
-                    elif "File" == lbl: color = "#baffc9"
-                    elif "Class" == lbl: color = "#bae1ff"
-                    elif "Function" == lbl: color = "#ffffba"
-                    elif "Module" == lbl: color = "#ffdfba"
-                    
-                    data_nodes.append({
-                        "id": uid, 
-                        "label": name, 
-                        "group": lbl, 
-                        "title": str(props),
-                        "color": color
-                    })
-                return uid
-            
-            # Iterate results
-            for record in result:
-                # record is dict-like access to row items
-                n = record['n']
-                r = record['r']
-                m = record['m']
-                
-                nid = process_node(n)
-                mid = process_node(m)
-                
-                # Process Edge
-                e_type = 'REL'
-                if hasattr(r, 'type'):
-                    e_type = r.type
-                elif isinstance(r, dict):
-                    e_type = r.get('_label', 'REL')
-                elif hasattr(r, 'label'): # Some versions
-                     e_type = r.label
-                
-                data_edges.append({
-                    "from": nid,
-                    "to": mid,
-                    "label": e_type,
-                    "arrows": "to"
-                })
-        
-        filename = "codegraph_viz.html"
-        html_content = f"""
-<!DOCTYPE html>
-<html>
-<head>
-  <title>CodeGraphContext KùzuDB Visualization</title>
-  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-  <style type="text/css">
-    #mynetwork {{
-      width: 100%;
-      height: 100vh;
-      border: 1px solid lightgray;
-    }}
-  </style>
-</head>
-<body>
-  <div id="mynetwork"></div>
-  <script type="text/javascript">
-    var nodes = new vis.DataSet({json.dumps(data_nodes)});
-    var edges = new vis.DataSet({json.dumps(data_edges)});
-    var container = document.getElementById('mynetwork');
-    var data = {{ nodes: nodes, edges: edges }};
-    var options = {{
-        nodes: {{ shape: 'dot', size: 16 }},
-        physics: {{ stabilization: false }},
-        layout: {{ improvedLayout: false }}
-    }};
-    var network = new vis.Network(container, data, options);
-  </script>
-</body>
-</html>
-"""
-        
-        out_path = Path(filename).resolve()
-        with open(out_path, "w") as f:
-            f.write(html_content)
-            
-        console.print(f"[green]Visualization generated at:[/green] {out_path}")
-        console.print("Opening in default browser...")
-        webbrowser.open(f"file://{out_path}")
-
-    except Exception as e:
-        console.print(f"[bold red]Visualization failed:[/bold red] {e}")
-        import traceback
-        traceback.print_exc()
     finally:
         db_manager.close_driver()
 
@@ -687,9 +483,10 @@ def clean_helper():
     console.print("[cyan]🧹 Cleaning database (removing orphaned nodes)...[/cyan]")
     
     try:
-        # Determine if we're using FalkorDB or Neo4j for query optimization
+        # Determine backend type for query compatibility
         db_type = db_manager.__class__.__name__
         is_falkordb = "Falkor" in db_type
+        is_kuzu = "Kuzu" in db_type
         
         total_deleted = 0
         batch_size = 1000
@@ -697,14 +494,15 @@ def clean_helper():
         with db_manager.get_driver().session() as session:
             # Keep deleting orphaned nodes in batches until none are found
             while True:
-                if is_falkordb:
-                    # FalkorDB-compatible query using OPTIONAL MATCH
+                if is_falkordb or is_kuzu:
+                    # FalkorDB / KùzuDB-compatible query using OPTIONAL MATCH
+                    # (KùzuDB does not support the Neo4j `NOT EXISTS { MATCH ... }` subquery syntax)
                     query = """
                     MATCH (n)
                     WHERE NOT (n:Repository)
-                    OPTIONAL MATCH path = (n)-[*..10]-(r:Repository)
-                    WITH n, path
-                    WHERE path IS NULL
+                    OPTIONAL MATCH p = (n)-[*..10]-(r:Repository)
+                    WITH n, p
+                    WHERE p IS NULL
                     WITH n LIMIT $batch_size
                     DETACH DELETE n
                     RETURN count(n) as deleted

@@ -201,14 +201,14 @@ cgc analyze chain login authenticate
 
 ## 🔄 Future Enhancements
 
-### Phase 2: Bundle Registry (v0.3.1)
+### Phase 2: Bundle Registry (v0.3.2)
 - [ ] Central bundle registry (like npm)
 - [ ] `cgc registry search` command
 - [ ] Automatic download from registry
 - [ ] Version management and updates
 - [ ] Bundle metadata API
 
-### Phase 3: Advanced Features (v0.3.1)
+### Phase 3: Advanced Features (v0.3.2)
 - [ ] Delta bundles (incremental updates)
 - [ ] Bundle compression options
 - [ ] Encrypted bundles for private code
@@ -287,7 +287,7 @@ cgc find name hello
 3. **Create bundles for tier-1 repos** (numpy, pandas, fastapi, requests, flask)
 4. **Announce the feature** in README and documentation
 5. **Gather feedback** from users
-6. **Iterate on registry design** for v0.3.1
+6. **Iterate on registry design** for v0.3.2
 
 ## 🎉 Summary
 

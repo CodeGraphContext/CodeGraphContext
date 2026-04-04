@@ -256,14 +256,14 @@ Shortcuts:
 
 ## 🗺️ Future Roadmap
 
-### Phase 2: Bundle Registry (v0.3.1)
+### Phase 2: Bundle Registry (v0.3.2)
 - [ ] Central bundle registry (like npm)
 - [ ] `cgc registry search` command
 - [ ] Automatic download from registry
 - [ ] Version management
 - [ ] Bundle metadata API
 
-### Phase 3: Advanced Features (v0.3.1)
+### Phase 3: Advanced Features (v0.3.2)
 - [ ] Delta bundles (incremental updates)
 - [ ] Bundle compression options
 - [ ] Encrypted bundles

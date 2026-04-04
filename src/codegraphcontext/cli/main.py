@@ -999,7 +999,7 @@ def visualize(
     port: int = typer.Option(8000, "--port", "-p", help="Port to run the visualizer server on.")
 ):
     """
-    Launches the interactive Playground UI to visualize the code graph.
+    Launches the interactive UI to visualize the code graph.
     """
     _load_credentials()
     visualize_helper(repo, port)

@@ -11,7 +11,7 @@ venv/
 .venv311/
 venv311/
 docker-compose.yml
-
+node_modules
 # PyPI
 dist/
 build/
@@ -69,5 +69,4 @@ cgc_btc/
 # Claude
 .claude/*
 *.spec
-playground
 todo.md

@@ -296,6 +296,12 @@ def run_command(command, console, shell=False, check=True, input_text=None):
     Returns the completed process object on success, None on failure.
     """
     cmd_str = command if isinstance(command, str) else ' '.join(command)
+    
+    # Mask passwords from being printed out
+    if "set-initial-password" in cmd_str:
+        import re
+        cmd_str = re.sub(r'(set-initial-password\s+)(\S+)', r'\g<1>********', cmd_str)
+        
     console.print(f"[cyan]$ {cmd_str}[/cyan]")
     try:
         process = subprocess.run(

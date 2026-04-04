@@ -79,6 +79,7 @@ class GoTreeSitterParser:
         self.language_name = generic_parser_wrapper.language_name
         self.language = generic_parser_wrapper.language
         self.parser = generic_parser_wrapper.parser
+        self.index_source = False
 
     def _get_node_text(self, node) -> str:
         return node.text.decode('utf-8')
@@ -99,17 +100,52 @@ class GoTreeSitterParser:
         return None, None, None
 
     def _calculate_complexity(self, node):
-        complexity_nodes = {
-            "if_statement", "for_statement", "switch_statement", "case_clause",
-            "expression_switch_statement", "type_switch_statement",
-            "binary_expression", "call_expression"
+        """
+        Compute a simple cyclomatic complexity score from the Go AST.
+
+        We treat each decision/control-flow construct as +1:
+        - if/for/switch/select
+        - switch cases (case_clause) and select clauses (comm_clause)
+        - logical operators (&&, ||) inside binary_expression as +1
+        """
+        # Note: tree-sitter-go node types differ from other languages and from
+        # what we'd typically expect (e.g. it's `switch`/`case` rather than
+        # `switch_statement`/`case_clause`).
+        decision_node_types = {
+            # top-level control constructs
+            "if_statement",
+            "for_statement",
+            "switch",
+            "select_statement",
+            "select",
+            # switch variants (tree-sitter grammar)
+            "expression_switch_statement",
+            "type_switch_statement",
+            # switch case branches
+            "case",
+            "expression_case",
+            "default_case",
+            # select communication branches
+            "communication_case",
         }
+
         count = 1
 
         def traverse(n):
             nonlocal count
-            if n.type in complexity_nodes:
+            if n.type in decision_node_types:
                 count += 1
+                # Still traverse children because nested constructs also contribute.
+            elif n.type == "binary_expression":
+                # Only count logical operators, not all binary expressions/comparisons.
+                # Example patterns: "a && b", "a || b".
+                try:
+                    txt = self._get_node_text(n)
+                except Exception:
+                    txt = ""
+                if "&&" in txt or "||" in txt:
+                    count += 1
+
             for child in n.children:
                 traverse(child)
 
@@ -240,6 +276,7 @@ class GoTreeSitterParser:
                     "decorators": [],
                     "lang": self.language_name,
                     "is_dependency": False,
+                    "cyclomatic_complexity": self._calculate_complexity(func_node),
                 }
                 
                 if self.index_source:

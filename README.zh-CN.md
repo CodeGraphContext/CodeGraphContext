@@ -5,6 +5,8 @@
 🌐 **语言 (Languages):**
 - 🇬🇧 [English](README.md)
 - 🇨🇳 [中文](README.zh-CN.md)
+- 🇰🇷 [한국어](README.kor.md)
+- 🇺🇦 [Українська](README.uk.md)
 - 🇯🇵 日本語 (即将推出)
 - 🇷🇺 Русский (即将推出)
 - 🇪🇸 Español (即将推出)
@@ -95,7 +97,7 @@
 ---
 
 ## 项目详情
-- **版本:** 0.3.1
+- **版本:** 0.3.8
 - **作者:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **许可证:** MIT License (详见 [LICENSE](LICENSE))
 - **网站:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
@@ -181,7 +183,7 @@ _如果你正在项目中使用 CodeGraphContext，欢迎提交 PR 并添加到�
 - `stdlibs>=2023.11.18`
 - `typer[all]>=0.9.0`
 - `rich>=13.7.0`
-- `inquirerpy>=0.3.4`
+- `inquirerpy>=0.3.7`
 - `python-dotenv>=1.0.0`
 - `tree-sitter>=0.21.0`
 - `tree-sitter-language-pack>=0.6.0`
@@ -203,7 +205,7 @@ pip install codegraphcontext
 
 ### 如果找不到 'cgc' 命令，请运行我们的一键修复：
 ```
-curl -sSL [https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/scripts/post_install_fix.sh](https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/scripts/post_install_fix.sh) | bash
+curl -sSL https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/scripts/post_install_fix.sh | bash
 ```
 
 ---

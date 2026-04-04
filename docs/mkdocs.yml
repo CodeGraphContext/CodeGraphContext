@@ -34,6 +34,7 @@ nav:
     - "User Journeys (Stories)": user_journeys.md
     - "Integration & Workflows": integration_guide.md
   - Guides:
+    - Onboarding Guide: guides/onboarding.md
     - Neo4j Setup Wizard : guides/setup_deep_dive.md
     - MCP Setup Wizard : guides/mcp_guide.md
     - Visualizing the Graph: guides/visualization.md
