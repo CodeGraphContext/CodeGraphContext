@@ -26,6 +26,11 @@ from codegraphcontext.server import MCPServer
 from codegraphcontext.core.database import DatabaseManager
 from .setup_wizard import run_neo4j_setup_wizard, configure_mcp_client
 from . import config_manager
+from .context_manager import (
+    resolve_context,
+    apply_context_environment,
+    set_default_context_mode,
+)
 # Import the new helper functions
 from .cli_helpers import (
     index_helper,
@@ -222,9 +227,9 @@ def _load_credentials():
     Loads configuration and credentials from various sources into environment variables.
     Uses per-variable precedence - each variable is loaded from the highest priority source.
     Priority order (highest to lowest):
-    1. Local `mcp.json` env vars (highest - explicit MCP server config)
-    2. Local `.env` in project directory (high - project-specific overrides)
-    3. Global `~/.codegraphcontext/.env` (lowest - user defaults)
+    1. Local project `.env` (project-specific overrides)
+    2. Active context `.env` (global/per-repo/shared)
+    3. Global `~/.codegraphcontext/.env` (user defaults)
     """
     from dotenv import dotenv_values
     from codegraphcontext.cli.config_manager import ensure_config_dir
@@ -238,6 +243,14 @@ def _load_credentials():
 
     # Ensure config directory exists (lazy initialization)
     ensure_config_dir()
+
+    # Resolve active context first so DB paths and context-local settings are deterministic.
+    path_hint = os.environ.get("CGC_INDEX_PATH_HINT")
+    resolution = resolve_context(
+        context_name=os.environ.get("CGC_CONTEXT_NAME"),
+        path_hint=Path(path_hint).resolve() if path_hint else None,
+    )
+    apply_context_environment(resolution)
     
     # Collect all config sources in reverse priority order (lowest to highest)
     config_sources = []
@@ -251,6 +264,15 @@ def _load_credentials():
             config_source_names.append(str(global_env_path))
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load global .env: {e}[/yellow]")
+
+    # 2. Active context .env (overrides global defaults)
+    context_env_path = resolution.context_dir / ".env"
+    if context_env_path.exists() and context_env_path != global_env_path:
+        try:
+            config_sources.append(dotenv_values(str(context_env_path)))
+            config_source_names.append(str(context_env_path))
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not load context .env: {e}[/yellow]")
     
     # 2. Local project .env (higher priority - project-specific overrides)
     try:
@@ -260,19 +282,6 @@ def _load_credentials():
             config_source_names.append(str(dotenv_path))
     except Exception as e:
         console.print(f"[yellow]Warning: Could not load .env from current directory: {e}[/yellow]")
-    
-    # 1. Local mcp.json (highest priority - explicit MCP server config)
-    mcp_file_path = Path.cwd() / "mcp.json"
-    if mcp_file_path.exists():
-        try:
-            with open(mcp_file_path, "r") as f:
-                mcp_config = json.load(f)
-            server_env = mcp_config.get("mcpServers", {}).get("CodeGraphContext", {}).get("env", {})
-            if server_env:
-                config_sources.append(server_env)
-                config_source_names.append("mcp.json")
-        except Exception as e:
-            console.print(f"[yellow]Warning: Could not load mcp.json: {e}[/yellow]")
     
     # Merge all configs with proper precedence (later sources override earlier ones)
     merged_config = {}
@@ -299,6 +308,11 @@ def _load_credentials():
             console.print(f"[dim]Loaded configuration from: {', '.join(config_source_names)} (highest priority: {config_source_names[-1]})[/dim]")
     else:
         console.print("[yellow]No configuration file found. Using defaults.[/yellow]")
+
+    context_name = os.environ.get("CGC_CONTEXT_NAME") or "-"
+    console.print(
+        f"[dim]Active context: mode={resolution.mode}, name={context_name}, dir={resolution.context_dir}[/dim]"
+    )
     
     
     # Show which database is actually being used.
@@ -376,6 +390,32 @@ def config_show():
     logging settings, and performance tuning parameters.
     """
     config_manager.show_config()
+
+
+@config_app.command("set-default")
+def config_set_default(
+    mode: str = typer.Argument(..., help="Default context mode: global | per-repo | shared"),
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="Default shared context name when mode=shared"),
+):
+    """
+    Set the default context mode used by CLI/MCP runtime.
+
+    Examples:
+        cgc config set-default global
+        cgc config set-default per-repo
+        cgc config set-default shared --name ProjectAB
+    """
+    try:
+        cfg = set_default_context_mode(mode, name)
+        active_mode = cfg.get("default_context_mode")
+        shared_name = cfg.get("default_shared_context")
+        if active_mode == "shared":
+            console.print(f"[green]✅ Default context mode set to shared ({shared_name})[/green]")
+        else:
+            console.print(f"[green]✅ Default context mode set to {active_mode}[/green]")
+    except ValueError as e:
+        console.print(f"[red]❌ {e}[/red]")
+        raise typer.Exit(code=1)
 
 @config_app.command("set")
 def config_set(
@@ -869,7 +909,8 @@ def start():
 @app.command()
 def index(
     path: Optional[str] = typer.Argument(None, help="Path to the directory or file to index. Defaults to the current directory."),
-    force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)")
+    force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Use a named shared context for this command")
 ):
     """
     Indexes a directory or file by adding it to the code graph.
@@ -877,9 +918,12 @@ def index(
     
     Use --force to delete the existing index and rebuild from scratch.
     """
-    _load_credentials()
+    if context:
+        os.environ["CGC_CONTEXT_NAME"] = context
     if path is None:
         path = str(Path.cwd())
+    os.environ["CGC_INDEX_PATH_HINT"] = str(Path(path).resolve())
+    _load_credentials()
     
     if force:
         console.print("[yellow]Force re-indexing (--force flag detected)[/yellow]")
@@ -2126,10 +2170,11 @@ def cypher_legacy(query: str = typer.Argument(..., help="The read-only Cypher qu
 @app.command("i", rich_help_panel="Shortcuts")
 def index_abbrev(
     path: Optional[str] = typer.Argument(None, help="Path to index"),
-    force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)")
+    force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Use a named shared context for this command")
 ):
     """Shortcut for 'cgc index'"""
-    index(path, force=force)
+    index(path, force=force, context=context)
 
 @app.command("ls", rich_help_panel="Shortcuts")
 def list_abbrev():
@@ -2192,6 +2237,12 @@ def main(
         "-V",
         help="[Global] Show results as interactive graph visualization in browser"
     ),
+    context: Optional[str] = typer.Option(
+        None,
+        "--context",
+        "-c",
+        help="[Global] Use named shared context (overrides default mode for this invocation)",
+    ),
     version_: bool = typer.Option(
         None,
         "--version",
@@ -2216,6 +2267,9 @@ def main(
     
     if database:
         os.environ["CGC_RUNTIME_DB_TYPE"] = database
+
+    if context:
+        os.environ["CGC_CONTEXT_NAME"] = context
 
     # Store visual flag in context for subcommands to access
     if visual:

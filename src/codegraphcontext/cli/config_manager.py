@@ -21,6 +21,9 @@ DATABASE_CREDENTIAL_KEYS = {"NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NE
 # Default configuration values
 DEFAULT_CONFIG = {
     "DEFAULT_DATABASE": "falkordb",
+    "DEFAULT_CONTEXT_MODE": "global",
+    "DEFAULT_SHARED_CONTEXT": "default",
+    "KUZUDB_PATH": str(CONFIG_DIR / "kuzudb"),
     "FALKORDB_PATH": str(CONFIG_DIR / "falkordb.db"),
     "FALKORDB_SOCKET_PATH": str(CONFIG_DIR / "falkordb.sock"),
     "INDEX_VARIABLES": "true",
@@ -49,6 +52,9 @@ DEFAULT_CONFIG = {
 # Configuration key descriptions
 CONFIG_DESCRIPTIONS = {
     "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|kuzudb)",
+    "DEFAULT_CONTEXT_MODE": "Default context mode (global|per-repo|shared)",
+    "DEFAULT_SHARED_CONTEXT": "Default shared context name when DEFAULT_CONTEXT_MODE=shared",
+    "KUZUDB_PATH": "Path to KuzuDB storage directory",
     "FALKORDB_PATH": "Path to FalkorDB database file",
     "FALKORDB_SOCKET_PATH": "Path to FalkorDB Unix socket",
     "INDEX_VARIABLES": "Index variable nodes in the graph (lighter graph if false)",
@@ -75,7 +81,8 @@ CONFIG_DESCRIPTIONS = {
 
 # Valid values for each config key
 CONFIG_VALIDATORS = {
-    "DEFAULT_DATABASE": ["neo4j", "falkordb", "kuzudb"],
+    "DEFAULT_DATABASE": ["neo4j", "falkordb", "falkordb-remote", "kuzudb"],
+    "DEFAULT_CONTEXT_MODE": ["global", "per-repo", "shared"],
     "INDEX_VARIABLES": ["true", "false"],
     "ALLOW_DB_DELETION": ["true", "false"],
     "DEBUG_LOGS": ["true", "false"],

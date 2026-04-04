@@ -4,6 +4,7 @@ import pytest
 from typer.testing import CliRunner
 from unittest.mock import patch, MagicMock
 from codegraphcontext.cli.main import app
+from codegraphcontext.cli import context_manager
 
 runner = CliRunner()
 
@@ -135,4 +136,18 @@ class TestNeo4jDatabaseNameCLI:
                 printed = output.getvalue()
                 assert "Using database: Neo4j" in printed
                 assert "(database:" not in printed
+
+
+class TestContextModeCLI:
+    def test_config_set_default_shared(self, tmp_path):
+        context_manager.GLOBAL_CONFIG_DIR = tmp_path / ".codegraphcontext"
+        context_manager.GLOBAL_CONFIG_YAML = context_manager.GLOBAL_CONFIG_DIR / "config.yaml"
+        context_manager.CONTEXTS_DIR = context_manager.GLOBAL_CONFIG_DIR / "contexts"
+
+        result = runner.invoke(app, ["config", "set-default", "shared", "--name", "ProjectAB"])
+
+        assert result.exit_code == 0
+        cfg = context_manager.load_global_context_config()
+        assert cfg["default_context_mode"] == "shared"
+        assert cfg["default_shared_context"] == "ProjectAB"
 
