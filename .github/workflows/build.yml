@@ -57,9 +57,14 @@ jobs:
             /bin/bash -c "
               set -e
               cd /src
-              /opt/python/cp312-cp312/bin/python -m pip install --upgrade pip
-              /opt/python/cp312-cp312/bin/pip install . pyinstaller
-              /opt/python/cp312-cp312/bin/pyinstaller cgc.spec --clean
+              curl -LsSf https://astral.sh/uv/install.sh | sh
+              export PATH=/root/.local/bin:\$PATH
+              uv python install 3.12
+              uv venv --python 3.12 /tmp/venv
+              . /tmp/venv/bin/activate
+              python -m pip install --upgrade pip
+              pip install . pyinstaller
+              pyinstaller cgc.spec --clean
             "
           sudo chown -R $USER:$USER dist build
 
