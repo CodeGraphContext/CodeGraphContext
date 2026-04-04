@@ -29,7 +29,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Set up Python 3.12 (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Python 3.12 (Windows/Mac)
+        if: runner.os != 'Linux'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -57,9 +64,12 @@ jobs:
             /bin/bash -c "
               set -e
               cd /src
-              /opt/python/cp312-cp312/bin/python -m pip install --upgrade pip
-              /opt/python/cp312-cp312/bin/pip install . pyinstaller
-              /opt/python/cp312-cp312/bin/pyinstaller cgc.spec --clean
+              uv python install 3.12
+              uv venv --python 3.12 --seed /tmp/venv
+              . /tmp/venv/bin/activate
+              python -m pip install --upgrade pip
+              pip install . pyinstaller
+              pyinstaller cgc.spec --clean
             "
           sudo chown -R $USER:$USER dist build
 
