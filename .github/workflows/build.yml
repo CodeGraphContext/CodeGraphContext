@@ -60,7 +60,7 @@ jobs:
               curl -LsSf https://astral.sh/uv/install.sh | sh
               export PATH=/root/.local/bin:\$PATH
               uv python install 3.12
-              uv venv --python 3.12 /tmp/venv
+              uv venv --python 3.12 --seed /tmp/venv
               . /tmp/venv/bin/activate
               python -m pip install --upgrade pip
               pip install . pyinstaller
