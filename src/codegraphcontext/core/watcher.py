@@ -65,6 +65,8 @@ class RepositoryEventHandler(FileSystemEventHandler):
         # 3. After all files are parsed, create the relationships (e.g., function calls) between them.
         self.graph_builder._create_all_function_calls(self.all_file_data, self.imports_map)
         self.graph_builder._create_all_inheritance_links(self.all_file_data, self.imports_map)
+        # Free memory — all_file_data is only needed during the linking pass.
+        self.all_file_data.clear()
         info_logger(f"Initial scan and graph linking complete for: {self.repo_path}")
 
     def _debounce(self, event_path, action):
@@ -81,42 +83,97 @@ class RepositoryEventHandler(FileSystemEventHandler):
         timer.start()
         self.timers[event_path] = timer
 
+    def _update_imports_map_for_file(self, changed_path: Path):
+        """Re-scan a single file and merge its contributions into self.imports_map.
+        Removes stale paths for the file before inserting new ones so renamed/deleted
+        symbols don't leave dangling entries."""
+        changed_str = str(changed_path.resolve())
+        # Remove old contributions of this file from every symbol it previously exported.
+        for symbol in list(self.imports_map.keys()):
+            old_list = self.imports_map[symbol]
+            if changed_str in old_list:
+                new_list = [p for p in old_list if p != changed_str]
+                if new_list:
+                    self.imports_map[symbol] = new_list
+                else:
+                    del self.imports_map[symbol]
+        # Merge new contributions (if the file still exists).
+        if changed_path.exists():
+            new_map = self.graph_builder._pre_scan_for_imports([changed_path])
+            for symbol, paths in new_map.items():
+                if symbol not in self.imports_map:
+                    self.imports_map[symbol] = []
+                self.imports_map[symbol].extend(paths)
+
     def _handle_modification(self, event_path_str: str):
         """
-        Orchestrates the complete update cycle for a modified or created file.
-        This involves re-scanning the entire repo to update cross-file relationships.
+        Incremental update: only re-parse and re-link the changed file plus the files
+        that previously called into it.  O(k) instead of O(n) for every event.
+
+        Algorithm:
+          1. Query Neo4j for files that have CALLS/INHERITS touching the changed file
+             (must happen BEFORE nodes are deleted, so the graph still has the old edges).
+          2. Update self.imports_map for the changed file only (O(1) file scan).
+          3. update_file_in_graph — DETACH DELETE cleans up ALL CALLS/INHERITS on the
+             changed file's nodes (both incoming and outgoing) automatically.
+          4. Delete outgoing CALLS from affected *caller* files (their CALLS to the changed
+             file were removed by DETACH DELETE, but their CALLS to unrelated files are
+             still there; we must delete all their outgoing CALLS before re-creating so we
+             don't leave stale CALLS to functions that have moved/been renamed).
+          5. Re-parse only the affected subset (changed file + callers + inheritors).
+          6. Build file_class_lookup cheaply from Neo4j (no full re-parse needed).
+          7. Re-create CALLS/INHERITS for the subset only.
         """
-        info_logger(f"File change detected, starting full repository refresh for: {event_path_str}")
-        modified_path = Path(event_path_str)
-
-        # 1. Get all supported files in the repository.
+        info_logger(f"File change detected (incremental update): {event_path_str}")
+        changed_path = Path(event_path_str)
+        changed_path_str = str(changed_path.resolve())
         supported_extensions = self.graph_builder.parsers.keys()
-        all_files = [f for f in self.repo_path.rglob("*") if f.is_file() and f.suffix in supported_extensions]
 
-        # 2. Re-scan all files to get a fresh, global map of all symbols.
-        self.imports_map = self.graph_builder._pre_scan_for_imports(all_files)
-        info_logger("Refreshed global imports map.")
-
-        # 3. Update the specific file that changed in the graph.
-        # This deletes old nodes and adds new ones for the single file.
-        self.graph_builder.update_file_in_graph(
-            modified_path, self.repo_path, self.imports_map
+        # Step 1: Find affected neighbours BEFORE nodes are destroyed.
+        caller_paths = self.graph_builder.get_caller_file_paths(changed_path_str)
+        inheritor_paths = self.graph_builder.get_inheritance_neighbor_paths(changed_path_str)
+        affected_paths = {changed_path_str} | caller_paths | inheritor_paths
+        info_logger(
+            f"[INCREMENTAL] affected={len(affected_paths)} files "
+            f"(callers={len(caller_paths)}, inheritors={len(inheritor_paths)})"
         )
 
-        # 4. Re-parse all files to have a complete, in-memory representation for the linking pass.
-        # This is necessary because a change in one file can affect relationships in others.
-        self.all_file_data = []
-        for f in all_files:
-            parsed_data = self.graph_builder.parse_file(self.repo_path, f)
-            if "error" not in parsed_data:
-                self.all_file_data.append(parsed_data)
-        info_logger("Refreshed in-memory cache of all file data.")
+        # Step 2: Update imports_map for the changed file only.
+        self._update_imports_map_for_file(changed_path)
 
-        # 5. CRITICAL: Re-link the entire graph using the fully updated cache and imports map.
-        info_logger("Re-linking the entire graph for calls and inheritance...")
-        self.graph_builder._create_all_function_calls(self.all_file_data, self.imports_map)
-        self.graph_builder._create_all_inheritance_links(self.all_file_data, self.imports_map)
-        info_logger(f"Graph refresh for change in {event_path_str} complete! ✅")
+        # Step 3: Delete + re-add nodes for the changed file.
+        # DETACH DELETE inside update_file_in_graph removes all CALLS/INHERITS on its nodes.
+        self.graph_builder.update_file_in_graph(changed_path, self.repo_path, self.imports_map)
+
+        # Step 4: Clean up CALLS/INHERITS from the affected *caller/inheritor* files.
+        # Their CALLS to the changed file were already removed by DETACH DELETE, but their
+        # CALLS to other files are still intact.  We delete all their outgoing CALLS so we
+        # can safely re-create the full set from scratch for the subset.
+        other_callers = list(caller_paths)       # does NOT include changed_path_str
+        other_inheritors = list(inheritor_paths)
+        if other_callers:
+            self.graph_builder.delete_outgoing_calls_from_files(other_callers)
+        if other_inheritors:
+            self.graph_builder.delete_inherits_for_files(other_inheritors)
+
+        # Step 5: Re-parse only the affected subset.
+        subset_file_data = []
+        for path_str in affected_paths:
+            p = Path(path_str)
+            if p.exists() and p.suffix in supported_extensions:
+                parsed = self.graph_builder.parse_file(self.repo_path, p)
+                if "error" not in parsed:
+                    subset_file_data.append(parsed)
+
+        # Step 6: Get full-repo file_class_lookup from Neo4j (avoids re-parsing all files).
+        # The changed file's new classes are already overlaid inside _create_all_function_calls.
+        file_class_lookup = self.graph_builder.get_repo_class_lookup(self.repo_path)
+
+        # Step 7: Re-create CALLS/INHERITS for the affected subset only.
+        info_logger(f"[INCREMENTAL] Re-linking {len(subset_file_data)} files...")
+        self.graph_builder._create_all_function_calls(subset_file_data, self.imports_map, file_class_lookup)
+        self.graph_builder._create_all_inheritance_links(subset_file_data, self.imports_map)
+        info_logger(f"[INCREMENTAL] Done. Graph refresh for {event_path_str} complete! ✅")
 
     # The following methods are called by the watchdog observer when a file event occurs.
     def on_created(self, event):

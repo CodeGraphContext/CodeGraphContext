@@ -18,8 +18,7 @@ Use DATABASE_TYPE environment variable to switch:
 """
 import os
 import platform
-from typing import Union
-
+from typing import Union, Optional
 import importlib.util
 
 def _is_kuzudb_available() -> bool:
@@ -55,7 +54,7 @@ def _is_neo4j_configured() -> bool:
         os.getenv('NEO4J_PASSWORD')
     ])
 
-def get_database_manager() -> Union['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager']:
+def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager']:
     """
     Factory function to get the appropriate database manager based on configuration.
 
@@ -83,8 +82,8 @@ def get_database_manager() -> Union['DatabaseManager', 'FalkorDBManager', 'Falko
             if not _is_kuzudb_available():
                 raise ValueError("Database set to 'kuzudb' but Kùzu is not installed.\nRun 'pip install kuzu'")
             from .database_kuzu import KuzuDBManager
-            info_logger("Using KùzuDB (explicit)")
-            return KuzuDBManager()
+            info_logger(f"Using KùzuDB (explicit) at {db_path or 'default path'}")
+            return KuzuDBManager(db_path=db_path)
 
         elif db_type == 'falkordb':
             if not _is_falkordb_available():
@@ -96,14 +95,14 @@ def get_database_manager() -> Union['DatabaseManager', 'FalkorDBManager', 'Falko
             
             from .database_falkordb import FalkorDBManager, FalkorDBUnavailableError
             try:
-                mgr = FalkorDBManager()
-                info_logger("Using FalkorDB Lite (explicit)")
+                mgr = FalkorDBManager(db_path=db_path)
+                info_logger(f"Using FalkorDB Lite (explicit) at {db_path or 'default path'}")
                 return mgr
             except FalkorDBUnavailableError as falkor_err:
                 info_logger(f"FalkorDB Lite not functional ({falkor_err}). Falling back to KùzuDB.")
                 if _is_kuzudb_available():
                     from .database_kuzu import KuzuDBManager
-                    return KuzuDBManager()
+                    return KuzuDBManager(db_path=db_path)
                 raise
 
         elif db_type == 'falkordb-remote':
@@ -136,8 +135,8 @@ def get_database_manager() -> Union['DatabaseManager', 'FalkorDBManager', 'Falko
     if _is_falkordb_available():
         from .database_falkordb import FalkorDBManager, FalkorDBUnavailableError
         try:
-            mgr = FalkorDBManager()
-            info_logger("Using FalkorDB Lite (default)")
+            mgr = FalkorDBManager(db_path=db_path)
+            info_logger(f"Using FalkorDB Lite (default) at {db_path or 'default path'}")
             return mgr
         except FalkorDBUnavailableError as falkor_err:
             info_logger(
@@ -149,8 +148,8 @@ def get_database_manager() -> Union['DatabaseManager', 'FalkorDBManager', 'Falko
     # 6. Implicit Default -> KùzuDB (Best Zero Config)
     if _is_kuzudb_available():
         from .database_kuzu import KuzuDBManager
-        info_logger("Using KùzuDB (default)")
-        return KuzuDBManager()
+        info_logger(f"Using KùzuDB (default) at {db_path or 'default path'}")
+        return KuzuDBManager(db_path=db_path)
 
     # 7. Fallback if configured
     if _is_neo4j_configured():

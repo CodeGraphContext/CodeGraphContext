@@ -70,3 +70,4 @@ cgc_btc/
 .claude/*
 *.spec
 todo.md
+.codegraphcontext
