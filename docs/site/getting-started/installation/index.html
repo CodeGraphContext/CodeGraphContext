@@ -19,7 +19,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
@@ -282,7 +282,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../guides/setup_deep_dive/" class="md-tabs__link">
+        <a href="../../guides/onboarding/" class="md-tabs__link">
           
   
   
@@ -883,6 +883,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/onboarding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Onboarding Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -1823,87 +1851,68 @@
 <hr />
 <h2 id="step-2-database-setup">Step 2: Database Setup</h2>
 <p>CGC requires a graph database backend. Choose <strong>ONE</strong> path below.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Option A: FalkorDB (Recommended for Local)</label><label for="__tabbed_1_2">Option B: Neo4j (Production / Visual)</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Option A: KùzuDB (Recommended &amp; Default)</label><label for="__tabbed_1_2">Option B: Neo4j (Enterprise / Visual)</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<p><strong>Platforms:</strong> Linux, macOS, WSL.</p>
-<div class="admonition warning">
-<p class="admonition-title">Windows Users</p>
-<p>On Windows? Please Check the <strong><a href="../../windows_setup/">Windows Setup Guide</a></strong> for WSL and FalkorDB/Neo4j compatibility.</p>
-</div>
-<p>FalkorDB is an embedded, lightweight graph database.
-*   <strong>Pros:</strong> Requires zero configuration. Runs automatically. Persistent storage is managed for you.
-*   <strong>Cons:</strong> No built-in Interactive Browser (unlike Neo4j). Use <code>cgc visualize</code> for basic graphs.</p>
-<p><em>If you are on Linux/macOS with Python 3.12+, this is the default.</em></p>
+<p><strong>Platforms:</strong> Linux, macOS, Windows (WSL &amp; Native).</p>
+<p><strong>KùzuDB</strong> is an embedded, lightweight graph database written in C++. It is the default for CodeGraphContext because it is extremely fast and requires no external services.
+*   <strong>Pros:</strong> Requires zero configuration. Runs automatically in-memory or on-disk. No Docker needed.
+*   <strong>Cons:</strong> No built-in Interactive Browser (unlike Neo4j). Use <code>cgc visualize</code> for graph views.</p>
+<p><em>This is the default out-of-the-box experience. You don't need to do anything else!</em></p>
 </div>
 <div class="tabbed-block">
-<p><strong>Platforms:</strong> Windows, All OSs, Docker users.</p>
-<p>Neo4j is the industry-standard graph database.
-*   <strong>Pros:</strong> Powerful web-based Graph Browser (<code>localhost:7474</code>). Handles massive codebases better.
-*   <strong>Cons:</strong> Heavier resource usage. Requires Docker or a separate service.</p>
+<p><strong>Platforms:</strong> Windows, macOS, Linux, Docker.</p>
+<p>Neo4j is the industry-standard enterprise graph database.
+*   <strong>Pros:</strong> Powerful web-based Graph Browser (<code>localhost:7474</code>). Handles massive codebases perfectly.
+*   <strong>Cons:</strong> Heavier resource usage. Requires Docker or a separate service running in the background.</p>
 <ol>
-<li><strong>Run the setup wizard:</strong>
-    <div class="highlight"><pre><span></span><code>cgc<span class="w"> </span>neo4j<span class="w"> </span>setup
+<li><strong>Configure environment for Neo4j:</strong>
+    Create a <code>.env</code> file or export <code>CGC_GRAPH_BACKEND=neo4j</code> and <code>NEO4J_URI=bolt://localhost:7687</code> along with <code>NEO4J_USER</code> and <code>NEO4J_PASSWORD</code>.</li>
+<li><strong>Start Neo4j via Docker:</strong>
+    <div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>--name<span class="w"> </span>neo4j<span class="w"> </span>-p<span class="w"> </span><span class="m">7474</span>:7474<span class="w"> </span>-p<span class="w"> </span><span class="m">7687</span>:7687<span class="w"> </span>-e<span class="w"> </span><span class="nv">NEO4J_AUTH</span><span class="o">=</span>neo4j/password<span class="w"> </span>neo4j:latest
 </code></pre></div></li>
-<li>
-<p><strong>Follow the prompts:</strong></p>
-<details class="info">
-<summary>Detailed Setup Steps</summary>
-<ul>
-<li><strong>Select Installation Type</strong>:<ul>
-<li><code>Docker</code>: Pulls the official image and starts a container on port 7687. (Requires Docker Desktop/Engine).</li>
-<li><code>Native</code>: Help you find your local <code>neo4j-admin</code> installation.</li>
-</ul>
-</li>
-<li><strong>Configure Password</strong>:<ul>
-<li>You will be asked to set a password for the <code>neo4j</code> user.</li>
-<li>Default suggestion: <code>codegraphcontext</code>.</li>
-</ul>
-</li>
-<li><strong>Start Service</strong>:<ul>
-<li>The wizard attempts to run <code>docker run</code> or <code>systemctl start neo4j</code>.</li>
-</ul>
-</li>
-</ul>
-</details>
-</li>
 </ol>
 </div>
 </div>
 </div>
 <hr />
 <h2 id="step-3-verify-installation">Step 3: Verify Installation</h2>
-<p>Let's make sure everything is talking to each other. Run the "Doctor" command:</p>
-<div class="highlight"><pre><span></span><code>cgc<span class="w"> </span>doctor
+<p>Let's make sure everything is talking to each other. Run the "Doctor" command (coming soon) or check the CLI help:</p>
+<div class="highlight"><pre><span></span><code>cgc<span class="w"> </span>--help
 </code></pre></div>
-<p><strong>What to look for:</strong></p>
-<ul>
-<li>✅ <code>Database check passed</code></li>
-<li>✅ <code>Core dependencies satisfied</code></li>
-</ul>
+<p>You should see all the commands available for CodeGraphContext.</p>
 <hr />
 <h2 id="step-4-configure-ai-assistant-for-mcp-users">Step 4: Configure AI Assistant (For MCP Users)</h2>
-<p>If you plan to use CodeGraphContext with <strong>Cursor</strong>, <strong>Claude</strong>, or <strong>VS Code</strong>, you must configure the MCP server.</p>
+<p>If you plan to use CodeGraphContext with <strong>Cursor</strong>, <strong>Claude</strong>, <strong>Windsurf</strong>, or <strong>Kiro</strong>, you must configure the MCP server.</p>
 <ol>
 <li>
-<p><strong>Run the MCP wizard:</strong>
-    <div class="highlight"><pre><span></span><code>cgc<span class="w"> </span>mcp<span class="w"> </span>setup
-</code></pre></div></p>
+<p><strong>Understand MCP Integration:</strong></p>
+<ul>
+<li>CodeGraphContext runs as an MCP server. This means it provides "Tools" to your LLM.</li>
+<li>To install it in Claude Desktop, for example, add it to your <code>claude_desktop_config.json</code>:
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;CodeGraphContext&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cgc&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;args&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;mcp&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></li>
+</ul>
 </li>
 <li>
-<p><strong>What it does:</strong></p>
+<p><strong>Using cursor:</strong></p>
 <ul>
-<li>🔍 <strong>Asks you to choose</strong> your IDE from a supported list (Cursor, VS Code, Claude, Windsurf, Cline, etc.).</li>
-<li>⚙️ <strong>Updates</strong> the configuration file (e.g., <code>mcp.json</code>) to invoke <code>cgc</code>.</li>
-<li>🔐 <strong>Saves</strong> local database credentials so the AI can connect.</li>
+<li>Go to Cursor Settings &gt; Features &gt; MCP.</li>
+<li>Add a new server: type <code>command</code>, name it <code>CodeGraphContext</code>, and command <code>cgc mcp</code>.</li>
 </ul>
-<p><em>Note: We support </em><em>any</em><em> MCP-compliant client. If your tool isn't listed, simply copy the JSON output from this command and paste it into your tool's config manually.</em></p>
 </li>
 <li>
 <p><strong>Refresh your AI Tool:</strong></p>
 <ul>
-<li>Click the "Refresh" icon in the MCP/Continue panel.</li>
-<li>Verify that <code>CodeGraphContext</code> appears in your enabled tools list.</li>
+<li>Restart your IDE / Claude Desktop.</li>
+<li>Verify that tools like <code>analyze_code_relationships</code> or <code>find_code</code> are now available for the AI to use.</li>
 </ul>
 </li>
 </ol>

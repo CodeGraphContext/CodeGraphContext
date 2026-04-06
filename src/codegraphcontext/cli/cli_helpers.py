@@ -4,7 +4,8 @@ import uuid
 import urllib.parse
 from pathlib import Path
 import time
-from typing import Optional
+import os
+from typing import Optional, List, Dict, Any
 from rich.console import Console
 from rich.table import Table
 from rich.progress import (
@@ -22,18 +23,41 @@ from ..core.jobs import JobManager
 from ..tools.code_finder import CodeFinder
 from ..tools.graph_builder import GraphBuilder
 from ..tools.package_resolver import get_local_package_path
+from ..utils.debug_log import info_logger, warning_logger
+from .config_manager import resolve_context, ResolvedContext, register_repo_in_context, ensure_first_run_bootstrap
 
 console = Console()
 
 
-def _initialize_services():
-    """Initializes and returns core service managers."""
+def _initialize_services(cli_context_flag: Optional[str] = None) -> tuple[Any, Any, Any, ResolvedContext]:
+    """
+    Initializes and returns core service managers based on the resolved context.
+    Returns (db_manager, graph_builder, code_finder, resolved_context).
+    """
+    ensure_first_run_bootstrap()
+    console.print("[dim]Resolving context...[/dim]")
+    ctx = resolve_context(cli_context_flag)
+    
+    # Let the user know what context we're operating in
+    if ctx.mode == "named":
+        console.print(f"[cyan]Context:[/cyan] {ctx.context_name} (Database: {ctx.database})")
+    elif ctx.mode == "per-repo":
+        console.print(f"[cyan]Context:[/cyan] Per-repo local mode (Database: {ctx.database})")
+    else:
+        # Default global mode — silent to keep CLI clean for existing users
+        pass
+
     console.print("[dim]Initializing services and database connection...[/dim]")
     try:
-        db_manager = get_database_manager()
+        # Override the database backend with the context's specific choice
+        if ctx.database:
+            os.environ['CGC_RUNTIME_DB_TYPE'] = ctx.database
+        
+        # Pass the exact DB path resolved from the context
+        db_manager = get_database_manager(db_path=ctx.db_path)
     except ValueError as e:
         console.print(f"[bold red]Database Configuration Error:[/bold red] {e}")
-        return None, None, None
+        return None, None, None, ctx
 
     try:
         db_manager.get_driver()
@@ -58,11 +82,11 @@ def _initialize_services():
                 console.print("[green]✓[/green] Successfully switched to KùzuDB fallback")
             except Exception as kuzu_e:
                 console.print(f"[bold red]Critical Error:[/bold red] Both FalkorDB and KùzuDB failed: {kuzu_e}")
-                return None, None, None
+                return None, None, None, ctx
         else:
             console.print(f"[bold red]Database Connection Error:[/bold red] {e}")
             console.print("Please ensure your database is configured correctly or run 'cgc doctor'.")
-            return None, None, None
+            return None, None, None, ctx
     
     # The GraphBuilder requires an event loop, even for synchronous-style execution
     try:
@@ -74,10 +98,10 @@ def _initialize_services():
     graph_builder = GraphBuilder(db_manager, JobManager(), loop)
     code_finder = CodeFinder(db_manager)
     console.print("[dim]Services initialized.[/dim]")
-    return db_manager, graph_builder, code_finder
+    return db_manager, graph_builder, code_finder, ctx
 
 
-async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, is_dependency: bool = False):
+async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, is_dependency: bool = False, cgcignore_path: str = None):
     """Internal helper to run indexing with a Live progress bar."""
     job_id = graph_builder.job_manager.create_job(str(path_obj), is_dependency=is_dependency)
     
@@ -101,7 +125,7 @@ async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, 
         )
 
         indexing_task = asyncio.create_task(
-            graph_builder.build_graph_from_path_async(path_obj, is_dependency=is_dependency, job_id=job_id)
+            graph_builder.build_graph_from_path_async(path_obj, is_dependency=is_dependency, job_id=job_id, cgcignore_path=cgcignore_path)
         )
 
         from ..core.jobs import JobStatus
@@ -135,14 +159,14 @@ async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, 
             raise e
 
 
-def index_helper(path: str):
-    """Synchronously indexes a repository."""
+def index_helper(path: str, context: Optional[str] = None):
+    """Synchronously indexes a repository in a given context."""
     time_start = time.time()
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, graph_builder, code_finder = services
+    db_manager, graph_builder, code_finder, ctx = services
     path_obj = Path(path).resolve()
 
     if not path_obj.exists():
@@ -155,10 +179,12 @@ def index_helper(path: str):
     
     if repo_exists:
         # Check if the repository actually has files (not just an empty node from interrupted indexing)
+        # Use variable-length path to handle both flat (Repository->File) and
+        # hierarchical (Repository->Directory->...->File) graph structures
         try:
             with db_manager.get_driver().session() as session:
                 result = session.run(
-                    "MATCH (r:Repository {path: $path})-[:CONTAINS]->(f:File) RETURN count(f) as file_count",
+                    "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as file_count",
                     path=str(path_obj)
                 )
                 record = result.single()
@@ -174,10 +200,14 @@ def index_helper(path: str):
         except Exception as e:
             console.print(f"[yellow]Warning: Could not check file count: {e}. Proceeding with indexing...[/yellow]")
 
+    # Auto-register the repo into the named context (auto-creates if needed)
+    if context and ctx.mode == "named":
+        register_repo_in_context(context, str(path_obj), auto_create=True)
+
     console.print(f"Starting indexing for: {path_obj}")
 
     try:
-        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False))
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
         time_end = time.time()
         elapsed = time_end - time_start
         console.print(f"[green]Successfully finished indexing: {path} in {elapsed:.2f} seconds[/green]")
@@ -200,13 +230,13 @@ def index_helper(path: str):
         db_manager.close_driver()
 
 
-def add_package_helper(package_name: str, language: str):
+def add_package_helper(package_name: str, language: str, context: Optional[str] = None):
     """Synchronously indexes a package."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, graph_builder, code_finder = services
+    db_manager, graph_builder, code_finder, ctx = services
 
     package_path_str = get_local_package_path(package_name, language)
     if not package_path_str:
@@ -225,7 +255,7 @@ def add_package_helper(package_name: str, language: str):
     console.print(f"Starting indexing for package '{package_name}' at: {package_path}")
 
     try:
-        asyncio.run(_run_index_with_progress(graph_builder, package_path, is_dependency=True))
+        asyncio.run(_run_index_with_progress(graph_builder, package_path, is_dependency=True, cgcignore_path=ctx.cgcignore_path))
         console.print(f"[green]Successfully finished indexing package: {package_name}[/green]")
     except Exception as e:
         console.print(f"[bold red]An error occurred during package indexing:[/bold red] {e}")
@@ -233,13 +263,13 @@ def add_package_helper(package_name: str, language: str):
         db_manager.close_driver()
 
 
-def list_repos_helper():
+def list_repos_helper(context: Optional[str] = None):
     """Lists all indexed repositories."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
     
-    db_manager, _, code_finder = services
+    db_manager, _, code_finder, ctx = services
     
     try:
         repos = code_finder.list_indexed_repositories()
@@ -263,13 +293,13 @@ def list_repos_helper():
         db_manager.close_driver()
 
 
-def delete_helper(repo_path: str):
+def delete_helper(repo_path: str, context: Optional[str] = None):
     """Deletes a repository from the graph."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, graph_builder, _ = services
+    db_manager, graph_builder, _, ctx = services
     
     try:
         if graph_builder.delete_repository_from_graph(repo_path):
@@ -283,13 +313,13 @@ def delete_helper(repo_path: str):
         db_manager.close_driver()
 
 
-def cypher_helper(query: str):
+def cypher_helper(query: str, context: Optional[str] = None):
     """Executes a read-only Cypher query."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, _, _ = services
+    db_manager, _, _, ctx = services
     
     # Replicating safety checks from MCPServer
     forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
@@ -309,15 +339,15 @@ def cypher_helper(query: str):
         db_manager.close_driver()
 
 
-def cypher_helper_visual(query: str):
+def cypher_helper_visual(query: str, context: Optional[str] = None):
     """Executes a read-only Cypher query and visualizes the results."""
     from .visualizer import visualize_cypher_results
     
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, _, _ = services
+    db_manager, _, _, ctx = services
     
     # Replicating safety checks from MCPServer
     forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
@@ -346,13 +376,13 @@ import uvicorn
 import urllib.parse
 from ..viz.server import run_server, set_db_manager
 
-def visualize_helper(repo_path: Optional[str] = None, port: int = 8000):
+def visualize_helper(repo_path: Optional[str] = None, port: int = 8000, context: Optional[str] = None):
     """"Generates an interactive visualization using the Playground UI."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, _, _ = services
+    db_manager, _, _, ctx = services
     
     # Set the DB manager for the server
     set_db_manager(db_manager)
@@ -424,14 +454,14 @@ def visualize_helper(repo_path: Optional[str] = None, port: int = 8000):
         db_manager.close_driver()
 
 
-def reindex_helper(path: str):
+def reindex_helper(path: str, context: Optional[str] = None):
     """Force re-index by deleting and rebuilding the repository."""
     time_start = time.time()
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, graph_builder, code_finder = services
+    db_manager, graph_builder, code_finder, ctx = services
     path_obj = Path(path).resolve()
 
     if not path_obj.exists():
@@ -456,7 +486,7 @@ def reindex_helper(path: str):
     console.print(f"[cyan]Re-indexing: {path_obj}[/cyan]")
     
     try:
-        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False))
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
         time_end = time.time()
         elapsed = time_end - time_start
         console.print(f"[green]Successfully re-indexed: {path} in {elapsed:.2f} seconds[/green]")
@@ -466,62 +496,39 @@ def reindex_helper(path: str):
         db_manager.close_driver()
 
 
-def update_helper(path: str):
+def update_helper(path: str, context: Optional[str] = None):
     """Update/refresh index for a path (alias for reindex)."""
     console.print("[cyan]Updating repository index...[/cyan]")
-    reindex_helper(path)
+    reindex_helper(path, context)
 
 
-def clean_helper():
+def clean_helper(context: Optional[str] = None):
     """Remove orphaned nodes and relationships from the database."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, _, _ = services
+    db_manager, _, _, ctx = services
     
     console.print("[cyan]🧹 Cleaning database (removing orphaned nodes)...[/cyan]")
     
     try:
-        # Determine backend type for query compatibility
-        db_type = db_manager.__class__.__name__
-        is_falkordb = "Falkor" in db_type
-        is_kuzu = "Kuzu" in db_type
-        
         total_deleted = 0
-        batch_size = 1000
+        batch_size = 500
         
         with db_manager.get_driver().session() as session:
-            # Keep deleting orphaned nodes in batches until none are found
+            # Layer-by-layer deletion: iteratively delete nodes that lost
+            # their CONTAINS parent. Each pass peels one layer of the
+            # Repository → File → Class/Function → Variable hierarchy.
             while True:
-                if is_falkordb or is_kuzu:
-                    # FalkorDB / KùzuDB-compatible query using OPTIONAL MATCH
-                    # (KùzuDB does not support the Neo4j `NOT EXISTS { MATCH ... }` subquery syntax)
-                    query = """
+                result = session.run("""
                     MATCH (n)
-                    WHERE NOT (n:Repository)
-                    OPTIONAL MATCH p = (n)-[*..10]-(r:Repository)
-                    WITH n, p
-                    WHERE p IS NULL
+                    WHERE NOT n:Repository
+                      AND NOT ()-[:CONTAINS]->(n)
                     WITH n LIMIT $batch_size
                     DETACH DELETE n
                     RETURN count(n) as deleted
-                    """
-                else:
-                    # Neo4j optimized query using NOT EXISTS with bounded path
-                    # This is much faster than OPTIONAL MATCH with variable-length paths
-                    query = """
-                    MATCH (n)
-                    WHERE NOT (n:Repository)
-                      AND NOT EXISTS {
-                        MATCH (n)-[*..10]-(r:Repository)
-                      }
-                    WITH n LIMIT $batch_size
-                    DETACH DELETE n
-                    RETURN count(n) as deleted
-                    """
-                
-                result = session.run(query, batch_size=batch_size)
+                """, batch_size=batch_size)
                 record = result.single()
                 deleted_count = record["deleted"] if record else 0
                 total_deleted += deleted_count
@@ -529,16 +536,12 @@ def clean_helper():
                 if deleted_count == 0:
                     break
                     
-                console.print(f"[dim]Deleted {deleted_count} orphaned nodes (batch)...[/dim]")
+                console.print(f"[dim]  Deleted {deleted_count} orphaned nodes (batch)...[/dim]")
             
             if total_deleted > 0:
                 console.print(f"[green]✓[/green] Deleted {total_deleted} orphaned nodes total")
             else:
                 console.print("[green]✓[/green] No orphaned nodes found")
-            
-            # Clean up any duplicate relationships (if any)
-            console.print("[dim]Checking for duplicate relationships...[/dim]")
-            # Note: This is database-specific and might not work for all backends
             
         console.print("[green]✅ Database cleanup complete![/green]")
     except Exception as e:
@@ -547,13 +550,13 @@ def clean_helper():
         db_manager.close_driver()
 
 
-def stats_helper(path: str = None):
+def stats_helper(path: str = None, context: Optional[str] = None):
     """Show indexing statistics for a repository or overall."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, _, code_finder = services
+    db_manager, _, code_finder, ctx = services
     
     try:
         if path:
@@ -635,7 +638,7 @@ def stats_helper(path: str = None):
         db_manager.close_driver()
 
 
-def watch_helper(path: str):
+def watch_helper(path: str, context: Optional[str] = None):
     """Watch a directory for changes and auto-update the graph (blocking mode)."""
     import logging
     from ..core.watcher import CodeWatcher
@@ -645,11 +648,11 @@ def watch_helper(path: str):
     logging.getLogger('watchdog.observers').setLevel(logging.WARNING)
     logging.getLogger('watchdog.observers.inotify_buffer').setLevel(logging.WARNING)
     
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, graph_builder, code_finder = services
+    db_manager, graph_builder, code_finder, ctx = services
     path_obj = Path(path).resolve()
 
     if not path_obj.exists():
@@ -664,9 +667,29 @@ def watch_helper(path: str):
 
     console.print(f"[bold cyan]🔍 Watching {path_obj} for changes...[/bold cyan]")
     
-    # Check if already indexed
+    # Check if already indexed — use File node count as a robust fallback so a
+    # transient empty result from list_indexed_repositories never triggers a
+    # destructive full rescan of an already-populated graph.
     indexed_repos = code_finder.list_indexed_repositories()
     is_indexed = any(Path(repo["path"]).resolve() == path_obj for repo in indexed_repos)
+    if not is_indexed:
+        # Fallback: count File nodes whose path starts with this repo's path.
+        # If > 100 exist, the repo is clearly already indexed — skip the scan.
+        try:
+            with code_finder.driver.session() as _s:
+                _r = _s.run(
+                    "MATCH (n:File) WHERE n.path STARTS WITH $p RETURN count(n) AS c",
+                    p=str(path_obj) + "/"
+                )
+                _count = _r.single()["c"]
+            if _count > 100:
+                info_logger(
+                    f"[watch] list_indexed_repositories returned no match for {path_obj} "
+                    f"but {_count} File nodes exist — treating as already indexed."
+                )
+                is_indexed = True
+        except Exception as _e:
+            warning_logger(f"[watch] Fallback indexed check failed: {_e}")
     
     # Create watcher instance
     job_manager = JobManager()

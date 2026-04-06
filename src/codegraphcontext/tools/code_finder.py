@@ -823,62 +823,63 @@ class CodeFinder:
         """Find the scope and usage patterns of a variable, optional file path filtering"""
         with self.driver.session() as session:
             repo_filter = "AND var.path STARTS WITH $repo_path" if repo_path else ""
-            if path:
-                variable_instances = session.run(f"""
-                    MATCH (var:Variable {{name: $variable_name}})
-                    WHERE (var.path ENDS WITH $path OR var.path = $path) {repo_filter}
-                    OPTIONAL MATCH (container)-[:CONTAINS]->(var)
-                    WHERE container:Function OR container:Class OR container:File
-                    OPTIONAL MATCH (file:File)-[:CONTAINS]->(var)
-                    RETURN DISTINCT
-                        var.name as variable_name,
-                        var.value as variable_value,
-                        var.line_number as line_number,
-                        var.context as context,
-                        COALESCE(var.path, file.path) as path,
-                        CASE 
+            path_filter = "(var.path ENDS WITH $path OR var.path = $path)" if path else "1=1"
+
+            # Two-pass approach for KuzuDB compatibility (doesn't support
+            # OPTIONAL MATCH referencing variables bound in a prior MATCH).
+            # Pass 1: variables WITH a container
+            contained = session.run(f"""
+                MATCH (container)-[:CONTAINS]->(var:Variable {{name: $variable_name}})
+                WHERE {path_filter} {repo_filter}
+                RETURN DISTINCT
+                    var.name as variable_name,
+                    var.value as variable_value,
+                    var.line_number as line_number,
+                    var.context as context,
+                    var.path as path,
+                    CASE
                         WHEN container:Function THEN 'function'
                         WHEN container:Class THEN 'class'
                         ELSE 'module'
                     END as scope_type,
-                    CASE 
+                    CASE
                         WHEN container:Function THEN container.name
                         WHEN container:Class THEN container.name
                         ELSE 'module_level'
                     END as scope_name,
                     var.is_dependency as is_dependency
-                ORDER BY var.is_dependency ASC, path, line_number
             """, variable_name=variable_name, path=path, repo_path=repo_path)
-            else:
-                variable_instances = session.run(f"""
+            instances = contained.data()
+
+            # Pass 2: variables WITHOUT any container (module-level)
+            try:
+                orphaned = session.run(f"""
                     MATCH (var:Variable {{name: $variable_name}})
-                    WHERE 1=1 {repo_filter}
-                    OPTIONAL MATCH (container)-[:CONTAINS]->(var)
-                    WHERE container:Function OR container:Class OR container:File
-                    OPTIONAL MATCH (file:File)-[:CONTAINS]->(var)
+                    WHERE {path_filter} {repo_filter}
+                      AND NOT ()-[:CONTAINS]->(var)
                     RETURN DISTINCT
                         var.name as variable_name,
                         var.value as variable_value,
                         var.line_number as line_number,
                         var.context as context,
-                        COALESCE(var.path, file.path) as path,
-                        CASE 
-                            WHEN container:Function THEN 'function'
-                            WHEN container:Class THEN 'class'
-                            ELSE 'module'
-                        END as scope_type,
-                        CASE 
-                            WHEN container:Function THEN container.name
-                            WHEN container:Class THEN container.name
-                            ELSE 'module_level'
-                        END as scope_name,
+                        var.path as path,
+                        'module' as scope_type,
+                        'module_level' as scope_name,
                         var.is_dependency as is_dependency
-                    ORDER BY var.is_dependency ASC, path, line_number
-                """, variable_name=variable_name, repo_path=repo_path)
+                """, variable_name=variable_name, path=path, repo_path=repo_path)
+                instances.extend(orphaned.data())
+            except Exception:
+                pass
+
+            instances.sort(key=lambda r: (
+                r.get("is_dependency") or False,
+                r.get("path") or "",
+                r.get("line_number") or 0,
+            ))
             
             return {
                 "variable_name": variable_name,
-                "instances": variable_instances.data()
+                "instances": instances,
             }
     
     def analyze_code_relationships(self, query_type: str, target: str, context: Optional[str] = None, repo_path: Optional[str] = None) -> Dict[str, Any]:

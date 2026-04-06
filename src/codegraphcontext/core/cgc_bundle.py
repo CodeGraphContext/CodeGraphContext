@@ -24,10 +24,28 @@ import zipfile
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime
+from datetime import datetime, date
 import subprocess
 
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
+
+
+class _BundleEncoder(json.JSONEncoder):
+    """Handles Neo4j DateTime and other non-standard types for bundle serialization."""
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        if hasattr(obj, 'isoformat'):
+            return obj.isoformat()
+        if hasattr(obj, 'iso_format'):
+            return obj.iso_format()
+        if isinstance(obj, Path):
+            return str(obj)
+        if isinstance(obj, set):
+            return list(obj)
+        if isinstance(obj, bytes):
+            return obj.decode('utf-8', errors='replace')
+        return super().default(obj)
 
 
 class CGCBundle:
@@ -91,13 +109,13 @@ class CGCBundle:
                 info_logger("Extracting metadata...")
                 metadata = self._extract_metadata(repo_path)
                 with open(temp_path / "metadata.json", 'w') as f:
-                    json.dump(metadata, f, indent=2)
+                    json.dump(metadata, f, indent=2, cls=_BundleEncoder)
                 
                 # Step 2: Extract schema
                 info_logger("Extracting schema...")
                 schema = self._extract_schema()
                 with open(temp_path / "schema.json", 'w') as f:
-                    json.dump(schema, f, indent=2)
+                    json.dump(schema, f, indent=2, cls=_BundleEncoder)
                 
                 # Step 3: Extract nodes
                 info_logger("Extracting nodes...")
@@ -112,7 +130,7 @@ class CGCBundle:
                     info_logger("Generating statistics...")
                     stats = self._generate_stats(repo_path, node_count, edge_count)
                     with open(temp_path / "stats.json", 'w') as f:
-                        json.dump(stats, f, indent=2)
+                        json.dump(stats, f, indent=2, cls=_BundleEncoder)
                 
                 # Step 6: Create README
                 self._create_readme(temp_path / "README.md", metadata, stats if include_stats else None)
@@ -282,19 +300,19 @@ class CGCBundle:
                         stderr=subprocess.DEVNULL
                     ).decode().strip()
                     metadata["commit"] = commit[:8]
-                    
-                    # Get language statistics
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    pass
+
+                try:
                     result = session.run("""
                         MATCH (f:File)
                         WHERE f.path STARTS WITH $repo_path
                         RETURN f.language as language, count(*) as count
                         ORDER BY count DESC
                     """, repo_path=str(repo_path.resolve()))
-                    
                     languages = {record["language"]: record["count"] for record in result if record["language"]}
                     metadata["languages"] = list(languages.keys())
-                    
-                except (subprocess.CalledProcessError, FileNotFoundError):
+                except Exception:
                     pass
         
         return metadata
@@ -405,7 +423,7 @@ class CGCBundle:
                     elif hasattr(node, 'id'):
                         node_dict['_id'] = str(node.id)
                     
-                    f.write(json.dumps(node_dict) + '\n')
+                    f.write(json.dumps(node_dict, cls=_BundleEncoder) + '\n')
                     count += 1
         
         return count
@@ -475,7 +493,7 @@ class CGCBundle:
                         'properties': rel_props
                     }
                     
-                    f.write(json.dumps(edge_dict) + '\n')
+                    f.write(json.dumps(edge_dict, cls=_BundleEncoder) + '\n')
                     count += 1
         
         return count
@@ -657,9 +675,15 @@ cgc import <bundle-file>.cgc
             info_logger(f"Deleted repository: {repo_identifier}")
     
     def _clear_graph(self):
-        """Clear all nodes and relationships from the graph."""
+        """Clear all nodes and relationships from the graph in batches."""
         with self.db_manager.get_driver().session() as session:
-            session.run("MATCH (n) DETACH DELETE n")
+            while True:
+                result = session.run(
+                    "MATCH (n) WITH n LIMIT 500 DETACH DELETE n RETURN count(n) as deleted"
+                )
+                record = result.single()
+                if not record or record["deleted"] == 0:
+                    break
     
     def _import_schema(self, schema_file: Path):
         """Import schema (constraints and indexes)."""
@@ -685,9 +709,14 @@ cgc import <bundle-file>.cgc
                 for line in f:
                     node_data = json.loads(line)
                     
-                    # Extract labels and old ID
-                    labels = node_data.pop('_labels', [])
+                    # Extract labels and old ID (handle both Neo4j and KuzuDB formats)
+                    labels = node_data.pop('_labels', None) or node_data.pop('_label', None) or []
+                    if isinstance(labels, str):
+                        labels = [labels]
                     old_id = node_data.pop('_id', None)
+                    # Convert dict IDs to hashable tuples for mapping
+                    if isinstance(old_id, dict):
+                        old_id = (old_id.get('table', 0), old_id.get('offset', 0))
                     
                     # Remove internal properties
                     node_data.pop('_element_id', None)
@@ -707,22 +736,62 @@ cgc import <bundle-file>.cgc
         
         return count
     
+    _PK_MAP = {
+        'Repository': 'path', 'File': 'path', 'Directory': 'path',
+        'Module': 'name',
+        'Function': 'uid', 'Class': 'uid', 'Variable': 'uid',
+        'Trait': 'uid', 'Interface': 'uid', 'Macro': 'uid',
+        'Struct': 'uid', 'Enum': 'uid', 'Union': 'uid',
+        'Annotation': 'uid', 'Record': 'uid', 'Property': 'uid',
+        'Parameter': 'uid',
+    }
+    _UID_PARTS = {
+        'Function': ['name', 'path', 'line_number'],
+        'Class': ['name', 'path', 'line_number'],
+        'Variable': ['name', 'path', 'line_number'],
+        'Trait': ['name', 'path', 'line_number'],
+        'Interface': ['name', 'path', 'line_number'],
+        'Macro': ['name', 'path', 'line_number'],
+        'Struct': ['name', 'path', 'line_number'],
+        'Enum': ['name', 'path', 'line_number'],
+        'Union': ['name', 'path', 'line_number'],
+        'Annotation': ['name', 'path', 'line_number'],
+        'Record': ['name', 'path', 'line_number'],
+        'Property': ['name', 'path', 'line_number'],
+        'Parameter': ['name', 'path', 'function_line_number'],
+    }
+
     def _import_node_batch(self, session, batch: List[Tuple], id_mapping: Dict) -> int:
         """Import a batch of nodes."""
-        # Detect database backend to use appropriate ID function
         id_function = self._get_id_function()
         
         for labels, properties, old_id in batch:
             if not labels:
                 continue
             
-            # Create node with labels
+            if isinstance(labels, str):
+                labels = [labels]
             label_str = ':'.join(labels)
-            query = f"CREATE (n:{label_str}) SET n = $props RETURN {id_function}(n) as new_id"
-            
-            result = session.run(query, props=properties)
+            primary_label = labels[0]
+
+            pk_field = self._PK_MAP.get(primary_label)
+            if pk_field == 'uid' and 'uid' not in properties:
+                parts = self._UID_PARTS.get(primary_label, [])
+                properties['uid'] = ''.join(str(properties.get(p, '')) for p in parts)
+
+            if pk_field and pk_field in properties:
+                pk_val = properties[pk_field]
+                remaining = {k: v for k, v in properties.items() if k != pk_field}
+                query = (
+                    f"MERGE (n:{label_str} {{{pk_field}: $pk_val}}) "
+                    f"SET n += $props RETURN {id_function}(n) as new_id"
+                )
+                result = session.run(query, pk_val=pk_val, props=remaining)
+            else:
+                query = f"CREATE (n:{label_str}) SET n = $props RETURN {id_function}(n) as new_id"
+                result = session.run(query, props=properties)
+
             record = result.single()
-            
             if record and old_id:
                 id_mapping[old_id] = record['new_id']
         
@@ -759,6 +828,11 @@ cgc import <bundle-file>.cgc
         for edge in batch:
             old_from = edge.get('from')
             old_to = edge.get('to')
+            # Convert dict IDs to hashable tuples (matches node import conversion)
+            if isinstance(old_from, dict):
+                old_from = (old_from.get('table', 0), old_from.get('offset', 0))
+            if isinstance(old_to, dict):
+                old_to = (old_to.get('table', 0), old_to.get('offset', 0))
             rel_type = edge.get('type')
             properties = edge.get('properties', {})
             

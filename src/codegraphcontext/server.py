@@ -22,6 +22,7 @@ from .tools.graph_builder import GraphBuilder
 from .tools.code_finder import CodeFinder
 from .tools.package_resolver import get_local_package_path
 from .utils.debug_log import debug_log, info_logger, error_logger, warning_logger, debug_logger
+from .cli.config_manager import resolve_context
 
 # Import Tool Definitions and Handlers
 from .tool_definitions import TOOLS
@@ -82,18 +83,23 @@ class MCPServer:
     - The main JSON-RPC communication loop for interacting with an AI assistant.
     """
 
-    def __init__(self, loop=None):
+    def __init__(self, loop=None, cwd: Path | None = None):
         """
         Initializes the MCP server and its components. 
         
         Args:
             loop: The asyncio event loop to use. If not provided, it gets the current
                   running loop or creates a new one.
+            cwd: Working directory used for context resolution. Defaults to Path.cwd().
         """
         try:
-            # Initialize the database manager (Neo4j or FalkorDB Lite based on env var)
-            # to fail fast if credentials/configuration are wrong.
-            self.db_manager = get_database_manager()
+            ctx = resolve_context(cwd=cwd or Path.cwd())
+            self.resolved_context = ctx
+
+            if ctx.database:
+                os.environ['CGC_RUNTIME_DB_TYPE'] = ctx.database
+
+            self.db_manager = get_database_manager(db_path=ctx.db_path)
             self.db_manager.get_driver() 
         except ValueError as e:
             raise ValueError(f"Database configuration error: {e}")

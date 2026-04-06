@@ -48,7 +48,7 @@ class FalkorDBManager:
     _graph = None
     _lock = threading.Lock()
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         """Standard singleton pattern implementation."""
         if cls._instance is None:
             with cls._lock:
@@ -56,13 +56,18 @@ class FalkorDBManager:
                     cls._instance = super(FalkorDBManager, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self, db_path: Optional[str] = None, socket_path: Optional[str] = None):
         """
-        Initializes the manager with default database path.
+        Initializes the manager with default database path or explicit overrides.
         The `_initialized` flag prevents re-initialization on subsequent calls.
         """
-        if hasattr(self, '_initialized'):
+        # If we have an existing instance but are being asked to connect to a different path
+        # we need to be careful — it's a singleton. For the new context system, we ensure
+        # the singleton instance gets re-initialized if the path changes.
+        if hasattr(self, '_initialized') and self.db_path == db_path:
             return
+
+        self._initialized = False
 
         # Configuration priority:
         # 1. Environment variable (highest priority)
@@ -79,17 +84,25 @@ class FalkorDBManager:
             config_db_path = None
             config_socket_path = None
         
-        # Database path with fallback chain
-        self.db_path = os.getenv(
+        # Database path with fallback chain (Explicit > Env > Config/Default)
+        self.db_path = db_path or os.getenv(
             'FALKORDB_PATH',
-            config_db_path or str(Path.home() / '.codegraphcontext' / 'falkordb.db')
+            config_db_path or str(Path.home() / '.codegraphcontext' / 'global' / 'falkordb.db')
         )
         
         # Socket path with fallback chain
-        self.socket_path = os.getenv(
-            'FALKORDB_SOCKET_PATH',
-            config_socket_path or str(Path.home() / '.codegraphcontext' / 'falkordb.sock')
-        )
+        if socket_path:
+            self.socket_path = socket_path
+        elif db_path:
+            # If a custom DB path was given but no socket path, infer socket path automatically
+            # near the custom database rather than putting it in the global directory.
+            db_dir = Path(db_path).parent
+            self.socket_path = str(db_dir / 'falkordb.sock')
+        else:
+            self.socket_path = os.getenv(
+                'FALKORDB_SOCKET_PATH',
+                config_socket_path or str(Path.home() / '.codegraphcontext' / 'global' / 'falkordb.sock')
+            )
         
         self.graph_name = os.getenv('FALKORDB_GRAPH_NAME', 'codegraph')
         self._initialized = True

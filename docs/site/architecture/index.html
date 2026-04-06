@@ -19,7 +19,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
@@ -280,7 +280,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../guides/setup_deep_dive/" class="md-tabs__link">
+        <a href="../guides/onboarding/" class="md-tabs__link">
           
   
   
@@ -797,6 +797,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../guides/onboarding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Onboarding Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../guides/setup_deep_dive/" class="md-nav__link">
         
   
@@ -1089,10 +1117,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#high-level-diagram" class="md-nav__link">
+  <a href="#high-level-architecture-diagram" class="md-nav__link">
     <span class="md-ellipsis">
       
-        High-Level Diagram
+        High-Level Architecture Diagram
       
     </span>
   </a>
@@ -1111,10 +1139,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-no-frontend-application" class="md-nav__link">
+  <a href="#2-front-ends-and-observability" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. No "Frontend" Application
+        2. Front-ends and Observability
       
     </span>
   </a>
@@ -1761,10 +1789,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#high-level-diagram" class="md-nav__link">
+  <a href="#high-level-architecture-diagram" class="md-nav__link">
     <span class="md-ellipsis">
       
-        High-Level Diagram
+        High-Level Architecture Diagram
       
     </span>
   </a>
@@ -1783,10 +1811,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-no-frontend-application" class="md-nav__link">
+  <a href="#2-front-ends-and-observability" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. No "Frontend" Application
+        2. Front-ends and Observability
       
     </span>
   </a>
@@ -1837,22 +1865,28 @@
 
 <h1 id="system-architecture">System Architecture</h1>
 <p>CodeGraphContext (CGC) is a <strong>context-aware code intelligence engine</strong> that bridges the gap between your source code and your AI tools.</p>
-<p>It operates primarily as a background service (MCP Server) backed by a graph database, with a CLI for management.</p>
-<h2 id="high-level-diagram">High-Level Diagram</h2>
+<p>It operates primarily as a background service (MCP Server) backed by a graph database, with a CLI for management. Instead of relying solely on vector embeddings, CodeGraphContext leverages an exact knowledge graph for deep, deterministic insights into the codebase.</p>
+<h2 id="high-level-architecture-diagram">High-Level Architecture Diagram</h2>
 <pre class="mermaid"><code>graph TD
-    Client[AI Client / CLI]
-    Server[MCP Server]
-    Graph[Graph Builder]
-    DB[(Graph Database)]
+    Client[AI Client / CLI / Editor]
+    Server[MCP Server Interface]
+    CoreEngine[Core Engine &amp; Tools]
+    ParserLayer[Tree-sitter Language Parsers]
+    DBLayer[Database Abstraction Layer]
+    KuzuDB[(KùzuDB - Embedded Default)]
+    Neo4j[(Neo4j - Enterprise Option)]
     FS[File System]
 
-    Client -- "1. Query (MCP/CLI)" --&gt; Server
-    Server -- "2. Read Graph" --&gt; DB
-    Server -- "3. Trigger Index" --&gt; Graph
-    Graph -- "4. Scan Code" --&gt; FS
-    Graph -- "5. Store Nodes" --&gt; DB</code></pre>
+    Client -- "1. Context Queries (MCP)" --&gt; Server
+    Client -- "2. CLI Commands (Index/List)" --&gt; CoreEngine
+    Server -- "Forward Requests" --&gt; CoreEngine
+    CoreEngine -- "Read/Write Graph" --&gt; DBLayer
+    CoreEngine -- "Trigger Full/Incremental Indexing" --&gt; ParserLayer
+    ParserLayer -- "Scan Source Files" --&gt; FS
+    DBLayer -- "Store nodes &amp; edges" --&gt; KuzuDB
+    DBLayer -- "Store nodes &amp; edges" --&gt; Neo4j</code></pre>
 <h2 id="1-the-core-backend">1. The Core (Backend)</h2>
-<p>The "brain" of the operation lives in <code>src/codegraphcontext</code>. It is a pure Python application.</p>
+<p>The primary intelligence resides within the <code>src/codegraphcontext</code> directory. The system is built purely in Python and heavily relies on abstracting operations to stay versatile.</p>
 <table>
 <thead>
 <tr>
@@ -1862,54 +1896,64 @@
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><strong>Server (<code>server.py</code>)</strong></td>
-<td style="text-align: left;">Acts as the <a href="https://modelcontextprotocol.io/">Model Context Protocol (MCP)</a> host. It translates JSON requests from Claude/Cursor into database queries.</td>
+<td style="text-align: left;"><strong>MCP Server (<code>server.py</code>)</strong></td>
+<td style="text-align: left;">Acts as the <a href="https://modelcontextprotocol.io/">Model Context Protocol (MCP)</a> host. It translates JSON-RPC requests from LLM clients (like Claude, Cursor, Windsurf) into standardized graph database queries.</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Graph Builder</strong></td>
-<td style="text-align: left;">The "indexer". It parses your code using <strong>Tree-sitter</strong>, extracts dependencies, and builds the knowledge graph.</td>
+<td style="text-align: left;"><strong>Graph Builder (<code>graph_builder.py</code>)</strong></td>
+<td style="text-align: left;">The "indexer" module. It coordinates parsing the codebase using <strong>Tree-sitter</strong>, extracts dependencies, and builds the knowledge graph layout in memory before flushing objects to the database.</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Database Layer</strong></td>
-<td style="text-align: left;">An abstraction layer that talks to either <strong>FalkorDB</strong> (embedded) or <strong>Neo4j</strong> (production).</td>
+<td style="text-align: left;"><strong>Database Abstraction Layer</strong></td>
+<td style="text-align: left;">Handles the connection to the underlying graph database. By default, CGC uses <strong>KùzuDB</strong> for embedded, fast, local indexing, but also natively supports <strong>Neo4j</strong> for complex or enterprise-level deployments.</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Background Jobs</strong></td>
-<td style="text-align: left;">Handles long-running tasks like "Index the entire repo" or "Watch for file changes" without blocking the AI.</td>
+<td style="text-align: left;"><strong>Watchers &amp; Background Jobs</strong></td>
+<td style="text-align: left;">Manages long-running tasks such as full repository indexing, bundle processing, and file system monitoring (<code>watchdog</code> module) that triggers incremental updates upon file modifications without blocking the AI.</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Watcher</strong></td>
-<td style="text-align: left;">A file system monitor that triggers incremental re-indexing when you save a file.</td>
+<td style="text-align: left;"><strong>Tree-sitter Parsers</strong></td>
+<td style="text-align: left;">Provide accurate, robust Abstract Syntax Tree (AST) parsing across multiple supported languages to identify classes, functions, files, modules, and their inter-relationships (CALLS, IMPORTS, INHERITS, CONTAINS).</td>
 </tr>
 </tbody>
 </table>
-<h2 id="2-no-frontend-application">2. No "Frontend" Application</h2>
-<p><strong>Important:</strong> CodeGraphContext does <strong>not</strong> have a traditional web application frontend.
-The <code>website/</code> folder you see in the repository is strictly for <strong>documentation</strong> (this site).</p>
-<p>Instead of a custom UI, we rely on:</p>
-<ol>
-<li><strong>AI Chat Interfaces:</strong> Your existing IDE chat (Cursor, VS Code) is the UI.</li>
-<li><strong>Neo4j Browser:</strong> For advanced users wanting a raw visual exploration of the graph (available at <code>localhost:7474</code> if using Neo4j).</li>
-<li><strong>Visualizer Tool:</strong> The CLI can generate standalone HTML files (<code>cgc visualize</code>) using Vis.js for quick inspections.</li>
-</ol>
+<h2 id="2-front-ends-and-observability">2. Front-ends and Observability</h2>
+<p><strong>Important:</strong> CodeGraphContext does <strong>not</strong> rely on a built-in heavy GUI application.</p>
+<p>The interaction is designed for low friction and automation:
+1.  <strong>AI IDE Integrations:</strong> The primary front-end is your AI IDE chat via the Model Context Protocol. You ask a question ("How does user authentication work in the <code>users</code> module?"), and the MCP server uses the graph to resolve exactly what files and functions fulfill that context.
+2.  <strong>CLI (Command Line Interface):</strong> A fully featured standard CLI (<code>cgc</code>) to initialize, index, clean, or export graph bundles from the terminal.
+3.  <strong>Visualization Dashboard:</strong> A standalone React visualization client (<code>cgc visualize</code>) that parses the raw graph DB and plots nodes dynamically using <code>react-force-graph</code> for exploratory views without needing an external desktop app.
+4.  <strong>Database Browsers:</strong> Deep advanced exploration of the actual graph connections using direct Cypher queries via the KùzuDB CLI or Neo4j Browser (<code>localhost:7474</code>).</p>
 <h2 id="3-data-flow">3. Data Flow</h2>
 <ol>
-<li><strong>Indexing:</strong><ul>
-<li><code>cgc index .</code> -&gt; Scans files -&gt; Parses AST -&gt; Creates Nodes (Functions, Classes) and Edges (CALLS, INHERITS) -&gt; Saves to DB.</li>
+<li><strong>Repository Indexing:</strong><ul>
+<li><code>cgc index .</code> invokes the graph builder.</li>
+<li>Files are skipped/filtered based on <code>.cgcignore</code> configurations.</li>
+<li>Files are parsed via language-specific Tree-sitter grammars.</li>
+<li>Language parsers emit standardized objects (Classes, Functions, Modules).</li>
+<li>The Graph Builder reconciles imports (edges across different files) and saves them robustly into the active DB.</li>
 </ul>
 </li>
-<li><strong>Querying (Natural Language):</strong><ul>
-<li>User asks "Who calls function X?" -&gt; MCP Server receives request -&gt; Runs Cypher Query (<code>MATCH (n)-[:CALLS]-&gt;(m)...</code>) -&gt; Returns context to LLM.</li>
+<li><strong>Real-time querying:</strong><ul>
+<li>An LLM needs context for "Who calls <code>authenticate_user</code>?".</li>
+<li>The MCP client forwards the tool call: <code>analyze_code_relationships(queryType="find_callers", target="authenticate_user")</code>.</li>
+<li>The MCP server runs strict Cypher validation against the Database Abstraction Layer.</li>
+<li>DB returns specific file paths, snippet boundaries, and exact structural context natively avoiding hallucination.</li>
 </ul>
 </li>
 </ol>
 <h2 id="4-key-technologies">4. Key Technologies</h2>
 <ul>
 <li><strong>Language:</strong> Python 3.10+</li>
-<li><strong>Parsing:</strong> Tree-sitter (for robust, multi-language support)</li>
-<li><strong>Protocol:</strong> Model Context Protocol (MCP)</li>
-<li><strong>Database:</strong> FalkorDB (via Redis) or Neo4j</li>
-<li><strong>CLI:</strong> Typer / Click </li>
+<li><strong>Parsing:</strong> Tree-sitter (for reliable and multi-language AST extraction)</li>
+<li><strong>Protocol:</strong> Model Context Protocol (MCP) by Anthropic for seamless IDE interactions</li>
+<li><strong>Databases:</strong><ul>
+<li><strong>KùzuDB:</strong> Used as the default, lightweight embeddable C++ graph database supporting native Cypher compatibility.</li>
+<li><strong>Neo4j:</strong> Production-level graph DB compatibility via Cypher standardizing queries.</li>
+</ul>
+</li>
+<li><strong>CLI Interface:</strong> <code>click</code> and <code>typer</code> frameworks.</li>
+<li><strong>Visualizations:</strong> Next.js / Vite / <code>react-force-graph</code> within the <code>website</code> directory for rendering the 3D local graph views.</li>
 </ul>
 
 

@@ -3,6 +3,10 @@
     {
       "source": "/api/pypi/:path*",
       "destination": "/api/pypi"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }

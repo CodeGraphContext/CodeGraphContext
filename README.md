@@ -6,8 +6,9 @@
 - 🇬🇧 [English](README.md)
 - 🇨🇳 [中文](README.zh-CN.md)
 - 🇰🇷 [한국어](README.kor.md)
+- 🇺🇦 [Українська](README.uk.md)
+- 🇷🇺 Русский (README.ru-RU.md)
 - 🇯🇵 日本語 (Soon)
-- 🇷🇺 Русский (Soon)
 - 🇪🇸 Español (Soon)
 
 🌍 **Help translate CodeGraphContext to your language by raising an issue & PR on https://github.com/Shashankss1205/CodeGraphContext/issues!**
@@ -96,7 +97,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 ---
 
 ## Project Details
-- **Version:** 0.3.8
+- **Version:** 0.3.9
 - **Authors:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **License:** MIT License (See [LICENSE](LICENSE) for details)
 - **Website:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
