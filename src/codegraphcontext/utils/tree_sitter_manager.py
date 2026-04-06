@@ -58,6 +58,10 @@ LANGUAGE_ALIASES = {
     "elixir": "elixir",
     "ex": "elixir",
     "exs": "elixir",
+    "vue": "vue",
+    ".vue": "vue",
+    "svelte": "svelte",
+    ".svelte": "svelte",
 }
 
 # Canonical names that differ from tree-sitter-language-pack names

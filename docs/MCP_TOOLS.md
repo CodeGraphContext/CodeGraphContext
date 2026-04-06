@@ -24,7 +24,7 @@ Performs a one-time scan of a local folder to add its code to the graph. Ideal f
 Add an external package to the graph by discovering its location.
 - **Args**: `package_name` (string), `language` (string), `is_dependency` (boolean)
 - **Returns**: Job ID
-- **Supported Languages**: python, javascript, typescript, java, c, go, ruby, php, cpp
+- **Supported Languages**: python, javascript, typescript, java, c, go, ruby, php, cpp, vue, svelte
 
 ### `list_indexed_repositories`
 List all repositories currently indexed in the graph.

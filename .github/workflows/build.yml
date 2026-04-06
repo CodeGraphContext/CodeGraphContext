@@ -29,7 +29,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Set up Python 3.12 (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Python 3.12 (Windows/Mac)
+        if: runner.os != 'Linux'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -49,17 +56,25 @@ jobs:
         run: |
           pyinstaller cgc.spec --clean
 
-      - name: Install dependencies (Linux)
+      - name: Install dependencies and build (Linux)
         if: runner.os == 'Linux'
         run: |
-          python -m pip install --upgrade pip setuptools wheel build
-          pip install .
-          pip install pyinstaller
-
-      - name: Build with PyInstaller (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          pyinstaller cgc.spec --clean
+          docker run --rm \
+            -v ${{ github.workspace }}:/src \
+            quay.io/pypa/manylinux2014_x86_64 \
+            /bin/bash -c "
+              set -e
+              cd /src
+              curl -LsSf https://astral.sh/uv/install.sh | sh
+              export PATH=/root/.local/bin:\$PATH
+              uv python install 3.12
+              uv venv --python 3.12 --seed /tmp/venv
+              . /tmp/venv/bin/activate
+              python -m pip install --upgrade pip
+              pip install . pyinstaller
+              pyinstaller cgc.spec --clean
+            "
+          sudo chown -R $USER:$USER dist build
 
       - name: Rename artifact (Linux/Mac)
         if: runner.os != 'Windows'

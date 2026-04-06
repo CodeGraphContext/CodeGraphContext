@@ -112,6 +112,27 @@ sub hello {
     print "world\\n";
 }
 1;
+''',
+        'vue': '''
+<template>
+    <div>{{ msg }}</div>
+</template>
+<script lang="ts">
+import { greet } from './helpers'
+function hello(name: string) {
+    return greet(name)
+}
+</script>
+''',
+        'svelte': '''
+<script>
+    import { onMount } from 'svelte'
+    function hello() {
+        console.log('world')
+    }
+</script>
+
+<h1>Hello</h1>
 '''
 }
 
@@ -127,7 +148,9 @@ extensions = {
     'ruby': '.rb',
     'c_sharp': '.cs',
     'dart': '.dart',
-    'perl': '.pl'
+    'perl': '.pl',
+    'vue': '.vue',
+    'svelte': '.svelte'
 }
 
 results = {}

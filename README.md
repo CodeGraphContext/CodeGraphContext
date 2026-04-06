@@ -129,7 +129,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 -   **Live File Watching:** Watch directories for changes and automatically update the graph in real-time (`cgc watch`).
 -   **Interactive Setup:** A user-friendly command-line wizard for easy setup.
 -   **Dual Mode:** Works as a standalone **CLI toolkit** for developers and as an **MCP server** for AI agents.
--   **Multi-Language Support:** Full support for 14 programming languages.
+-   **Multi-Language Support:** Full support for 16 programming languages.
 -   **Flexible Database Backend:** KùzuDB (default, zero-config for all platforms), FalkorDB Lite (Unix-only), FalkorDB Remote, or Neo4j (all platforms via Docker/native).
 
 ---
@@ -144,7 +144,8 @@ CodeGraphContext provides comprehensive parsing and analysis for the following l
 | ☕ | **Java** | 🏗️ | **C / C++** | #️⃣ | **C#** |
 | 🐹 | **Go** | 🦀 | **Rust** | 💎 | **Ruby** |
 | 🐘 | **PHP** | 🍎 | **Swift** | 🎨 | **Kotlin** |
-| 🎯 | **Dart** | 🐪 | **Perl** | | |
+| 🎯 | **Dart** | 🐪 | **Perl** | 🧩 | **Vue** |
+| 🔥 | **Svelte** | | | | |
 
 Each language parser extracts functions, classes, methods, parameters, inheritance relationships, function calls, and imports to build a comprehensive code graph.
 
