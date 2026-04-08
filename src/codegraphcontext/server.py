@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from dataclasses import asdict
 
-from typing import Any, Dict, Coroutine, Optional, List
+from typing import Any, Dict, Coroutine, Optional, List, Tuple
 
 from .prompts import LLM_SYSTEM_PROMPT
 from .core import get_database_manager
@@ -96,7 +96,9 @@ class MCPServer:
             ctx = resolve_context(cwd=cwd or Path.cwd())
             self.resolved_context = ctx
 
-            if ctx.database:
+            # Respect explicit runtime override (e.g. CLI --database) over
+            # context/default resolution to keep command behavior predictable.
+            if ctx.database and not os.environ.get('CGC_RUNTIME_DB_TYPE'):
                 os.environ['CGC_RUNTIME_DB_TYPE'] = ctx.database
 
             self.db_manager = get_database_manager(db_path=ctx.db_path)
@@ -247,6 +249,49 @@ class MCPServer:
         else:
             return {"error": f"Unknown tool: {tool_name}"}
 
+    def _read_request_blocking(self) -> Tuple[Optional[dict], Optional[str]]:
+        """Read one request from stdin supporting MCP framing and legacy line JSON-RPC."""
+        stdin_buffer = sys.stdin.buffer
+        first = stdin_buffer.readline()
+        if not first:
+            return None, None
+
+        first_str = first.decode("utf-8", errors="replace")
+        if first_str.lower().startswith("content-length:"):
+            try:
+                content_length = int(first_str.split(":", 1)[1].strip())
+            except Exception as exc:
+                raise ValueError(f"Invalid Content-Length header: {first_str.strip()}") from exc
+
+            # Consume all remaining headers up to the blank line.
+            while True:
+                header_line = stdin_buffer.readline()
+                if not header_line:
+                    return None, None
+                if header_line in (b"\r\n", b"\n", b""):
+                    break
+
+            body = stdin_buffer.read(content_length)
+            if len(body) < content_length:
+                return None, None
+            return json.loads(body.decode("utf-8")), "mcp"
+
+        # Fallback: line-delimited JSON-RPC.
+        line = first_str.strip()
+        if not line:
+            return None, "line"
+        return json.loads(line), "line"
+
+    def _write_response(self, response: dict, framing: Optional[str]) -> None:
+        """Write response using the same framing as the request."""
+        if framing == "mcp":
+            payload = json.dumps(response).encode("utf-8")
+            sys.stdout.buffer.write(f"Content-Length: {len(payload)}\r\n\r\n".encode("ascii"))
+            sys.stdout.buffer.write(payload)
+            sys.stdout.buffer.flush()
+        else:
+            print(json.dumps(response), flush=True)
+
     async def run(self):
         """
         Runs the main server loop, listening for JSON-RPC requests from stdin.
@@ -258,13 +303,12 @@ class MCPServer:
         loop = asyncio.get_event_loop()
         while True:
             try:
-                # Read a request from the standard input.
-                line = await loop.run_in_executor(None, sys.stdin.readline)
-                if not line:
+                # Read a request from standard input.
+                request, framing = await loop.run_in_executor(None, self._read_request_blocking)
+                if request is None:
                     debug_logger("Client disconnected (EOF received). Shutting down.")
                     break
-                
-                request = json.loads(line.strip())
+
                 method = request.get('method')
                 params = request.get('params', {})
                 request_id = request.get('id')
@@ -319,7 +363,7 @@ class MCPServer:
                 
                 # Send the response to standard output if it's not a notification.
                 if request_id is not None and response:
-                    print(json.dumps(response), flush=True)
+                    self._write_response(response, framing)
 
             except Exception as e:
                 error_logger(f"Error processing request: {e}\n{traceback.format_exc()}")
@@ -331,7 +375,7 @@ class MCPServer:
                     "jsonrpc": "2.0", "id": request_id,
                     "error": {"code": -32603, "message": f"Internal error: {str(e)}", "data": traceback.format_exc()}
                 }
-                print(json.dumps(error_response), flush=True)
+                self._write_response(error_response, locals().get("framing"))
 
     def shutdown(self):
         """Gracefully shuts down the server and its components."""

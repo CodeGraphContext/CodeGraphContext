@@ -2,6 +2,9 @@ import asyncio
 import json
 import uuid
 import urllib.parse
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 import time
 import os
@@ -753,3 +756,127 @@ def list_watching_helper():
     console.print(f"\n[cyan]To see watched directories in MCP mode:[/cyan]")
     console.print(f"  1. Start the MCP server: cgc mcp start")
     console.print(f"  2. Use the 'list_watched_paths' MCP tool from your IDE")
+
+
+def _slugify_unit_component(value: str) -> str:
+    safe = "".join(ch if ch.isalnum() else "-" for ch in value.strip())
+    safe = "-".join(part for part in safe.split("-") if part)
+    return (safe or "workspace").lower()
+
+
+def _systemd_watch_unit_name(path: Path, unit_name: Optional[str] = None) -> str:
+    if unit_name:
+        return unit_name if unit_name.endswith(".service") else f"{unit_name}.service"
+    return f"cgc-watch-{_slugify_unit_component(str(path))}.service"
+
+
+def _systemd_unit_file(unit_name: str) -> Path:
+    return Path.home() / ".config" / "systemd" / "user" / unit_name
+
+
+def _run_systemctl_user(args: list[str]) -> tuple[int, str, str]:
+    try:
+        proc = subprocess.run(
+            ["systemctl", "--user", *args],
+            capture_output=True,
+            text=True,
+        )
+        return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
+    except FileNotFoundError:
+        return 127, "", "systemctl not found on this machine"
+
+
+def watch_service_install_helper(
+    path: str,
+    context: Optional[str] = None,
+    database: str = "kuzudb",
+    unit_name: Optional[str] = None,
+    enable: bool = True,
+    start: bool = True,
+):
+    """
+    Install a persistent systemd user service for cgc watch.
+    This keeps file watching reliable across terminal restarts with minimal overhead.
+    """
+    watch_path = Path(path).resolve()
+    if not watch_path.exists() or not watch_path.is_dir():
+        console.print(f"[red]Error:[/red] watch path must be an existing directory: {watch_path}")
+        return
+
+    resolved_unit_name = _systemd_watch_unit_name(watch_path, unit_name=unit_name)
+    unit_file = _systemd_unit_file(resolved_unit_name)
+    unit_file.parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = [sys.executable, "-m", "codegraphcontext", "--database", database, "watch", str(watch_path)]
+    if context:
+        cmd.extend(["--context", context])
+    exec_start = shlex.join(cmd)
+
+    unit_text = (
+        "[Unit]\n"
+        f"Description=CodeGraphContext watch service for {watch_path}\n"
+        "After=default.target\n\n"
+        "[Service]\n"
+        "Type=simple\n"
+        f"WorkingDirectory={watch_path}\n"
+        f"ExecStart={exec_start}\n"
+        "Restart=always\n"
+        "RestartSec=2\n"
+        "Environment=PYTHONUNBUFFERED=1\n\n"
+        "[Install]\n"
+        "WantedBy=default.target\n"
+    )
+    unit_file.write_text(unit_text, encoding="utf-8")
+
+    rc, _, err = _run_systemctl_user(["daemon-reload"])
+    if rc != 0:
+        console.print("[red]Failed to reload user systemd daemon.[/red]")
+        if err:
+            console.print(f"[dim]{err}[/dim]")
+        return
+
+    if enable:
+        rc, _, err = _run_systemctl_user(["enable", resolved_unit_name])
+        if rc != 0 and err:
+            console.print(f"[yellow]Warning:[/yellow] could not enable unit: {err}")
+
+    if start:
+        rc, _, err = _run_systemctl_user(["restart", resolved_unit_name])
+        if rc != 0:
+            console.print(f"[red]Failed to start {resolved_unit_name}.[/red]")
+            if err:
+                console.print(f"[dim]{err}[/dim]")
+            return
+
+    console.print(f"[green]✓[/green] Installed systemd watcher unit: [cyan]{resolved_unit_name}[/cyan]")
+    console.print(f"[green]✓[/green] Unit file: [dim]{unit_file}[/dim]")
+    console.print(f"[green]✓[/green] Exec: [dim]{exec_start}[/dim]")
+
+
+def watch_service_status_helper(unit_name: str):
+    resolved_unit_name = _systemd_watch_unit_name(Path("."), unit_name=unit_name)
+    rc, out, err = _run_systemctl_user(["status", "--no-pager", resolved_unit_name])
+    if out:
+        console.print(out)
+    if rc != 0 and err:
+        console.print(f"[dim]{err}[/dim]")
+
+
+def watch_service_stop_helper(unit_name: str, disable: bool = False):
+    resolved_unit_name = _systemd_watch_unit_name(Path("."), unit_name=unit_name)
+    _run_systemctl_user(["stop", resolved_unit_name])
+    if disable:
+        _run_systemctl_user(["disable", resolved_unit_name])
+    console.print(f"[green]✓[/green] Stopped {resolved_unit_name}")
+
+
+def watch_service_remove_helper(unit_name: str, keep_unit_file: bool = False):
+    resolved_unit_name = _systemd_watch_unit_name(Path("."), unit_name=unit_name)
+    _run_systemctl_user(["stop", resolved_unit_name])
+    _run_systemctl_user(["disable", resolved_unit_name])
+
+    unit_file = _systemd_unit_file(resolved_unit_name)
+    if unit_file.exists() and not keep_unit_file:
+        unit_file.unlink()
+    _run_systemctl_user(["daemon-reload"])
+    console.print(f"[green]✓[/green] Removed watcher unit: {resolved_unit_name}")

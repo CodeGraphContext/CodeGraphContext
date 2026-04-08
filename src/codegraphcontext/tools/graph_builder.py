@@ -182,6 +182,30 @@ class GraphBuilder:
         # When adding a new node type with a unique key, add its constraint here.
         with self.driver.session() as session:
             try:
+                backend_type = getattr(self.db_manager, 'get_backend_type', lambda: 'neo4j')()
+
+                # KuzuDB has its own schema/index lifecycle in database_kuzu.py.
+                # Here we only ensure FTS indexes used by find_code are present.
+                if backend_type == 'kuzudb':
+                    kuzu_fts_indexes = [
+                        ("Function", "function_code_search_fts", "['name', 'source', 'docstring']"),
+                        ("Class", "class_code_search_fts", "['name', 'source', 'docstring']"),
+                        ("Variable", "variable_code_search_fts", "['name', 'source', 'docstring']"),
+                    ]
+                    for table_name, index_name, fields in kuzu_fts_indexes:
+                        try:
+                            session.run(
+                                f"CALL CREATE_FTS_INDEX('{table_name}', '{index_name}', {fields})"
+                            )
+                        except Exception as e:
+                            # Idempotent behavior: ignore "already exists", report everything else.
+                            if "already exists" not in str(e).lower():
+                                warning_logger(
+                                    f"Kuzu FTS index creation warning for {table_name}.{index_name}: {e}"
+                                )
+                    info_logger("KuzuDB FTS indexes verified/created successfully")
+                    return
+
                 session.run("CREATE CONSTRAINT repository_path IF NOT EXISTS FOR (r:Repository) REQUIRE r.path IS UNIQUE")
                 session.run("CREATE CONSTRAINT path IF NOT EXISTS FOR (f:File) REQUIRE f.path IS UNIQUE")
                 session.run("CREATE CONSTRAINT directory_path IF NOT EXISTS FOR (d:Directory) REQUIRE d.path IS UNIQUE")
@@ -204,7 +228,7 @@ class GraphBuilder:
                 session.run("CREATE INDEX class_lang IF NOT EXISTS FOR (c:Class) ON (c.lang)")
                 session.run("CREATE INDEX annotation_lang IF NOT EXISTS FOR (a:Annotation) ON (a.lang)")
                 
-                is_falkordb = getattr(self.db_manager, 'get_backend_type', lambda: 'neo4j')() != 'neo4j'
+                is_falkordb = backend_type in ('falkordb', 'falkordb-remote')
                 if is_falkordb:
                     # FalkorDB uses db.idx.fulltext.createNodeIndex per label
                     for label in ['Function', 'Class']:

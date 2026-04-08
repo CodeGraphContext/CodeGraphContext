@@ -42,6 +42,10 @@ from .cli_helpers import (
     watch_helper,
     unwatch_helper,
     list_watching_helper,
+    watch_service_install_helper,
+    watch_service_status_helper,
+    watch_service_stop_helper,
+    watch_service_remove_helper,
 )
 
 # Set the log level for the noisy neo4j, asyncio, and urllib3 loggers to keep the output clean.
@@ -1197,6 +1201,60 @@ def watching(
     """
     _load_credentials()
     list_watching_helper()
+
+
+@app.command(name="watch-service-install")
+def watch_service_install(
+    path: str = typer.Argument(".", help="Path to the directory to watch."),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+    database: str = typer.Option("kuzudb", "--database", "-d", help="Database backend for the watcher service."),
+    unit_name: Optional[str] = typer.Option(None, "--unit-name", help="Optional custom systemd unit name."),
+    enable: bool = typer.Option(True, "--enable/--no-enable", help="Enable unit on login."),
+    start: bool = typer.Option(True, "--start/--no-start", help="Start/restart unit after install."),
+):
+    """
+    Install a persistent systemd user service for file watching.
+
+    This runs `cgc watch` as a background user service (low overhead, reliable across terminals).
+    """
+    _load_credentials()
+    watch_service_install_helper(
+        path=path,
+        context=context,
+        database=database,
+        unit_name=unit_name,
+        enable=enable,
+        start=start,
+    )
+
+
+@app.command(name="watch-service-status")
+def watch_service_status(
+    unit_name: str = typer.Argument(..., help="Systemd watcher unit name (with or without .service)."),
+):
+    """Show status for a watcher systemd user service."""
+    _load_credentials()
+    watch_service_status_helper(unit_name)
+
+
+@app.command(name="watch-service-stop")
+def watch_service_stop(
+    unit_name: str = typer.Argument(..., help="Systemd watcher unit name (with or without .service)."),
+    disable: bool = typer.Option(False, "--disable", help="Also disable the unit."),
+):
+    """Stop a watcher systemd user service."""
+    _load_credentials()
+    watch_service_stop_helper(unit_name, disable=disable)
+
+
+@app.command(name="watch-service-remove")
+def watch_service_remove(
+    unit_name: str = typer.Argument(..., help="Systemd watcher unit name (with or without .service)."),
+    keep_unit_file: bool = typer.Option(False, "--keep-unit-file", help="Stop/disable but keep unit file on disk."),
+):
+    """Remove a watcher systemd user service and its unit file."""
+    _load_credentials()
+    watch_service_remove_helper(unit_name, keep_unit_file=keep_unit_file)
 
 
 
