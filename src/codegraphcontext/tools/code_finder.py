@@ -404,12 +404,12 @@ class CodeFinder:
                     results = result.data()
             else:
                 result = session.run(f"""
-                    MATCH (caller:Function)-[call:CALLS]->(target:Function {{name: $function_name}})
-                    WHERE 1=1 {repo_filter}
+                    MATCH (caller)-[call:CALLS]->(target:Function {{name: $function_name}})
+                    WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
-                        caller.path as caller_file_path,
+                        COALESCE(caller.path, caller_file.path) as caller_file_path,
                         caller.line_number as caller_line_number,
                         caller.docstring as caller_docstring,
                         caller.is_dependency as caller_is_dependency,
@@ -418,7 +418,7 @@ class CodeFinder:
                         call.full_call_name as full_call_name,
                         target.path as target_file_path
                 ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
-                    LIMIT 20
+                    LIMIT 50
                 """, function_name=function_name, repo_path=repo_path)
                 results = result.data()
             

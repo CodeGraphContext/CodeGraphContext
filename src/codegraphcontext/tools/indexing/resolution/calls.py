@@ -87,7 +87,10 @@ def resolve_function_call(
             if not resolved_path:
                 resolved_path = candidates[0]
         else:
-            resolved_path = caller_file_path
+            # Cannot resolve target — skip rather than create a false
+            # self-referencing CALLS edge.  Legitimate same-file calls are
+            # already caught earlier by the local_names check (lines 36, 74).
+            return None
 
     if skip_external and is_unresolved_external:
         return None
