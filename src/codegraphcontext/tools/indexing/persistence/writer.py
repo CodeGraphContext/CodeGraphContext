@@ -290,6 +290,11 @@ class GraphWriter:
                             }
                         )
                 else:
+                    # Ensure full_import_name is always present — some language parsers
+                    # (e.g. TypeScript, JavaScript) omit it, causing KuzuDB to throw
+                    # "Invalid struct field name: full_import_name" on UNWIND.
+                    if "full_import_name" not in imp:
+                        imp["full_import_name"] = imp.get("source") or imp.get("name", "")
                     other_imports.append(imp)
 
             if js_imports:
