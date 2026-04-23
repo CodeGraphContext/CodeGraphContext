@@ -1,13 +1,14 @@
 """Create constraints and indexes for graph backends (Neo4j / Falkor-style Cypher)."""
 
-from typing import Any
+from typing import Any, Optional
 
 from ...utils.debug_log import info_logger, warning_logger
 
 
-def create_graph_schema(driver: Any, db_manager: Any) -> None:
-    """Create constraints and indexes. *driver* must support .session() context manager."""
-    with driver.session() as session:
+def create_graph_schema(db_manager: Any, graph_name: Optional[str] = None) -> None:
+    """Create constraints and indexes on the graph identified by ``graph_name``
+    (or the backend's env default when ``None``)."""
+    with db_manager.get_driver(graph_name=graph_name).session() as session:
         try:
             session.run(
                 "CREATE CONSTRAINT repository_path IF NOT EXISTS FOR (r:Repository) REQUIRE r.path IS UNIQUE"

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -14,7 +15,7 @@ class _KuzuDBAdapter:
     def __init__(self, driver):
         self._driver = driver
 
-    def get_driver(self):
+    def get_driver(self, graph_name: Optional[str] = None):
         return self._driver
 
     def get_backend_type(self) -> str:
@@ -35,7 +36,7 @@ def test_kuzu_indexes_typescript_import_rows_without_full_import_name(tmp_path):
 
     manager, driver = _new_kuzu_driver(tmp_path)
     try:
-        writer = GraphWriter(driver)
+        writer = GraphWriter(manager)
         writer.add_repository_to_graph(repo)
         writer.add_file_to_graph(
             {
@@ -75,7 +76,7 @@ def test_kuzu_indexes_typescript_scoped_package_import(tmp_path):
 
     manager, driver = _new_kuzu_driver(tmp_path)
     try:
-        writer = GraphWriter(driver)
+        writer = GraphWriter(manager)
         writer.add_repository_to_graph(repo)
         writer.add_file_to_graph(
             {
@@ -120,7 +121,7 @@ def test_kuzu_indexes_import_rows_with_missing_optional_fields(tmp_path):
 
     manager, driver = _new_kuzu_driver(tmp_path)
     try:
-        writer = GraphWriter(driver)
+        writer = GraphWriter(manager)
         writer.add_repository_to_graph(repo)
         writer.add_file_to_graph(
             {

@@ -203,7 +203,7 @@ class TestTC04_KuzuSetupBlock:
 
 class TestTC05_ReadmeDocumentation:
 
-    README_PATH = Path(__file__).parent.parent.parent.parent / "README.md"
+    README_PATH = Path(__file__).parent.parent.parent / "README.md"
 
     def test_readme_exists(self):
         assert self.README_PATH.exists(), \

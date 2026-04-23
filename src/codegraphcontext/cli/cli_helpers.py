@@ -695,7 +695,7 @@ def watch_helper(path: str, context: Optional[str] = None):
         # Fallback: count File nodes whose path starts with this repo's path.
         # If > 100 exist, the repo is clearly already indexed — skip the scan.
         try:
-            with code_finder.driver.session() as _s:
+            with code_finder._open_session() as _s:
                 _r = _s.run(
                     "MATCH (n:File) WHERE n.path STARTS WITH $p RETURN count(n) AS c",
                     p=str(path_obj) + "/"

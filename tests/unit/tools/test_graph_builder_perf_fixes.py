@@ -65,17 +65,34 @@ class _FakeDriver:
         return self._session
 
 
+class _FakeDBManager:
+    """db_manager stub that hands out a pre-wired driver for every get_driver call."""
+
+    def __init__(self, session: _RecordingSession):
+        self._session = session
+
+    def get_driver(self, graph_name: Optional[str] = None):
+        return _FakeDriver(self._session)
+
+    def get_backend_type(self) -> str:
+        return "neo4j"
+
+
 def _make_graph_builder(session: Optional[_RecordingSession] = None):
-    """Return a GraphBuilder with a fake driver. Skips full __init__ setup."""
+    """Return a GraphBuilder with a fake db_manager. Skips full __init__ setup."""
+    import threading
     from codegraphcontext.tools.graph_builder import GraphBuilder
-    from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
     gb = GraphBuilder.__new__(GraphBuilder)
     if session is None:
         session = _RecordingSession()
-    gb.driver = _FakeDriver(session)
-    gb._writer = GraphWriter(gb.driver)
+    gb.db_manager = _FakeDBManager(session)
     gb.parsers = {}
+    gb._parsed_cache = {}
+    # Pre-mark the default graph's schema as already created so facade methods
+    # don't try to issue DDL through the fake session.
+    gb._schema_created = {""}
+    gb._schema_lock = threading.Lock()
     return gb, session
 
 
@@ -549,6 +566,7 @@ class TestWatcherMemoryClear:
         watcher.all_file_data = []
         watcher.repo_path = Path("/fake")
         watcher.imports_map = {}
+        watcher.graph_name = None
 
         mock_gb = MagicMock()
         mock_gb.parsers = {}
@@ -580,6 +598,7 @@ class TestWatcherIncrementalHandleModification:
         watcher.all_file_data = []
         watcher.imports_map = {}
         watcher.repo_path = Path("/fake")
+        watcher.graph_name = None
 
         mock_gb = MagicMock()
         mock_gb.parsers = {".py": None}
@@ -604,6 +623,7 @@ class TestWatcherIncrementalHandleModification:
         watcher.all_file_data = []
         watcher.imports_map = {}
         watcher.repo_path = Path("/fake")
+        watcher.graph_name = None
 
         mock_gb = MagicMock()
         mock_gb.parsers = {".py": None}
@@ -628,6 +648,7 @@ class TestWatcherIncrementalHandleModification:
         watcher.all_file_data = []
         watcher.imports_map = {}
         watcher.repo_path = Path("/fake")
+        watcher.graph_name = None
 
         mock_gb = MagicMock()
         mock_gb.parsers = {".py": None}

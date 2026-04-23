@@ -54,14 +54,17 @@ class CGCBundle:
     
     VERSION = "0.1.0"  # CGC bundle format version
     
-    def __init__(self, db_manager):
+    def __init__(self, db_manager, graph_name=None):
         """
         Initialize the CGC Bundle handler.
-        
+
         Args:
-            db_manager: DatabaseManager instance for graph queries
+            db_manager: DatabaseManager instance for graph queries.
+            graph_name: Optional graph to bind all bundle operations to.
+                When None, uses the backend's env-default graph.
         """
         self.db_manager = db_manager
+        self.graph_name = graph_name
     
     def _get_id_function(self) -> str:
         """
@@ -254,7 +257,7 @@ class CGCBundle:
         }
         
         # Get repository information
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(graph_name=self.graph_name).session() as session:
             if repo_path:
                 # Specific repository
                 result = session.run(
@@ -321,7 +324,7 @@ class CGCBundle:
             "indexes": []
         }
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(graph_name=self.graph_name).session() as session:
             # Get node labels
             try:
                 result = session.run("CALL db.labels()")
@@ -374,7 +377,7 @@ class CGCBundle:
         """Extract all nodes to JSONL format."""
         count = 0
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(graph_name=self.graph_name).session() as session:
             # Build query based on repo_path
             if repo_path:
                 query = """
@@ -427,7 +430,7 @@ class CGCBundle:
         """Extract all relationships to JSONL format."""
         count = 0
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(graph_name=self.graph_name).session() as session:
             # Build query based on repo_path
             if repo_path:
                 query = """
@@ -501,7 +504,7 @@ class CGCBundle:
             "generated_at": datetime.now().isoformat()
         }
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(graph_name=self.graph_name).session() as session:
             # Count by node type
             result = session.run("""
                 MATCH (n)
@@ -614,7 +617,7 @@ cgc import <bundle-file>.cgc
     
     def _check_existing_repository(self, repo_name: str, repo_path: Optional[str]) -> bool:
         """Check if a repository already exists in the database."""
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(graph_name=self.graph_name).session() as session:
             # Try to find by name first
             result = session.run(
                 "MATCH (r:Repository {name: $name}) RETURN r LIMIT 1",
@@ -636,7 +639,7 @@ cgc import <bundle-file>.cgc
     
     def _delete_repository(self, repo_identifier: str):
         """Delete a specific repository and all its related nodes from the graph."""
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(graph_name=self.graph_name).session() as session:
             # First, try to find the repository by name or path
             result = session.run("""
                 MATCH (r:Repository)
@@ -671,7 +674,7 @@ cgc import <bundle-file>.cgc
     
     def _clear_graph(self):
         """Clear all nodes and relationships from the graph in batches."""
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(graph_name=self.graph_name).session() as session:
             while True:
                 result = session.run(
                     "MATCH (n) WITH n LIMIT 500 DETACH DELETE n RETURN count(n) as deleted"
@@ -699,7 +702,7 @@ cgc import <bundle-file>.cgc
         # Create a mapping from old IDs to new IDs
         id_mapping = {}
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(graph_name=self.graph_name).session() as session:
             with open(nodes_file, 'r') as f:
                 for line in f:
                     node_data = json.loads(line)
@@ -798,7 +801,7 @@ cgc import <bundle-file>.cgc
         batch_size = 1000
         batch = []
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(graph_name=self.graph_name).session() as session:
             with open(edges_file, 'r') as f:
                 for line in f:
                     edge_data = json.loads(line)

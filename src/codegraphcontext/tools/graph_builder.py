@@ -3,6 +3,7 @@
 """Facade for graph indexing; implementation lives in indexing/."""
 
 import asyncio
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -30,8 +31,11 @@ class GraphBuilder:
         self.db_manager = db_manager
         self.job_manager = job_manager
         self.loop = loop
-        self.driver = self.db_manager.get_driver()
-        self._writer = GraphWriter(self.driver)
+        # Per-graph schema memoization. Writers are created on demand bound to a
+        # specific graph_name so concurrent indexing jobs can target different
+        # graphs without clobbering each other.
+        self._schema_created: set = set()
+        self._schema_lock = threading.Lock()
         self.parsers = {
             ".py": "python",
             ".ipynb": "python",
@@ -78,6 +82,7 @@ class GraphBuilder:
         }
         
         self._parsed_cache = {}
+        # Ensure the default graph's schema exists so fresh servers fail fast.
         self.create_schema()
 
     def get_parser(self, extension: str) -> Optional[TreeSitterParser]:
@@ -94,8 +99,21 @@ class GraphBuilder:
                 return None
         return self._parsed_cache[lang_name]
 
-    def create_schema(self) -> None:
-        create_graph_schema(self.driver, self.db_manager)
+    def create_schema(self, graph_name: Optional[str] = None) -> None:
+        """Create schema against the named graph, memoized per graph_name."""
+        key = graph_name or ""
+        if key in self._schema_created:
+            return
+        with self._schema_lock:
+            if key in self._schema_created:
+                return
+            create_graph_schema(self.db_manager, graph_name=graph_name)
+            self._schema_created.add(key)
+
+    def _writer_for(self, graph_name: Optional[str] = None) -> GraphWriter:
+        """Return a GraphWriter bound to ``graph_name`` (or the env default)."""
+        self.create_schema(graph_name)
+        return GraphWriter(self.db_manager, graph_name=graph_name)
 
     _MAX_STR_LEN = MAX_STR_LEN
 
@@ -123,73 +141,74 @@ class GraphBuilder:
     def _pre_scan_for_imports(self, files: list[Path]) -> dict:
         return self.pre_scan_imports(files)
 
-    def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
-        self._writer.add_repository_to_graph(repo_path, is_dependency)
+    def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False, graph_name: Optional[str] = None) -> None:
+        self._writer_for(graph_name).add_repository_to_graph(repo_path, is_dependency)
 
     def add_file_to_graph(
-        self, file_data: Dict, repo_name: str, imports_map: dict, repo_path_str: str = None
+        self, file_data: Dict, repo_name: str, imports_map: dict, repo_path_str: str = None, graph_name: Optional[str] = None
     ) -> None:
-        self._writer.add_file_to_graph(file_data, repo_name, imports_map, repo_path_str=repo_path_str)
+        self._writer_for(graph_name).add_file_to_graph(file_data, repo_name, imports_map, repo_path_str=repo_path_str)
 
     def link_function_calls(
         self,
         all_file_data: list[Dict],
         imports_map: dict,
         file_class_lookup: Optional[Dict[str, set]] = None,
+        graph_name: Optional[str] = None,
     ) -> None:
         """Resolve and persist CALLS relationships (public API)."""
         groups = build_function_call_groups(all_file_data, imports_map, file_class_lookup)
-        self._writer.write_function_call_groups(*groups)
+        self._writer_for(graph_name).write_function_call_groups(*groups)
 
     def _create_all_function_calls(
-        self, all_file_data: list[Dict], imports_map: dict, file_class_lookup: Optional[Dict[str, set]] = None
+        self, all_file_data: list[Dict], imports_map: dict, file_class_lookup: Optional[Dict[str, set]] = None, graph_name: Optional[str] = None,
     ) -> None:
-        self.link_function_calls(all_file_data, imports_map, file_class_lookup)
+        self.link_function_calls(all_file_data, imports_map, file_class_lookup, graph_name=graph_name)
 
-    def link_inheritance(self, all_file_data: list[Dict], imports_map: dict) -> None:
+    def link_inheritance(self, all_file_data: list[Dict], imports_map: dict, graph_name: Optional[str] = None) -> None:
         """Resolve and persist INHERITS / C# IMPLEMENTS (public API)."""
         info_logger(f"[INHERITS] Resolving inheritance links across {len(all_file_data)} files...")
         inheritance_batch, csharp_files = build_inheritance_and_csharp_files(all_file_data, imports_map)
-        self._writer.write_inheritance_links(inheritance_batch, csharp_files, imports_map)
+        self._writer_for(graph_name).write_inheritance_links(inheritance_batch, csharp_files, imports_map)
 
-    def _create_all_inheritance_links(self, all_file_data: list[Dict], imports_map: dict) -> None:
-        self.link_inheritance(all_file_data, imports_map)
+    def _create_all_inheritance_links(self, all_file_data: list[Dict], imports_map: dict, graph_name: Optional[str] = None) -> None:
+        self.link_inheritance(all_file_data, imports_map, graph_name=graph_name)
 
-    def delete_file_from_graph(self, path: str) -> None:
-        self._writer.delete_file_from_graph(path)
+    def delete_file_from_graph(self, path: str, graph_name: Optional[str] = None) -> None:
+        self._writer_for(graph_name).delete_file_from_graph(path)
 
-    def delete_repository_from_graph(self, repo_path: str) -> bool:
-        return self._writer.delete_repository_from_graph(repo_path)
+    def delete_repository_from_graph(self, repo_path: str, graph_name: Optional[str] = None) -> bool:
+        return self._writer_for(graph_name).delete_repository_from_graph(repo_path)
 
-    def get_caller_file_paths(self, file_path_str: str) -> set:
-        return self._writer.get_caller_file_paths(file_path_str)
+    def get_caller_file_paths(self, file_path_str: str, graph_name: Optional[str] = None) -> set:
+        return self._writer_for(graph_name).get_caller_file_paths(file_path_str)
 
-    def get_inheritance_neighbor_paths(self, file_path_str: str) -> set:
-        return self._writer.get_inheritance_neighbor_paths(file_path_str)
+    def get_inheritance_neighbor_paths(self, file_path_str: str, graph_name: Optional[str] = None) -> set:
+        return self._writer_for(graph_name).get_inheritance_neighbor_paths(file_path_str)
 
-    def delete_outgoing_calls_from_files(self, file_paths: list) -> None:
-        self._writer.delete_outgoing_calls_from_files(file_paths)
+    def delete_outgoing_calls_from_files(self, file_paths: list, graph_name: Optional[str] = None) -> None:
+        self._writer_for(graph_name).delete_outgoing_calls_from_files(file_paths)
 
-    def delete_inherits_for_files(self, file_paths: list) -> None:
-        self._writer.delete_inherits_for_files(file_paths)
+    def delete_inherits_for_files(self, file_paths: list, graph_name: Optional[str] = None) -> None:
+        self._writer_for(graph_name).delete_inherits_for_files(file_paths)
 
-    def get_repo_class_lookup(self, repo_path: Path) -> dict:
-        return self._writer.get_repo_class_lookup(repo_path)
+    def get_repo_class_lookup(self, repo_path: Path, graph_name: Optional[str] = None) -> dict:
+        return self._writer_for(graph_name).get_repo_class_lookup(repo_path)
 
-    def delete_relationship_links(self, repo_path: Path) -> None:
-        self._writer.delete_relationship_links(repo_path)
+    def delete_relationship_links(self, repo_path: Path, graph_name: Optional[str] = None) -> None:
+        self._writer_for(graph_name).delete_relationship_links(repo_path)
 
-    def update_file_in_graph(self, path: Path, repo_path: Path, imports_map: dict):
+    def update_file_in_graph(self, path: Path, repo_path: Path, imports_map: dict, graph_name: Optional[str] = None):
         file_path_str = str(path.resolve())
         repo_name = repo_path.name
 
-        self.delete_file_from_graph(file_path_str)
+        self.delete_file_from_graph(file_path_str, graph_name=graph_name)
 
         if path.exists():
             file_data = self.parse_file(repo_path, path)
 
             if "error" not in file_data:
-                self.add_file_to_graph(file_data, repo_name, imports_map)
+                self.add_file_to_graph(file_data, repo_name, imports_map, graph_name=graph_name)
                 return file_data
             error_logger(f"Skipping graph add for {file_path_str} due to parsing error: {file_data['error']}")
             return None
@@ -271,7 +290,7 @@ class GraphBuilder:
             return None
 
     async def _build_graph_from_scip(
-        self, path: Path, is_dependency: bool, job_id: Optional[str], lang: str
+        self, path: Path, is_dependency: bool, job_id: Optional[str], lang: str, graph_name: Optional[str] = None
     ):
         from . import scip_indexer
 
@@ -280,7 +299,7 @@ class GraphBuilder:
             is_dependency,
             job_id,
             lang,
-            self._writer,
+            self._writer_for(graph_name),
             self.job_manager,
             self.parsers.keys(),
             self.get_parser,
@@ -291,7 +310,7 @@ class GraphBuilder:
         return name_from_symbol(symbol)
 
     async def build_graph_from_path_async(
-        self, path: Path, is_dependency: bool = False, job_id: str = None, cgcignore_path: str = None
+        self, path: Path, is_dependency: bool = False, job_id: str = None, cgcignore_path: str = None, graph_name: Optional[str] = None,
     ):
         try:
             scip_enabled = (get_config_value("SCIP_INDEXER") or "false").lower() == "true"
@@ -304,7 +323,7 @@ class GraphBuilder:
 
                 if detected_lang and is_scip_available(detected_lang):
                     info_logger(f"SCIP_INDEXER=true — using SCIP for language: {detected_lang}")
-                    await self._build_graph_from_scip(path, is_dependency, job_id, detected_lang)
+                    await self._build_graph_from_scip(path, is_dependency, job_id, detected_lang, graph_name=graph_name)
                     return
                 if detected_lang:
                     warning_logger(
@@ -317,17 +336,22 @@ class GraphBuilder:
                         "Falling back to Tree-sitter."
                     )
 
+            writer = self._writer_for(graph_name)
+
+            def _add_minimal(file_path: Path, repo_path: Path, is_dependency: bool = False) -> None:
+                writer.add_minimal_file_node(file_path, repo_path, is_dependency)
+
             await run_tree_sitter_index_async(
                 path,
                 is_dependency,
                 job_id,
                 cgcignore_path,
-                self._writer,
+                writer,
                 self.job_manager,
                 self.parsers,
                 self.get_parser,
                 self.parse_file,
-                self.add_minimal_file_node,
+                _add_minimal,
             )
         except Exception as e:
             error_message = str(e)
@@ -346,5 +370,5 @@ class GraphBuilder:
                     job_id, status=status, end_time=datetime.now(), errors=[str(e)]
                 )
 
-    def add_minimal_file_node(self, file_path: Path, repo_path: Path, is_dependency: bool = False) -> None:
-        self._writer.add_minimal_file_node(file_path, repo_path, is_dependency)
+    def add_minimal_file_node(self, file_path: Path, repo_path: Path, is_dependency: bool = False, graph_name: Optional[str] = None) -> None:
+        self._writer_for(graph_name).add_minimal_file_node(file_path, repo_path, is_dependency)

@@ -45,7 +45,6 @@ class FalkorDBManager:
     _instance = None
     _process = None
     _driver = None
-    _graph = None
     _lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
@@ -110,22 +109,28 @@ class FalkorDBManager:
         # Register cleanup on exit
         atexit.register(self.shutdown)
 
-    def get_driver(self):
+    def get_driver(self, graph_name: Optional[str] = None):
         """
         Gets the FalkorDB connection, starting the subprocess if necessary.
         This method is thread-safe.
 
+        Args:
+            graph_name: Optional per-call override for the FalkorDB graph name.
+                When None, falls back to ``FALKORDB_GRAPH_NAME`` from env
+                (default ``'codegraph'``).
+
         Returns:
-            A FalkorDB graph instance that mimics Neo4j driver interface.
+            A FalkorDB graph instance that mimics Neo4j driver interface,
+            bound to the graph selected for this call.
         """
         import platform
-        
+
         if platform.system() == "Windows":
             raise RuntimeError(
                 "CodeGraphContext uses redislite/FalkorDB, which does not support Windows.\n"
                 "Please run the project using WSL or Docker."
             )
-        
+
         if self._driver is None:
             if sys.version_info < (3, 12):
                 raise ValueError("FalkorDB Lite is not supported on Python < 3.12.")
@@ -142,23 +147,21 @@ class FalkorDBManager:
 
                     try:
                         self._ensure_server_running()
-                        
+
                         # Use Official FalkorDB Client to connect to the socket
                         from falkordb import FalkorDB
-                        
+
                         info_logger(f"Connecting to FalkorDB Lite at {self.socket_path}")
                         self._driver = FalkorDB(unix_socket_path=self.socket_path)
-                        self._graph = self._driver.select_graph(self.graph_name)
-                        
-                        # Test the connection
+
+                        # Warm-up ping against the default graph to fail fast on misconfig.
                         try:
-                            # Graph creation is lazy in some clients, force a query
-                            self._graph.query("RETURN 1")
+                            self._driver.select_graph(self.graph_name).query("RETURN 1")
                             info_logger(f"FalkorDB Lite connection established successfully")
-                            info_logger(f"Graph name: {self.graph_name}")
+                            info_logger(f"Default graph name: {self.graph_name}")
                         except Exception as e:
                             info_logger(f"Initial ping check: {e}")
-                            
+
                     except ImportError as e:
                         error_logger(
                             "FalkorDB client is not installed. Install it with:\n"
@@ -169,8 +172,11 @@ class FalkorDBManager:
                         error_logger(f"Failed to initialize FalkorDB: {e}")
                         raise
 
-        # Return a wrapper that provides Neo4j-like session interface
-        return FalkorDBDriverWrapper(self._graph)
+        # Bind this wrapper to the graph for this call. select_graph is a thin
+        # handle; calling it per get_driver is cheap and gives callers graph
+        # isolation without mutating shared state.
+        selected = self._driver.select_graph(graph_name or self.graph_name)
+        return FalkorDBDriverWrapper(selected)
 
     def _ensure_server_running(self):
         """Starts the FalkorDB worker subprocess if not reachable."""
@@ -263,7 +269,6 @@ class FalkorDBManager:
         if self._driver is not None:
             info_logger("Closing FalkorDB Lite connection")
             self._driver = None
-            self._graph = None
 
     def shutdown(self):
         """Kills the subprocess on exit."""
@@ -278,10 +283,10 @@ class FalkorDBManager:
     
     def is_connected(self) -> bool:
         """Checks if the database connection is currently active."""
-        if self._graph is None:
+        if self._driver is None:
             return False
         try:
-            self._graph.query("RETURN 1")
+            self._driver.select_graph(self.graph_name).query("RETURN 1")
             return True
         except Exception:
             return False
@@ -289,6 +294,16 @@ class FalkorDBManager:
     def get_backend_type(self) -> str:
         """Returns the database backend type."""
         return 'falkordb'
+
+    def list_graphs(self) -> list:
+        """Return the names of all graphs known to this FalkorDB instance.
+
+        Uses the FalkorDB client's ``list_graphs`` (issues ``GRAPH.LIST``).
+        Graph names may come back as bytes; normalize to str.
+        """
+        self.get_driver()  # ensure self._driver is initialized
+        names = self._driver.list_graphs()
+        return [n.decode() if isinstance(n, (bytes, bytearray)) else str(n) for n in names]
 
 
     @staticmethod

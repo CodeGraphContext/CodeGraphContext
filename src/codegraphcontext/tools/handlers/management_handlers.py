@@ -7,11 +7,31 @@ from ...utils.tool_limits import get_tool_result_limit
 from ..code_finder import CodeFinder
 from ..graph_builder import GraphBuilder
 
+def list_graphs(db_manager, **args) -> Dict[str, Any]:
+    """Enumerate the graphs the active backend exposes.
+
+    This is a discovery tool — it enumerates graph namespaces and therefore
+    does not take a graph_name parameter itself.
+    """
+    try:
+        debug_log("Listing available graphs on the active backend.")
+        graphs = db_manager.list_graphs()
+        return {
+            "success": True,
+            "backend": db_manager.get_backend_type(),
+            "graphs": list(graphs),
+        }
+    except Exception as e:
+        debug_log(f"Error listing graphs: {str(e)}")
+        return {"error": f"Failed to list graphs: {str(e)}"}
+
+
 def list_indexed_repositories(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """Tool to list indexed repositories."""
+    graph_name = args.get("graph_name")
     try:
         debug_log("Listing indexed repositories.")
-        results = code_finder.list_indexed_repositories()
+        results = code_finder.list_indexed_repositories(graph_name=graph_name)
         return {
             "success": True,
             "repositories": results
@@ -23,9 +43,10 @@ def list_indexed_repositories(code_finder: CodeFinder, **args) -> Dict[str, Any]
 def delete_repository(graph_builder: GraphBuilder, **args) -> Dict[str, Any]:
     """Tool to delete a repository from the graph."""
     repo_path = args.get("repo_path")
+    graph_name = args.get("graph_name")
     try:
         debug_log(f"Deleting repository: {repo_path}")
-        if graph_builder.delete_repository_from_graph(repo_path):
+        if graph_builder.delete_repository_from_graph(repo_path, graph_name=graph_name):
             return {
                 "success": True,
                 "message": f"Repository '{repo_path}' deleted successfully."
@@ -119,10 +140,11 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     from pathlib import Path
     from ...core.bundle_registry import BundleRegistry
     from ...core.cgc_bundle import CGCBundle
-    
+
     bundle_name = args.get("bundle_name")
     clear_existing = args.get("clear_existing", False)
-    
+    graph_name = args.get("graph_name")
+
     if not bundle_name:
         return {"error": "bundle_name is required"}
     
@@ -162,10 +184,10 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
                 return {"error": f"Download completed but file not found at {bundle_path}"}
 
         # Load the bundle using CGCBundle core class
-        bundle = CGCBundle(code_finder.db_manager)
+        bundle = CGCBundle(code_finder.db_manager, graph_name=graph_name)
         success, message = bundle.import_from_bundle(
             bundle_path=bundle_path,
-            clear_existing=clear_existing
+            clear_existing=clear_existing,
         )
         
         if success:
@@ -269,13 +291,14 @@ def search_registry_bundles(code_finder: CodeFinder, **args) -> Dict[str, Any]:
 def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """Tool to get statistics about indexed repositories."""
     from pathlib import Path
-    
+
     repo_path = args.get("repo_path")
-    
+    graph_name = args.get("graph_name")
+
     try:
         debug_log(f"Getting stats for: {repo_path or 'all repositories'}")
-        
-        with code_finder.db_manager.get_driver().session() as session:
+
+        with code_finder.db_manager.get_driver(graph_name=graph_name).session() as session:
             if repo_path:
                 # Stats for specific repository
                 repo_path_obj = str(Path(repo_path).resolve())

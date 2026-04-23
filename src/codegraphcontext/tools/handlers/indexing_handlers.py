@@ -13,7 +13,8 @@ def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args)
     """
     path = args.get("path")
     is_dependency = args.get("is_dependency", False)
-    
+    graph_name = args.get("graph_name")
+
     try:
         path_obj = Path(path).resolve()
 
@@ -24,23 +25,26 @@ def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args)
                 "message": f"Path '{path}' does not exist."
             }
 
-        # Prevent re-indexing the same repository.
-        indexed_repos = list_repos_func().get("repositories", [])
+        # Prevent re-indexing the same repository — check against the same graph
+        # we're about to write to.
+        indexed_repos = list_repos_func(graph_name=graph_name).get("repositories", [])
         for repo in indexed_repos:
             if repo_record_matches_path(repo, path_obj):
                 return {
                     "success": False,
                     "message": f"Repository '{path}' is already indexed."
                 }
-        
+
         # Estimate time and create a job for the user to track.
         total_files, estimated_time = graph_builder.estimate_processing_time(path_obj)
-        job_id = job_manager.create_job(str(path_obj), is_dependency)
+        job_id = job_manager.create_job(str(path_obj), is_dependency, graph_name=graph_name)
         job_manager.update_job(job_id, total_files=total_files, estimated_duration=estimated_time)
-        
+
         # Create the coroutine for the background task and schedule it on the main event loop.
+        # The graph_name is captured here so the background write targets the
+        # graph the caller requested, even if the server's default changes later.
         coro = graph_builder.build_graph_from_path_async(
-            path_obj, is_dependency, job_id
+            path_obj, is_dependency, job_id, graph_name=graph_name
         )
         asyncio.run_coroutine_threadsafe(coro, loop)
         
@@ -64,13 +68,14 @@ def add_package_to_graph(graph_builder, job_manager, loop, list_repos_func, **ar
     package_name = args.get("package_name")
     language = args.get("language")
     is_dependency = args.get("is_dependency", True)
+    graph_name = args.get("graph_name")
 
     if not language:
         return {"error": "The 'language' parameter is required."}
 
     try:
         # Check if the package is already indexed
-        indexed_repos = list_repos_func().get("repositories", [])
+        indexed_repos = list_repos_func(graph_name=graph_name).get("repositories", [])
         for repo in indexed_repos:
             if repo.get("is_dependency") and (repo.get("name") == package_name or repo.get("name") == f"{package_name}.py"):
                 return {
@@ -79,23 +84,23 @@ def add_package_to_graph(graph_builder, job_manager, loop, list_repos_func, **ar
                 }
 
         package_path = get_local_package_path(package_name, language)
-        
+
         if not package_path:
             return {"error": f"Could not find package '{package_name}' for language '{language}'. Make sure it's installed."}
-        
+
         if not os.path.exists(package_path):
             return {"error": f"Package path '{package_path}' does not exist"}
-        
+
         path_obj = Path(package_path)
-        
+
         total_files, estimated_time = graph_builder.estimate_processing_time(path_obj)
-        
-        job_id = job_manager.create_job(package_path, is_dependency)
-        
+
+        job_id = job_manager.create_job(package_path, is_dependency, graph_name=graph_name)
+
         job_manager.update_job(job_id, total_files=total_files, estimated_duration=estimated_time)
-        
+
         coro = graph_builder.build_graph_from_path_async(
-            path_obj, is_dependency, job_id
+            path_obj, is_dependency, job_id, graph_name=graph_name
         )
         asyncio.run_coroutine_threadsafe(coro, loop)
         

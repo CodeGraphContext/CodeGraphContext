@@ -29,6 +29,7 @@ def watch_directory(code_watcher, list_repositories_func, add_code_func, **args)
     It checks if the path exists, if it's already watched, or if it needs indexing.
     """
     path = args.get("path")
+    graph_name = args.get("graph_name")
     from pathlib import Path
 
     if not path:
@@ -49,28 +50,28 @@ def watch_directory(code_watcher, list_repositories_func, add_code_func, **args)
         if path_str in code_watcher.watched_paths:
             return {"success": True, "message": f"Already watching directory: {path_str}"}
 
-        # 2. Check if the repository is already indexed
-        indexed_repos_result = list_repositories_func()
+        # 2. Check if the repository is already indexed in the target graph
+        indexed_repos_result = list_repositories_func(graph_name=graph_name)
         indexed_repos = indexed_repos_result.get("repositories", [])
         is_already_indexed = any_repo_matches_path(indexed_repos, path_obj)
 
         # 3. Decide whether to perform an initial scan
         if is_already_indexed:
             # If already indexed, just start the watcher without a scan
-            code_watcher.watch_directory(path_str, perform_initial_scan=False)
+            code_watcher.watch_directory(path_str, perform_initial_scan=False, graph_name=graph_name)
             return {
                 "success": True,
                 "message": f"Path '{path_str}' is already indexed. Now watching for live changes."
             }
         else:
             # If not indexed, perform the scan AND start the watcher
-            scan_job_result = add_code_func(path=path_str, is_dependency=False)
+            scan_job_result = add_code_func(path=path_str, is_dependency=False, graph_name=graph_name)
 
             if "error" in scan_job_result:
                 return scan_job_result
-            
-            code_watcher.watch_directory(path_str, perform_initial_scan=True)
-            
+
+            code_watcher.watch_directory(path_str, perform_initial_scan=True, graph_name=graph_name)
+
             return {
                 "success": True,
                 "message": f"Path '{path_str}' was not indexed. Started initial scan and now watching for live changes.",

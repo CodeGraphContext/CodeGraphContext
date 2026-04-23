@@ -292,6 +292,9 @@ class MCPServer:
     def find_code_tool(self, **args) -> Dict[str, Any]:
         return analysis_handlers.find_code(self.code_finder, **args)
 
+    def list_graphs_tool(self, **args) -> Dict[str, Any]:
+        return management_handlers.list_graphs(self.db_manager, **args)
+
     def list_indexed_repositories_tool(self, **args) -> Dict[str, Any]:
         return management_handlers.list_indexed_repositories(self.code_finder, **args)
 
@@ -456,6 +459,7 @@ class MCPServer:
             "list_jobs": self.list_jobs_tool,
             "calculate_cyclomatic_complexity": self.calculate_cyclomatic_complexity_tool,
             "find_most_complex_functions": self.find_most_complex_functions_tool,
+            "list_graphs": self.list_graphs_tool,
             "list_indexed_repositories": self.list_indexed_repositories_tool,
             "delete_repository": self.delete_repository_tool,
             "visualize_graph_query": self.visualize_graph_query_tool,

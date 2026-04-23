@@ -31,7 +31,9 @@ class _FakeDBManager:
     def __init__(self, recorder: Dict[str, Any]):
         self._recorder = recorder
 
-    def get_driver(self):
+    def get_driver(self, graph_name: Optional[str] = None):
+        # Accept graph_name for API parity; Kuzu semantics ignore it.
+        self._recorder["last_graph_name"] = graph_name
         return _FakeDriver(self._recorder)
 
     # Used only for certain query formatting paths; safe to stub.
@@ -51,7 +53,7 @@ def test_find_all_callers_avoids_list_extract():
 
     q = recorder["last_query"]
     assert "list_extract" not in q
-    assert "path_nodes[size(path_nodes)]" in q
+    assert "path_nodes[size(path_nodes) - 1]" in q
 
 def test_find_all_callees_avoids_list_extract():
     finder, recorder = _make_finder()
@@ -59,7 +61,7 @@ def test_find_all_callees_avoids_list_extract():
 
     q = recorder["last_query"]
     assert "list_extract" not in q
-    assert "path_nodes[size(path_nodes)]" in q
+    assert "path_nodes[size(path_nodes) - 1]" in q
 
 def test_call_chain_avoids_list_extract():
     finder, recorder = _make_finder()

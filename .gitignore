@@ -72,6 +72,8 @@ docs/DOCUMENTATION_AUDIT_2026-01-29.md
 GRANT_KNOWLEDGE_GRAPH.md
 cgc_btc/
 # Claude
+CLAUDE.MD
+
 .claude/*
 *.spec
 todo.md

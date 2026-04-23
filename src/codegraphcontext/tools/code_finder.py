@@ -43,8 +43,16 @@ class CodeFinder:
 
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
-        self.driver = self.db_manager.get_driver()
         self._lacks_native_fulltext = getattr(db_manager, 'get_backend_type', lambda: 'neo4j')() != 'neo4j'
+
+    def _open_session(self, graph_name: Optional[str] = None):
+        """Open a session bound to ``graph_name`` (or the env default if None).
+
+        Drivers are not cached on this instance so that per-call ``graph_name``
+        overrides are always honored; the underlying backend driver/connection
+        remains a singleton inside the db_manager.
+        """
+        return self.db_manager.get_driver(graph_name=graph_name).session()
 
     def format_query(self, find_by: Literal["Class", "Function"], fuzzy_search:bool, repo_path: Optional[str] = None) -> str:
         """Format the search query based on the search type and fuzzy search settings."""
@@ -77,6 +85,7 @@ class CodeFinder:
         search_term: str,
         edit_distance: int,
         repo_path: Optional[str],
+        graph_name: Optional[str] = None,
     ) -> List[Dict]:
         """Fuzzy name match for backends without Lucene fuzzy syntax (Kùzu, FalkorDB, …).
 
@@ -100,7 +109,7 @@ class CodeFinder:
                 node.source as source, node.docstring as docstring, node.is_dependency as is_dependency
             {limit_tail}
         """
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             rows = session.run(query, **params).data()
 
         # Two query forms:
@@ -134,10 +143,11 @@ class CodeFinder:
         fuzzy_search: bool,
         repo_path: Optional[str] = None,
         edit_distance: int = 2,
+        graph_name: Optional[str] = None,
     ) -> List[Dict]:
         """Find functions by name matching."""
         if not fuzzy_search:
-            with self.driver.session() as session:
+            with self._open_session(graph_name=graph_name) as session:
                 result = session.run(f"""
                     MATCH (node:Function {{name: $name}})
                     {"WHERE node.path STARTS WITH $repo_path" if repo_path else ""}
@@ -149,11 +159,11 @@ class CodeFinder:
 
         if self._lacks_native_fulltext:
             return self._find_by_name_fuzzy_portable(
-                "Function", search_term, edit_distance, repo_path
+                "Function", search_term, edit_distance, repo_path, graph_name=graph_name,
             )
 
         formatted_search_term = f"name:{search_term}"
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             result = session.run(
                 self.format_query("Function", fuzzy_search, repo_path),
                 search_term=formatted_search_term,
@@ -167,10 +177,11 @@ class CodeFinder:
         fuzzy_search: bool,
         repo_path: Optional[str] = None,
         edit_distance: int = 2,
+        graph_name: Optional[str] = None,
     ) -> List[Dict]:
         """Find classes by name matching."""
         if not fuzzy_search:
-            with self.driver.session() as session:
+            with self._open_session(graph_name=graph_name) as session:
                 result = session.run(f"""
                     MATCH (node:Class {{name: $name}})
                     {"WHERE node.path STARTS WITH $repo_path" if repo_path else ""}
@@ -182,11 +193,11 @@ class CodeFinder:
 
         if self._lacks_native_fulltext:
             return self._find_by_name_fuzzy_portable(
-                "Class", search_term, edit_distance, repo_path
+                "Class", search_term, edit_distance, repo_path, graph_name=graph_name,
             )
 
         formatted_search_term = f"name:{search_term}"
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             result = session.run(
                 self.format_query("Class", fuzzy_search, repo_path),
                 search_term=formatted_search_term,
@@ -194,9 +205,9 @@ class CodeFinder:
             )
             return result.data()
 
-    def find_by_variable_name(self, search_term: str, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_by_variable_name(self, search_term: str, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find variables by name matching"""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             result = session.run(f"""
                 MATCH (v:Variable)
                 WHERE v.name CONTAINS $search_term {"AND v.path STARTS WITH $repo_path" if repo_path else ""}
@@ -208,11 +219,11 @@ class CodeFinder:
             
             return result.data()
 
-    def find_by_content(self, search_term: str, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_by_content(self, search_term: str, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find code by content matching in source or docstrings using the full-text index."""
         if self._lacks_native_fulltext:
-            return self._find_by_content_falkordb(search_term, repo_path)
-        with self.driver.session() as session:
+            return self._find_by_content_falkordb(search_term, repo_path, graph_name=graph_name)
+        with self._open_session(graph_name=graph_name) as session:
             result = session.run(f"""
                 CALL db.index.fulltext.queryNodes("code_search_index", $search_term) YIELD node, score
                 WITH node, score
@@ -232,12 +243,12 @@ class CodeFinder:
             """, search_term=search_term, repo_path=repo_path)
             return result.data()
 
-    def _find_by_content_falkordb(self, search_term: str, repo_path: Optional[str] = None) -> List[Dict]:
+    def _find_by_content_falkordb(self, search_term: str, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """FalkorDB-compatible content search using pure Cypher CONTAINS matching.
         FalkorDB does not support CALL db.idx.fulltext.queryNodes, so we fall back
         to substring matching on name, source, and docstring fields."""
         all_results = []
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND node.path STARTS WITH $repo_path" if repo_path else ""
             for label, type_name in [('Function', 'function'), ('Class', 'class')]:
                 try:
@@ -260,9 +271,9 @@ class CodeFinder:
                     logger.debug(f"FalkorDB content query failed for label {label}", exc_info=True)
         return all_results[:20]
     
-    def find_by_module_name(self, search_term: str) -> List[Dict]:
+    def find_by_module_name(self, search_term: str, graph_name: Optional[str] = None) -> List[Dict]:
         """Find modules by name matching"""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             result = session.run("""
                 MATCH (m:Module)
                 WHERE m.name CONTAINS $search_term
@@ -272,9 +283,9 @@ class CodeFinder:
             """, search_term=search_term)
             return result.data()
 
-    def find_imports(self, search_term: str) -> List[Dict]:
+    def find_imports(self, search_term: str, graph_name: Optional[str] = None) -> List[Dict]:
         """Find imported symbols (aliases or original names)."""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             result = session.run("""
                 MATCH (f:File)-[r:IMPORTS]->(m:Module)
                 WHERE r.alias = $search_term OR r.imported_name = $search_term
@@ -289,7 +300,7 @@ class CodeFinder:
             """, search_term=search_term)
             return result.data()
 
-    def find_related_code(self, user_query: str, fuzzy_search: bool, edit_distance: int, repo_path: Optional[str] = None) -> Dict[str, Any]:
+    def find_related_code(self, user_query: str, fuzzy_search: bool, edit_distance: int, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> Dict[str, Any]:
         """Find code related to a query using multiple search strategies"""
         # For Lucene backends: split snake_case/underscore tokens so Lucene sees
         # individual words, then append the fuzzy modifier.
@@ -314,13 +325,13 @@ class CodeFinder:
         results: Dict[str, Any] = {
             "query": lucene_fuzzy_query if fuzzy_search else user_query,
             "functions_by_name": self.find_by_function_name(
-                name_lookup_q, fuzzy_search, repo_path, edit_distance
+                name_lookup_q, fuzzy_search, repo_path, edit_distance, graph_name=graph_name,
             ),
             "classes_by_name": self.find_by_class_name(
-                name_lookup_q, fuzzy_search, repo_path, edit_distance
+                name_lookup_q, fuzzy_search, repo_path, edit_distance, graph_name=graph_name,
             ),
-            "variables_by_name": self.find_by_variable_name(user_query, repo_path),  # no fuzzy for variables as they are not using full-text index
-            "content_matches": self.find_by_content(content_lookup_q, repo_path),
+            "variables_by_name": self.find_by_variable_name(user_query, repo_path, graph_name=graph_name),  # no fuzzy for variables as they are not using full-text index
+            "content_matches": self.find_by_content(content_lookup_q, repo_path, graph_name=graph_name),
         }
         
         all_results: List[Dict[str, Any]] = []
@@ -352,9 +363,9 @@ class CodeFinder:
         
         return results
     
-    def find_functions_by_argument(self, argument_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_functions_by_argument(self, argument_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find functions that take a specific argument name."""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
             if path:
                 query = f"""
@@ -378,9 +389,9 @@ class CodeFinder:
                 result = session.run(query, argument_name=argument_name, repo_path=repo_path)
             return result.data()
 
-    def find_functions_by_decorator(self, decorator_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_functions_by_decorator(self, decorator_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find functions that have a specific decorator applied to them."""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
             if path:
                 query = f"""
@@ -404,9 +415,9 @@ class CodeFinder:
                 result = session.run(query, decorator_name=decorator_name, repo_path=repo_path)
             return result.data()
     
-    def who_calls_function(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
+    def who_calls_function(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find what functions call a specific function using CALLS relationships with improved matching"""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
             if path:
                 result = session.run(f"""
@@ -469,9 +480,9 @@ class CodeFinder:
             
             return results
     
-    def what_does_function_call(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
+    def what_does_function_call(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find what functions a specific function calls using CALLS relationships"""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             if path:
                 # Convert path to absolute path
                 absolute_file_path = str(Path(path).resolve())
@@ -512,9 +523,9 @@ class CodeFinder:
             
             return result.data()
     
-    def who_imports_module(self, module_name: str, repo_path: Optional[str] = None) -> List[Dict]:
+    def who_imports_module(self, module_name: str, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find what files import a specific module using IMPORTS relationships"""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND file.path STARTS WITH $repo_path" if repo_path else ""
             result = session.run(f"""
                 MATCH (file:File)-[imp:IMPORTS]->(module:Module)
@@ -538,9 +549,9 @@ class CodeFinder:
             
             return result.data()
     
-    def who_modifies_variable(self, variable_name: str, repo_path: Optional[str] = None) -> List[Dict]:
+    def who_modifies_variable(self, variable_name: str, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find what functions contain or modify a specific variable"""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND container.path STARTS WITH $repo_path" if repo_path else ""
             result = session.run(f"""
                 MATCH (var:Variable {{name: $variable_name}})
@@ -570,9 +581,9 @@ class CodeFinder:
             
             return result.data()
     
-    def find_class_hierarchy(self, class_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> Dict[str, Any]:
+    def find_class_hierarchy(self, class_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> Dict[str, Any]:
         """Find class inheritance relationships using INHERITS relationships"""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND parent.path STARTS WITH $repo_path" if repo_path else ""
             if path:
                 match_clause = "MATCH (child:Class {name: $class_name, path: $path})"
@@ -633,9 +644,9 @@ class CodeFinder:
                 "methods": methods_result.data()
             }
     
-    def find_function_overrides(self, function_name: str, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_function_overrides(self, function_name: str, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find all implementations of a function across different classes"""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND class.path STARTS WITH $repo_path" if repo_path else ""
             result = session.run(f"""
                 MATCH (class:Class)-[:CONTAINS]->(func:Function {{name: $function_name}})
@@ -656,12 +667,12 @@ class CodeFinder:
             
             return result.data()
     
-    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None) -> Dict[str, Any]:
+    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> Dict[str, Any]:
         """Find potentially unused functions (not called by other functions in the project), optionally excluding those with specific decorators."""
         if exclude_decorated_with is None:
             exclude_decorated_with = []
 
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND func.path STARTS WITH $repo_path" if repo_path else ""
             decorator_filter = "AND ALL(decorator_name IN $exclude_decorated_with WHERE NOT decorator_name IN func.decorators)" if exclude_decorated_with else ""
             func_ignore = cypher_path_not_under_ignore_dirs("func.path")
@@ -709,9 +720,9 @@ class CodeFinder:
                 "note": "These functions might be unused, but could be entry points, callbacks, or called dynamically"
             }
     
-    def find_all_callers(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_all_callers(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find all direct and indirect callers of a specific function."""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND f.path STARTS WITH $repo_path " if repo_path else ""
             path_filter = "AND target.path = $path" if path else ""
             # KùzuDB-compatible: Use anonymous end node and filter with WHERE
@@ -727,9 +738,9 @@ class CodeFinder:
             result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             return result.data()
 
-    def find_all_callees(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_all_callees(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find all direct and indirect callees of a specific function."""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "WHERE f.path STARTS WITH $repo_path" if repo_path else ""
             path_filter = ", path: $path" if path else ""
             # KùzuDB-compatible: Use anonymous end node and extract from path
@@ -746,9 +757,9 @@ class CodeFinder:
             result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             return result.data()
 
-    def find_function_call_chain(self, start_function: str, end_function: str, max_depth: int = 5, start_file: Optional[str] = None, end_file: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_function_call_chain(self, start_function: str, end_function: str, max_depth: int = 5, start_file: Optional[str] = None, end_file: Optional[str] = None, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find call chains between two functions"""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             # Build match clauses based on whether files are specified
             start_props = "{name: $start_function" + (", path: $start_file}" if start_file else "}")
             end_props = "{name: $end_function" + (", path: $end_file}" if end_file else "}")
@@ -840,7 +851,7 @@ class CodeFinder:
 
             return transformed
 
-    def find_by_type(self, element_type: str, limit: int = 50) -> List[Dict]:
+    def find_by_type(self, element_type: str, limit: int = 50, graph_name: Optional[str] = None) -> List[Dict]:
         """Find all elements of a specific type (Function, Class, File, Module)."""
         # Map input type to node label
         type_map = {
@@ -854,7 +865,7 @@ class CodeFinder:
         if not label:
             return []
             
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             if label == "File":
                 query = f"""
                     MATCH (n:File)
@@ -880,9 +891,9 @@ class CodeFinder:
             result = session.run(query, limit=limit)
             return result.data()
     
-    def find_module_dependencies(self, module_name: str, repo_path: Optional[str] = None) -> Dict[str, Any]:
+    def find_module_dependencies(self, module_name: str, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> Dict[str, Any]:
         """Find all dependencies and dependents of a module"""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND file.path STARTS WITH $repo_path" if repo_path else ""
             backend = getattr(self.db_manager, "get_backend_type", lambda: "")()
 
@@ -953,9 +964,9 @@ class CodeFinder:
                 "imports": imports_result.data()
             }
     
-    def find_variable_usage_scope(self, variable_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> Dict[str, Any]:
+    def find_variable_usage_scope(self, variable_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> Dict[str, Any]:
         """Find the scope and usage patterns of a variable, optional file path filtering"""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND var.path STARTS WITH $repo_path" if repo_path else ""
             path_filter = "(var.path ENDS WITH $path OR var.path = $path)" if path else "1=1"
 
@@ -1016,102 +1027,102 @@ class CodeFinder:
                 "instances": instances,
             }
     
-    def analyze_code_relationships(self, query_type: str, target: str, context: Optional[str] = None, repo_path: Optional[str] = None) -> Dict[str, Any]:
+    def analyze_code_relationships(self, query_type: str, target: str, context: Optional[str] = None, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> Dict[str, Any]:
         """Main method to analyze different types of code relationships with fixed return types"""
         query_type = query_type.lower().strip()
-        
+
         try:
             if query_type == "find_callers":
-                results = self.who_calls_function(target, context, repo_path=repo_path)
+                results = self.who_calls_function(target, context, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "find_callers", "target": target, "context": context, "results": results,
                     "summary": f"Found {len(results)} functions that call '{target}'"
                 }
-            
+
             elif query_type == "find_callees":
-                results = self.what_does_function_call(target, context, repo_path=repo_path)
+                results = self.what_does_function_call(target, context, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "find_callees", "target": target, "context": context, "results": results,
                     "summary": f"Function '{target}' calls {len(results)} other functions"
                 }
-                
+
             elif query_type == "find_importers":
-                results = self.who_imports_module(target, repo_path=repo_path)
+                results = self.who_imports_module(target, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "find_importers", "target": target, "results": results,
                     "summary": f"Found {len(results)} files that import '{target}'"
                 }
-                
+
             elif query_type == "find_functions_by_argument":
-                results = self.find_functions_by_argument(target, context, repo_path=repo_path)
+                results = self.find_functions_by_argument(target, context, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "find_functions_by_argument", "target": target, "context": context, "results": results,
                     "summary": f"Found {len(results)} functions that take '{target}' as an argument"
                 }
-            
+
             elif query_type == "find_functions_by_decorator":
-                results = self.find_functions_by_decorator(target, context, repo_path=repo_path)
+                results = self.find_functions_by_decorator(target, context, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "find_functions_by_decorator", "target": target, "context": context, "results": results,
                     "summary": f"Found {len(results)} functions decorated with '{target}'"
                 }
-                
+
             elif query_type in ["who_modifies", "modifies", "mutations", "changes", "variable_usage"]:
-                results = self.who_modifies_variable(target, repo_path=repo_path)
+                results = self.who_modifies_variable(target, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "who_modifies", "target": target, "results": results,
                     "summary": f"Found {len(results)} containers that hold variable '{target}'"
                 }
-            
+
             elif query_type in ["class_hierarchy", "inheritance", "extends"]:
-                results = self.find_class_hierarchy(target, context, repo_path=repo_path)
+                results = self.find_class_hierarchy(target, context, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "class_hierarchy", "target": target, "results": results,
                     "summary": f"Class '{target}' has {len(results['parent_classes'])} parents, {len(results['child_classes'])} children, and {len(results['methods'])} methods"
                 }
-            
+
             elif query_type in ["overrides", "implementations", "polymorphism"]:
-                results = self.find_function_overrides(target, repo_path=repo_path)
+                results = self.find_function_overrides(target, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "overrides", "target": target, "results": results,
                     "summary": f"Found {len(results)} implementations of function '{target}'"
                 }
-            
+
             elif query_type in ["dead_code", "unused", "unreachable"]:
-                results = self.find_dead_code(repo_path=repo_path)
+                results = self.find_dead_code(repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "dead_code", "results": results,
                     "summary": f"Found {len(results['potentially_unused_functions'])} potentially unused functions"
                 }
-            
+
             elif query_type == "find_complexity":
                 limit = int(context) if context and context.isdigit() else 10
-                results = self.find_most_complex_functions(limit, repo_path=repo_path)
+                results = self.find_most_complex_functions(limit, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "find_complexity", "limit": limit, "results": results,
                     "summary": f"Found the top {len(results)} most complex functions"
                 }
-            
+
             elif query_type == "find_all_callers":
-                results = self.find_all_callers(target, context, repo_path=repo_path)
+                results = self.find_all_callers(target, context, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "find_all_callers", "target": target, "context": context, "results": results,
                     "summary": f"Found {len(results)} direct and indirect callers of '{target}'"
                 }
 
             elif query_type == "find_all_callees":
-                results = self.find_all_callees(target, context, repo_path=repo_path)
+                results = self.find_all_callees(target, context, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "find_all_callees", "target": target, "context": context, "results": results,
                     "summary": f"Found {len(results)} direct and indirect callees of '{target}'"
                 }
-                
+
             elif query_type in ["call_chain", "path", "chain"]:
                 if '->' in target:
                     start_func, end_func = target.split('->', 1)
                     # max_depth can be passed as context, default to 5 if not provided or invalid
                     max_depth = int(context) if context and context.isdigit() else 5
-                    results = self.find_function_call_chain(start_func.strip(), end_func.strip(), max_depth, repo_path=repo_path)
+                    results = self.find_function_call_chain(start_func.strip(), end_func.strip(), max_depth, repo_path=repo_path, graph_name=graph_name)
                     return {
                         "query_type": "call_chain", "target": target, "results": results,
                         "summary": f"Found {len(results)} call chains from '{start_func.strip()}' to '{end_func.strip()}' (max depth: {max_depth})"
@@ -1121,16 +1132,16 @@ class CodeFinder:
                         "error": "For call_chain queries, use format 'start_function->end_function'",
                         "example": "main->process_data"
                     }
-            
+
             elif query_type in ["module_deps", "module_dependencies", "module_usage"]:
-                results = self.find_module_dependencies(target, repo_path=repo_path)
+                results = self.find_module_dependencies(target, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "module_dependencies", "target": target, "results": results,
                     "summary": f"Module '{target}' is imported by {len(results['importers'])} files"
                 }
-            
+
             elif query_type in ["variable_scope", "var_scope", "variable_usage_scope"]:
-                results = self.find_variable_usage_scope(target, repo_path=repo_path)
+                results = self.find_variable_usage_scope(target, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "variable_scope", "target": target, "results": results,
                     "summary": f"Variable '{target}' has {len(results['instances'])} instances across different scopes"
@@ -1153,9 +1164,9 @@ class CodeFinder:
                 "target": target
             }
 
-    def get_cyclomatic_complexity(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> Optional[Dict]:
+    def get_cyclomatic_complexity(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> Optional[Dict]:
         """Get the cyclomatic complexity of a function."""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
             if path:
                 # Use ENDS WITH for flexible path matching, or exact match
@@ -1180,9 +1191,9 @@ class CodeFinder:
                 return result_data[0]
             return None
 
-    def find_most_complex_functions(self, limit: int = 10, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_most_complex_functions(self, limit: int = 10, repo_path: Optional[str] = None, graph_name: Optional[str] = None) -> List[Dict]:
         """Find the most complex functions based on cyclomatic complexity."""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
             path_ignore = cypher_path_not_under_ignore_dirs("f.path")
             query = f"""
@@ -1195,9 +1206,9 @@ class CodeFinder:
             result = session.run(query, limit=limit, repo_path=repo_path)
             return result.data()
 
-    def list_indexed_repositories(self) -> List[Dict]:
+    def list_indexed_repositories(self, graph_name: Optional[str] = None) -> List[Dict]:
         """List all indexed repositories."""
-        with self.driver.session() as session:
+        with self._open_session(graph_name=graph_name) as session:
             result = session.run("""
                 MATCH (r:Repository)
                 RETURN r.name as name, r.path as path, r.is_dependency as is_dependency

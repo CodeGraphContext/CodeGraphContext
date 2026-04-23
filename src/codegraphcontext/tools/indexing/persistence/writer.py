@@ -13,10 +13,21 @@ from ..sanitize import sanitize_props
 
 
 class GraphWriter:
-    """Persists repository/file/symbol nodes and relationships via the Neo4j-like driver API."""
+    """Persists repository/file/symbol nodes and relationships via the Neo4j-like driver API.
 
-    def __init__(self, driver: Any):
-        self.driver = driver
+    A writer instance is bound to a single ``graph_name`` (or the backend's env
+    default if ``None``). Create a fresh writer per tool invocation so the
+    ``graph_name`` requested for that call is honored and doesn't leak across
+    concurrent calls that target different graphs.
+    """
+
+    def __init__(self, db_manager: Any, graph_name: Optional[str] = None):
+        self.db_manager = db_manager
+        self.graph_name = graph_name
+
+    def _session(self):
+        """Open a session bound to this writer's ``graph_name``."""
+        return self.db_manager.get_driver(graph_name=self.graph_name).session()
 
     def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
         repo_name = repo_path.name
@@ -26,7 +37,7 @@ class GraphWriter:
         commit_hash = get_repo_commit_hash(resolved)
         indexed_at = datetime.now(timezone.utc).isoformat()
 
-        with self.driver.session() as session:
+        with self._session() as session:
             session.run(
                 """
                 MERGE (r:Repository {path: $path})
@@ -63,7 +74,7 @@ class GraphWriter:
         is_dependency = file_data.get("is_dependency", False)
         lang = file_data.get("lang")
 
-        with self.driver.session() as session:
+        with self._session() as session:
             if repo_path_str:
                 resolved_repo_str = repo_path_str
             else:
@@ -375,7 +386,7 @@ class GraphWriter:
         repo_name = repo_path.name
         repo_path_str = str(repo_path.resolve())
 
-        with self.driver.session() as session:
+        with self._session() as session:
             session.run(
                 """
                 MERGE (r:Repository {path: $repo_path})
@@ -490,7 +501,7 @@ class GraphWriter:
             ("file→cls", file_to_cls, q_file_to_cls),
         ]
         total_all = sum(len(g[1]) for g in groups)
-        with self.driver.session() as session:
+        with self._session() as session:
             for label, calls, query in groups:
                 if not calls:
                     info_logger(f"[CALLS] {label}: 0 (skipped)")
@@ -580,7 +591,7 @@ class GraphWriter:
             f"{len(csharp_files)} C# files. Writing to Neo4j..."
         )
         batch_size = 500
-        with self.driver.session() as session:
+        with self._session() as session:
             for i in range(0, len(inheritance_batch), batch_size):
                 batch = inheritance_batch[i : i + batch_size]
                 session.run(
@@ -601,7 +612,7 @@ class GraphWriter:
     def write_scip_call_edges(
         self, files_data: Dict[str, Any], name_from_symbol: Callable[[str], str]
     ) -> None:
-        with self.driver.session() as session:
+        with self._session() as session:
             for file_data in files_data.values():
                 for edge in file_data.get("function_calls_scip", []):
                     try:
@@ -624,7 +635,7 @@ class GraphWriter:
 
     def delete_file_from_graph(self, path: str) -> None:
         file_path_str = str(Path(path).resolve())
-        with self.driver.session() as session:
+        with self._session() as session:
             parents_res = session.run(
                 """
                 MATCH (f:File {path: $path})<-[:CONTAINS*]-(d:Directory)
@@ -657,7 +668,7 @@ class GraphWriter:
     def delete_repository_from_graph(self, repo_path: str) -> bool:
         repo_path_str = str(Path(repo_path).resolve())
         path_prefix = repo_path_str + "/"
-        with self.driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 "MATCH (r:Repository {path: $path}) RETURN count(r) as cnt", path=repo_path_str
             ).single()
@@ -667,7 +678,7 @@ class GraphWriter:
 
         for rel_type in ("CALLS", "INHERITS", "IMPORTS"):
             while True:
-                with self.driver.session() as session:
+                with self._session() as session:
                     result = session.run(
                         f"MATCH (a)-[r:{rel_type}]->(b) "
                         "WHERE a.path STARTS WITH $prefix OR b.path STARTS WITH $prefix "
@@ -680,7 +691,7 @@ class GraphWriter:
                 info_logger(f"[DELETE] Removed {deleted} {rel_type} rels for {repo_path_str}")
 
         while True:
-            with self.driver.session() as session:
+            with self._session() as session:
                 result = session.run(
                     "MATCH (a)-[r:CONTAINS]->(b) "
                     "WHERE a.path STARTS WITH $prefix OR a.path = $path "
@@ -695,7 +706,7 @@ class GraphWriter:
 
         for label in ("Function", "Class", "File"):
             while True:
-                with self.driver.session() as session:
+                with self._session() as session:
                     result = session.run(
                         f"MATCH (n:{label}) WHERE n.path STARTS WITH $prefix "
                         "WITH n LIMIT 10000 DETACH DELETE n RETURN count(n) AS deleted",
@@ -706,14 +717,14 @@ class GraphWriter:
                     break
                 info_logger(f"[DELETE] Removed {deleted} {label} nodes for {repo_path_str}")
 
-        with self.driver.session() as session:
+        with self._session() as session:
             session.run("MATCH (r:Repository {path: $path}) DETACH DELETE r", path=repo_path_str)
 
         info_logger(f"Deleted repository and its contents from graph: {repo_path_str}")
         return True
 
     def get_caller_file_paths(self, file_path_str: str) -> set:
-        with self.driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 "MATCH (caller)-[:CALLS]->(callee) "
                 "WHERE callee.path = $path "
@@ -723,7 +734,7 @@ class GraphWriter:
             return {r["p"] for r in result if r["p"] and r["p"] != file_path_str}
 
     def get_inheritance_neighbor_paths(self, file_path_str: str) -> set:
-        with self.driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 "MATCH (a)-[:INHERITS]->(b) "
                 "WHERE a.path = $path OR b.path = $path "
@@ -733,7 +744,7 @@ class GraphWriter:
             return {r["p"] for r in result if r["p"] and r["p"] != file_path_str}
 
     def delete_outgoing_calls_from_files(self, file_paths: List[str]) -> None:
-        with self.driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 "MATCH (a)-[r:CALLS]->(b) WHERE a.path IN $paths DELETE r RETURN count(r) AS cnt",
                 paths=file_paths,
@@ -742,7 +753,7 @@ class GraphWriter:
         info_logger(f"[RELINK] Deleted {cnt} outgoing CALLS from {len(file_paths)} caller files")
 
     def delete_inherits_for_files(self, file_paths: List[str]) -> None:
-        with self.driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 "MATCH (a)-[r:INHERITS]->(b) WHERE a.path IN $paths OR b.path IN $paths "
                 "DELETE r RETURN count(r) AS cnt",
@@ -754,7 +765,7 @@ class GraphWriter:
     def get_repo_class_lookup(self, repo_path: Path) -> Dict[str, set]:
         prefix = str(repo_path.resolve()) + "/"
         result_map: Dict[str, set] = {}
-        with self.driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 "MATCH (c:Class) WHERE c.path STARTS WITH $prefix "
                 "RETURN c.name AS name, c.path AS path",
@@ -769,7 +780,7 @@ class GraphWriter:
 
     def delete_relationship_links(self, repo_path: Path) -> None:
         repo_path_str = str(repo_path.resolve()) + "/"
-        with self.driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 "MATCH (a)-[r:CALLS]->(b) WHERE a.path STARTS WITH $prefix DELETE r RETURN count(r) AS cnt",
                 prefix=repo_path_str,

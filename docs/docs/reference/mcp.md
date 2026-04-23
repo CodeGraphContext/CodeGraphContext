@@ -2,6 +2,9 @@
 
 When CodeGraphContext is running as an MCP server, it exposes a set of tools that AI agents can use to explore and understand your codebase.
 
+!!! info "The `graph_name` parameter"
+    Most tools below accept an optional `graph_name` argument that targets a specific graph within the active backend — a FalkorDB named graph or a Neo4j database. KùzuDB has no per-graph namespace, so the argument is silently ignored there. Omit `graph_name` to use the backend's configured default (`FALKORDB_GRAPH_NAME` / `NEO4J_DATABASE`).
+
 ## Code Search & Discovery
 
 ### `find_code`
@@ -34,6 +37,10 @@ Identify technical debt by listing the most complex functions in the codebase.
 ---
 
 ## Graph Management
+
+### `list_graphs`
+Enumerate the graphs the active backend exposes. Useful for discovering what `graph_name` values are valid before calling other tools.
+*   **Backend behavior**: FalkorDB → `GRAPH.LIST`; Neo4j → `SHOW DATABASES`; KùzuDB → always returns an empty list (no per-graph namespace).
 
 ### `add_code_to_graph`
 Instruct the agent to index a new directory or file.

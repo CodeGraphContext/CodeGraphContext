@@ -38,7 +38,6 @@ class FalkorDBRemoteManager:
     """
     _instance = None
     _driver = None
-    _graph = None
     _lock = threading.Lock()
 
     def __new__(cls):
@@ -62,13 +61,18 @@ class FalkorDBRemoteManager:
 
         atexit.register(self.shutdown)
 
-    def get_driver(self):
+    def get_driver(self, graph_name: Optional[str] = None):
         """
         Gets the remote FalkorDB connection, creating it if necessary.
         Thread-safe.
 
+        Args:
+            graph_name: Optional per-call override for the FalkorDB graph name.
+                When None, falls back to ``FALKORDB_GRAPH_NAME`` from env
+                (default ``'codegraph'``).
+
         Returns:
-            A FalkorDBDriverWrapper that provides a Neo4j-like session interface.
+            A FalkorDBDriverWrapper bound to the graph selected for this call.
         """
         if self._driver is None:
             with self._lock:
@@ -93,12 +97,11 @@ class FalkorDBRemoteManager:
                             kwargs['ssl'] = True
 
                         self._driver = FalkorDB(**kwargs)
-                        self._graph = self._driver.select_graph(self.graph_name)
 
-                        # Verify connectivity
-                        self._graph.query("RETURN 1")
+                        # Verify connectivity against the default graph
+                        self._driver.select_graph(self.graph_name).query("RETURN 1")
                         info_logger("Remote FalkorDB connection established successfully")
-                        info_logger(f"Graph name: {self.graph_name}")
+                        info_logger(f"Default graph name: {self.graph_name}")
 
                     except ImportError as e:
                         error_logger(
@@ -110,14 +113,14 @@ class FalkorDBRemoteManager:
                         error_logger(f"Failed to connect to remote FalkorDB: {e}")
                         raise
 
-        return FalkorDBDriverWrapper(self._graph)
+        selected = self._driver.select_graph(graph_name or self.graph_name)
+        return FalkorDBDriverWrapper(selected)
 
     def close_driver(self):
         """Closes the connection."""
         if self._driver is not None:
             info_logger("Closing FalkorDB Remote connection")
             self._driver = None
-            self._graph = None
 
     def shutdown(self):
         """Clean up on exit. No subprocess to kill for remote connections."""
@@ -125,10 +128,10 @@ class FalkorDBRemoteManager:
 
     def is_connected(self) -> bool:
         """Checks if the database connection is currently active."""
-        if self._graph is None:
+        if self._driver is None:
             return False
         try:
-            self._graph.query("RETURN 1")
+            self._driver.select_graph(self.graph_name).query("RETURN 1")
             return True
         except Exception:
             return False
@@ -136,6 +139,16 @@ class FalkorDBRemoteManager:
     def get_backend_type(self) -> str:
         """Returns the database backend type."""
         return 'falkordb-remote'
+
+    def list_graphs(self) -> list:
+        """Return the names of all graphs known to the remote FalkorDB instance.
+
+        Uses the FalkorDB client's ``list_graphs`` (issues ``GRAPH.LIST``).
+        Graph names may come back as bytes; normalize to str.
+        """
+        self.get_driver()  # ensure self._driver is initialized
+        names = self._driver.list_graphs()
+        return [n.decode() if isinstance(n, (bytes, bytearray)) else str(n) for n in names]
 
     @staticmethod
     def validate_config() -> Tuple[bool, Optional[str]]:

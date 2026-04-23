@@ -32,6 +32,14 @@ description: >-
 - For **fuzzy symbol search** on Kùzu/Falkor backends, matching is typo-tolerant (edit distance); on Neo4j, full-text fuzzy uses Lucene-style terms—preserve **original casing** in queries when fuzziness matters for camelCase symbols.
 - If **`Repository.path` is missing** in the DB, that row is skipped for path checks and a **warning is logged** when repositories are listed; suggest cleaning stale `Repository` nodes (see Neo4j example in logs) if it keeps happening.
 
+## Multi-graph support (MCP)
+
+- One server instance can serve many isolated graphs. A **"graph"** here is a **FalkorDB named graph** or a **Neo4j database**. KùzuDB has no equivalent concept.
+- Most query and indexing tools accept an optional **`graph_name`** argument that targets a specific graph per call. Omitting it falls back to `FALKORDB_GRAPH_NAME` / `NEO4J_DATABASE` env defaults, so single-graph use is unchanged.
+- Use **`list_graphs`** for discovery when an agent needs to pick a graph (FalkorDB → `GRAPH.LIST`, Neo4j → `SHOW DATABASES`, Kùzu → empty list).
+- **Multi-turn continuity:** once a user has established a target graph in the conversation, keep passing that same `graph_name` to subsequent tool calls until they explicitly change graphs. If unsure which graph applies, call `list_graphs` and ask rather than silently falling back to the default.
+- **"graph" ≠ "repository" ≠ "cgc context."** `graph_name` addresses a backend namespace; `list_indexed_repositories` enumerates `Repository` nodes *inside* a graph; `discover_codegraph_contexts` / `switch_context` operate on filesystem `.codegraphcontext/` workspaces and are unrelated to backend graph selection.
+
 ## References in this repo
 
 - CLI entry: `codegraphcontext.cli.main`

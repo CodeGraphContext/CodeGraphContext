@@ -59,9 +59,14 @@ class KuzuDBManager:
         
         self._initialized = True
 
-    def get_driver(self):
+    def get_driver(self, graph_name: Optional[str] = None):
         """
         Gets the KùzuDB connection. Retries on file-lock errors.
+
+        Args:
+            graph_name: Accepted for API parity with other managers and ignored.
+                KùzuDB has no per-connection graph/database namespace concept;
+                callers pass a name only to keep the MCP tool surface uniform.
         """
         if self._conn is None:
             with self._lock:
@@ -199,6 +204,12 @@ class KuzuDBManager:
     def get_backend_type(self) -> str:
         """Returns the database backend type."""
         return 'kuzudb'
+
+    def list_graphs(self) -> list:
+        """KùzuDB has no per-graph namespace concept. Always returns ``[]``
+        so callers can rely on a uniform return type across backends.
+        """
+        return []
 
     @staticmethod
     def validate_config(db_path: str = None) -> Tuple[bool, Optional[str]]:

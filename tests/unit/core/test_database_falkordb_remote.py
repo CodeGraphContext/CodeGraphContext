@@ -15,7 +15,6 @@ class TestFalkorDBRemoteManager:
         from codegraphcontext.core.database_falkordb_remote import FalkorDBRemoteManager
         FalkorDBRemoteManager._instance = None
         FalkorDBRemoteManager._driver = None
-        FalkorDBRemoteManager._graph = None
         # Remove _initialized from any lingering instance
         if FalkorDBRemoteManager._instance and hasattr(FalkorDBRemoteManager._instance, '_initialized'):
             del FalkorDBRemoteManager._instance._initialized
@@ -127,8 +126,11 @@ class TestFalkorDBRemoteManager:
                 username='user',
                 ssl=True,
             )
-            mock_db_instance.select_graph.assert_called_once_with('testgraph')
-            mock_graph.query.assert_called_once_with("RETURN 1")
+            # select_graph is now called per get_driver() so a single call
+            # also runs a warm-up ping against the default graph and then
+            # selects the caller's graph. Both go through 'testgraph' here.
+            mock_db_instance.select_graph.assert_called_with('testgraph')
+            mock_graph.query.assert_called_with("RETURN 1")
 
             # Returns a FalkorDBDriverWrapper
             from codegraphcontext.core.database_falkordb import FalkorDBDriverWrapper
@@ -194,14 +196,17 @@ class TestFalkorDBRemoteManager:
 
             self._reset_singleton()
             manager = FalkorDBRemoteManager()
+            mock_driver = MagicMock()
             mock_graph = MagicMock()
-            manager._graph = mock_graph
+            mock_driver.select_graph.return_value = mock_graph
+            manager._driver = mock_driver
 
             assert manager.is_connected() is True
+            mock_driver.select_graph.assert_called_with('codegraph')
             mock_graph.query.assert_called_with("RETURN 1")
 
-    def test_is_connected_false_no_graph(self):
-        """Test is_connected returns False when graph is None."""
+    def test_is_connected_false_no_driver(self):
+        """Test is_connected returns False when driver is None."""
         clean_env = {k: v for k, v in os.environ.items() if not k.startswith('FALKORDB_')}
         clean_env.update({'FALKORDB_HOST': 'h'})
 
@@ -222,9 +227,11 @@ class TestFalkorDBRemoteManager:
 
             self._reset_singleton()
             manager = FalkorDBRemoteManager()
+            mock_driver = MagicMock()
             mock_graph = MagicMock()
             mock_graph.query.side_effect = ConnectionError("disconnected")
-            manager._graph = mock_graph
+            mock_driver.select_graph.return_value = mock_graph
+            manager._driver = mock_driver
 
             assert manager.is_connected() is False
 
@@ -251,11 +258,9 @@ class TestFalkorDBRemoteManager:
             self._reset_singleton()
             manager = FalkorDBRemoteManager()
             manager._driver = MagicMock()
-            manager._graph = MagicMock()
 
             manager.close_driver()
             assert manager._driver is None
-            assert manager._graph is None
 
     def test_validate_config_no_host(self):
         """Test validate_config fails when FALKORDB_HOST not set."""
@@ -313,13 +318,11 @@ class TestFactoryFalkorDBRemote:
         from codegraphcontext.core.database_falkordb_remote import FalkorDBRemoteManager
         FalkorDBRemoteManager._instance = None
         FalkorDBRemoteManager._driver = None
-        FalkorDBRemoteManager._graph = None
 
     def teardown_method(self):
         from codegraphcontext.core.database_falkordb_remote import FalkorDBRemoteManager
         FalkorDBRemoteManager._instance = None
         FalkorDBRemoteManager._driver = None
-        FalkorDBRemoteManager._graph = None
 
     def test_explicit_falkordb_remote(self):
         """Test DEFAULT_DATABASE=falkordb-remote returns FalkorDBRemoteManager."""

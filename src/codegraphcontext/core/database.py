@@ -63,10 +63,14 @@ class DatabaseManager:
         self.neo4j_database = os.getenv('NEO4J_DATABASE') # Optional, if not set, will use default database configured in Neo4j
         self._initialized = True
 
-    def get_driver(self) -> Driver:
+    def get_driver(self, graph_name: Optional[str] = None) -> Driver:
         """
         Gets the Neo4j driver instance, creating it if it doesn't exist.
         This method is thread-safe.
+
+        Args:
+            graph_name: Optional per-call override for the Neo4j database name.
+                When None, falls back to ``NEO4J_DATABASE`` from env.
 
         Raises:
             ValueError: If Neo4j credentials are not set in environment variables.
@@ -119,7 +123,7 @@ class DatabaseManager:
                             self._driver.close()
                         self._driver = None
                         raise
-        return Neo4jDriverWrapper(self._driver, database=self.neo4j_database)
+        return Neo4jDriverWrapper(self._driver, database=graph_name or self.neo4j_database)
 
     def close_driver(self):
         """Closes the Neo4j driver connection if it exists."""
@@ -147,6 +151,18 @@ class DatabaseManager:
     def get_backend_type(self) -> str:
         """Returns the database backend type."""
         return 'neo4j'
+
+    def list_graphs(self) -> list:
+        """Return the names of all databases this Neo4j server exposes.
+
+        Uses ``SHOW DATABASES`` against the ``system`` database. Includes
+        system-internal databases (e.g. ``system``) — callers can filter if
+        they only want user graphs.
+        """
+        self.get_driver()  # ensure self._driver is initialized
+        with self._driver.session(database='system') as session:
+            result = session.run("SHOW DATABASES YIELD name")
+            return [record['name'] for record in result]
 
 
     @staticmethod
