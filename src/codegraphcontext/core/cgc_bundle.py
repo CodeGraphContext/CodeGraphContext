@@ -22,6 +22,7 @@ Bundle Structure:
 import json
 import zipfile
 import tempfile
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, date
@@ -53,6 +54,8 @@ class CGCBundle:
     """Handles creation and loading of .cgc bundle files."""
     
     VERSION = "0.1.0"  # CGC bundle format version
+    _VALID_ID_FUNCTIONS = {"id", "elementId"}
+    _CYPHER_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
     
     def __init__(self, db_manager):
         """
@@ -76,6 +79,27 @@ class CGCBundle:
             return 'elementId'
         else:  # FalkorDB or other backends
             return 'id'
+
+    def _validated_id_function(self) -> str:
+        """Return a safe Cypher id function name."""
+        id_function = self._get_id_function()
+        if id_function not in self._VALID_ID_FUNCTIONS:
+            raise ValueError(f"Unsafe id function '{id_function}'")
+        return id_function
+
+    def _validate_cypher_identifier(self, identifier: str, kind: str) -> str:
+        """Validate dynamic Cypher identifiers to prevent query injection."""
+        if not isinstance(identifier, str):
+            raise ValueError(f"Invalid {kind}: expected string, got {type(identifier).__name__}")
+        normalized = identifier.strip()
+        if not normalized:
+            raise ValueError(f"Invalid {kind}: cannot be empty")
+        if not self._CYPHER_IDENTIFIER_RE.fullmatch(normalized):
+            raise ValueError(
+                f"Invalid {kind} '{identifier}': must match "
+                "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+            )
+        return normalized
 
     
     def export_to_bundle(
@@ -758,7 +782,7 @@ cgc import <bundle-file>.cgc
 
     def _import_node_batch(self, session, batch: List[Tuple], id_mapping: Dict) -> int:
         """Import a batch of nodes."""
-        id_function = self._get_id_function()
+        id_function = self._validated_id_function()
         
         for labels, properties, old_id in batch:
             if not labels:
@@ -766,7 +790,11 @@ cgc import <bundle-file>.cgc
             
             if isinstance(labels, str):
                 labels = [labels]
-            label_str = ':'.join(labels)
+            safe_labels = [
+                self._validate_cypher_identifier(label, "node label")
+                for label in labels
+            ]
+            label_str = ':'.join(safe_labels)
             primary_label = labels[0]
 
             pk_field = self._PK_MAP.get(primary_label)
@@ -818,7 +846,7 @@ cgc import <bundle-file>.cgc
         """Import a batch of edges."""
         id_mapping = getattr(self, '_id_mapping', {})
         # Detect database backend to use appropriate ID function
-        id_function = self._get_id_function()
+        id_function = self._validated_id_function()
         
         for edge in batch:
             old_from = edge.get('from')
@@ -830,6 +858,10 @@ cgc import <bundle-file>.cgc
                 old_to = (old_to.get('table', 0), old_to.get('offset', 0))
             rel_type = edge.get('type')
             properties = edge.get('properties', {})
+            safe_rel_type = self._validate_cypher_identifier(
+                rel_type,
+                "relationship type",
+            )
             
             # Map old IDs to new IDs
             new_from = id_mapping.get(old_from)
@@ -843,7 +875,7 @@ cgc import <bundle-file>.cgc
             query = f"""
                 MATCH (a), (b)
                 WHERE {id_function}(a) = $from_id AND {id_function}(b) = $to_id
-                CREATE (a)-[r:{rel_type}]->(b)
+                CREATE (a)-[r:{safe_rel_type}]->(b)
                 SET r = $props
             """
             

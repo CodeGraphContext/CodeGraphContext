@@ -353,7 +353,7 @@ cgc find pattern "Auth" --viz
     *   Kiro
 
     Upon successful configuration, `cgc mcp setup` will generate and place the necessary configuration files:
-    *   It creates an `mcp.json` file in your current directory for reference.
+    *   It can create an `mcp.json` file in your current directory for reference (optional, confirmation required).
     *   It stores your database credentials securely in `~/.codegraphcontext/.env`.
     *   It updates the settings file of your chosen IDE/CLI (e.g., `.claude.json` or VS Code's `settings.json`).
 
@@ -363,6 +363,13 @@ cgc find pattern "Auth" --viz
     ```
 
 3.  **Use:** Now interact with your codebase through your AI assistant using natural language! See examples below.
+
+### 🔐 Recommended Local Hardening (Claude Code / Cursor)
+
+- Prefer manual MCP configuration with a minimal `env` set.
+- Treat `load_bundle` as untrusted input unless bundle source and checksum are verified.
+- For high-trust environments, disable high-risk tools in client config (for example: `execute_cypher_query`, `visualize_graph_query`, `load_bundle`).
+- Keep CGC data in a dedicated local database/workspace and avoid sharing credentials across unrelated projects.
 
 ---
 

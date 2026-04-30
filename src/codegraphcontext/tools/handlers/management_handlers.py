@@ -7,6 +7,15 @@ from ...utils.tool_limits import get_tool_result_limit
 from ..code_finder import CodeFinder
 from ..graph_builder import GraphBuilder
 
+def _extract_bundle_checksum(bundle_meta: Dict[str, Any]) -> str | None:
+    """Best-effort checksum extraction from registry metadata."""
+    for key in ("sha256", "checksum_sha256", "checksum", "digest"):
+        value = bundle_meta.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 def list_indexed_repositories(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """Tool to list indexed repositories."""
     try:
@@ -117,7 +126,7 @@ def list_jobs(job_manager: JobManager) -> Dict[str, Any]:
 def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """Tool to load a .cgc bundle into the database."""
     from pathlib import Path
-    from ...core.bundle_registry import BundleRegistry
+    from ...core.bundle_registry import BundleRegistry, DEFAULT_MAX_DOWNLOAD_BYTES
     from ...core.cgc_bundle import CGCBundle
     
     bundle_name = args.get("bundle_name")
@@ -151,7 +160,17 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
             
             debug_log(f"Downloading bundle to {target_path}...")
             try:
-                BundleRegistry.download_file(download_url, target_path)
+                expected_sha256 = _extract_bundle_checksum(bundle_meta or {})
+                max_bytes = DEFAULT_MAX_DOWNLOAD_BYTES
+                if bundle_meta and bundle_meta.get("size_bytes"):
+                    # Allow small metadata discrepancies while still enforcing bounds.
+                    max_bytes = int(bundle_meta["size_bytes"]) + (5 * 1024 * 1024)
+                BundleRegistry.download_file(
+                    download_url,
+                    target_path,
+                    expected_sha256=expected_sha256,
+                    max_bytes=max_bytes,
+                )
                 bundle_path = target_path
                 debug_log(f"Successfully downloaded to {bundle_path}")
             except Exception as e:

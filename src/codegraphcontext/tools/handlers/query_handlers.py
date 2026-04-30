@@ -5,6 +5,50 @@ from neo4j.exceptions import CypherSyntaxError
 from ...utils.debug_log import debug_log
 from ...utils.tool_limits import get_tool_result_limit
 
+_STRING_LITERAL_RE = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', re.DOTALL)
+_COMMENT_RE = re.compile(r"//.*?$|/\*.*?\*/", re.MULTILINE | re.DOTALL)
+_READONLY_START_RE = re.compile(r"^\s*(OPTIONAL\s+MATCH|MATCH|WITH|UNWIND|RETURN)\b", re.IGNORECASE)
+_FORBIDDEN_CLAUSE_PATTERNS = [
+    r"\bCREATE\b",
+    r"\bMERGE\b",
+    r"\bDELETE\b",
+    r"\bDETACH\s+DELETE\b",
+    r"\bSET\b",
+    r"\bREMOVE\b",
+    r"\bDROP\b",
+    r"\bLOAD\s+CSV\b",
+    r"\bFOREACH\b",
+    r"\bCALL\b",
+    r"\bSTART\b",
+    r"\bALTER\b",
+    r"\bRENAME\b",
+    r"\bGRANT\b",
+    r"\bDENY\b",
+    r"\bREVOKE\b",
+    r"\bTERMINATE\b",
+]
+
+
+def _strip_literals_and_comments(query: str) -> str:
+    without_strings = _STRING_LITERAL_RE.sub("", query)
+    return _COMMENT_RE.sub("", without_strings)
+
+
+def _validate_read_only_query(cypher_query: str) -> str | None:
+    stripped = _strip_literals_and_comments(cypher_query)
+    if ";" in stripped:
+        return "Only a single Cypher statement is allowed."
+    if not _READONLY_START_RE.search(stripped):
+        return (
+            "Read-only query must start with MATCH, OPTIONAL MATCH, WITH, "
+            "UNWIND, or RETURN."
+        )
+    for pattern in _FORBIDDEN_CLAUSE_PATTERNS:
+        if re.search(pattern, stripped, re.IGNORECASE):
+            return "This tool only supports read-only Cypher queries."
+    return None
+
+
 def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
     """
     Tool implementation for executing a read-only Cypher query.
@@ -16,22 +60,9 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
     if not cypher_query:
         return {"error": "Cypher query cannot be empty."}
 
-    # Safety Check: Prevent any write operations to the database.
-    # This check first removes all string literals and then checks for forbidden keywords.
-    forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
-    
-    # Regex to match single or double quoted strings, handling escaped quotes.
-    string_literal_pattern = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
-    
-    # Remove all string literals from the query.
-    query_without_strings = re.sub(string_literal_pattern, '', cypher_query)
-    
-    # Now, check for forbidden keywords in the query without strings.
-    for keyword in forbidden_keywords:
-        if re.search(r'\b' + keyword + r'\b', query_without_strings, re.IGNORECASE):
-            return {
-                "error": "This tool only supports read-only queries. Prohibited keywords like CREATE, MERGE, DELETE, SET, etc., are not allowed."
-            }
+    validation_error = _validate_read_only_query(cypher_query)
+    if validation_error:
+        return {"error": validation_error}
 
     try:
         debug_log(f"Executing Cypher query: {cypher_query}")
