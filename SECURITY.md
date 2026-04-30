@@ -51,6 +51,9 @@ While using this project, we recommend you:
 - Always run software in a secure and isolated environment.
 - Keep your dependencies up to date.
 - Avoid sharing sensitive API keys or credentials in `.env` or other public files.
+- Use manual MCP configuration with a minimal environment variable set.
+- Verify checksums for downloaded bundles before importing them.
+- Disable high-risk MCP tools when not needed (`execute_cypher_query`, `visualize_graph_query`, `load_bundle`).
 
 ---
 
