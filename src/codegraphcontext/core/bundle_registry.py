@@ -1,9 +1,11 @@
 import requests
+import hashlib
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
+DEFAULT_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024  # 512 MB
 
 
 def _github_headers() -> dict:
@@ -151,7 +153,13 @@ class BundleRegistry:
         return None, None, f"Bundle '{name}' not found in registry."
 
     @staticmethod
-    def download_file(url: str, output_path: Path, progress_callback=None) -> bool:
+    def download_file(
+        url: str,
+        output_path: Path,
+        progress_callback=None,
+        expected_sha256: Optional[str] = None,
+        max_bytes: int = DEFAULT_MAX_DOWNLOAD_BYTES,
+    ) -> bool:
         """
         Download a file from a URL to a local path.
         
@@ -166,13 +174,27 @@ class BundleRegistry:
         try:
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
-            
+            digest = hashlib.sha256()
+            total_bytes = 0
             with open(output_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
+                        total_bytes += len(chunk)
+                        if max_bytes and total_bytes > max_bytes:
+                            raise ValueError(
+                                f"Bundle download exceeds max allowed size ({max_bytes} bytes)."
+                            )
                         f.write(chunk)
+                        digest.update(chunk)
                         if progress_callback:
                             progress_callback(len(chunk))
+            if expected_sha256:
+                actual_sha256 = digest.hexdigest().lower()
+                if actual_sha256 != expected_sha256.lower():
+                    raise ValueError(
+                        "Bundle checksum mismatch: expected "
+                        f"{expected_sha256.lower()}, got {actual_sha256}"
+                    )
             return True
         except Exception as e:
             # Clean up partial file

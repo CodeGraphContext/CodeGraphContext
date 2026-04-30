@@ -13,11 +13,77 @@ from codegraphcontext.core.database import DatabaseManager
 
 console = Console()
 
+MCP_ENV_ALLOWLIST = {
+    "NEO4J_URI",
+    "NEO4J_USERNAME",
+    "NEO4J_PASSWORD",
+    "NEO4J_DATABASE",
+    "DEFAULT_DATABASE",
+    "CGC_RUNTIME_DB_TYPE",
+    "CGCIGNORE_PATH",
+    "FALKORDB_PATH",
+    "FALKORDB_SOCKET_PATH",
+    "FALKORDB_GRAPH_NAME",
+    "FALKORDB_HOST",
+    "FALKORDB_PORT",
+    "FALKORDB_USERNAME",
+    "FALKORDB_PASSWORD",
+}
+_SENSITIVE_KEY_MARKERS = ("TOKEN", "SECRET", "PRIVATE", "CREDENTIAL", "API_KEY", "AUTH")
+
 # Constants for Docker Neo4j setup
 DEFAULT_NEO4J_URI = "neo4j://localhost:7687"
 DEFAULT_NEO4J_USERNAME = "neo4j"
 DEFAULT_NEO4J_BOLT_PORT = 7687
 DEFAULT_NEO4J_HTTP_PORT = 7474
+
+
+def _is_sensitive_config_key(key: str) -> bool:
+    key_upper = key.upper()
+    if "PASSWORD" in key_upper and key_upper not in {"NEO4J_PASSWORD", "FALKORDB_PASSWORD"}:
+        return True
+    return any(marker in key_upper for marker in _SENSITIVE_KEY_MARKERS)
+
+
+def _build_mcp_env(config: dict, base_env: dict | None = None) -> dict:
+    """Build a minimal env payload for MCP configuration."""
+    env_vars = dict(base_env or {})
+    for key, value in config.items():
+        if key not in MCP_ENV_ALLOWLIST:
+            continue
+        if _is_sensitive_config_key(key):
+            continue
+        if "PATH" in key and value:
+            path_obj = Path(value)
+            if not path_obj.is_absolute():
+                value = str(path_obj.resolve())
+        env_vars[key] = value
+    return env_vars
+
+
+def _maybe_write_mcp_file(mcp_config: dict, output_path: Path) -> bool:
+    questions = [
+        {
+            "type": "confirm",
+            "message": (
+                f"Write MCP config to {output_path}? "
+                "This may store credentials in plain text."
+            ),
+            "name": "write_mcp_file",
+            "default": False,
+        }
+    ]
+    write_file = prompt(questions)
+    if not write_file or not write_file.get("write_mcp_file"):
+        console.print(
+            f"[yellow]Skipping local file write for {output_path}. "
+            "Use manual copy/paste if needed.[/yellow]"
+        )
+        return False
+    with open(output_path, "w") as f:
+        json.dump(mcp_config, f, indent=2)
+    console.print(f"\n[cyan]Configuration saved to: {output_path}[/cyan]")
+    return True
 
 def _save_neo4j_credentials(creds):
     """
@@ -97,11 +163,9 @@ def _generate_mcp_json(creds):
     console.print("Copy the following JSON and add it to your MCP server configuration file:")
     console.print(json.dumps(mcp_config, indent=2))
 
-    # Also save to a file for convenience
+    # Optional local file write (contains credentials)
     mcp_file = Path.cwd() / "mcp.json"
-    with open(mcp_file, "w") as f:
-        json.dump(mcp_config, f, indent=2)
-    console.print(f"\n[cyan]For your convenience, the configuration has also been saved to: {mcp_file}[/cyan]")
+    _maybe_write_mcp_file(mcp_config, mcp_file)
 
     # Also save credentials to .env using the proper function
     _save_neo4j_credentials(creds)
@@ -378,7 +442,7 @@ def configure_mcp_client():
     """
     Configure MCP client (IDE/CLI) integration.
     This function sets up the MCP server configuration for the user's IDE.
-    Includes all current configuration values in the env section.
+    Uses a minimal allowlisted env section to reduce accidental secret exposure.
     """
     console.print("[bold cyan]MCP Client Configuration[/bold cyan]\n")
     console.print("This will configure CodeGraphContext integration with your IDE or CLI tool.")
@@ -410,19 +474,8 @@ def configure_mcp_client():
         except Exception:
             pass
     
-    # Add all configuration values, converting relative paths to absolute
-    for key, value in config.items():
-        # Skip database credentials (already added above)
-        if key in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"]:
-            continue
-        
-        # Convert relative paths to absolute for path-related configs
-        if "PATH" in key and value:
-            path_obj = Path(value)
-            if not path_obj.is_absolute():
-                value = str(path_obj.resolve())
-        
-        env_vars[key] = value
+    # Add allowlisted non-sensitive configuration values
+    env_vars = _build_mcp_env(config, base_env=env_vars)
     
     # Generate MCP configuration
     cgc_path = shutil.which("cgc") or sys.executable
@@ -465,11 +518,9 @@ def configure_mcp_client():
     console.print("Copy the following JSON and add it to your MCP server configuration file:")
     console.print(json.dumps(mcp_config, indent=2))
 
-    # Save to file for convenience
+    # Optional local file write (contains credentials)
     mcp_file = Path.cwd() / "mcp.json"
-    with open(mcp_file, "w") as f:
-        json.dump(mcp_config, f, indent=2)
-    console.print(f"\n[cyan]Configuration saved to: {mcp_file}[/cyan]")
+    _maybe_write_mcp_file(mcp_config, mcp_file)
     
     # Configure IDE automatically
     _configure_ide(mcp_config)
