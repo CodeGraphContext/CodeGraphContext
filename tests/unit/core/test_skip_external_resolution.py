@@ -59,13 +59,16 @@ class TestSkipExternalResolutionConfig:
 
     def test_set_and_get_config_value(self):
         """Test setting and getting the configuration value."""
-        # Set to true
-        set_config_value("SKIP_EXTERNAL_RESOLUTION", "true")
-        assert get_config_value("SKIP_EXTERNAL_RESOLUTION").lower() == "true"
+        # Avoid environment-level override from parent shells while testing persistence.
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SKIP_EXTERNAL_RESOLUTION", None)
+            # Set to true
+            set_config_value("SKIP_EXTERNAL_RESOLUTION", "true")
+            assert get_config_value("SKIP_EXTERNAL_RESOLUTION").lower() == "true"
 
-        # Set to false
-        set_config_value("SKIP_EXTERNAL_RESOLUTION", "false")
-        assert get_config_value("SKIP_EXTERNAL_RESOLUTION").lower() == "false"
+            # Set to false
+            set_config_value("SKIP_EXTERNAL_RESOLUTION", "false")
+            assert get_config_value("SKIP_EXTERNAL_RESOLUTION").lower() == "false"
 
     def test_environment_variable_override(self):
         """Test that environment variable SKIP_EXTERNAL_RESOLUTION works."""

@@ -23,7 +23,7 @@ dependencies = [
     "inquirerpy>=0.3.4",
     "python-dotenv>=1.0.0",
     "tree-sitter>=0.21.0",
-    "tree-sitter-language-pack>=0.6.0",
+    "tree-sitter-language-pack>=0.6.0,<1.0.0",
     "tree-sitter-c-sharp>=0.21.0",
     "pyyaml",
     "nbformat",
@@ -40,7 +40,7 @@ dependencies = [
 [project.optional-dependencies]
 parsing = [
     "tree-sitter>=0.21.0",
-    "tree-sitter-language-pack>=0.6.0",
+    "tree-sitter-language-pack>=0.6.0,<1.0.0",
     "tree-sitter-c-sharp>=0.21.0",
 ]
 dev = [
