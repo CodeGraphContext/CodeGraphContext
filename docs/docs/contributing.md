@@ -1,47 +1,64 @@
 # Contributing to CodeGraphContext
 
-We welcome contributions! Please follow these steps:
+Thank you for your interest in contributing to CodeGraphContext (CGC). We welcome contributions from the community to help make CGC the most powerful code intelligence engine available.
 
-## General Guidelines
+## Development Principles
 
-*   Ensure your code adheres to the existing style and conventions of the project.
-*   Write clear, concise, and well-documented code.
-*   All new features or bug fixes should be accompanied by appropriate tests.
-*   Keep your pull requests focused on a single feature or bug fix.
+*   **Consistency**: Adhere to the existing code style (PEP 8 for Python).
+*   **Quality**: Write clean, maintainable, and well-documented code.
+*   **Testing**: Every new feature or bug fix must include corresponding tests.
+*   **Focus**: Keep pull requests focused on a single logical change.
 
-## Setting up Your Development Environment
+## Setting Up for Development
 
-1.  Fork the repository.
-2.  Set up your development environment: `pip install -e ".[dev]"`
-3.  Create a new branch for your feature or bugfix (e.g., `git checkout -b feature/my-new-feature`).
-
-## Debugging
-
-To enable debug mode for detailed logging, locate the `debug_mode` variable in `src/codegraphcontext/tools/graph_builder.py` and set its value to `1`.
-
-```python
-# src/codegraphcontext/tools/graph_builder.py
-debug_mode = 1
-```
-
-## Running Tests
-
-Tests are located in the `tests/` directory and are run using `pytest`.
-
-1.  Navigate to the root of the `CodeGraphContext` directory.
-2.  Run all tests using the command: `pytest`
-3.  To run specific tests, you can provide the path to the test file, for example: `pytest tests/test_tools.py`
-4.  **Skipping Re-indexing:** To speed up test runs, especially during development, you can set the `CGC_SKIP_REINDEX` environment variable to `true`. This will prevent the test suite from re-indexing the sample project if it's already indexed.
+1.  **Fork and Clone**:
     ```bash
-    CGC_SKIP_REINDEX=true pytest
+    git clone https://github.com/YOUR_USERNAME/CodeGraphContext.git
+    cd CodeGraphContext
+    ```
+2.  **Environment Setup**:
+    We recommend using a virtual environment and `pip`:
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate  # Linux/macOS
+    pip install -e ".[dev]"
     ```
 
-## Submitting Changes
+## Development Workflow
 
-1.  Write your code and add corresponding tests in the `tests/` directory.
-2.  Ensure all tests pass and your code lints without errors.
-3.  Commit your changes with a descriptive commit message.
-4.  Submit a pull request to the `main` branch.
+### 1. Enable Debug Logging
+For detailed insights during development, use the `CGC_LOG_LEVEL` environment variable:
 
+```bash
+export CGC_LOG_LEVEL=DEBUG
+cgc index
+```
 
-<!-- "Failed to check job status: 'JobManager' object has no attribute 'JobStatus'" -->
+### 2. Running the Test Suite
+We use `pytest` for testing. Ensure all tests pass before submitting a pull request.
+
+```bash
+# Run all tests
+pytest
+
+# Run tests for a specific module
+pytest tests/test_core.py
+
+# Skip re-indexing for faster iterations
+CGC_SKIP_REINDEX=true pytest
+```
+
+### 3. Linting and Formatting
+Please run `ruff` (if available) or similar tools to ensure code quality.
+
+---
+
+## Submitting a Pull Request
+
+1.  **Create a Branch**: Use a descriptive name like `feat/new-backend` or `fix/mcp-timeout`.
+2.  **Commit**: Use clear, concise commit messages.
+3.  **Submit**: Open a pull request against the `main` branch. Provide a detailed description of your changes and link any relevant issues.
+
+## Reporting Issues
+
+If you find a bug or have a feature request, please open an issue on the [GitHub repository](https://github.com/CodeGraphContext/CodeGraphContext/issues). Include detailed steps to reproduce bugs and provide environment information (OS, Python version, CGC version).

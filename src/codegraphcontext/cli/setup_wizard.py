@@ -120,15 +120,18 @@ def _save_neo4j_credentials(creds):
 
 def _generate_mcp_json(creds):
     """Generates and prints the MCP JSON configuration."""
-    cgc_path = shutil.which("cgc") or sys.executable
+    cgc_path = shutil.which("cgc")
+    pipx_path = shutil.which("pipx")
 
-    if "python" in Path(cgc_path).name:
-        # fallback to running as module if no cgc binary is found
+    if cgc_path:
         command = cgc_path
-        args = ["-m", "cgc", "mcp", "start"]
+        args = ["mcp", "start"]
+    elif pipx_path:
+        command = pipx_path
+        args = ["run", "codegraphcontext", "mcp", "start"]
     else:
-        command = cgc_path
-        args = ["mcp","start"]
+        command = sys.executable
+        args = ["-m", "codegraphcontext", "mcp", "start"]
 
     mcp_config = {
         "mcpServers": {
@@ -478,15 +481,18 @@ def configure_mcp_client():
     env_vars = _build_mcp_env(config, base_env=env_vars)
     
     # Generate MCP configuration
-    cgc_path = shutil.which("cgc") or sys.executable
+    cgc_path = shutil.which("cgc")
+    pipx_path = shutil.which("pipx")
 
-    if "python" in Path(cgc_path).name:
-        # fallback to running as module if no cgc binary is found
-        command = cgc_path
-        args = ["-m", "cgc", "mcp", "start"]
-    else:
+    if cgc_path:
         command = cgc_path
         args = ["mcp", "start"]
+    elif pipx_path:
+        command = pipx_path
+        args = ["run", "codegraphcontext", "mcp", "start"]
+    else:
+        command = sys.executable
+        args = ["-m", "codegraphcontext", "mcp", "start"]
 
     # Create MCP config with complete env section
     mcp_config = {

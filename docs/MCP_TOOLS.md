@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-This document describes the Model Context Protocol (MCP) tools exposed by CodeGraphContext **0.4.2**. The server registers the full catalog defined in `src/codegraphcontext/tool_definitions.py` (same tools the CLI graph operations rely on). In v0.4.2, MCP `tools/list` returns **21** tool definitions—the subsections below enumerate each one.
+This document describes the Model Context Protocol (MCP) tools exposed by CodeGraphContext **0.4.5**. The server registers the full catalog defined in `src/codegraphcontext/tool_definitions.py` (same tools the CLI graph operations rely on). In v0.4.5, MCP `tools/list` returns **21** tool definitions—the subsections below enumerate each one.
 
 ## Tool categories
 

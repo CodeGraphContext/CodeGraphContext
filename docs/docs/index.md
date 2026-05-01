@@ -1,59 +1,53 @@
-# Welcome to CodeGraphContext
+# CodeGraphContext (CGC)
 
-CodeGraphContext (CGC) is a **Code Intelligence Engine**. It indexes your codebase into a graph database to provide deep semantic understanding for both developers (via CLI) and AI agents (via MCP).
+CodeGraphContext is a high-performance **Code Intelligence Engine** that transforms your source code into a queryable property graph. By indexing semantic relationships—such as function calls, class hierarchies, and module dependencies—CGC enables both developers and AI agents to navigate and understand complex codebases with unprecedented depth.
 
-### :material-console: For Developers (CLI)
-Use powerful terminal commands to query call chains, find dependencies, and visual architectural graphs.
-**[Explore CLI Reference](reference/cli_indexing.md)**
+## Key Capabilities
 
-### :material-robot: For AI Agents (MCP)
-Connect your codebase to Cursor, Claude, or VS Code. Let AI assist you with full context awareness.
-**[Setup AI Assistant](guides/mcp_guide.md)** & 
-**[Explore Natural Language Queries](reference/mcp_master.md)**
-
-### ⚙️ Configuration
-Customize databases, file limits, and more.
-**[View Configuration Guide](reference/configuration.md)**
+*   **Semantic Indexing**: Goes beyond simple text search by understanding the structural relationships of your code using Tree-sitter and SCIP.
+*   **MCP Integration**: Native Model Context Protocol (MCP) support allows AI assistants (Claude, Cursor, VS Code) to perform deep architectural queries.
+*   **Multi-Backend Support**: Choose between **KùzuDB** (embedded), **FalkorDB** (high-performance), or **Neo4j** (enterprise) depending on your scale and visualization needs.
+*   **Live Monitoring**: Automatically keeps the code graph in sync with your local changes using background watchers.
+*   **Portable Bundles**: Package and share indexed codebases as `.cgc` bundles for instant loading without re-indexing.
 
 ---
 
-## 🏗️ Architecture
+## Getting Started
 
-CGC sits between your code and your tools. It's not just a script; it's a persistent system.
+Follow these steps to integrate CodeGraphContext into your workflow:
 
-![CodeGraphContext Architecture](images/architecture.png)
-
-## 🚀 Why CodeGraphContext?
-
-*   **Cut Debugging Time:** Stop manually grepping. Find the exact root cause in seconds, not hours.
-*   **Onboard Faster:** Help new developers understand complex logic without interrupting senior engineers.
-*   **Reduce Technical Debt:** Identify dead code, circular dependencies, and "god objects" instantly.
+1.  **[Installation](getting-started/installation.md)**: Install the CLI and choose your database backend.
+2.  **[Quickstart](getting-started/quickstart.md)**: Index your first repository in under 5 minutes.
+3.  **[MCP Setup](getting-started/mcp-setup.md)**: Connect CGC to your favorite AI assistant.
 
 ---
 
-## 🗺️ How to Read These Docs
+## Core Architecture
 
-We have organized the documentation to match your journey:
+CGC operates as a bridge between your raw source files and your development tools.
 
-1.  **[Getting Started](getting-started/quickstart.md):** The linear path to installation.
-2.  **[Usage](use_cases_detailed.md):** Real-world ROI scenarios and user stories.
-3.  **[Guides](guides/mcp_guide.md):** Task-based tutorials (Setup, Visualization, CI/CD).
-4.  **[Core Concepts](concepts/how_it_works.md):** Understand the "magic" (Architecture, Graph Model).
-5.  **[CLI Reference](reference/cli_master.md):** Complete terminal command dictionary.
-6.  **[MCP Reference](reference/mcp_master.md):** AI agent tools and queries.
-7.  **[Project Info](contributing.md):** Roadmap, contributing, and configuration.
+```mermaid
+graph TD
+    A[Source Code] --> B(Tree-sitter / SCIP Parser)
+    B --> C{Graph Builder}
+    C --> D[KùzuDB / FalkorDB / Neo4j]
+    D --> E((CGC CLI))
+    D --> F((MCP Server))
+    F --> G[AI Agents: Claude, Cursor, etc.]
+```
+
+For a deeper dive into the system design, see the **[Architecture Guide](concepts/architecture.md)**.
 
 ---
 
-### Ready to Start?
-**[Install CodeGraphContext](getting-started/installation.md)**
+## Why CodeGraphContext?
 
-### Learn the Concepts
-**[How Indexing Works](concepts/how_it_works.md)**
+Modern codebases are too large to hold in a single context window. CodeGraphContext solves this by providing:
 
-### Project Links
+*   **Precision**: Find exactly who calls a function across 100+ modules instantly.
+*   **Context**: Provide AI agents with the specific graph slices they need to solve complex bugs.
+*   **Efficiency**: Reduce re-indexing time with incremental updates and pre-built bundles.
 
-*   **GitHub Repository**: [CodeGraphContext/CodeGraphContext](https://github.com/CodeGraphContext/CodeGraphContext)
-*   **Website**: [codegraphcontext.vercel.app](https://codegraphcontext.vercel.app)
-*   **Maintainer**: Shashank
+---
 
+[GitHub Repository](https://github.com/CodeGraphContext/CodeGraphContext) | [Issues](https://github.com/CodeGraphContext/CodeGraphContext/issues) | [License](license.md)

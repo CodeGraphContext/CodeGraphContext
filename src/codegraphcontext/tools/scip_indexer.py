@@ -226,9 +226,11 @@ class ScipIndexParser:
         """
         try:
             from . import scip_pb2  # type: ignore
-        except ImportError:
+        except Exception as e:
             error_logger(
-                "scip_pb2.py not found in tools directory."
+                "Failed to import codegraphcontext.tools.scip_pb2. "
+                "Ensure protobuf>=3.20,<3.21 is installed in the CodeGraphContext environment. "
+                f"Original error: {e}"
             )
             return {}
 

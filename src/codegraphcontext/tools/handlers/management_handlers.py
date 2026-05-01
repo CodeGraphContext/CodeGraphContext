@@ -3,6 +3,7 @@ from dataclasses import asdict
 from datetime import datetime
 from ...core.jobs import JobManager, JobStatus
 from ...utils.debug_log import debug_log
+from ...utils.tool_limits import get_tool_result_limit
 from ..code_finder import CodeFinder
 from ..graph_builder import GraphBuilder
 
@@ -260,14 +261,24 @@ def search_registry_bundles(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         
         # Sort by name
         bundles.sort(key=lambda b: (b.get('name', ''), b.get('full_name', '')))
-        
-        return {
+
+        limit = get_tool_result_limit("search_registry_bundles")
+        truncated = False
+        if limit and len(bundles) > limit:
+            bundles = bundles[:limit]
+            truncated = True
+
+        response = {
             "success": True,
             "bundles": bundles,
             "total": len(bundles),
             "query": query if query else "all",
-            "unique_only": unique_only
+            "unique_only": unique_only,
         }
+        if truncated:
+            response["result_limit"] = limit
+            response["truncated"] = True
+        return response
     
     except Exception as e:
         debug_log(f"Error searching registry: {str(e)}")

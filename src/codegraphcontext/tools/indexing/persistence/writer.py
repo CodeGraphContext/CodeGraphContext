@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ....utils.debug_log import info_logger, warning_logger
+from ....utils.git_utils import get_repo_commit_hash
 from ..sanitize import sanitize_props
 
 
@@ -18,17 +20,36 @@ class GraphWriter:
 
     def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
         repo_name = repo_path.name
-        repo_path_str = str(repo_path.resolve())
+        resolved = repo_path.resolve()
+        repo_path_str = str(resolved)
+
+        commit_hash = get_repo_commit_hash(resolved)
+        indexed_at = datetime.now(timezone.utc).isoformat()
+
         with self.driver.session() as session:
             session.run(
                 """
                 MERGE (r:Repository {path: $path})
-                SET r.name = $name, r.is_dependency = $is_dependency
+                SET r.name = $name,
+                    r.is_dependency = $is_dependency,
+                    r.indexed_at = $indexed_at
                 """,
                 path=repo_path_str,
                 name=repo_name,
                 is_dependency=is_dependency,
+                indexed_at=indexed_at,
             )
+            # Write commit_hash only when the repo is a git working tree so that
+            # non-git directories do not get a null/empty property polluting the schema.
+            if commit_hash:
+                session.run(
+                    """
+                    MATCH (r:Repository {path: $path})
+                    SET r.commit_hash = $commit_hash
+                    """,
+                    path=repo_path_str,
+                    commit_hash=commit_hash,
+                )
 
     def add_file_to_graph(
         self,
@@ -278,19 +299,28 @@ class GraphWriter:
             js_imports = []
             other_imports = []
             for imp in file_data.get("imports", []):
-                if lang == "javascript":
+                if lang in {"javascript", "typescript", "tsx"}:
                     module_name = imp.get("source")
                     if module_name:
                         js_imports.append(
                             {
                                 "module_name": module_name,
                                 "imported_name": imp.get("name", "*"),
-                                "alias": imp.get("alias"),
-                                "line_number": imp.get("line_number"),
+                                "alias": imp.get("alias") or "",
+                                "line_number": imp.get("line_number") or 0,
                             }
                         )
                 else:
-                    other_imports.append(imp)
+                    module_name = imp.get("name") or imp.get("source") or imp.get("full_import_name")
+                    if module_name:
+                        other_imports.append(
+                            {
+                                "name": module_name,
+                                "alias": imp.get("alias") or "",
+                                "full_import_name": imp.get("full_import_name") or module_name,
+                                "line_number": imp.get("line_number") or 0,
+                            }
+                        )
 
             if js_imports:
                 session.run(
@@ -313,8 +343,7 @@ class GraphWriter:
                     UNWIND $batch AS row
                     MATCH (f:File {path: $file_path})
                     MERGE (m:Module {name: row.name})
-                    SET m.alias = row.alias,
-                        m.full_import_name = coalesce(row.full_import_name, m.full_import_name)
+                    SET m.full_import_name = coalesce(row.full_import_name, m.full_import_name)
                     MERGE (f)-[r:IMPORTS]->(m)
                     SET r.line_number = row.line_number,
                         r.alias = row.alias

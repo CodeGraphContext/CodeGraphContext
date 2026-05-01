@@ -8,7 +8,7 @@ import {
   Eye, EyeOff, Settings2, Palette, Star,
   ChevronRight, ChevronDown, Folder, FolderOpen,
   PanelLeftClose, PanelLeftOpen,
-  Layers, Check, X, Code2, Sun, Moon, ChevronUp
+  Layers, Check, X, Code2, Sun, Moon, ChevronUp, Route
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
@@ -349,6 +349,12 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [focusSet, setFocusSet] = useState<{ nodes: Set<number>, links: Set<any> } | null>(null);
+
+  // Path traversal states
+  const [isPathMode, setIsPathMode] = useState(false);
+  const [pathSource, setPathSource] = useState<any>(null);
+  const [pathTarget, setPathTarget] = useState<any>(null);
+  const [pathError, setPathError] = useState<string | null>(null);
 
   // Code viewer state
   const [codeContent, setCodeContent] = useState<string | null>(null);
@@ -960,6 +966,18 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   };
 
   const onGraphNodeClick = (node: any) => {
+    if (isPathMode) {
+      if (!pathSource) {
+        setPathSource(node);
+      } else if (!pathTarget) {
+        setPathTarget(node);
+      } else {
+        setPathSource(node);
+        setPathTarget(null);
+        setPathError(null);
+      }
+      return;
+    }
     const filePath = node.file || node.properties?.path || node.properties?.file;
     if (!filePath) return;
     const lineNum = node.line_number ?? node.properties?.line_number;
@@ -998,6 +1016,82 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   };
+
+  const calculatePath = useCallback(() => {
+    if (!pathSource || !pathTarget) return;
+
+    const sId = pathSource.id;
+    const tId = pathTarget.id;
+
+    const adj = new Map<any, Set<any>>();
+    const edgeMap = new Map<string, any>(); 
+    
+    for (const link of filteredData.links) {
+      const u = typeof link.source === 'object' ? link.source.id : link.source;
+      const v = typeof link.target === 'object' ? link.target.id : link.target;
+      if (!adj.has(u)) adj.set(u, new Set());
+      if (!adj.has(v)) adj.set(v, new Set());
+      adj.get(u)!.add(v);
+      adj.get(v)!.add(u);
+      
+      edgeMap.set(`${u}-${v}`, link);
+      edgeMap.set(`${v}-${u}`, link);
+    }
+
+    const queue: any[] = [sId];
+    const visited = new Set<any>();
+    visited.add(sId);
+    const parent = new Map<any, any>();
+
+    let found = false;
+
+    while (queue.length > 0) {
+      const curr = queue.shift()!;
+      if (curr === tId) {
+        found = true;
+        break;
+      }
+      const neighbors = adj.get(curr) || new Set();
+      for (const nxt of neighbors) {
+        if (!visited.has(nxt)) {
+          visited.add(nxt);
+          parent.set(nxt, curr);
+          queue.push(nxt);
+        }
+      }
+    }
+
+    if (!found) {
+      setPathError("No path found between these nodes.");
+      setFocusSet(null);
+      return;
+    }
+
+    setPathError(null);
+    const pathNodes = new Set<number>();
+    const pathLinks = new Set<any>();
+    
+    let curr = tId;
+    pathNodes.add(curr);
+    while (curr !== sId) {
+      const p = parent.get(curr);
+      pathNodes.add(p);
+      const link = edgeMap.get(`${p}-${curr}`);
+      if (link) pathLinks.add(link);
+      curr = p;
+    }
+
+    setFocusSet({ nodes: pathNodes, links: pathLinks });
+
+    // Add extra polish: animate camera to show the path starting from the source node
+    if (fgRef.current && typeof pathSource.x === 'number') {
+      if (graphMode !== 'city3d' && graphMode !== 'graph3d') {
+        // Move camera to source node
+        fgRef.current.centerAt(pathSource.x, pathSource.y, 800);
+        fgRef.current.zoom(2.0, 800);
+      }
+    }
+  }, [pathSource, pathTarget, filteredData, graphMode]);
 
   const getLinkColor = useCallback((link: any) => {
     const isFocused = focusSet ? focusSet.links.has(link) : true;
@@ -1060,7 +1154,20 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                   </h2>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => setShowConfig(!showConfig)}
+                      onClick={() => {
+                        setIsPathMode(!isPathMode);
+                        setShowConfig(false);
+                      }}
+                      title="Path Finder"
+                      className={`p-1.5 rounded-lg transition-colors ${isPathMode ? 'bg-indigo-500/20 text-indigo-400' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                    >
+                      <Route className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowConfig(!showConfig);
+                        setIsPathMode(false);
+                      }}
                       title="Graph Settings"
                       className={`p-1.5 rounded-lg transition-colors ${showConfig ? 'bg-blue-500/20 text-blue-400' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
                     >
@@ -1088,9 +1195,62 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                 </div>
               </div>
 
-              {/* Tree / Config */}
+              {/* Tree / Config / Path Mode */}
               <div className="flex-1 overflow-y-auto px-2 py-1 custom-scrollbar">
-                {showConfig ? (
+                {isPathMode ? (
+                  <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
+                    <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <Route className="w-3 h-3" /> Path Traversal
+                    </h3>
+                    <p className="text-xs text-gray-400">Select two nodes in the graph to find the shortest path between them.</p>
+                    
+                    <div className="space-y-3 mt-4">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Source Node</label>
+                        <div className={`text-sm px-3 py-2 rounded-lg border ${pathSource ? (isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-black/5 border-black/10 text-black') : 'bg-transparent border-dashed border-gray-600 text-gray-500'}`}>
+                          {pathSource ? pathSource.name : "Click a node in the graph..."}
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Target Node</label>
+                        <div className={`text-sm px-3 py-2 rounded-lg border ${pathTarget ? (isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-black/5 border-black/10 text-black') : 'bg-transparent border-dashed border-gray-600 text-gray-500'}`}>
+                          {pathTarget ? pathTarget.name : "Click a node in the graph..."}
+                        </div>
+                      </div>
+                    </div>
+
+                    {pathError && (
+                      <div className="mt-4 p-2 bg-red-500/20 text-red-400 text-xs rounded-lg border border-red-500/20">
+                        {pathError}
+                      </div>
+                    )}
+                    
+                    <div className="flex gap-2 mt-4">
+                      <Button 
+                        size="sm" 
+                        variant="secondary" 
+                        className="w-full text-xs"
+                        onClick={() => {
+                          setPathSource(null);
+                          setPathTarget(null);
+                          setPathError(null);
+                          setFocusSet(null);
+                        }}
+                      >
+                        Clear
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        className="w-full text-xs bg-indigo-500 hover:bg-indigo-600 text-white"
+                        disabled={!pathSource || !pathTarget}
+                        onClick={calculatePath}
+                      >
+                        Find Path
+                      </Button>
+                    </div>
+                  </motion.div>
+                ) : showConfig ? (
                   <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-6">
                     <div>
                       <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">

@@ -1,6 +1,6 @@
 [project]
 name = "codegraphcontext"
-version = "0.4.2"
+version = "0.4.5"
 description = "An MCP server that indexes local code into a graph database to provide context to AI assistants."
 authors = [{ name = "Shashank Shekhar Singh", email = "shashankshekharsingh1205@gmail.com" }]
 readme = "README.md"
@@ -18,30 +18,31 @@ dependencies = [
     "neo4j>=5.15.0",
     "watchdog>=3.0.0",
     "stdlibs>=2023.11.18",
-    "typer[all]>=0.9.0",
+    "typer>=0.9.0",
     "rich>=13.7.0",
     "inquirerpy>=0.3.4",
     "python-dotenv>=1.0.0",
-    "tree-sitter>=0.21.0",
-    "tree-sitter-language-pack>=0.6.0",
-    "tree-sitter-c-sharp>=0.21.0",
+    "tree-sitter>=0.21.0; python_version != '3.13'",
+    "tree-sitter-language-pack>=0.6.0,!=1.6.3; python_version != '3.13'",
+    "tree-sitter-c-sharp>=0.21.0; python_version != '3.13'",
     "pyyaml",
     "nbformat",
     "nbconvert>=7.16.6",
     "pathspec>=0.12.1",
     "falkordb>=0.1.0",
     "requests>=2.28.0",
+    "protobuf>=3.20,<3.21",
     "falkordblite>=0.1.0; sys_platform != 'win32' and python_version >= '3.12'",
-    "kuzu>=0.4.0; sys_platform == 'win32' or (sys_platform != 'win32' and python_version >= '3.10' and python_version < '3.12')",
+    "real_ladybug; sys_platform == 'win32' or (sys_platform != 'win32' and python_version >= '3.10')",
     "fastapi>=0.100.0",
     "uvicorn>=0.22.0"
 ]
 
 [project.optional-dependencies]
 parsing = [
-    "tree-sitter>=0.21.0",
-    "tree-sitter-language-pack>=0.6.0",
-    "tree-sitter-c-sharp>=0.21.0",
+    "tree-sitter>=0.21.0; python_version != '3.13'",
+    "tree-sitter-language-pack>=0.6.0,!=1.6.3; python_version != '3.13'",
+    "tree-sitter-c-sharp>=0.21.0; python_version != '3.13'",
 ]
 dev = [
     "pytest>=7.4.0",

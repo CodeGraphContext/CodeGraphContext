@@ -24,6 +24,20 @@ def _levenshtein_distance(a: str, b: str) -> int:
         prev = curr
     return prev[-1]
 
+
+def _normalize_identifier(s: str) -> str:
+    """Lowercase and strip separator chars so camelCase / snake_case / spaces
+    all compare on equal footing.
+
+    Examples::
+
+        _normalize_identifier('myFunction')   -> 'myfunction'
+        _normalize_identifier('my_function')  -> 'myfunction'
+        _normalize_identifier('my function')  -> 'myfunction'
+        _normalize_identifier('MyFunc tion')  -> 'myfunction'
+    """
+    return s.lower().replace('_', '').replace(' ', '')
+
 class CodeFinder:
     """Module for finding relevant code snippets and analyzing relationships."""
 
@@ -64,11 +78,18 @@ class CodeFinder:
         edit_distance: int,
         repo_path: Optional[str],
     ) -> List[Dict]:
-        """Fuzzy name match for backends without Lucene fuzzy syntax (Kùzu, FalkorDB, …)."""
+        """Fuzzy name match for backends without Lucene fuzzy syntax (Kùzu, FalkorDB, …).
+
+        Compares both the raw query and its identifier-normalised form against each
+        candidate name, taking the minimum distance.  This lets camelCase queries
+        match snake_case stored names and vice-versa without inflating the distance.
+        """
         if not search_term.strip():
             return []
         where_clause = "WHERE node.path STARTS WITH $repo_path" if repo_path else ""
-        limit_tail = "" if repo_path else " LIMIT 8000"
+        # Without a repo filter we must cap the candidate scan.  20 000 is enough to
+        # cover any realistic single-repo codebase while keeping latency acceptable.
+        limit_tail = "" if repo_path else " LIMIT 20000"
         params: Dict[str, Any] = {}
         if repo_path:
             params["repo_path"] = repo_path
@@ -81,13 +102,27 @@ class CodeFinder:
         """
         with self.driver.session() as session:
             rows = session.run(query, **params).data()
-        q = search_term.lower()
+
+        # Two query forms:
+        #   q_raw  – lowercased original (e.g. "myFuncton" → "myfuncton")
+        #   q_norm – separator-stripped  (e.g. "my_functon" → "myfuncton")
+        # Using the minimum of both distances avoids the space-inflation bug where
+        # the handler's replace('_', ' ') turns "my_functon" into "my functon",
+        # which compares poorly against camelCase stored names.
+        q_raw = search_term.lower()
+        q_norm = _normalize_identifier(search_term)
+
         scored: List[tuple[int, Dict]] = []
         for row in rows:
             nm = row.get("name")
             if not isinstance(nm, str):
                 continue
-            d = _levenshtein_distance(q, nm.lower())
+            nm_lower = nm.lower()
+            nm_norm = _normalize_identifier(nm)
+            d = min(
+                _levenshtein_distance(q_raw, nm_lower),
+                _levenshtein_distance(q_norm, nm_norm),
+            )
             if d <= edit_distance:
                 scored.append((d, row))
         scored.sort(key=lambda x: x[0])
@@ -256,14 +291,24 @@ class CodeFinder:
 
     def find_related_code(self, user_query: str, fuzzy_search: bool, edit_distance: int, repo_path: Optional[str] = None) -> Dict[str, Any]:
         """Find code related to a query using multiple search strategies"""
-        # Neo4j full-text uses Lucene fuzzy tokens (e.g. name:foo~2). Kùzu/FalkorDB use
-        # portable Levenshtein over candidate names instead.
-        lucene_fuzzy_query = (
-            " ".join(f"{t}~{edit_distance}" for t in user_query.split())
-            if fuzzy_search and not self._lacks_native_fulltext
-            else user_query
-        )
-        name_lookup_q = lucene_fuzzy_query if (fuzzy_search and not self._lacks_native_fulltext) else user_query
+        # For Lucene backends: split snake_case/underscore tokens so Lucene sees
+        # individual words, then append the fuzzy modifier.
+        # For portable backends: keep user_query verbatim — _find_by_name_fuzzy_portable
+        # handles normalisation via _normalize_identifier.
+        if fuzzy_search and not self._lacks_native_fulltext:
+            lucene_base = user_query.replace("_", " ").strip()
+            lucene_fuzzy_query = " ".join(f"{t}~{edit_distance}" for t in lucene_base.split())
+        else:
+            lucene_fuzzy_query = user_query
+
+        # For portable backends, always pass the *original* query to the fuzzy name
+        # matcher — _find_by_name_fuzzy_portable applies its own normalisation.
+        # For Lucene-capable backends, use the Lucene fuzzy token form.
+        if self._lacks_native_fulltext:
+            name_lookup_q = user_query
+        else:
+            name_lookup_q = lucene_fuzzy_query if fuzzy_search else user_query
+
         content_lookup_q = lucene_fuzzy_query if (fuzzy_search and not self._lacks_native_fulltext) else user_query
 
         results: Dict[str, Any] = {
@@ -667,63 +712,38 @@ class CodeFinder:
     def find_all_callers(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
         """Find all direct and indirect callers of a specific function."""
         with self.driver.session() as session:
-            repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
-            if path:
-                # KùzuDB-compatible: Use anonymous end node and filter with WHERE
-                query = f"""
-                    MATCH p = (f:Function)-[:CALLS*]->()
-                    WITH f as f, p as p, nodes(p) as path_nodes
-                    WITH f as f, path_nodes as path_nodes, path_nodes[size(path_nodes)] as target
-                    WHERE target.name = $function_name AND target.path = $path {repo_filter}
-                    RETURN DISTINCT f.name AS caller_name, f.path AS caller_file_path, f.line_number AS caller_line_number, f.is_dependency AS caller_is_dependency
-                    ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
-                    LIMIT 50
-                """
-                result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
-            else:
-                # KùzuDB-compatible: Use anonymous end node and filter with WHERE
-                query = f"""
-                    MATCH p = (f:Function)-[:CALLS*]->()
-                    WITH f as f, p as p, nodes(p) as path_nodes
-                    WITH f as f, path_nodes as path_nodes, path_nodes[size(path_nodes)] as target
-                    WHERE target.name = $function_name {repo_filter}
-                    RETURN DISTINCT f.name AS caller_name, f.path AS caller_file_path, f.line_number AS caller_line_number, f.is_dependency AS caller_is_dependency
-                    ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
-                    LIMIT 50
-                """
-                result = session.run(query, function_name=function_name, repo_path=repo_path)
+            repo_filter = "AND f.path STARTS WITH $repo_path " if repo_path else ""
+            path_filter = "AND target.path = $path" if path else ""
+            # KùzuDB-compatible: Use anonymous end node and filter with WHERE
+            query = f"""
+                MATCH p = (f:Function)-[:CALLS*]->()
+                WITH f as f, p as p, nodes(p) as path_nodes
+                WITH f as f, path_nodes as path_nodes, path_nodes[size(path_nodes) - 1] as target
+                WHERE target.name = $function_name {path_filter} {repo_filter}
+                RETURN DISTINCT f.name AS caller_name, f.path AS caller_file_path, f.line_number AS caller_line_number, f.is_dependency AS caller_is_dependency
+                ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
+                LIMIT 50
+            """
+            result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             return result.data()
 
     def find_all_callees(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
         """Find all direct and indirect callees of a specific function."""
         with self.driver.session() as session:
             repo_filter = "WHERE f.path STARTS WITH $repo_path" if repo_path else ""
-            if path:
-                # KùzuDB-compatible: Use anonymous end node and extract from path
-                query = f"""
-                    MATCH (caller:Function {{name: $function_name, path: $path}})
-                    MATCH p = (caller)-[:CALLS*]->()
-                    WITH p as p, nodes(p) as path_nodes
-                    WITH path_nodes[size(path_nodes)] as f
-                    {repo_filter}
-                    RETURN DISTINCT f.name AS callee_name, f.path AS callee_file_path, f.line_number AS callee_line_number, f.is_dependency AS callee_is_dependency
-                    ORDER BY callee_is_dependency ASC, callee_file_path, callee_line_number
-                    LIMIT 50
-                """
-                result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
-            else:
-                # KùzuDB-compatible: Use anonymous end node and extract from path
-                query = f"""
-                    MATCH (caller:Function {{name: $function_name}})
-                    MATCH p = (caller)-[:CALLS*]->()
-                    WITH p as p, nodes(p) as path_nodes
-                    WITH path_nodes[size(path_nodes)] as f
-                    {repo_filter}
-                    RETURN DISTINCT f.name AS callee_name, f.path AS callee_file_path, f.line_number AS callee_line_number, f.is_dependency AS callee_is_dependency
-                    ORDER BY callee_is_dependency ASC, callee_file_path, callee_line_number
-                    LIMIT 50
-                """
-                result = session.run(query, function_name=function_name, repo_path=repo_path)
+            path_filter = ", path: $path" if path else ""
+            # KùzuDB-compatible: Use anonymous end node and extract from path
+            query = f"""
+                MATCH (caller:Function {{name: $function_name{path_filter}}})
+                MATCH p = (caller)-[:CALLS*]->()
+                WITH p as p, nodes(p) as path_nodes
+                WITH path_nodes[size(path_nodes) - 1] as f
+                {repo_filter}
+                RETURN DISTINCT f.name AS callee_name, f.path AS callee_file_path, f.line_number AS callee_line_number, f.is_dependency AS callee_is_dependency
+                ORDER BY callee_is_dependency ASC, callee_file_path, callee_line_number
+                LIMIT 50
+            """
+            result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             return result.data()
 
     def find_function_call_chain(self, start_function: str, end_function: str, max_depth: int = 5, start_file: Optional[str] = None, end_file: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
@@ -864,6 +884,42 @@ class CodeFinder:
         """Find all dependencies and dependents of a module"""
         with self.driver.session() as session:
             repo_filter = "AND file.path STARTS WITH $repo_path" if repo_path else ""
+            backend = getattr(self.db_manager, "get_backend_type", lambda: "")()
+
+            # KuzuDB is stricter about OPTIONAL MATCH variable scoping, and nested
+            # repository ownership is already represented in the file path.
+            if backend == "kuzudb":
+                importers_result = session.run(f"""
+                    MATCH (file:File)-[imp:IMPORTS]->(module:Module)
+                    WHERE (module.name = $module_name OR module.full_import_name CONTAINS $module_name) {repo_filter}
+                    RETURN DISTINCT
+                        file.path as importer_file_path,
+                        imp.line_number as import_line_number,
+                        file.is_dependency as file_is_dependency,
+                        '' as repository_name
+                    ORDER BY file_is_dependency ASC, importer_file_path
+                    LIMIT 50
+                """, module_name=module_name, repo_path=repo_path)
+
+                imports_result = session.run(f"""
+                    MATCH (file:File)-[:IMPORTS]->(target_module:Module)
+                    WHERE (target_module.name = $module_name OR target_module.full_import_name CONTAINS $module_name) {repo_filter}
+                    WITH file, target_module
+                    MATCH (file)-[imp:IMPORTS]->(other_module:Module)
+                    WHERE other_module.name <> target_module.name
+                    RETURN DISTINCT
+                        other_module.name as imported_module,
+                        imp.alias as import_alias
+                    ORDER BY imported_module
+                    LIMIT 50
+                """, module_name=module_name, repo_path=repo_path)
+
+                return {
+                    "module_name": module_name,
+                    "importers": importers_result.data(),
+                    "imports": imports_result.data()
+                }
+
             # Find files that import this module (who imports this module)
             importers_result = session.run(f"""
                 MATCH (file:File)-[imp:IMPORTS]->(module:Module {{name: $module_name}})

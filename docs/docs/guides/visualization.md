@@ -1,36 +1,56 @@
-# Visualizing the Graph
+# Visualizing the Code Graph
 
-Sometimes a table of text is not enough—you need to see the map. CodeGraphContext ships a local visualization server and also offers a hosted explorer.
+Visualizing your codebase can help reveal architectural patterns, circular dependencies, and complex call chains that are difficult to see in raw code.
 
-## Local server: `cgc visualize`
+## 1. CLI Visualization
 
-Run:
+CGC provides a quick way to visualize the graph directly from the terminal.
 
 ```bash
 cgc visualize
 ```
 
-This starts a **local FastAPI server** that serves a **React** visualization of your current graph. Open the URL printed in the terminal (typically `http://127.0.0.1` with a chosen port).
+This command generates a temporary visualization file (usually an HTML file with an interactive graph) and opens it in your default web browser.
 
-### Modes
+### Visualizing Specific Queries
+You can visualize the result of a specific relationship query:
 
-The UI supports several views of the same graph data:
-
-- **2D force-directed graph** — classic node–link layout for navigation and clustering.
-- **3D force-directed graph** — spatial exploration of larger graphs.
-- **3D city view** — an alternative structural layout for hierarchy and density.
-- **Mermaid flowchart** — diagram-style export and inspection of selected subgraphs.
-
-Use the in-app controls to switch modes and focus on the neighborhood you care about.
-
-## Hosted explorer
-
-You can also open the public site **[codegraphcontext.vercel.app/explore](https://codegraphcontext.vercel.app/explore)** to explore graphs in the browser (including flows that align with bundle and registry workflows).
-
-## Neo4j users: Neo4j Browser and Bloom
-
-If your **`DEFAULT_DATABASE`** (or config) points at **Neo4j**, you can still use **Neo4j Browser** (and **Neo4j Bloom** on Desktop) for Cypher-centric exploration. The local `cgc visualize` experience is backend-agnostic where supported; Neo4j-specific URLs and tools remain available when Neo4j is your active backend.
+```bash
+cgc visualize --query "callers find_request_handler"
+```
 
 ---
 
-For CLI details and options, see the CLI reference for the `visualize` command.
+## 2. Interactive Analysis with Neo4j
+
+If you are using the **Neo4j** backend, you can leverage the full power of the **Neo4j Browser**.
+
+1.  **Start Neo4j**: Ensure your Neo4j container or service is running.
+2.  **Access Browser**: Open `http://localhost:7474` in your browser.
+3.  **Run Cypher**: Write custom Cypher queries to explore the graph visually.
+
+### Example: Visualizing a Module Hierarchy
+```cypher
+MATCH (m:Module)-[:CONTAINS]->(c:Class)
+RETURN m, c
+```
+
+---
+
+## 3. Visualizing via MCP Tools
+
+When using CGC with an AI assistant (like Cursor or Claude), the AI can generate visualization URLs for you.
+
+**Ask the AI**:
+> "Visualize the call chain leading to the `process_order` function."
+
+The AI will call the `visualize_graph_query` tool and provide you with a link to view the resulting graph.
+
+---
+
+## Common Visualization Types
+
+*   **Call Graphs**: Showing which functions call which others.
+*   **Dependency Graphs**: Mapping imports between files and modules.
+*   **Class Hierarchies**: Visualizing inheritance and implementations.
+*   **Complexity Heatmaps**: (Experimental) Nodes sized or colored by their cyclomatic complexity.

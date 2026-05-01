@@ -10,9 +10,13 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 if typing.TYPE_CHECKING:
+    from pathspec import PathSpec
     from codegraphcontext.tools.graph_builder import GraphBuilder
     from codegraphcontext.core.jobs import JobManager
 
+from codegraphcontext.core.cgcignore import build_ignore_spec
+from codegraphcontext.tools.indexing.constants import DEFAULT_IGNORE_PATTERNS
+from codegraphcontext.cli.config_manager import get_config_value
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 
 class RepositoryEventHandler(FileSystemEventHandler):
@@ -23,7 +27,15 @@ class RepositoryEventHandler(FileSystemEventHandler):
     to build a baseline and then uses this cached state to perform efficient
     updates when files are changed, created, or deleted.
     """
-    def __init__(self, graph_builder: "GraphBuilder", repo_path: Path, debounce_interval=2.0, perform_initial_scan: bool = True):
+    def __init__(
+        self,
+        graph_builder: "GraphBuilder",
+        repo_path: Path,
+        debounce_interval=2.0,
+        perform_initial_scan: bool = True,
+        cgcignore_path: str = None,
+        ignore_spec: "PathSpec" = None,
+    ):
         """
         Initializes the event handler.
 
@@ -32,12 +44,17 @@ class RepositoryEventHandler(FileSystemEventHandler):
             repo_path: The absolute path to the repository directory to watch.
             debounce_interval: The time in seconds to wait for more changes before processing an event.
             perform_initial_scan: Whether to perform an initial scan of the repository.
+            cgcignore_path: Optional explicit .cgcignore path from the active context.
+            ignore_spec: Optional precompiled ignore spec, useful for tests.
         """
         super().__init__()
         self.graph_builder = graph_builder
-        self.repo_path = repo_path
+        self.repo_path = repo_path.resolve()
         self.debounce_interval = debounce_interval
         self.timers = {} # A dictionary to manage debounce timers for file paths.
+        self.ignore_root = self.repo_path
+        self.ignore_spec = ignore_spec
+        self._load_ignore_spec(cgcignore_path)
         
         # Caches for the repository's state.
         self.all_file_data = []
@@ -47,11 +64,65 @@ class RepositoryEventHandler(FileSystemEventHandler):
         if perform_initial_scan:
             self._initial_scan()
 
+    def _load_ignore_spec(self, cgcignore_path: str = None) -> None:
+        """Load .cgcignore rules using the same defaults as repository indexing."""
+        if self.ignore_spec is not None:
+            return
+        try:
+            self.ignore_spec, resolved_cgcignore = build_ignore_spec(
+                ignore_root=self.ignore_root,
+                default_patterns=DEFAULT_IGNORE_PATTERNS,
+                explicit_path=cgcignore_path,
+            )
+            if resolved_cgcignore:
+                debug_log(
+                    f"Watcher using .cgcignore at {resolved_cgcignore} "
+                    f"(filtering relative to {self.ignore_root})"
+                )
+        except OSError as e:
+            self.ignore_spec = None
+            warning_logger(f"Could not load/create watcher .cgcignore: {e}")
+
+    def _should_ignore(self, path: str | Path) -> bool:
+        """Return True when a path is excluded by .cgcignore or IGNORE_DIRS."""
+        path_obj = Path(path).resolve()
+        ignore_root = getattr(self, "ignore_root", getattr(self, "repo_path", None))
+
+        ignore_dirs_str = get_config_value("IGNORE_DIRS") or ""
+        if ignore_dirs_str and ignore_root:
+            ignore_dirs = {d.strip().lower() for d in ignore_dirs_str.split(",") if d.strip()}
+            try:
+                parts = {p.lower() for p in path_obj.relative_to(ignore_root).parent.parts}
+                if parts.intersection(ignore_dirs):
+                    return True
+            except ValueError:
+                pass
+
+        ignore_spec = getattr(self, "ignore_spec", None)
+        if not ignore_spec or not ignore_root:
+            return False
+
+        try:
+            rel_path = path_obj.relative_to(ignore_root).as_posix()
+        except ValueError:
+            return False
+        return ignore_spec.match_file(rel_path)
+
+    def _is_supported_code_file(self, path: str | Path) -> bool:
+        path_obj = Path(path)
+        return path_obj.is_file() and path_obj.suffix in self.graph_builder.parsers and not self._should_ignore(path_obj)
+
+    def _iter_supported_files(self) -> list[Path]:
+        supported_extensions = self.graph_builder.parsers.keys()
+        return [
+            f for f in self.repo_path.rglob("*")
+            if f.is_file() and f.suffix in supported_extensions and not self._should_ignore(f)
+        ]
+
     def _initial_scan(self):
         """Scans the entire repository, parses all files, and builds the initial graph."""
         info_logger(f"Performing initial scan for watcher: {self.repo_path}")
-        supported_extensions = self.graph_builder.parsers.keys()
-        all_files = [f for f in self.repo_path.rglob("*") if f.is_file() and f.suffix in supported_extensions]
+        all_files = self._iter_supported_files()
         
         # 1. Pre-scan all files to get a global map of where every symbol is defined.
         self.imports_map = self.graph_builder.pre_scan_imports(all_files)
@@ -126,6 +197,10 @@ class RepositoryEventHandler(FileSystemEventHandler):
         """
         info_logger(f"File change detected (incremental update): {event_path_str}")
         changed_path = Path(event_path_str)
+        if self._should_ignore(changed_path):
+            debug_log(f"Ignored watcher update based on .cgcignore: {changed_path}")
+            return
+
         changed_path_str = str(changed_path.resolve())
         supported_extensions = self.graph_builder.parsers.keys()
 
@@ -160,7 +235,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
         subset_file_data = []
         for path_str in affected_paths:
             p = Path(path_str)
-            if p.exists() and p.suffix in supported_extensions:
+            if p.exists() and p.suffix in supported_extensions and not self._should_ignore(p):
                 parsed = self.graph_builder.parse_file(self.repo_path, p)
                 if "error" not in parsed:
                     subset_file_data.append(parsed)
@@ -177,22 +252,22 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
     # The following methods are called by the watchdog observer when a file event occurs.
     def on_created(self, event):
-        if not event.is_directory and Path(event.src_path).suffix in self.graph_builder.parsers:
+        if not event.is_directory and self._is_supported_code_file(event.src_path):
             self._debounce(event.src_path, lambda: self._handle_modification(event.src_path))
 
     def on_modified(self, event):
-        if not event.is_directory and Path(event.src_path).suffix in self.graph_builder.parsers:
+        if not event.is_directory and self._is_supported_code_file(event.src_path):
             self._debounce(event.src_path, lambda: self._handle_modification(event.src_path))
 
     def on_deleted(self, event):
-        if not event.is_directory and Path(event.src_path).suffix in self.graph_builder.parsers:
+        if not event.is_directory and Path(event.src_path).suffix in self.graph_builder.parsers and not self._should_ignore(event.src_path):
             self._debounce(event.src_path, lambda: self._handle_modification(event.src_path))
 
     def on_moved(self, event):
         if not event.is_directory:
-            if Path(event.src_path).suffix in self.graph_builder.parsers:
+            if Path(event.src_path).suffix in self.graph_builder.parsers and not self._should_ignore(event.src_path):
                 self._debounce(event.src_path, lambda: self._handle_modification(event.src_path))
-            if Path(event.dest_path).suffix in self.graph_builder.parsers:
+            if Path(event.dest_path).suffix in self.graph_builder.parsers and not self._should_ignore(event.dest_path):
                 self._debounce(event.dest_path, lambda: self._handle_modification(event.dest_path))
 
 
@@ -207,7 +282,7 @@ class CodeWatcher:
         self.watched_paths = set() # Keep track of paths already being watched.
         self.watches = {} # Store watch objects to allow unscheduling
 
-    def watch_directory(self, path: str, perform_initial_scan: bool = True):
+    def watch_directory(self, path: str, perform_initial_scan: bool = True, cgcignore_path: str = None):
         """Schedules a directory to be watched for changes."""
         path_obj = Path(path).resolve()
         path_str = str(path_obj)
@@ -217,7 +292,12 @@ class CodeWatcher:
             return {"message": f"Path already being watched: {path_str}"}
         
         # Create a new, dedicated event handler for this specific repository path.
-        event_handler = RepositoryEventHandler(self.graph_builder, path_obj, perform_initial_scan=perform_initial_scan)
+        event_handler = RepositoryEventHandler(
+            self.graph_builder,
+            path_obj,
+            perform_initial_scan=perform_initial_scan,
+            cgcignore_path=cgcignore_path,
+        )
         
         watch = self.observer.schedule(event_handler, path_str, recursive=True)
         self.watches[path_str] = watch

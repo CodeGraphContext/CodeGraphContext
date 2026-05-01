@@ -90,7 +90,7 @@ TS_QUERIES = {
 }
 
 def is_typescript_file(path: Path) -> bool:
-    return path.suffix in {".ts", ".tsx"}
+    return path.suffix in {".ts", ".tsx", ".d.ts"}
 
 class TypescriptTreeSitterParser:
     """A TypeScript-specific parser using tree-sitter, encapsulating language-specific logic."""

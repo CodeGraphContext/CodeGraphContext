@@ -854,11 +854,11 @@ def doctor():
         elif default_db == "kuzudb":
             from importlib.util import find_spec
 
-            if find_spec("kuzu") is not None:
+            if find_spec("real_ladybug") is not None:
                 console.print(f"   [green]✓[/green] KuzuDB is installed")
             else:
                 console.print(f"   [red]✗[/red] KuzuDB is not installed")
-                console.print(f"       Run: pip install kuzu")
+                console.print(f"       Run: pip install real_ladybug")
                 all_checks_passed = False
         else:
             # FalkorDB

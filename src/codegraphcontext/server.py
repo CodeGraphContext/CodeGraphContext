@@ -75,6 +75,44 @@ def _strip_workspace_prefix(obj):
     return obj
 
 
+# Approximate chars-per-token used for budget conversion.
+# GPT-family tokenizers average ~4 chars/token; using 4 is a safe conservative estimate.
+_CHARS_PER_TOKEN = 4
+
+
+def _apply_response_token_limit(tool_name: str, text: str) -> str:
+    """Truncate *text* to the configured token budget and append a notice.
+
+    Reads ``MAX_TOOL_RESPONSE_TOKENS`` from the CGC config at call time so
+    that live config changes are respected without a server restart.
+    Returns *text* unchanged when the limit is 0 (unlimited) or not set.
+    """
+    from .cli.config_manager import get_config_value
+
+    raw = get_config_value("MAX_TOOL_RESPONSE_TOKENS") or "0"
+    try:
+        max_tokens = int(raw)
+    except ValueError:
+        max_tokens = 0
+
+    if max_tokens <= 0:
+        return text  # unlimited
+
+    max_chars = max_tokens * _CHARS_PER_TOKEN
+    if len(text) <= max_chars:
+        return text
+
+    notice = (
+        f"\n\n[CGC] Response truncated: output exceeded the MAX_TOOL_RESPONSE_TOKENS "
+        f"limit of {max_tokens} tokens (tool: {tool_name}). "
+        "Increase MAX_TOOL_RESPONSE_TOKENS or narrow your query for full results."
+    )
+    # Reserve space for the notice inside the budget
+    budget = max_chars - len(notice)
+    if budget < 0:
+        budget = 0
+    return text[:budget] + notice
+
 
 class MCPServer:
     """
@@ -506,9 +544,11 @@ class MCPServer:
                             "error": {"code": -32000, "message": "Tool execution error", "data": result}
                         }
                     else:
+                        response_text = json.dumps(result, indent=2)
+                        response_text = _apply_response_token_limit(tool_name, response_text)
                         response = {
                             "jsonrpc": "2.0", "id": request_id,
-                            "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
+                            "result": {"content": [{"type": "text", "text": response_text}]}
                         }
                 elif method == 'notifications/initialized':
                     # This is a notification, no response needed.

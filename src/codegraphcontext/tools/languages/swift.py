@@ -192,6 +192,40 @@ class SwiftTreeSitterParser:
         if not node: return ""
         return node.text.decode("utf-8")
 
+    def _calculate_complexity(self, node: Any) -> int:
+        """Cyclomatic complexity for a Swift function/init body.
+
+        Counts decision points: if/for/while/repeat-while/guard, each non-default
+        switch case, each catch block, boolean &&/||, and ternary `?:`.
+        """
+        decision_node_types = {
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "repeat_while_statement",
+            "guard_statement",
+            "catch_block",
+            "conjunction_expression",
+            "disjunction_expression",
+            "ternary_expression",
+        }
+        count = 1
+
+        def traverse(n: Any) -> None:
+            nonlocal count
+            t = n.type
+            if t in decision_node_types:
+                count += 1
+            elif t == "switch_entry":
+                is_default = any(c.type == "default_keyword" for c in n.children)
+                if not is_default:
+                    count += 1
+            for child in n.children:
+                traverse(child)
+
+        traverse(node)
+        return count
+
     def _parse_functions(self, captures: list, source_code: str, path: Path) -> list[Dict[str, Any]]:
         functions = []
         seen_nodes = set()
@@ -237,7 +271,9 @@ class SwiftTreeSitterParser:
                         "path": str(path),
                         "lang": self.language_name,
                         "context": context_name,
-                        "class_context": context_name if context_type and ("class" in context_type or "struct" in context_type) else None
+                        "class_context": context_name if context_type and ("class" in context_type or "struct" in context_type) else None,
+                        "cyclomatic_complexity": self._calculate_complexity(node),
+                        "is_dependency": False,
                     }
                     
                     if self.index_source:
@@ -278,12 +314,23 @@ class SwiftTreeSitterParser:
                     
                     source_text = self._get_node_text(node)
                     
-                    # Extract inheritance/protocol conformance
+                    # Extract inheritance/protocol conformance.
+                    # In tree-sitter-swift the bases appear as one or more
+                    # `inheritance_specifier` siblings under `class_declaration`,
+                    # each wrapping a `user_type` -> `type_identifier`. The
+                    # legacy `type_inheritance_clause` node type is not emitted
+                    # by the current grammar, so the previous logic produced
+                    # empty `bases` for every Swift type.
                     bases = []
                     for child in node.children:
-                        if child.type == "type_inheritance_clause":
+                        if child.type == "inheritance_specifier":
                             for subchild in child.children:
-                                if subchild.type == "type_identifier":
+                                if subchild.type == "user_type":
+                                    for inner in subchild.children:
+                                        if inner.type == "type_identifier":
+                                            bases.append(self._get_node_text(inner))
+                                            break
+                                elif subchild.type == "type_identifier":
                                     bases.append(self._get_node_text(subchild))
                     
                     type_data = {

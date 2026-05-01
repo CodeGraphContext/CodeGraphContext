@@ -9,7 +9,7 @@
       
       
       
-        <link rel="prev" href="../prerequisites/">
+        <link rel="prev" href="../..">
       
       
         <link rel="next" href="../quickstart/">
@@ -225,7 +225,7 @@
   
     
   
-  Home
+  Introduction
 
       </a>
     </li>
@@ -242,7 +242,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="../prerequisites/" class="md-tabs__link">
+        <a href="./" class="md-tabs__link">
           
   
   
@@ -262,47 +262,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../use_cases_detailed/" class="md-tabs__link">
-          
-  
-  
-  Usage
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../guides/onboarding/" class="md-tabs__link">
-          
-  
-  
-  Guides
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../concepts/how_it_works/" class="md-tabs__link">
+        <a href="../../concepts/graph-model/" class="md-tabs__link">
           
   
   
@@ -322,11 +282,11 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../reference/cli_master/" class="md-tabs__link">
+        <a href="../../guides/indexing/" class="md-tabs__link">
           
   
   
-  CLI Reference
+  User Guides
 
         </a>
       </li>
@@ -342,11 +302,11 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../reference/mcp_master/" class="md-tabs__link">
+        <a href="../../reference/cli/" class="md-tabs__link">
           
   
   
-  MCP Reference
+  Reference
 
         </a>
       </li>
@@ -362,31 +322,11 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../roadmap/" class="md-tabs__link">
+        <a href="../../contributing/" class="md-tabs__link">
           
   
   
-  Project Info
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../deployment/" class="md-tabs__link">
-          
-  
-  
-  Deployment
+  Community
 
         </a>
       </li>
@@ -453,7 +393,7 @@
   <span class="md-ellipsis">
     
   
-    Home
+    Introduction
   
 
     
@@ -527,34 +467,6 @@
                 
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../prerequisites/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Prerequisites & Context
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
     
   
   
@@ -618,10 +530,110 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#step-1-install-the-package" class="md-nav__link">
+  <a href="#1-install-the-cli" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1: Install the Package
+        1. Install the CLI
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Install the CLI">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recommended-using-uvx-fastest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended: Using uvx (Fastest)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-pipx-isolated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using pipx (Isolated)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-pip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using pip
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-database-backend-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Database Backend Selection
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Database Backend Selection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#option-a-kuzudb-default-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option A: KùzuDB (Default &amp; Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-b-falkordb-high-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option B: FalkorDB (High Performance)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-c-neo4j-enterprise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option C: Neo4j (Enterprise)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-verify-installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Verify Installation
       
     </span>
   </a>
@@ -629,32 +641,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-2-database-setup" class="md-nav__link">
+  <a href="#4-next-steps" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2: Database Setup
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-3-verify-installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Verify Installation
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-4-configure-ai-assistant-for-mcp-users" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 4: Configure AI Assistant (For MCP Users)
+        4. Next Steps
       
     </span>
   </a>
@@ -684,7 +674,35 @@
   <span class="md-ellipsis">
     
   
-    Quickstart (5 min)
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Setup
   
 
     
@@ -737,7 +755,7 @@
   <span class="md-ellipsis">
     
   
-    Usage
+    Core Concepts
   
 
     
@@ -753,7 +771,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Usage
+    Core Concepts
   
 
           </label>
@@ -766,14 +784,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../use_cases_detailed/" class="md-nav__link">
+      <a href="../../concepts/graph-model/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Real-World Scenarios (ROI)
+    The Code Graph
   
 
     
@@ -794,14 +812,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user_journeys/" class="md-nav__link">
+      <a href="../../concepts/backends/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    User Journeys (Stories)
+    Database Backends
   
 
     
@@ -822,14 +840,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../integration_guide/" class="md-nav__link">
+      <a href="../../concepts/architecture/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Integration & Workflows
+    System Architecture
   
 
     
@@ -882,7 +900,7 @@
   <span class="md-ellipsis">
     
   
-    Guides
+    User Guides
   
 
     
@@ -898,7 +916,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Guides
+    User Guides
   
 
           </label>
@@ -911,154 +929,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guides/onboarding/" class="md-nav__link">
+      <a href="../../guides/indexing/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Onboarding Guide
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../guides/setup_deep_dive/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Neo4j Setup Wizard
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../guides/mcp_guide/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MCP Setup Wizard
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../agent_skill_codegraphcontext/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Agent skill (AI assistants)
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../guides/visualization/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Visualizing the Graph
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../guides/contexts/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Contexts (Multi-Graph)
+    Indexing Source Code
   
 
     
@@ -1086,7 +964,7 @@
   <span class="md-ellipsis">
     
   
-    Using On-Demand Bundles
+    Portable Bundles
   
 
     
@@ -1107,14 +985,42 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guides/ci_cd/" class="md-nav__link">
+      <a href="../../guides/multi-repo/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    CI/CD & Advanced
+    Multi-Repo Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/visualization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualization
   
 
     
@@ -1167,7 +1073,7 @@
   <span class="md-ellipsis">
     
   
-    Core Concepts
+    Reference
   
 
     
@@ -1183,7 +1089,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Core Concepts
+    Reference
   
 
           </label>
@@ -1196,14 +1102,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/how_it_works/" class="md-nav__link">
+      <a href="../../reference/cli/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    How it Works
+    CLI Reference
   
 
     
@@ -1224,14 +1130,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/" class="md-nav__link">
+      <a href="../../reference/mcp/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    System Architecture
+    MCP Tool Reference
   
 
     
@@ -1252,42 +1158,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/the_graph/" class="md-nav__link">
+      <a href="../../reference/config/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    The Graph Model
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../concepts/modes/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    CLI vs MCP Modes
+    Configuration
   
 
     
@@ -1340,7 +1218,7 @@
   <span class="md-ellipsis">
     
   
-    CLI Reference
+    Community
   
 
     
@@ -1356,329 +1234,11 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    CLI Reference
+    Community
   
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/cli_master/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    All Commands (Master List)
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/cli_indexing/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Indexing & Management
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/cli_analysis/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Analysis & Querying
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/cli_system/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    System & Config
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
-        
-          
-          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MCP Reference
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    MCP Reference
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/mcp_master/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    All Tools (Master List)
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../cookbook/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Example Cookbook
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
-        
-          
-          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Project Info
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_8">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Project Info
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../roadmap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Roadmap
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
             
               
                 
@@ -1695,90 +1255,6 @@
     
   
     Contributing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../license/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    License
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/configuration/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Configuration
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/cgcignore/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    .cgcignore Guide
   
 
     
@@ -1820,67 +1296,6 @@
 
               
             
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
-        
-          
-          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Deployment
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_9">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Deployment
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
               
                 
   
@@ -1888,14 +1303,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../deployment/" class="md-nav__link">
+      <a href="../../roadmap/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Overview
+    Roadmap
   
 
     
@@ -1916,126 +1331,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../deployment/DOCKER_README/" class="md-nav__link">
+      <a href="../../license/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Docker Quick Start
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../deployment/DOCKER_COMPLETE_GUIDE/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Docker Complete Guide
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../deployment/DOCKER_DEPLOYMENT/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Docker Deployment
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../deployment/HOSTING_COMPARISON/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Hosting Comparison
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../deployment/DEPLOYMENT_CHECKLIST/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Deployment Checklist
+    License
   
 
     
@@ -2083,10 +1386,110 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#step-1-install-the-package" class="md-nav__link">
+  <a href="#1-install-the-cli" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1: Install the Package
+        1. Install the CLI
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Install the CLI">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recommended-using-uvx-fastest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended: Using uvx (Fastest)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-pipx-isolated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using pipx (Isolated)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-pip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using pip
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-database-backend-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Database Backend Selection
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Database Backend Selection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#option-a-kuzudb-default-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option A: KùzuDB (Default &amp; Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-b-falkordb-high-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option B: FalkorDB (High Performance)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-c-neo4j-enterprise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option C: Neo4j (Enterprise)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-verify-installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Verify Installation
       
     </span>
   </a>
@@ -2094,32 +1497,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-2-database-setup" class="md-nav__link">
+  <a href="#4-next-steps" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2: Database Setup
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-3-verify-installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Verify Installation
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-4-configure-ai-assistant-for-mcp-users" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 4: Configure AI Assistant (For MCP Users)
+        4. Next Steps
       
     </span>
   </a>
@@ -2147,80 +1528,56 @@
 
 
 <h1 id="installation">Installation</h1>
-<p>We have designed the installation to be as automatic as possible.</p>
-<h2 id="step-1-install-the-package">Step 1: Install the Package</h2>
-<p>Open your terminal and run:</p>
+<p>CodeGraphContext (CGC) is distributed as a Python package. You can install it using several methods depending on your workflow.</p>
+<h2 id="1-install-the-cli">1. Install the CLI</h2>
+<h3 id="recommended-using-uvx-fastest">Recommended: Using <code>uvx</code> (Fastest)</h3>
+<p>If you use <a href="https://github.com/astral-sh/uv">uv</a>, you can run CGC instantly without manual installation:</p>
+<div class="highlight"><pre><span></span><code>uvx<span class="w"> </span>codegraphcontext<span class="w"> </span>--help
+</code></pre></div>
+<h3 id="using-pipx-isolated">Using <code>pipx</code> (Isolated)</h3>
+<p>For a persistent global installation in an isolated environment:</p>
+<div class="highlight"><pre><span></span><code>pipx<span class="w"> </span>install<span class="w"> </span>codegraphcontext
+</code></pre></div>
+<h3 id="using-pip">Using <code>pip</code></h3>
 <div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>codegraphcontext
 </code></pre></div>
-<p><em>Tip: We recommend installing this in a virtual environment (venv) or globally via <code>pipx</code>.</em></p>
 <hr />
-<h2 id="step-2-database-setup">Step 2: Database Setup</h2>
-<p>CGC requires a graph database backend. Choose <strong>ONE</strong> path below.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Option A: KùzuDB (Recommended &amp; Default)</label><label for="__tabbed_1_2">Option B: Neo4j (Enterprise / Visual)</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<p><strong>Platforms:</strong> Linux, macOS, Windows (WSL &amp; Native).</p>
-<p><strong>KùzuDB</strong> is an embedded, lightweight graph database written in C++. It is the default for CodeGraphContext because it is extremely fast and requires no external services.
-*   <strong>Pros:</strong> Requires zero configuration. Runs automatically in-memory or on-disk. No Docker needed.
-*   <strong>Cons:</strong> No built-in Interactive Browser (unlike Neo4j). Use <code>cgc visualize</code> for graph views.</p>
-<p><em>This is the default out-of-the-box experience. You don't need to do anything else!</em></p>
-</div>
-<div class="tabbed-block">
-<p><strong>Platforms:</strong> Windows, macOS, Linux, Docker.</p>
-<p>Neo4j is the industry-standard enterprise graph database.
-*   <strong>Pros:</strong> Powerful web-based Graph Browser (<code>localhost:7474</code>). Handles massive codebases perfectly.
-*   <strong>Cons:</strong> Heavier resource usage. Requires Docker or a separate service running in the background.</p>
-<ol>
-<li><strong>Configure environment for Neo4j:</strong>
-    Create a <code>.env</code> file or export <code>CGC_GRAPH_BACKEND=neo4j</code> and <code>NEO4J_URI=bolt://localhost:7687</code> along with <code>NEO4J_USER</code> and <code>NEO4J_PASSWORD</code>.</li>
-<li><strong>Start Neo4j via Docker:</strong>
-    <div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>--name<span class="w"> </span>neo4j<span class="w"> </span>-p<span class="w"> </span><span class="m">7474</span>:7474<span class="w"> </span>-p<span class="w"> </span><span class="m">7687</span>:7687<span class="w"> </span>-e<span class="w"> </span><span class="nv">NEO4J_AUTH</span><span class="o">=</span>neo4j/password<span class="w"> </span>neo4j:latest
+<h2 id="2-database-backend-selection">2. Database Backend Selection</h2>
+<p>CGC requires a graph database to store the indexed code. You can choose the backend that best fits your needs.</p>
+<h3 id="option-a-kuzudb-default-recommended">Option A: KùzuDB (Default &amp; Recommended)</h3>
+<p>KùzuDB is an embedded, extremely fast graph database. It requires zero configuration and runs directly within the CGC process.</p>
+<ul>
+<li><strong>Installation</strong>: <code>pip install real_ladybug</code></li>
+<li><strong>Best for</strong>: Local development, individual projects, and zero-ops setups.</li>
+<li><strong>Pros</strong>: No external services, portable database files.</li>
+</ul>
+<h3 id="option-b-falkordb-high-performance">Option B: FalkorDB (High Performance)</h3>
+<p>FalkorDB is a low-latency graph database. CGC supports both local (embedded) and remote instances.</p>
+<ul>
+<li><strong>Installation</strong>: <code>pip install falkordblite</code> (Linux/macOS only)</li>
+<li><strong>Best for</strong>: Large codebases and performance-critical queries.</li>
+<li><strong>Pros</strong>: Industry-leading query performance.</li>
+</ul>
+<h3 id="option-c-neo4j-enterprise">Option C: Neo4j (Enterprise)</h3>
+<p>Neo4j is the industry standard for graph databases, offering powerful visualization and management tools.</p>
+<ul>
+<li><strong>Best for</strong>: Teams, massive repositories, and deep visual analysis via the Neo4j Browser.</li>
+<li><strong>Setup</strong>: Requires a running Neo4j instance (Docker or Cloud).
+    <div class="highlight"><pre><span></span><code>cgc<span class="w"> </span>config<span class="w"> </span>set-db<span class="w"> </span>neo4j
 </code></pre></div></li>
-</ol>
-</div>
-</div>
-</div>
+</ul>
 <hr />
-<h2 id="step-3-verify-installation">Step 3: Verify Installation</h2>
-<p>Let's make sure everything is talking to each other. Run the "Doctor" command (coming soon) or check the CLI help:</p>
-<div class="highlight"><pre><span></span><code>cgc<span class="w"> </span>--help
+<h2 id="3-verify-installation">3. Verify Installation</h2>
+<p>To ensure everything is configured correctly, run the version check:</p>
+<div class="highlight"><pre><span></span><code>cgc<span class="w"> </span>--version
 </code></pre></div>
-<p>You should see all the commands available for CodeGraphContext.</p>
+<p>You can also run the diagnostic command to check backend connectivity:</p>
+<div class="highlight"><pre><span></span><code>cgc<span class="w"> </span>doctor
+</code></pre></div>
 <hr />
-<h2 id="step-4-configure-ai-assistant-for-mcp-users">Step 4: Configure AI Assistant (For MCP Users)</h2>
-<p>If you plan to use CodeGraphContext with <strong>Cursor</strong>, <strong>Claude</strong>, <strong>Windsurf</strong>, or <strong>Kiro</strong>, you must configure the MCP server.</p>
-<ol>
-<li>
-<p><strong>Understand MCP Integration:</strong></p>
-<ul>
-<li>CodeGraphContext runs as an MCP server. This means it provides "Tools" to your LLM.</li>
-<li>To install it in Claude Desktop, for example, add it to your <code>claude_desktop_config.json</code>:
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;CodeGraphContext&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cgc&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;args&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;mcp&quot;</span><span class="p">]</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</code></pre></div></li>
-</ul>
-</li>
-<li>
-<p><strong>Using cursor:</strong></p>
-<ul>
-<li>Go to Cursor Settings &gt; Features &gt; MCP.</li>
-<li>Add a new server: type <code>command</code>, name it <code>CodeGraphContext</code>, and command <code>cgc mcp</code>.</li>
-</ul>
-</li>
-<li>
-<p><strong>Refresh your AI Tool:</strong></p>
-<ul>
-<li>Restart your IDE / Claude Desktop.</li>
-<li>Verify that tools like <code>analyze_code_relationships</code> or <code>find_code</code> are now available for the AI to use.</li>
-</ul>
-</li>
-</ol>
+<h2 id="4-next-steps">4. Next Steps</h2>
+<p>Now that CGC is installed, you are ready to index your first repository.</p>
+<p><strong><a href="../quickstart/">Proceed to Quickstart →</a></strong></p>
 
 
 

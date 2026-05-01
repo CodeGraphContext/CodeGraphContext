@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/codegraphcontext-codegraphcontext-badge.png)](https://mseep.ai/app/codegraphcontext-codegraphcontext)
+
 # 🏗️ CodeGraphContext (CGC)
 
 **Turn code repositories into a queryable graph for AI agents.**
@@ -97,7 +99,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 ---
 
 ## Project Details
-- **Version:** 0.4.2
+- **Version:** 0.4.5
 - **Authors:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **License:** MIT License (See [LICENSE](LICENSE) for details)
 - **Website:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
@@ -129,8 +131,9 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 -   **Live File Watching:** Watch directories for changes and automatically update the graph in real-time (`cgc watch`).
 -   **Interactive Setup:** A user-friendly command-line wizard for easy setup.
 -   **Dual Mode:** Works as a standalone **CLI toolkit** for developers and as an **MCP server** for AI agents.
--   **Multi-Language Support:** Full support for 14 programming languages.
--   **Flexible Database Backend:** KùzuDB (default on Windows), FalkorDB Lite (typical embedded default on Unix when installed), FalkorDB Remote, or Neo4j (all platforms via Docker/native).
+-   **Multi-Language Support:** Full support for 15 programming languages.
+-   **Flexible Database Backend:** KùzuDB (default on Windows), FalkorDB Lite (typical embedded default on Unix when installed), FalkorDB Remote, Nornic DB, or Neo4j (all platforms via Docker/native).
+
 
 ---
 
@@ -144,7 +147,7 @@ CodeGraphContext provides comprehensive parsing and analysis for the following l
 | ☕ | **Java** | 🏗️ | **C / C++** | #️⃣ | **C#** |
 | 🐹 | **Go** | 🦀 | **Rust** | 💎 | **Ruby** |
 | 🐘 | **PHP** | 🍎 | **Swift** | 🎨 | **Kotlin** |
-| 🎯 | **Dart** | 🐪 | **Perl** | | |
+| 🎯 | **Dart** | 🐪 | **Perl** | 🌙 | **Lua** |
 
 Each language parser extracts functions, classes, methods, parameters, inheritance relationships, function calls, and imports to build a comprehensive code graph.
 
@@ -154,13 +157,13 @@ Each language parser extracts functions, classes, methods, parameters, inheritan
 
 CodeGraphContext supports multiple graph database backends to suit your environment:
 
-| Feature | KùzuDB | FalkorDB Lite | Neo4j |
+| Feature | KùzuDB | FalkorDB Lite | Neo4j / Nornic DB |
 | :--- | :--- | :--- | :--- |
 | **Typical default** | **Windows** (embedded, when `kuzu` is installed) | **Unix** (Python 3.12+, when `falkordblite` works) | When explicitly configured |
 | **Setup** | Zero-config / Embedded | Zero-config / In-process | Docker / External |
 | **Platform** | **All (Windows Native, macOS, Linux)** | Unix-only (Linux/macOS/WSL) | All Platforms |
 | **Use Case** | Desktop, IDE, Local development | Specialized Unix development | Enterprise, Massive graphs |
-| **Requirement**| `pip install kuzu` | `pip install falkordblite` | Neo4j Server / Docker |
+| **Requirement**| `pip install real_ladybug` | `pip install falkordblite` | Neo4j Server / Docker / Nornic Cloud |
 | **Speed** | ⚡ Extremely Fast | ⚡ Fast | 🚀 Scalable |
 | **Persistence**| Yes (to disk) | Yes (to disk) | Yes (to disk) |
 
@@ -183,12 +186,12 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
 - `neo4j>=5.15.0`
 - `watchdog>=3.0.0`
 - `stdlibs>=2023.11.18`
-- `typer[all]>=0.9.0`
+- `typer>=0.9.0`
 - `rich>=13.7.0`
 - `inquirerpy>=0.3.7`
 - `python-dotenv>=1.0.0`
-- `tree-sitter>=0.21.0`
-- `tree-sitter-language-pack>=0.6.0`
+- `tree-sitter>=0.21.0` (not installed on Python 3.13)
+- `tree-sitter-language-pack>=0.6.0` (not installed on Python 3.13)
 - `pyyaml`
 - `pytest`
 - `nbformat`
@@ -271,7 +274,7 @@ Use CodeGraphContext as an **MCP server** for AI assistants:
 
 2.  **Database Setup (Automatic)**
     
-    - **KùzuDB (default on Windows):** Runs natively on Windows, macOS, and Linux. On Windows it is the usual embedded choice; `pip install kuzu` if needed.
+    - **KùzuDB (default on Windows):** Runs natively on Windows, macOS, and Linux. On Windows it is the usual embedded choice; `pip install real_ladybug` if needed.
     - **FalkorDB Lite (typical default on Unix):** When Python 3.12+ and `falkordblite` are available on Unix/macOS/WSL, the embedded backend prefers FalkorDB Lite; otherwise KùzuDB is used.
     - **Neo4j (Alternative):** To use Neo4j instead, or if you prefer a server-based approach, run: `cgc neo4j setup`
 
@@ -402,6 +405,32 @@ Add the following server configuration to your client's settings file (e.g., VS 
     "CodeGraphContext": {
       "command": "cgc",
       "args": [
+        "mcp",
+        "start"
+      ],
+      "env": {
+        "NEO4J_URI": "YOUR_NEO4J_URI",
+        "NEO4J_USERNAME": "YOUR_NEO4J_USERNAME",
+        "NEO4J_PASSWORD": "YOUR_NEO4J_PASSWORD"
+      },
+      "disabled": false,
+      "alwaysAllow": []
+    }
+  }
+}
+```
+
+#### If installed via pipx
+
+If you installed CodeGraphContext using `pipx`, use the following configuration instead:
+```json
+{
+  "mcpServers": {
+    "CodeGraphContext": {
+      "command": "pipx",
+      "args": [
+        "run",
+        "codegraphcontext",
         "mcp",
         "start"
       ],

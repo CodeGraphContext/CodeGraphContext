@@ -66,7 +66,7 @@ class KuzuDBManager:
         if self._conn is None:
             with self._lock:
                 if self._conn is None:
-                    import kuzu
+                    import real_ladybug as kuzu
                     max_retries = 5
                     for attempt in range(max_retries):
                         try:
@@ -77,7 +77,7 @@ class KuzuDBManager:
                             info_logger("KùzuDB connection established and schema verified")
                             break
                         except ImportError:
-                            error_logger("KùzuDB is not installed. Run 'pip install kuzu'")
+                            error_logger("KùzuDB is not installed. Run 'pip install real_ladybug'")
                             raise ValueError("KùzuDB missing.")
                         except Exception as e:
                             if "lock" in str(e).lower() and attempt < max_retries - 1:
@@ -99,7 +99,7 @@ class KuzuDBManager:
         # but we can wrap in try-except or check metadata.
         
         node_tables = [
-            ("Repository", "path STRING, name STRING, is_dependency BOOLEAN, PRIMARY KEY (path)"),
+            ("Repository", "path STRING, name STRING, is_dependency BOOLEAN, indexed_at STRING, commit_hash STRING, PRIMARY KEY (path)"),
             ("File", "path STRING, name STRING, relative_path STRING, is_dependency BOOLEAN, PRIMARY KEY (path)"),
             ("Directory", "path STRING, name STRING, PRIMARY KEY (path)"),
             ("Module", "name STRING, lang STRING, full_import_name STRING, PRIMARY KEY (name)"),
@@ -156,6 +156,29 @@ class KuzuDBManager:
                     warning_logger(f"Kuzu Schema Rel Error ({table_name}): {e}")
                     debug_log(f"Kuzu Schema Rel Error ({table_name}): {e}")
 
+        self._run_schema_migrations()
+
+    def _run_schema_migrations(self):
+        """Add columns introduced after older local Kùzu databases were created."""
+        migrations = [
+            ("Module", "full_import_name", "STRING"),
+            ("IMPORTS", "full_import_name", "STRING"),
+            ("IMPORTS", "imported_name", "STRING"),
+            # Freshness properties added to Repository in 0.4.6
+            ("Repository", "indexed_at", "STRING"),
+            ("Repository", "commit_hash", "STRING"),
+        ]
+
+        for table_name, column_name, column_type in migrations:
+            try:
+                self._conn.execute(f"ALTER TABLE `{table_name}` ADD {column_name} {column_type}")
+            except Exception as e:
+                err = str(e).lower()
+                if "already exists" in err or "duplicate" in err or "already has property" in err:
+                    continue
+                warning_logger(f"Kuzu Schema Migration Error ({table_name}.{column_name}): {e}")
+                debug_log(f"Kuzu Schema Migration Error ({table_name}.{column_name}): {e}")
+
     def close_driver(self):
         """Closes the connection."""
         if self._conn is not None:
@@ -188,10 +211,10 @@ class KuzuDBManager:
     @staticmethod
     def test_connection(db_path: str = None) -> Tuple[bool, Optional[str]]:
         try:
-            import kuzu
+            import real_ladybug as kuzu
             return True, None
         except ImportError:
-            return False, "KùzuDB is not installed. Run 'pip install kuzu'"
+            return False, "KùzuDB is not installed. Run 'pip install real_ladybug'"
 
 class KuzuDriverWrapper:
     def __init__(self, conn):
@@ -257,6 +280,32 @@ class KuzuSessionWrapper:
             err_str = str(e).lower()
             if "already exists" in err_str:
                 return KuzuResultWrapper(None)
+            
+            # Fallback for KuzuDB UNWIND bug (unordered_map::at)
+            if "unordered_map::at" in err_str and "UNWIND" in query:
+                unwind_m = re.search(r'UNWIND\s+\$(\w+)\s+AS\s+(\w+)', query)
+                if unwind_m:
+                    batch_param = unwind_m.group(1)
+                    row_var = unwind_m.group(2)
+                    batch_data = parameters.get(batch_param)
+                    if isinstance(batch_data, list):
+                        loop_query = re.sub(r'UNWIND\s+\$\w+\s+AS\s+\w+', '', query, count=1)
+                        # Find all row.prop usages and replace with $row_prop
+                        props_used = set(re.findall(rf'{row_var}\.(\w+)', loop_query))
+                        for p in props_used:
+                            loop_query = loop_query.replace(f"{row_var}.{p}", f"${row_var}_{p}")
+                        
+                        last_result = None
+                        for item in batch_data:
+                            loop_params = parameters.copy()
+                            loop_params.pop(batch_param, None)
+                            for p in props_used:
+                                loop_params[f"{row_var}_{p}"] = item.get(p)
+                            if "uid" in item:
+                                loop_params[f"{row_var}_uid"] = item["uid"]
+                            last_result = self.run(loop_query, **loop_params)
+                        return last_result or KuzuResultWrapper(None)
+
             error_logger(f"Kuzu Query failed: {query[:100]}... Error: {e}")
             debug_log(f"Kuzu Query failed: {query[:100]}... Error: {e}")
             raise

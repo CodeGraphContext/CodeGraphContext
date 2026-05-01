@@ -144,6 +144,29 @@ class TestResolveFunctionCall:
         assert result is not None
         assert result["called_file_path"] == "/repo/parser.py"
 
+    def test_resolves_aliased_import_to_original_symbol(self):
+        gb, _ = _make_graph_builder()
+        call_dict = {
+            "name": "bar",
+            "line_number": 4,
+            "full_name": "bar",
+            "args": [],
+            "context": ("caller", None, 3),
+        }
+        imports_map = {"foo": ["/repo/module.ts"]}
+        local_imports = {"bar": "foo"}
+
+        result = self._call(
+            gb,
+            call_dict,
+            local_imports=local_imports,
+            imports_map=imports_map,
+        )
+
+        assert result is not None
+        assert result["called_name"] == "foo"
+        assert result["called_file_path"] == "/repo/module.ts"
+
     def test_skip_external_suppresses_unresolved(self):
         """When skip_external=True, calls that cannot be resolved should return None."""
         gb, _ = _make_graph_builder()

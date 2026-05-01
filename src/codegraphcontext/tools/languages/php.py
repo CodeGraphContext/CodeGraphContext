@@ -93,24 +93,22 @@ class PhpTreeSitterParser:
             parsed_variables = []
             parsed_imports = []
             parsed_calls = []
+            var_type_map = {}
 
-            for capture_name, query in PHP_QUERIES.items():
+            for capture_name in ["functions", "classes", "imports", "variables", "calls"]:
+                query = PHP_QUERIES[capture_name]
                 results = execute_query(self.language, query, tree.root_node)
 
                 if capture_name == "functions":
-                    parsed_functions = self._parse_functions(results, source_code, path)
+                    parsed_functions = self._parse_functions(results, source_code, path, var_type_map)
                 elif capture_name == "classes":
-                    # We group classes, interfaces, traits here, but separating them is cleaner
-                    # Wait, my query combines them. I should verify results.
-                    # execute_query returns (node, capture_name)
-                    # I can filter inside _parse_classes
                     parsed_classes, parsed_interfaces, parsed_traits = self._parse_types(results, source_code, path)
                 elif capture_name == "imports":
                     parsed_imports = self._parse_imports(results, source_code)
                 elif capture_name == "calls":
-                    parsed_calls = self._parse_calls(results, source_code)
+                    parsed_calls = self._parse_calls(results, source_code, var_type_map)
                 elif capture_name == "variables":
-                    parsed_variables = self._parse_variables(results, source_code, path)
+                    parsed_variables = self._parse_variables(results, source_code, path, var_type_map)
 
             return {
                 "path": str(path),
@@ -157,7 +155,7 @@ class PhpTreeSitterParser:
         if not node: return ""
         return node.text.decode("utf-8")
 
-    def _parse_functions(self, captures: list, source_code: str, path: Path) -> list[Dict[str, Any]]:
+    def _parse_functions(self, captures: list, source_code: str, path: Path, var_type_map: dict) -> list[Dict[str, Any]]:
         functions = []
         seen_nodes = set()
 
@@ -182,10 +180,17 @@ class PhpTreeSitterParser:
                             # PHP parameters: function($a, $b)
                             for child in params_node.children:
                                 if "variable_name" in child.type or "simple_parameter" in child.type:
-                                     # Extract variable name from simple_parameter
                                      var_node = child if "variable_name" in child.type else child.child_by_field_name("name")
+                                     type_node = child.child_by_field_name("type") if "simple_parameter" in child.type else None
+                                     
                                      if var_node:
-                                         parameters.append(self._get_node_text(var_node))
+                                         var_name = self._get_node_text(var_node)
+                                         parameters.append(var_name)
+                                         if type_node:
+                                             var_type = self._get_node_text(type_node)
+                                             # Extract actual type from union/nullable types
+                                             var_type = var_type.lstrip("?").split("|")[0].strip()
+                                             var_type_map[(func_name, var_name)] = var_type
 
                         source_text = self._get_node_text(node)
                         
@@ -277,7 +282,7 @@ class PhpTreeSitterParser:
 
         return classes, interfaces, traits
 
-    def _parse_variables(self, captures: list, source_code: str, path: Path) -> list[Dict[str, Any]]:
+    def _parse_variables(self, captures: list, source_code: str, path: Path, var_type_map: dict) -> list[Dict[str, Any]]:
         variables = []
         seen_vars = set()
         
@@ -308,6 +313,7 @@ class PhpTreeSitterParser:
                              for child in right.children:
                                  if child.type in ('name', 'qualified_name'):
                                      inferred_type = self._get_node_text(child)
+                                     var_type_map[(ctx_name, var_name)] = inferred_type
                                      break
                                      
                      variables.append({
@@ -366,7 +372,7 @@ class PhpTreeSitterParser:
 
         return imports
 
-    def _parse_calls(self, captures: list, source_code: str) -> list[dict]:
+    def _parse_calls(self, captures: list, source_code: str, var_type_map: dict) -> list[dict]:
         calls = []
         seen_calls = set()
         
@@ -406,29 +412,31 @@ class PhpTreeSitterParser:
                                 args.append(self._get_node_text(arg))
 
                     full_name = call_name # Default
+                    inferred_obj_type = None
+                    ctx_name, ctx_type, ctx_line = self._get_parent_context(node)
+
                     if call_node.type == 'member_call_expression':
                         # $obj->method()
                         obj_node = call_node.child_by_field_name('object')
                         if obj_node:
                              receiver = self._get_node_text(obj_node)
-                             # Normalize -> to . for graph builder compatibility
                              full_name = f"{receiver}.{call_name}"
+                             if receiver.startswith("$"):
+                                 inferred_obj_type = var_type_map.get((ctx_name, receiver))
                     elif call_node.type == 'scoped_call_expression':
                          # Class::method()
                         scope_node = call_node.child_by_field_name('scope')
                         if scope_node:
                             receiver = self._get_node_text(scope_node)
-                            # Normalize :: to . for graph builder compatibility
                             full_name = f"{receiver}.{call_name}"
+                            inferred_obj_type = receiver
 
-                    ctx_name, ctx_type, ctx_line = self._get_parent_context(node)
-                    
                     call_data = {
                         "name": call_name,
                         "full_name": full_name,
                         "line_number": line_number,
                         "args": args,
-                        "inferred_obj_type": None,
+                        "inferred_obj_type": inferred_obj_type,
                         "context": (ctx_name, ctx_type, ctx_line),
                         "class_context": (ctx_name, ctx_line) if ctx_type and ("class" in ctx_type or "interface" in ctx_type or "trait" in ctx_type) else (None, None),
                         "lang": self.language_name,

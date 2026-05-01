@@ -76,3 +76,4 @@ cgc_btc/
 *.spec
 todo.md
 .codegraphcontext
+.ignore

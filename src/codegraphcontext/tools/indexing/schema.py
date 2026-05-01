@@ -58,8 +58,8 @@ def create_graph_schema(driver: Any, db_manager: Any) -> None:
             session.run("CREATE INDEX class_lang IF NOT EXISTS FOR (c:Class) ON (c.lang)")
             session.run("CREATE INDEX annotation_lang IF NOT EXISTS FOR (a:Annotation) ON (a.lang)")
 
-            is_falkordb = getattr(db_manager, "get_backend_type", lambda: "neo4j")() != "neo4j"
-            if is_falkordb:
+            backend_type = getattr(db_manager, "get_backend_type", lambda: "neo4j")()
+            if backend_type == "falkordb":
                 for label in ["Function", "Class"]:
                     try:
                         session.run(
@@ -67,7 +67,7 @@ def create_graph_schema(driver: Any, db_manager: Any) -> None:
                         )
                     except Exception:
                         pass
-            else:
+            elif backend_type == "neo4j":
                 session.run("""
                     CREATE FULLTEXT INDEX code_search_index IF NOT EXISTS
                     FOR (n:Function|Class|Variable)

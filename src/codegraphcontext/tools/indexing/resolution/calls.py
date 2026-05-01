@@ -20,6 +20,7 @@ def resolve_function_call(
     if called_name in __builtins__:
         return None
 
+    resolved_called_name = called_name
     resolved_path = None
     full_call = call.get("full_name", called_name)
     base_obj = full_call.split(".")[0] if "." in full_call else None
@@ -43,6 +44,14 @@ def resolve_function_call(
 
     if not resolved_path:
         possible_paths = imports_map.get(lookup_name, [])
+        if not possible_paths and lookup_name in local_imports:
+            imported_name = local_imports[lookup_name]
+            alias_paths = imports_map.get(imported_name, [])
+            if alias_paths:
+                possible_paths = alias_paths
+                lookup_name = imported_name
+                if called_name == base_obj or called_name == call["name"]:
+                    resolved_called_name = imported_name
         if len(possible_paths) == 1:
             resolved_path = possible_paths[0]
         elif len(possible_paths) > 1:
@@ -74,8 +83,8 @@ def resolve_function_call(
         if called_name in local_names:
             resolved_path = caller_file_path
             is_unresolved_external = False
-        elif called_name in imports_map and imports_map[called_name]:
-            candidates = imports_map[called_name]
+        elif resolved_called_name in imports_map and imports_map[resolved_called_name]:
+            candidates = imports_map[resolved_called_name]
             for path in candidates:
                 for imp_name in local_imports.values():
                     if imp_name.replace(".", "/") in path:
@@ -100,7 +109,7 @@ def resolve_function_call(
             "caller_name": caller_name,
             "caller_file_path": caller_file_path,
             "caller_line_number": caller_line_number,
-            "called_name": called_name,
+            "called_name": resolved_called_name,
             "called_file_path": resolved_path,
             "line_number": call["line_number"],
             "args": call.get("args", []),
@@ -109,7 +118,7 @@ def resolve_function_call(
     return {
         "type": "file",
         "caller_file_path": caller_file_path,
-        "called_name": called_name,
+        "called_name": resolved_called_name,
         "called_file_path": resolved_path,
         "line_number": call["line_number"],
         "args": call.get("args", []),
@@ -172,6 +181,7 @@ def build_function_call_groups(
                 "php":        {".php"},
                 "dart":       {".dart"},
                 "perl":       {".pl", ".pm"},
+                "lua":        {".lua"},
                 "haskell":    {".hs"},
                 "elixir":     {".ex", ".exs"},
             }

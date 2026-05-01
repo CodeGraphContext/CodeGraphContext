@@ -24,51 +24,29 @@ theme:
         name: Switch to light mode
 
 nav:
-  - Home: index.md
+  - Introduction: index.md
   - Getting Started:
-    - Prerequisites & Context: getting-started/prerequisites.md
     - Installation: getting-started/installation.md
-    - Quickstart (5 min): getting-started/quickstart.md
-  - Usage:
-    - "Real-World Scenarios (ROI)": use_cases_detailed.md
-    - "User Journeys (Stories)": user_journeys.md
-    - "Integration & Workflows": integration_guide.md
-  - Guides:
-    - Onboarding Guide: guides/onboarding.md
-    - Neo4j Setup Wizard : guides/setup_deep_dive.md
-    - MCP Setup Wizard : guides/mcp_guide.md
-    - "Agent skill (AI assistants)": agent_skill_codegraphcontext.md
-    - Visualizing the Graph: guides/visualization.md
-    - "Contexts (Multi-Graph)": guides/contexts.md
-    - Using On-Demand Bundles: guides/bundles.md
-    - CI/CD & Advanced: guides/ci_cd.md
+    - Quickstart: getting-started/quickstart.md
+    - MCP Setup: getting-started/mcp-setup.md
   - Core Concepts:
-    - How it Works: concepts/how_it_works.md
-    - "System Architecture": architecture.md
-    - The Graph Model: concepts/the_graph.md
-    - CLI vs MCP Modes: concepts/modes.md
-  - CLI Reference:
-    - "All Commands (Master List)": reference/cli_master.md
-    - "Indexing & Management": reference/cli_indexing.md
-    - "Analysis & Querying": reference/cli_analysis.md
-    - "System & Config": reference/cli_system.md
-  - MCP Reference:
-    - "All Tools (Master List)": reference/mcp_master.md
-    - "Example Cookbook": cookbook.md
-  - Project Info:
-    - Roadmap: roadmap.md
+    - The Code Graph: concepts/graph-model.md
+    - Database Backends: concepts/backends.md
+    - System Architecture: concepts/architecture.md
+  - User Guides:
+    - Indexing Source Code: guides/indexing.md
+    - Portable Bundles: guides/bundles.md
+    - Multi-Repo Workflows: guides/multi-repo.md
+    - Visualization: guides/visualization.md
+  - Reference:
+    - CLI Reference: reference/cli.md
+    - MCP Tool Reference: reference/mcp.md
+    - Configuration: reference/config.md
+  - Community:
     - Contributing: contributing.md
-    - License: license.md
-    - Configuration: reference/configuration.md
-    - ".cgcignore Guide": reference/cgcignore.md
     - Troubleshooting: reference/troubleshooting.md
-  - Deployment:
-    - Overview: deployment/README.md
-    - Docker Quick Start: deployment/DOCKER_README.md
-    - Docker Complete Guide: deployment/DOCKER_COMPLETE_GUIDE.md
-    - Docker Deployment: deployment/DOCKER_DEPLOYMENT.md
-    - Hosting Comparison: deployment/HOSTING_COMPARISON.md
-    - Deployment Checklist: deployment/DEPLOYMENT_CHECKLIST.md
+    - Roadmap: roadmap.md
+    - License: license.md
 
 markdown_extensions:
   - admonition

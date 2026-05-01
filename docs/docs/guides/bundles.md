@@ -1,64 +1,67 @@
-# Using On-Demand Bundles
+# Portable Code Bundles
 
-Don't index everything yourself. Use pre-built graphs for popular libraries.
+CodeGraphContext (CGC) introduces the concept of **Bundles** (`.cgc` files)—portable snapshots of an indexed codebase. Bundles allow you to share or load pre-indexed graphs instantly without the overhead of parsing source code.
 
-## What is a Bundle?
+## 1. Creating a Bundle
 
-A `.cgc` bundle is a snapshot of a graph. It allows you to "import" the knowledge of `flask`, `pandas`, or `react` without parsing it yourself.
-
-## Registry (shipped)
-
-The **bundle registry** is live: you can discover, search, and download bundles from the CLI without building graphs from source every time.
-
-### CLI: list, search, download
+Once you have indexed a repository, you can export it as a bundle:
 
 ```bash
-# Everything available (add -v / --verbose for URLs)
-cgc registry list
-
-# Find bundles by name or keyword
-cgc registry search react
-cgc registry search "web framework"
-
-# Download a bundle file (optionally --load / -l to import after download)
-cgc registry download fastapi
-cgc registry download fastapi -o ./bundles
+cgc bundle create --name "my-project-v1"
 ```
 
-`cgc load <name>` still **auto-downloads** from the registry when the bundle is not already local—see [QUICK_REFERENCE.md](../../QUICK_REFERENCE.md) for a full cheat sheet.
+This generates a `.cgc` file containing the entire graph structure and metadata.
 
-## How to use bundles
+## 2. Loading a Bundle
 
-### 1. Search the registry
+To load a bundle into your current session:
 
 ```bash
-cgc registry search react
+cgc bundle load ./my-project-v1.cgc
 ```
 
-### 2. Load a bundle
+The graph is now immediately queryable via the CLI and MCP tools.
+
+---
+
+## 3. The CGC Bundle Registry
+
+CGC maintains a registry of pre-indexed bundles for popular open-source libraries. This allows AI agents to understand your dependencies without you needing to have their source code locally.
+
+### Search the Registry
+Find available bundles for your tech stack:
 
 ```bash
-cgc load react
+cgc bundle search "flask"
 ```
 
-*(This downloads on the order of megabytes instead of parsing tens of megabytes of source code.)*
-
-### 3. Query it
-
-Now your AI knows about the library's structure.
-
-*"How does `useEffect` work internally in React?"* → The assistant can traverse the imported graph nodes (via MCP tools or `cgc query` / `cgc find` on the CLI).
-
-## On-demand generation (website)
-
-You can also generate a bundle **on demand** from the website: open **[codegraphcontext.vercel.app](https://codegraphcontext.vercel.app)**, use **Generate Custom Bundle** (or the equivalent flow), paste a GitHub repository URL, wait for the build to finish, then download the `.cgc` file and `cgc load` it locally.
-
-## Requesting a bundle from the CLI
-
-If a library is not listed yet, you can queue a request:
+### Download and Load
+Fetch a bundle directly from the registry:
 
 ```bash
-cgc registry request https://github.com/fastapi/fastapi
+cgc bundle load flask
 ```
 
-Build servers index the repo and publish it to the registry when ready (typically within minutes, depending on queue and repo size).
+---
+
+## 4. Use Cases for Bundles
+
+*   **CI/CD**: Build a code graph as part of your CI pipeline and attach it to releases.
+*   **Onboarding**: Provide new team members with a pre-indexed bundle of the entire microservices architecture.
+*   **AI Context**: Attach bundles of common libraries (e.g., `requests`, `numpy`, `react`) to your AI assistant for better library-specific suggestions.
+
+---
+
+## Managing Local Bundles
+
+You can list all bundles currently stored in your local registry:
+
+```bash
+cgc bundle list
+```
+
+To remove a bundle and free up space:
+
+```bash
+cgc bundle remove <bundle_id>
+```

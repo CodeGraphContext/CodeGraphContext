@@ -29,6 +29,7 @@ from datetime import datetime, date
 import subprocess
 
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
+from codegraphcontext.utils.git_utils import get_repo_commit_hash
 
 
 class _BundleEncoder(json.JSONEncoder):
@@ -317,15 +318,9 @@ class CGCBundle:
             
             # Try to get git information if available
             if repo_path and repo_path.exists():
-                try:
-                    commit = subprocess.check_output(
-                        ['git', 'rev-parse', 'HEAD'],
-                        cwd=repo_path,
-                        stderr=subprocess.DEVNULL
-                    ).decode().strip()
+                commit = get_repo_commit_hash(repo_path)
+                if commit:
                     metadata["commit"] = commit[:8]
-                except (subprocess.CalledProcessError, FileNotFoundError):
-                    pass
 
                 try:
                     result = session.run("""

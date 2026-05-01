@@ -721,19 +721,31 @@ def watch_helper(path: str, context: Optional[str] = None):
         # Add the directory to watch
         if is_indexed:
             console.print("[green]✓[/green] Already indexed (no initial scan needed)")
-            watcher.watch_directory(str(path_obj), perform_initial_scan=False)
+            watcher.watch_directory(
+                str(path_obj),
+                perform_initial_scan=False,
+                cgcignore_path=ctx.cgcignore_path,
+            )
         else:
             console.print("[yellow]⚠[/yellow]  Not indexed yet. Performing initial scan...")
             
             # Index the repository first (like MCP does)
             async def do_index():
-                await graph_builder.build_graph_from_path_async(path_obj, is_dependency=False)
+                await graph_builder.build_graph_from_path_async(
+                    path_obj,
+                    is_dependency=False,
+                    cgcignore_path=ctx.cgcignore_path,
+                )
             
             asyncio.run(do_index())
             console.print("[green]✓[/green] Initial scan complete")
             
             # Now start watching (without another scan)
-            watcher.watch_directory(str(path_obj), perform_initial_scan=False)
+            watcher.watch_directory(
+                str(path_obj),
+                perform_initial_scan=False,
+                cgcignore_path=ctx.cgcignore_path,
+            )
         
         console.print("[bold green]👀 Monitoring for file changes...[/bold green] (Press Ctrl+C to stop)")
         console.print("[dim]💡 Tip: Open a new terminal window to continue working[/dim]\n")

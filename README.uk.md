@@ -97,7 +97,7 @@
 ---
 
 ## Деталі проєкту
-- **Версія:** 0.4.2
+- **Версія:** 0.4.5
 - **Автори:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **Ліцензія:** MIT License (див. [LICENSE](LICENSE) для деталей)
 - **Вебсайт:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
@@ -159,7 +159,7 @@ CodeGraphContext підтримує кілька графових бекенді
 | **Налаштування** | Zero-config / Embedded | Zero-config / In-process | Docker / External |
 | **Платформа** | **Усі (Windows Native, macOS, Linux)** | Лише Unix (Linux/macOS/WSL) | Усі платформи |
 | **Сценарій використання** | Desktop, IDE, локальна розробка | Спеціалізована Unix-розробка | Enterprise, дуже великі графи |
-| **Вимога**| `pip install kuzu` | `pip install falkordblite` | Сервер Neo4j / Docker |
+| **Вимога**| `pip install real_ladybug` | `pip install falkordblite` | Сервер Neo4j / Docker |
 | **Швидкість** | ⚡ Дуже швидко | ⚡ Швидко | 🚀 Масштабується |
 | **Збереження**| Так (на диск) | Так (на диск) | Так (на диск) |
 
@@ -270,7 +270,7 @@ CodeGraphContext працює у **двох режимах**, і ви может
 
 2. **Налаштування бази даних (автоматично)**
 
-   - **KùzuDB (типово):** працює нативно на Windows, macOS і Linux без додаткового налаштування. Достатньо `pip install kuzu`, і все готово.
+   - **KùzuDB (типово):** працює нативно на Windows, macOS і Linux без додаткового налаштування. Достатньо `pip install real_ladybug`, і все готово.
    - **FalkorDB Lite (альтернатива):** підтримується на Unix/macOS/WSL для Python 3.12+.
    - **Neo4j (альтернатива):** якщо ви хочете використовувати Neo4j або віддаєте перевагу серверному підходу, запустіть: `cgc neo4j setup`
 

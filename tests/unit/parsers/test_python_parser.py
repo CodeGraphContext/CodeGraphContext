@@ -46,6 +46,27 @@ class TestPythonParser:
         assert len(funcs) == 1
         assert funcs[0]["name"] == "hello"
 
+    def test_module_level_call_uses_module_context(self, parser, temp_test_dir):
+        """Top-level executable calls should be linked from a synthetic module frame."""
+        code = "from pkg.utils import helper\n\nresult = helper()\n"
+        f = temp_test_dir / "__main__.py"
+        f.write_text(code)
+
+        result = parser.parse(str(f))
+
+        module_func = next(
+            func for func in result["functions"]
+            if func["name"] == "<module>"
+        )
+        helper_call = next(
+            call for call in result["function_calls"]
+            if call["name"] == "helper"
+        )
+
+        assert module_func["line_number"] == 1
+        assert module_func["context_type"] == "module"
+        assert helper_call["context"] == ("<module>", "module", 1)
+
     def test_parse_class_with_method(self, parser, temp_test_dir):
         """Parse a class with a method."""
         code = """
@@ -67,4 +88,3 @@ class Greeter:
         # Depending on implementation, methods might be in 'functions' with parent info
         # or inside 'classes'.
         # Let's assume they are captured.
-

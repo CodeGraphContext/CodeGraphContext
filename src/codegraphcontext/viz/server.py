@@ -81,13 +81,16 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
             elif repo_path:
                 repo_path = str(Path(repo_path).resolve())
                 print(f"DEBUG: Fetching subgraph for: {repo_path}", flush=True)
+                # Get all nodes within the repository scope
                 query = """
                 MATCH (r:Repository {path: $repo_path})
                 OPTIONAL MATCH (r)-[:CONTAINS*0..]->(n)
-                WITH DISTINCT n
-                WHERE n IS NOT NULL
-                OPTIONAL MATCH (n)-[rel]->(m)
-                RETURN n, rel, m
+                WITH DISTINCT r, COLLECT(DISTINCT n) as repo_nodes
+                UNWIND repo_nodes as node
+                OPTIONAL MATCH (node)-[rel]->(target)
+                WITH r, node, rel, target, repo_nodes
+                WHERE target IN repo_nodes OR target = r
+                RETURN node as n, rel, target as m
                 """
                 result = session.run(query, repo_path=repo_path)
             else:
