@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, Optional
 from ...core.jobs import JobManager, JobStatus
 from ...utils.debug_log import debug_log, error_logger, info_logger, warning_logger
 from ...utils.path_ignore import file_path_has_ignore_dir_segment
+from . import profiling
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
 from .resolution.inheritance import build_inheritance_and_csharp_files
@@ -44,6 +45,7 @@ async def run_scip_index_async(
     if job_id:
         job_manager.update_job(job_id, status=JobStatus.RUNNING)
 
+    profiling.set_phase("repository_setup")
     writer.add_repository_to_graph(path, is_dependency)
     repo_name = path.name
 
@@ -66,6 +68,7 @@ async def run_scip_index_async(
         files_data = scip_data.get("files", {})
         file_paths = [Path(p) for p in files_data.keys() if Path(p).exists()]
 
+        profiling.set_phase("prescan")
         imports_map = pre_scan_for_imports(file_paths, parsers_keys, get_parser)
 
         if job_id:
@@ -73,6 +76,7 @@ async def run_scip_index_async(
 
         processed = 0
         index_root = path.resolve()
+        profiling.set_phase("file_writes")
         for abs_path_str, file_data in files_data.items():
             file_path = Path(abs_path_str)
             if file_path.is_file() and file_path_has_ignore_dir_segment(file_path, index_root):
@@ -120,11 +124,13 @@ async def run_scip_index_async(
         info_logger(
             f"[INHERITS] Resolving inheritance links across {len(files_data)} files..."
         )
+        profiling.set_phase("inheritance")
         inheritance_batch, csharp_files = build_inheritance_and_csharp_files(
             list(files_data.values()), imports_map
         )
         writer.write_inheritance_links(inheritance_batch, csharp_files, imports_map)
 
+        profiling.set_phase("function_calls")
         writer.write_scip_call_edges(files_data, name_from_symbol)
 
         if job_id:
