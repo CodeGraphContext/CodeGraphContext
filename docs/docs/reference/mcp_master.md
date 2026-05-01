@@ -1,67 +1,75 @@
 # MCP Reference & Natural Language Queries
 
-This page lists all available **MCP Tools** that your AI assistant (Cursor, Claude, VS Code) can use.
+This page lists the **complete MCP tool catalog** for CodeGraphContext **0.4.5** (**21** tools returned by MCP `tools/list`)—every tool your AI assistant (Cursor, Claude, VS Code, and other MCP clients) can invoke.
 
-When you ask a question in natural language, the AI selects one of these tools behind the scenes.
+When you ask a question in natural language, the assistant selects one of these tools behind the scenes.
 
-!!! tip "File Exclusion"
-    You can control what gets indexed using `.cgcignore`.
-    [**📄 Read the Guide**](cgcignore.md)
+!!! tip "File exclusion"
+    Control what gets indexed with `.cgcignore`.
+    [**Read the guide**](cgcignore.md)
 
-## Core Analysis Tools
+## Context management
 
-These are the most commonly used tools for understanding code.
+Use these when the workspace root has no graph, but child projects contain `.codegraphcontext/` folders, or when you need to point the session at a different database.
 
-| Tool Name | Description | Natural Language Example |
+| Tool name | Description | Natural language example |
+| :--- | :--- | :--- |
+| **`discover_codegraph_contexts`** | Scan a path (default: server cwd) for child directories that contain `.codegraphcontext/` and an indexed database. | "Find CodeGraphContext projects under this monorepo root." |
+| **`switch_context`** | Attach the MCP session to another `.codegraphcontext` database (repo root or `.codegraphcontext/` path); optionally persist the mapping for restarts. | "Use the graph for `./services/api` instead of the parent folder." |
+
+## Core analysis tools
+
+| Tool name | Description | Natural language example |
 | :--- | :--- | :--- |
 | **`find_code`** | Search for code by name or fuzzy text. | "Where is the `User` class defined?" |
-| **`analyze_code_relationships`** | The swiss-army knife for call graphs and dependencies. | "Find all callers of `process_payment`." |
+| **`analyze_code_relationships`** | Call graphs, imports, hierarchy, and related queries. | "Find all callers of `process_payment`." |
 | **`calculate_cyclomatic_complexity`** | Measure function complexity. | "What is the complexity of `main`?" |
-| **`find_most_complex_functions`** | List the hardest-to-maintain functions. | "Show me the 5 most complex functions." |
-| **`find_dead_code`** | Identify unused functions. | "Find dead code, but ignore `@route`." |
+| **`find_most_complex_functions`** | List the most complex functions. | "Show me the five most complex functions." |
+| **`find_dead_code`** | Identify unused functions (with optional decorator exclusions). | "Find dead code, but ignore `@route`." |
 
-## System & Management
+## Indexing & graph management
 
-Tools for managing the graph and background jobs.
-
-| Tool Name | Description | Natural Language Example |
+| Tool name | Description | Natural language example |
 | :--- | :--- | :--- |
-| **`monitor_directory`** | Start monitoring a folder (Alias: `watch_directory`)| "Watch the `src` folder." |
-| **`list_watched_paths`** | See what is being monitored. | "What directories are being watched?" |
-| **`unwatch_directory`** | Stop monitoring a folder. | "Stop watching `src`." |
-| **`list_indexed_repositories`** | Show what projects are currently indexed. | "What repos are indexed?" |
-| **`get_repository_stats`** | Show counts of files, classes, LOC. | "Show stats for the backend repo." |
-| **`delete_repository`** | Remove a repo from the graph. | "Remove the frontend repo." |
-| **`add_code_to_graph`** | Manually add a specific path. | "Add the `lib` folder." |
-| **`add_package_to_graph`** | Index an external library/package. | "Add the `requests` library." |
+| **`add_code_to_graph`** | One-time scan of a local path into the graph. | "Index the `lib` folder." |
+| **`add_package_to_graph`** | Resolve and index an external package. | "Add the `requests` package for Python." |
+| **`list_indexed_repositories`** | List projects present in the graph. | "What repos are indexed?" |
+| **`delete_repository`** | Remove a repository from the graph. | "Remove the frontend repo." |
+| **`get_repository_stats`** | File / class / function counts for a repo or the whole graph. | "Show stats for the backend repo." |
 
-## Job Control
+## Watching & live updates
 
-| Tool Name | Description | Natural Language Example |
+| Tool name | Description | Natural language example |
 | :--- | :--- | :--- |
-| **`list_jobs`** | View all background tasks. | "Show me active jobs." |
-| **`check_job_status`** | Check if a specific job is done. | "Is job `xyz` finished?" |
+| **`watch_directory`** | Initial scan plus continuous file watching to keep the graph updated. | "Watch the `src` directory." |
+| **`list_watched_paths`** | List directories currently watched. | "What directories are being watched?" |
+| **`unwatch_directory`** | Stop watching a path. | "Stop watching `src`." |
 
-## Bundles & Registry
+## Job control
 
-| Tool Name | Description | Natural Language Example |
+| Tool name | Description | Natural language example |
 | :--- | :--- | :--- |
-| **`search_registry_bundles`** | Find shared graphs in the cloud. | "Search for a `flask` bundle." |
-| **`load_bundle`** | Install a graph bundle. | "Load the `flask` bundle." |
+| **`list_jobs`** | List background jobs. | "Show active jobs." |
+| **`check_job_status`** | Poll a specific job by id. | "Is job `xyz` finished?" |
 
-## Advanced Querying
+## Bundles & registry
 
-For complex questions that standard tools can't answer.
-
-| Tool Name | Description | Natural Language Example |
+| Tool name | Description | Natural language example |
 | :--- | :--- | :--- |
-| **`execute_cypher_query`** | Run a raw read-only database query. | "Find all recursive functions." |
-| **`visualize_graph_query`** | Generate a Neo4j Browser link for a query. | "Visualize the class hierarchy of `BaseModel`." |
+| **`search_registry_bundles`** | Search shared `.cgc` bundles in the registry. | "Search for a `flask` bundle." |
+| **`load_bundle`** | Load a bundle into the current database. | "Load the `flask` bundle." |
+
+## Advanced querying
+
+| Tool name | Description | Natural language example |
+| :--- | :--- | :--- |
+| **`execute_cypher_query`** | Read-only Cypher against the active backend’s graph view. | "Find all recursive functions." |
+| **`visualize_graph_query`** | Produce a Neo4j Browser URL for a query (when applicable to your setup). | "Visualize the class hierarchy of `BaseModel`." |
 
 ---
 
-## Example Queries (Cookbook)
+## Example queries (cookbook)
 
-For a deep dive into exactly how to phrase questions and what JSON arguments look like, check out the Cookbook.
+For phrasing patterns and example JSON arguments, see the cookbook.
 
-[📖 View the MCP Cookbook](../cookbook.md)
+[View the MCP cookbook](../cookbook.md)

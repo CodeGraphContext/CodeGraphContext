@@ -3,6 +3,7 @@ from pathlib import Path
 import asyncio
 import os
 from ...utils.debug_log import debug_log
+from ...utils.repo_path import repo_record_matches_path
 from ..package_resolver import get_local_package_path
 
 def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args) -> Dict[str, Any]:
@@ -26,7 +27,7 @@ def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args)
         # Prevent re-indexing the same repository.
         indexed_repos = list_repos_func().get("repositories", [])
         for repo in indexed_repos:
-            if Path(repo["path"]).resolve() == path_obj:
+            if repo_record_matches_path(repo, path_obj):
                 return {
                     "success": False,
                     "message": f"Repository '{path}' is already indexed."

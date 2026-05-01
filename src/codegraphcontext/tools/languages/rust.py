@@ -30,9 +30,6 @@ RUST_QUERIES = {
             ]
         )
     """,
-    "traits": """
-        (trait_item name: (type_identifier) @name) @trait_node
-    """,  # <-- Added trait query
 }
 
 class RustTreeSitterParser:
@@ -187,24 +184,24 @@ class RustTreeSitterParser:
 
     def _find_traits(self, root_node: Any) -> list[Dict[str, Any]]:
         traits = []
-        query_str = RUST_QUERIES["traits"]
-        for match in execute_query(self.language, query_str, root_node):
-            node, capture_name = match
-            if capture_name == "trait_node":
-                trait_node = node
-                name_node = next((n for n, c in execute_query(self.language, "(trait_item name: (type_identifier) @name)", trait_node) if c == "name"), None)
-                if name_node:
-                    name = self._get_node_text(name_node)
-                    trait_data = {
-                            "name": name,
-                            "line_number": name_node.start_point[0] + 1,
-                            "end_line": trait_node.end_point[0] + 1,
-                        }
-
-                    if self.index_source:
-                        trait_data["source"] = self._get_node_text(trait_node)
-                    
-                    traits.append(trait_data)
+        query_str = "(trait_item) @trait"
+        for trait_node, _ in execute_query(self.language, query_str, root_node):
+            name_node = trait_node.child_by_field_name("name")
+            if not name_node:
+                for child in trait_node.children:
+                    if child.type == "type_identifier":
+                        name_node = child
+                        break
+            if name_node:
+                name = self._get_node_text(name_node)
+                trait_data = {
+                    "name": name,
+                    "line_number": name_node.start_point[0] + 1,
+                    "end_line": trait_node.end_point[0] + 1,
+                }
+                if self.index_source:
+                    trait_data["source"] = self._get_node_text(trait_node)
+                traits.append(trait_data)
         return traits
 
     def _find_imports(self, root_node: Any) -> list[Dict[str, Any]]:

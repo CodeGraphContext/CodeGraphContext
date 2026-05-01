@@ -1,6 +1,6 @@
 # Contributing New Language Support to CodeGraphContext
 
-This document outlines the steps and best practices for adding support for a new programming language to CodeGraphContext. By following this guide, contributors can efficiently integrate new languages and leverage the Neo4j graph for verification.
+This document outlines the steps and best practices for adding support for a new programming language to CodeGraphContext. By following this guide, contributors can efficiently integrate new languages and verify structure and relationships in the **graph database** (regardless of whether the active backend is FalkorDB, KuzuDB, Neo4j, or another supported store).
 
 ## 1. Understanding the Architecture
 
@@ -11,7 +11,7 @@ CodeGraphContext uses a modular architecture for multi-language support:
     *   Tree-sitter queries (`<LANG>_QUERIES`).
     *   A `<Lang>TreeSitterParser` class that encapsulates language-specific parsing logic.
     *   A `pre_scan_<lang>` function for initial symbol mapping.
-*   **`GraphBuilder` (in `graph_builder.py`):** Manages the overall graph building process, including file discovery, pre-scanning, and dispatching to the correct language parser.
+*   **`GraphBuilder` (in `graph_builder.py`):** Manages the overall graph building process, including file discovery, pre-scanning, and dispatching to the correct language parser. Persistence goes through **`GraphWriter`** in **`tools/indexing/persistence/writer.py`**, which writes nodes and edges via the database abstraction—**not** by calling `session.run` (or equivalent) directly from the builder.
 
 ## 2. Steps to Add a New Language (e.g., TypeScript - `.ts`)
 
@@ -77,11 +77,11 @@ This function (e.g., `pre_scan_typescript`) will quickly scan files to build an 
 3.  **`GraphBuilder._pre_scan_for_imports`**:
     *   Add an `elif '.ts' in files_by_lang:` block to import `pre_scan_typescript` and call it.
 
-## 3. Verification and Debugging using Neo4j
+## 3. Verification and debugging using the graph database
 
 After implementing support for a new language, it's crucial to verify that the graph is being built correctly.
 
-### Step 3.1: Prepare a Sample Project
+### Step 3.1: Prepare a sample project
 
 Create a small sample project for your new language (e.g., `tests/sample_project_typescript/`) with:
 *   Function declarations.
@@ -90,75 +90,62 @@ Create a small sample project for your new language (e.g., `tests/sample_project
 *   Function calls.
 *   Variable declarations.
 
-### Step 3.2: Index the Sample Project
+### Step 3.2: Index the sample project
 
-1.  **Delete existing data (if any):**
+From a shell, with your virtual environment active and **`DEFAULT_DATABASE`** (or `cgc config`) pointing at the backend you want to test:
+
+1.  **Remove any prior index for that path (optional but avoids confusion):**
     ```bash
-    # Replace with your sample project path
-    <tool_code>print(default_api.delete_repository(repo_path='/path/to/your/sample_project'))</tool_code>
+    cgc delete /path/to/your/sample_project
+    ```
 2.  **Index the project:**
     ```bash
-    # Replace with your sample project path
-    <tool_code>print(default_api.add_code_to_graph(path='/path/to/your/sample_project'))</tool_code>
-3.  **Monitor job status:**
+    cgc index /path/to/your/sample_project
+    ```
+3.  **Confirm stats:**
     ```bash
-    # Use the job_id returned by add_code_to_graph
-    <tool_code>print(default_api.check_job_status(job_id='<your_job_id>'))</tool_code>
+    cgc stats /path/to/your/sample_project
+    ```
 
-### Step 3.3: Query the Neo4j Graph
+If you use the MCP server instead, the same operations map to the management and indexing tools; the CLI commands above are the usual way to verify locally.
 
-Use Cypher queries to inspect the generated graph.
+### Step 3.3: Query the graph with `cgc query`
 
-*   **Check for Files and Language Tags:**
-    ```cypher
-    MATCH (f:File)
-    WHERE f.path STARTS WITH '/path/to/your/sample_project'
-    RETURN f.name, f.path, f.lang
+Run **Cypher** through the CLI so you stay on the supported abstraction layer (works across backends that expose OpenCypher-compatible query surfaces):
+
+*   **Check for files and language tags:**
+    ```bash
+    cgc query "MATCH (f:File) WHERE f.path STARTS WITH '/path/to/your/sample_project' RETURN f.name, f.path, f.lang"
     ```
     *Expected:* All files from your sample project should be listed with the correct `lang` tag.
 
-*   **Check for Functions:**
-    ```cypher
-    MATCH (f:File)-[:CONTAINS]->(fn:Function)
-    WHERE f.path STARTS WITH '/path/to/your/sample_project'
-      AND fn.lang = '<your_language_name>'
-    RETURN f.name AS FileName, fn.name AS FunctionName, fn.line_number AS Line
+*   **Check for functions:**
+    ```bash
+    cgc query "MATCH (f:File)-[:CONTAINS]->(fn:Function) WHERE f.path STARTS WITH '/path/to/your/sample_project' AND fn.lang = '<your_language_name>' RETURN f.name AS FileName, fn.name AS FunctionName, fn.line_number AS Line"
     ```
     *Expected:* All functions from your sample project should be listed.
 
-*   **Check for Classes:**
-    ```cypher
-    MATCH (f:File)-[:CONTAINS]->(c:Class)
-    WHERE f.path STARTS WITH '/path/to/your/sample_project'
-      AND c.lang = '<your_language_name>'
-    RETURN f.name AS FileName, c.name AS ClassName, c.line_number AS Line
+*   **Check for classes:**
+    ```bash
+    cgc query "MATCH (f:File)-[:CONTAINS]->(c:Class) WHERE f.path STARTS WITH '/path/to/your/sample_project' AND c.lang = '<your_language_name>' RETURN f.name AS FileName, c.name AS ClassName, c.line_number AS Line"
     ```
     *Expected:* All classes from your sample project should be listed.
 
-*   **Check for Imports (Module-level):**
-    ```cypher
-    MATCH (f:File)-[:IMPORTS]->(m:Module)
-    WHERE f.path STARTS WITH '/path/to/your/sample_project'
-      AND f.lang = '<your_language_name>'
-    RETURN f.name AS FileName, m.name AS ImportedModule, m.full_import_name AS FullImportName
+*   **Check for imports (module-level):**
+    ```bash
+    cgc query "MATCH (f:File)-[:IMPORTS]->(m:Module) WHERE f.path STARTS WITH '/path/to/your/sample_project' AND f.lang = '<your_language_name>' RETURN f.name AS FileName, m.name AS ImportedModule, m.full_import_name AS FullImportName"
     ```
     *Expected:* All module-level imports should be listed.
 
-*   **Check for Function Calls:**
-    ```cypher
-    MATCH (caller:Function)-[:CALLS]->(callee:Function)
-    WHERE caller.path STARTS WITH '/path/to/your/sample_project'
-      AND caller.lang = '<your_language_name>'
-    RETURN caller.name AS Caller, callee.name AS Callee, caller.path AS CallerFile, callee.path AS CalleeFile
+*   **Check for function calls:**
+    ```bash
+    cgc query "MATCH (caller:Function)-[:CALLS]->(callee:Function) WHERE caller.path STARTS WITH '/path/to/your/sample_project' AND caller.lang = '<your_language_name>' RETURN caller.name AS Caller, callee.name AS Callee, caller.path AS CallerFile, callee.path AS CalleeFile"
     ```
     *Expected:* All function calls should be correctly linked.
 
-*   **Check for Class Inheritance:**
-    ```cypher
-    MATCH (child:Class)-[:INHERITS]->(parent:Class)
-    WHERE child.path STARTS WITH '/path/to/your/sample_project'
-      AND child.lang = '<your_language_name>'
-    RETURN child.name AS ChildClass, parent.name AS ParentClass, child.path AS ChildFile, parent.path AS ParentFile
+*   **Check for class inheritance:**
+    ```bash
+    cgc query "MATCH (child:Class)-[:INHERITS]->(parent:Class) WHERE child.path STARTS WITH '/path/to/your/sample_project' AND child.lang = '<your_language_name>' RETURN child.name AS ChildClass, parent.name AS ParentClass, child.path AS ChildFile, parent.path AS ParentFile"
     ```
     *Expected:* All inheritance relationships should be correctly linked.
 

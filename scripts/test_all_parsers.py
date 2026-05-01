@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test all language parsers and identify any query issues."""
 
-from codegraphcontext.tools.graph_builder import TreeSitterParser
+from codegraphcontext.tools.tree_sitter_parser import TreeSitterParser
 from pathlib import Path
 
 test_cases = {
@@ -96,6 +96,22 @@ class Test {
         Console.WriteLine("world");
     }
 }
+''',
+    'dart': '''
+void hello() {
+    print('world');
+}
+
+class MyClass {
+  int value = 0;
+}
+''',
+    'perl': '''
+package MyModule;
+sub hello {
+    print "world\\n";
+}
+1;
 '''
 }
 
@@ -109,7 +125,9 @@ extensions = {
     'cpp': '.cpp',
     'java': '.java',
     'ruby': '.rb',
-    'c_sharp': '.cs'
+    'c_sharp': '.cs',
+    'dart': '.dart',
+    'perl': '.pl'
 }
 
 results = {}

@@ -19,7 +19,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
@@ -280,7 +280,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../guides/setup_deep_dive/" class="md-tabs__link">
+        <a href="../../guides/onboarding/" class="md-tabs__link">
           
   
   
@@ -367,6 +367,26 @@
   
   
   Project Info
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../deployment/" class="md-tabs__link">
+          
+  
+  
+  Deployment
 
         </a>
       </li>
@@ -797,6 +817,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../guides/onboarding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Onboarding Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../guides/setup_deep_dive/" class="md-nav__link">
         
   
@@ -853,6 +901,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../agent_skill_codegraphcontext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent skill (AI assistants)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../guides/visualization/" class="md-nav__link">
         
   
@@ -861,6 +937,34 @@
     
   
     Visualizing the Graph
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/contexts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contexts (Multi-Graph)
   
 
     
@@ -1061,13 +1165,41 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-parsing-tree-sitter" class="md-nav__link">
+  <a href="#1-parsing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Parsing (Tree-Sitter)
+        1. Parsing
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="1. Parsing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tree-sitter-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tree-sitter (default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scip-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SCIP (optional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1075,7 +1207,7 @@
   <a href="#2-graph-construction" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Graph Construction
+        2. Graph construction
       
     </span>
   </a>
@@ -1083,10 +1215,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-storage" class="md-nav__link">
+  <a href="#3-storage-four-backends" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Storage
+        3. Storage (four backends)
       
     </span>
   </a>
@@ -1098,6 +1230,45 @@
     <span class="md-ellipsis">
       
         4. Querying
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Querying">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-contexts-and-bundles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Contexts and bundles
       
     </span>
   </a>
@@ -1723,6 +1894,235 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Deployment
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/DOCKER_README/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/DOCKER_COMPLETE_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker Complete Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/DOCKER_DEPLOYMENT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/HOSTING_COMPARISON/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hosting Comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/DEPLOYMENT_CHECKLIST/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment Checklist
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1750,13 +2150,41 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-parsing-tree-sitter" class="md-nav__link">
+  <a href="#1-parsing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Parsing (Tree-Sitter)
+        1. Parsing
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="1. Parsing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tree-sitter-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tree-sitter (default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scip-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SCIP (optional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1764,7 +2192,7 @@
   <a href="#2-graph-construction" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Graph Construction
+        2. Graph construction
       
     </span>
   </a>
@@ -1772,10 +2200,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-storage" class="md-nav__link">
+  <a href="#3-storage-four-backends" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Storage
+        3. Storage (four backends)
       
     </span>
   </a>
@@ -1787,6 +2215,45 @@
     <span class="md-ellipsis">
       
         4. Querying
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Querying">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-contexts-and-bundles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Contexts and bundles
       
     </span>
   </a>
@@ -1813,23 +2280,66 @@
   
 
 
-<h1 id="how-it-works">How It Works</h1>
-<p>Understanding the pipeline helps you write better queries.</p>
-<h2 id="1-parsing-tree-sitter">1. Parsing (Tree-Sitter)</h2>
-<p>We use <strong>Tree-Sitter</strong> to parse your source code into an Abstract Syntax Tree (AST). This allows us to support many languages (Python, JS, Go, etc.) with high accuracy.</p>
-<h2 id="2-graph-construction">2. Graph Construction</h2>
-<p>We walk the AST and generate <strong>Nodes</strong> and <strong>Edges</strong>.</p>
+<h1 id="how-it-works">How it works</h1>
+<p>Understanding the pipeline helps you choose backends, parsers, and how you invoke CGC from the CLI or MCP.</p>
+<h2 id="1-parsing">1. Parsing</h2>
+<h3 id="tree-sitter-default">Tree-sitter (default)</h3>
+<p><strong>Tree-sitter</strong> parses source into an AST. CGC ships <strong>19 language parsers</strong> so entities such as functions, classes, and modules are extracted consistently across your polyglot repos.</p>
+<h3 id="scip-optional">SCIP (optional)</h3>
+<p><strong>SCIP</strong> indexing is <strong>opt-in</strong>. When enabled, CGC can use SCIP-oriented inputs as an <strong>alternative</strong> (or complementary path, depending on configuration) to pure Tree-sitter extraction—useful when you already have SCIP indexes or want SCIP-aligned symbols.</p>
+<h2 id="2-graph-construction">2. Graph construction</h2>
+<p>The indexer walks parse output (and optional SCIP data) and materializes <strong>nodes</strong> and <strong>relationships</strong> defined by the project’s graph contract (see <a href="../the_graph/">The graph model</a>).</p>
 <ul>
-<li><strong>Nodes:</strong> Entities like <code>Class</code>, <code>Function</code>, <code>File</code>, <code>Module</code>.</li>
-<li><strong>Edges:</strong> Relationships like <code>CALLS</code>, <code>IMPORTS</code>, <code>INHERITS</code>.</li>
+<li><strong>Nodes</strong> — Repository structure, files, and code elements (for example <code>Function</code>, <code>Class</code>, <code>Module</code>, <code>Parameter</code>, …).</li>
+<li><strong>Edges</strong> — Structural and semantic links such as <code>CONTAINS</code>, <code>CALLS</code>, <code>IMPORTS</code>, <code>INHERITS</code>, <code>IMPLEMENTS</code>, and others.</li>
 </ul>
-<h2 id="3-storage">3. Storage</h2>
-<p>These nodes and edges are written to the Graph Database (FalkorDB or Neo4j).</p>
+<p>Cross-file resolution (imports, call targets, inheritance) happens in this stage so the database stores a queryable graph, not isolated per-file trees.</p>
+<h2 id="3-storage-four-backends">3. Storage (four backends)</h2>
+<p>Nodes and edges are written through the <strong>database abstraction layer</strong> to <strong>one</strong> active backend:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Backend</th>
+<th style="text-align: left;">Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>FalkorDB Lite</strong></td>
+<td style="text-align: left;">Default on <strong>Unix</strong> with <strong>Python 3.12+</strong>; embedded-friendly, minimal ops.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>FalkorDB Remote</strong></td>
+<td style="text-align: left;">Connect to a <strong>remote</strong> FalkorDB instance when the graph should live on a shared server.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>KuzuDB</strong></td>
+<td style="text-align: left;">Embedded <strong>fallback</strong>, especially common on <strong>Windows</strong> when FalkorDB Lite is not the chosen path.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Neo4j</strong></td>
+<td style="text-align: left;"><strong>Enterprise / production</strong> deployments with Neo4j operations and tooling.</td>
+</tr>
+</tbody>
+</table>
+<p>The same logical schema is targeted for all backends so tools and queries stay portable.</p>
 <h2 id="4-querying">4. Querying</h2>
-<p>When you ask "Who calls X?", we translate that into a Cypher query:</p>
-<div class="highlight"><pre><span></span><code><span class="k">MATCH</span><span class="w"> </span><span class="p">(</span><span class="n">caller</span><span class="p">:</span><span class="n">Function</span><span class="p">)</span><span class="o">-[</span><span class="p">:</span><span class="n">CALLS</span><span class="o">]-&gt;</span><span class="p">(</span><span class="n">callee</span><span class="p">:</span><span class="n">Function</span><span class="w"> </span><span class="p">{</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;X&#39;</span><span class="p">})</span>
-<span class="k">RETURN</span><span class="w"> </span><span class="n">caller</span>
+<h3 id="mcp">MCP</h3>
+<p>Your IDE or agent issues <strong>tool calls</strong> (CGC exposes <strong>20 MCP tools</strong>) for graph-backed answers—callers, callees, imports, context bundles, and more—without hand-writing Cypher in the chat.</p>
+<h3 id="cli">CLI</h3>
+<p>Use graph-oriented CLI commands as named in current releases:</p>
+<ul>
+<li><strong><code>cgc query</code></strong> — run Cypher or graph queries through CGC (there is <strong>no</strong> <code>cgc cypher</code> command).</li>
+<li><strong><code>cgc find</code></strong> — code/symbol discovery-style search (there is <strong>no</strong> <code>cgc search</code> command).</li>
+</ul>
+<p>Example Cypher shape (actual labels vary by language; see <a href="../the_graph/">The graph model</a>):</p>
+<div class="highlight"><pre><span></span><code><span class="k">MATCH</span><span class="w"> </span><span class="p">(</span><span class="n">caller</span><span class="p">:</span><span class="n">Function</span><span class="p">)</span><span class="o">-[</span><span class="p">:</span><span class="n">CALLS</span><span class="o">]-&gt;</span><span class="p">(</span><span class="n">callee</span><span class="p">:</span><span class="n">Function</span><span class="w"> </span><span class="p">{</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;authenticate_user&#39;</span><span class="p">})</span>
+<span class="k">RETURN</span><span class="w"> </span><span class="n">caller</span><span class="p">.</span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="n">caller</span><span class="p">.</span><span class="n">path</span>
 </code></pre></div>
+<h2 id="5-contexts-and-bundles">5. Contexts and bundles</h2>
+<p>CGC’s <strong>contexts</strong> system packages graph slices and metadata for AI consumption. The <strong>bundle registry</strong> is <strong>shipped</strong> with the product so reusable or shared context bundles integrate cleanly with indexing and MCP workflows.</p>
+<hr />
+<p>In short: <strong>parse</strong> (Tree-sitter by default, SCIP optional) → <strong>build graph</strong> → <strong>persist</strong> (FalkorDB Lite, FalkorDB Remote, KuzuDB, or Neo4j) → <strong>serve</strong> via MCP tools and the <code>cgc</code> CLI.</p>
 
 
 

@@ -31,7 +31,7 @@ TOOLS = {
         "description": "Find relevant code snippets related to a keyword (e.g., function name, class name, or content).",
         "inputSchema": {
             "type": "object",
-            "properties": { "query": {"type": "string", "description": "Keyword or phrase to search for"}, "fuzzy_search": {"type": "boolean", "description": "Whether to use fuzzy search", "default": False}, "edit_distance": {"type": "number", "description": "Edit distance for fuzzy search (between 0-2)", "default": 2}}, 
+            "properties": { "query": {"type": "string", "description": "Keyword or phrase to search for"}, "fuzzy_search": {"type": "boolean", "description": "Whether to use fuzzy search", "default": False}, "edit_distance": {"type": "number", "description": "Edit distance for fuzzy search (between 0-2)", "default": 2}, "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}}, 
             "required": ["query"]
         }
     },
@@ -43,7 +43,8 @@ TOOLS = {
             "properties": {
                 "query_type": {"type": "string", "description": "Type of relationship query to run.", "enum": ["find_callers", "find_callees", "find_all_callers", "find_all_callees", "find_importers", "who_modifies", "class_hierarchy", "overrides", "dead_code", "call_chain", "module_deps", "variable_scope", "find_complexity", "find_functions_by_argument", "find_functions_by_decorator"]},
                 "target": {"type": "string", "description": "The function, class, or module to analyze."},
-                "context": {"type": "string", "description": "Optional: specific file path for precise results."} 
+                "context": {"type": "string", "description": "Optional: specific file path for precise results."},
+                "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
             },
             "required": ["query_type", "target"]
         }
@@ -85,7 +86,8 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "exclude_decorated_with": {"type": "array", "items": {"type": "string"}, "description": "Optional: A list of decorator names (e.g., '@app.route') to exclude from dead code detection.", "default": []}
+                "exclude_decorated_with": {"type": "array", "items": {"type": "string"}, "description": "Optional: A list of decorator names (e.g., '@app.route') to exclude from dead code detection.", "default": []},
+                "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
             }
         }
     },
@@ -96,7 +98,8 @@ TOOLS = {
             "type": "object",
             "properties": {
                 "function_name": {"type": "string", "description": "The name of the function to analyze."},
-                "path": {"type": "string", "description": "Optional: The full path to the file containing the function for a more specific query."} 
+                "path": {"type": "string", "description": "Optional: The full path to the file containing the function for a more specific query."},
+                "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
             },
             "required": ["function_name"]
         }
@@ -107,7 +110,8 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "description": "The maximum number of complex functions to return.", "default": 10}
+                "limit": {"type": "integer", "description": "The maximum number of complex functions to return.", "default": 10},
+                "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
             }
         }
     },
@@ -188,6 +192,29 @@ TOOLS = {
             "properties": {
                 "repo_path": {"type": "string", "description": "Optional: Path to a specific repository. If not provided, returns overall database statistics."}
             }
+        }
+    },
+    "discover_codegraph_contexts": {
+        "name": "discover_codegraph_contexts",
+        "description": "Scan child directories of the current workspace (or a given path) for .codegraphcontext folders that contain indexed code graph databases. Useful when the IDE is opened on a parent folder that itself has no database, but its sub-projects do.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Optional: Root directory to scan. Defaults to the server's current working directory."},
+                "max_depth": {"type": "integer", "description": "How many levels of child directories to scan. Defaults to 1 (immediate children only).", "default": 1}
+            }
+        }
+    },
+    "switch_context": {
+        "name": "switch_context",
+        "description": "Switch the current MCP session to use a different .codegraphcontext database. Provide the path to the repo directory (or its .codegraphcontext/ folder). The server will reconnect to that database so subsequent queries use it. By default the mapping is saved globally for persistence across restarts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "context_path": {"type": "string", "description": "Path to the repository root that contains a .codegraphcontext/ folder, or directly to the .codegraphcontext/ folder itself."},
+                "save": {"type": "boolean", "description": "Whether to persist this mapping so the server reconnects automatically next time. Defaults to true.", "default": True}
+            },
+            "required": ["context_path"]
         }
     }
 }

@@ -1,41 +1,44 @@
-# Prerequisites & Context
+# Prerequisites
 
-Before installing CodeGraphContext (CGC), it helps to understand the pieces involved. CGC is a **Client-Server system**, even if you run it all on your laptop.
+Before you install CodeGraphContext (CGC), it helps to see how the pieces fit. CGC is a **client–server style** system even on a laptop: a **Python engine**, a **graph database backend**, and **clients** (CLI and/or MCP).
 
-## The Three Components
+## The three roles
 
-1.  **The Engine (This Tool)**
-    *   A Python package responsible for parsing code and talking to the database.
-2.  **The Database**
-    *   Where the graph lives. CGC needs a place to store "Function A calls Function B".
-3.  **The Client**
-    *   **CLI:** Your terminal.
-    *   **MCP:** Your AI Editor (Cursor, VS Code, Claude).
+1. **Engine (this package)** — Parses code, builds the graph, and talks to the database through a single abstraction API.
+2. **Database** — Stores nodes and relationships (“function A calls function B”, containment, imports, …).
+3. **Clients**
+   - **CLI** — `cgc` in the terminal.
+   - **MCP** — AI-capable editors (Cursor, VS Code, Claude Desktop, and other MCP hosts).
 
----
+## System requirements
 
-## 💻 System Requirements
+| Requirement | Notes |
+| :---------- | :---- |
+| **OS** | Linux, macOS, or Windows (WSL is a good option on Windows). |
+| **Python** | **3.10+** for CGC generally. **FalkorDB Lite** (default embedded path on Unix) requires **Python 3.12+**. |
+| **Memory** | At least **4 GB RAM** recommended; larger repos and graph stores benefit from more. |
 
-*   **OS:** Linux, macOS, or Windows (WSL recommended).
-*   **Python:** 3.10 or higher.
-*   **Memory:** At least 4GB RAM (Graph DBs love RAM).
+## Database options
 
-## 🗄️ Database Options (Context)
+You do not need to manually install every backend—pick one flow during setup. Use this table to decide:
 
-You do **not** need to install a database yet. The installer will help you. But you should know your choice:
+| Option | Best for | Complexity |
+| :----- | :------- | :--------- |
+| **FalkorDB Lite** | **Recommended on Linux and macOS** for local development: embedded use, minimal setup. Requires **Python 3.12+**. | Low |
+| **FalkorDB Remote** | Teams or shared graphs: connect to a **remote** FalkorDB server instead of embedded Lite. | Low–medium |
+| **KuzuDB** | **Recommended on Windows** (and anywhere you want a **portable embedded** graph without FalkorDB Lite). Good **fallback** when FalkorDB is not the right fit. | Low |
+| **Neo4j** | **Production / enterprise**: operational tooling, clustering, and mature Neo4j ecosystem. | Medium–high |
 
-| Option | Best For... | Complexity |
-| :--- | :--- | :--- |
-| **FalkorDB Lite** | **Quick Start / Linux / macOS.** Runs inside Python. No extra setup. | ⭐ |
-| **Neo4j** | **Windows / Production / Large Team.** Persistent storage. Requires Docker or Desktop App. | ⭐⭐⭐ |
+!!! note "Python version and FalkorDB Lite"
 
----
+    If you are on Linux or macOS and want the **default** embedded experience, plan for **Python 3.12 or newer** so **FalkorDB Lite** is available. On older Python versions, choose **KuzuDB**, **FalkorDB Remote**, or **Neo4j** according to your environment.
 
-## 🤖 AI Assistant (Optional)
+## AI assistant (optional)
 
-If you plan to use CGC with an AI, you need an **MCP-compliant client**. We officially support:
+To use CGC from an AI workflow you need an **MCP-capable client**. Examples:
 
-*   [Cursor IDE](https://cursor.sh)
-*   [VS Code](https://code.visualstudio.com/) 
-*   [Claude Desktop App](https://claude.ai/download)
-*   ...and **any other tool** relevant to Agentic Coding that supports the Model Context Protocol.
+- [Cursor](https://cursor.sh)
+- [Visual Studio Code](https://code.visualstudio.com/)
+- [Claude Desktop](https://claude.ai/download)
+
+Any other MCP-compatible agent or IDE can integrate the same way.

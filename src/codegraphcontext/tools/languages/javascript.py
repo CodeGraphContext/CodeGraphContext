@@ -196,7 +196,7 @@ class JavascriptTreeSitterParser:
         functions = []
         query_str = JS_QUERIES['functions']
 
-    # Local helpers so we don't depend on class attrs being present
+        # Local helpers so we don't depend on class attrs being present
         def _fn_for_name(name_node):
             current = name_node.parent
             while current:

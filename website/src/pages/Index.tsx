@@ -29,10 +29,10 @@ const Index = () => {
       <div data-aos="fade-up" id="installation">
         <InstallationSection />
       </div>
-      <div data-aos="fade-up" id="bundleregistry">
+      <div data-aos="fade-up" id="bundle-registry">
         <BundleRegistrySection />
       </div>
-      <div data-aos="fade-up" id="bundlegenerator">
+      <div data-aos="fade-up" id="bundle-generator">
         <BundleGeneratorSection />
       </div>
       <div data-aos="fade-up" id="examples">

@@ -17,6 +17,8 @@ files_by_lang = {
     "ruby": ["src/codegraphcontext/tools/languages/ruby.py"],
     "rust": ["src/codegraphcontext/tools/languages/rust.py"],
     "typescript": ["src/codegraphcontext/tools/languages/typescript.py"],
+    "dart": ["src/codegraphcontext/tools/languages/dart.py"],
+    "perl": ["src/codegraphcontext/tools/languages/perl.py"],
 }
 
 def get_contributor_stats(files):

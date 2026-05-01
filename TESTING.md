@@ -68,7 +68,7 @@ Every command in `cgc --help` is tested.
 We verify that our Tree-sitter parsers correctly extract:
 *   **Structure:** Classes, Functions, Modules.
 *   **Relationships:** Calls, Inheritance, Imports, Dependencies.
-*   **Languages Covered:** Python, JavaScript/TypeScript, Java, C++, Go, Rust, Ruby, PHP, and more.
+*   **Languages Covered:** Python, JavaScript/TypeScript, Java, C++, Go, Rust, Ruby, PHP, Dart, Perl, and more.
 
 ---
 

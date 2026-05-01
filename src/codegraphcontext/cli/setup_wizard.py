@@ -84,6 +84,7 @@ def _generate_mcp_json(creds):
                         "list_indexed_repositories", "delete_repository", "list_watched_paths", 
                         "unwatch_directory", "visualize_graph_query"
                     ],
+                    "disabledTools": [],
                     "disabled": False
                 },
                 "disabled": False,
@@ -231,6 +232,19 @@ def _configure_goose(mcp_config):
 
     except Exception as e:
         console.print(f"[red]Failed to update Goose configuration: {e}[/red]")
+def _print_opencode_mcp_instructions(mcp_config: dict) -> None:
+    """OpenCode manages MCP in its own UI; we only print the stdio snippet + doc link."""
+    console.print("\n[bold cyan]OpenCode[/bold cyan]")
+    console.print(
+        "Register a stdio MCP server in OpenCode using the same command, args, and env as below "
+        "(mirror your generated mcp.json so OpenCode and the CLI share one database)."
+    )
+    console.print(
+        "\n[dim]Vendor guide:[/dim] https://opencode.ai/docs/ko/mcp-servers/#_top"
+    )
+    console.print("\n[bold]Suggested MCP server JSON:[/bold]")
+    console.print(json.dumps(mcp_config, indent=2))
+
 
 def _configure_ide(mcp_config):
     """Asks user for their IDE and configures it automatically."""
@@ -238,6 +252,7 @@ def _configure_ide(mcp_config):
         {
             "type": "confirm",
             "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Goose, Antigravity)?",
+            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Antigravity, OpenCode)?",
             "name": "configure_ide",
             "default": True,
         }
@@ -252,6 +267,7 @@ def _configure_ide(mcp_config):
             "type": "list",
             "message": "Choose your IDE/CLI to configure:",
             "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity", "None of the above"],
+            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Antigravity", "OpenCode", "None of the above"],
             "name": "ide_choice",
         }
     ]
@@ -263,6 +279,15 @@ def _configure_ide(mcp_config):
         return
 
     if ide_choice in ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity"]:
+    if ide_choice == "OpenCode":
+        _print_opencode_mcp_instructions(mcp_config)
+        console.print(
+            "\n[green]When you have pasted this into OpenCode, reload MCP and run "
+            "`cgc mcp start` from a terminal to verify the server starts cleanly.[/green]"
+        )
+        return
+
+    if ide_choice in ["VS Code", "Cursor", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "Windsurf", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Antigravity"]:
         console.print(f"\n[bold cyan]Configuring for {ide_choice}...[/bold cyan]")
 
         if ide_choice == "Amazon Q Developer":
@@ -396,6 +421,12 @@ def run_command(command, console, shell=False, check=True, input_text=None):
     Returns the completed process object on success, None on failure.
     """
     cmd_str = command if isinstance(command, str) else ' '.join(command)
+    
+    # Mask passwords from being printed out
+    if "set-initial-password" in cmd_str:
+        import re
+        cmd_str = re.sub(r'(set-initial-password\s+)(\S+)', r'\g<1>********', cmd_str)
+        
     console.print(f"[cyan]$ {cmd_str}[/cyan]")
     try:
         process = subprocess.run(
@@ -477,7 +508,7 @@ def configure_mcp_client():
                     if line and not line.startswith("#") and "=" in line:
                         key, value = line.split("=", 1)
                         key = key.strip()
-                        if key in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"]:
+                        if key in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE"]:
                             env_vars[key] = value.strip()
         except Exception:
             pass
@@ -524,6 +555,7 @@ def configure_mcp_client():
                         "list_indexed_repositories", "delete_repository", "list_watched_paths", 
                         "unwatch_directory", "visualize_graph_query"
                     ],
+                    "disabledTools": [],
                     "disabled": False
                 },
                 "disabled": False,

@@ -1,13 +1,16 @@
 """
 Configuration management for CodeGraphContext.
 Handles reading, writing, and validating configuration settings.
+Also manages the context system (config.yaml) alongside the existing .env file.
 """
 
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from rich.console import Console
 from rich.table import Table
 import os
+import yaml
 
 console = Console()
 
@@ -16,18 +19,19 @@ CONFIG_DIR = Path.home() / ".codegraphcontext"
 CONFIG_FILE = CONFIG_DIR / ".env"
 
 # Database credential keys (stored in same .env file but not managed as config)
-DATABASE_CREDENTIAL_KEYS = {"NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"}
+DATABASE_CREDENTIAL_KEYS = {"NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE"}
 
 # Default configuration values
 DEFAULT_CONFIG = {
     "DEFAULT_DATABASE": "falkordb",
-    "FALKORDB_PATH": str(CONFIG_DIR / "falkordb.db"),
-    "FALKORDB_SOCKET_PATH": str(CONFIG_DIR / "falkordb.sock"),
+    "FALKORDB_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb"),
+    "FALKORDB_SOCKET_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb.sock"),
     "INDEX_VARIABLES": "true",
     "ALLOW_DB_DELETION": "false",
     "DEBUG_LOGS": "false",
     "DEBUG_LOG_PATH": str(Path.home() / "mcp_debug.log"),
     "ENABLE_APP_LOGS": "CRITICAL",
+    "LIBRARY_LOG_LEVEL": "WARNING",
     "LOG_FILE_PATH": str(CONFIG_DIR / "logs" / "cgc.log"),
     "MAX_FILE_SIZE_MB": "10",
     "IGNORE_TEST_FILES": "false",
@@ -39,11 +43,20 @@ DEFAULT_CONFIG = {
     "CACHE_ENABLED": "true",
     "IGNORE_DIRS": "node_modules,venv,.venv,env,.env,dist,build,target,out,.git,.idea,.vscode,__pycache__",
     "INDEX_SOURCE": "true",
+    # SCIP indexer feature flag (default off — existing Tree-sitter behaviour unchanged)
+    "SCIP_INDEXER": "false",
+    "SCIP_LANGUAGES": "python,typescript,go,rust,java",
+    "SKIP_EXTERNAL_RESOLUTION": "false",
+    # 0 = unlimited; any positive integer caps MCP tool response size.
+    "MAX_TOOL_RESPONSE_TOKENS": "0",
+    # JSON object mapping tool names to integer result-count limits.
+    # Example: {"find_code": 20, "analyze_code_relationships": 10, "find_dead_code": 30}
+    "TOOL_RESULT_LIMITS": "{}",
 }
 
 # Configuration key descriptions
 CONFIG_DESCRIPTIONS = {
-    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb)",
+    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|kuzudb)",
     "FALKORDB_PATH": "Path to FalkorDB database file",
     "FALKORDB_SOCKET_PATH": "Path to FalkorDB Unix socket",
     "INDEX_VARIABLES": "Index variable nodes in the graph (lighter graph if false)",
@@ -51,6 +64,7 @@ CONFIG_DESCRIPTIONS = {
     "DEBUG_LOGS": "Enable debug logging (for development/troubleshooting)",
     "DEBUG_LOG_PATH": "Path to debug log file",
     "ENABLE_APP_LOGS": "Application log level (DEBUG|INFO|WARNING|ERROR|CRITICAL|DISABLED)",
+    "LIBRARY_LOG_LEVEL": "Log level for third-party libraries (neo4j, asyncio, urllib3) (DEBUG|INFO|WARNING|ERROR|CRITICAL)",
     "LOG_FILE_PATH": "Path to application log file",
     "MAX_FILE_SIZE_MB": "Maximum file size to index (in MB)",
     "IGNORE_TEST_FILES": "Skip test files during indexing",
@@ -62,27 +76,77 @@ CONFIG_DESCRIPTIONS = {
     "CACHE_ENABLED": "Enable caching for faster re-indexing",
     "IGNORE_DIRS": "Comma-separated list of directory names to ignore during indexing",
     "INDEX_SOURCE": "Store full source code in graph database (for faster indexing use false, for better performance use true)",
+    "SCIP_INDEXER": "Use SCIP-based indexing for higher accuracy call/inheritance resolution (requires scip-<lang> tools installed)",
+    "SCIP_LANGUAGES": "Comma-separated languages to index via SCIP when SCIP_INDEXER=true (python,typescript,go,rust,java)",
+    "SKIP_EXTERNAL_RESOLUTION": "Skip resolution attempts for external library method calls (recommended for enterprise large Java/Spring codebases)",
+    "MAX_TOOL_RESPONSE_TOKENS": "Maximum tokens per MCP tool response (0 = unlimited). Truncates oversized payloads and appends a notice.",
+    "TOOL_RESULT_LIMITS": "JSON object mapping tool names to max result counts, e.g. {\"find_code\": 20, \"analyze_code_relationships\": 10}. Missing keys use built-in defaults.",
 }
 
 # Valid values for each config key
 CONFIG_VALIDATORS = {
-    "DEFAULT_DATABASE": ["neo4j", "falkordb"],
+    "DEFAULT_DATABASE": ["neo4j", "falkordb", "falkordb-remote", "kuzudb"],
     "INDEX_VARIABLES": ["true", "false"],
     "ALLOW_DB_DELETION": ["true", "false"],
     "DEBUG_LOGS": ["true", "false"],
     "ENABLE_APP_LOGS": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "DISABLED"],
+    "LIBRARY_LOG_LEVEL": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     "IGNORE_TEST_FILES": ["true", "false"],
     "IGNORE_HIDDEN_FILES": ["true", "false"],
     "ENABLE_AUTO_WATCH": ["true", "false"],
     "CACHE_ENABLED": ["true", "false"],
     "INDEX_SOURCE": ["true", "false"],
+    "SCIP_INDEXER": ["true", "false"],
+    "SKIP_EXTERNAL_RESOLUTION": ["true", "false"],
 }
+DEFAULT_CGCIGNORE_PATTERNS = """\
+# Default .cgcignore patterns
+# Lines starting with # are comments; blank lines are ignored.
+# Patterns follow .gitignore syntax.
+
+node_modules/
+venv/
+.venv/
+env/
+.env/
+dist/
+build/
+target/
+out/
+.git/
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.tox/
+.mypy_cache/
+.pytest_cache/
+coverage/
+.next/
+"""
 
 
-def ensure_config_dir():
-    """Ensure configuration directory exists."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    (CONFIG_DIR / "logs").mkdir(parents=True, exist_ok=True)
+def ensure_config_dir(path: Path = CONFIG_DIR):
+    """
+    Ensure that the configuration directory exists.
+    Creates the directory and a logs subdirectory if they do not already exist.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "logs").mkdir(parents=True, exist_ok=True)
+
+
+def ensure_global_cgcignore() -> bool:
+    """Create ``~/.codegraphcontext/global/.cgcignore`` with sensible defaults
+    if it does not already exist.  Returns True when a new file was created."""
+    cgcignore_path = CONFIG_DIR / "global" / ".cgcignore"
+    if cgcignore_path.exists():
+        return False
+    cgcignore_path.parent.mkdir(parents=True, exist_ok=True)
+    cgcignore_path.write_text(DEFAULT_CGCIGNORE_PATTERNS)
+    return True
+
 
 
 def load_config() -> Dict[str, str]:
@@ -144,6 +208,12 @@ def find_local_env() -> Optional[Path]:
     
     # Search up to 5 levels up
     for _ in range(5):
+        # 1. Prefer .codegraphcontext/.env if it exists
+        cgc_env = current / ".codegraphcontext" / ".env"
+        if cgc_env.exists() and cgc_env != CONFIG_FILE:
+            return cgc_env
+            
+        # 2. Fall back to root project .env
         env_file = current / ".env"
         if env_file.exists() and env_file != CONFIG_FILE:
             return env_file
@@ -154,6 +224,18 @@ def find_local_env() -> Optional[Path]:
         current = current.parent
     
     return None
+
+
+def codegraphcontext_dotenv_at_cwd(cwd: Optional[Path] = None) -> Optional[Path]:
+    """
+    Return ``<cwd>/.codegraphcontext/.env`` if that file exists, else None.
+
+    *cwd* defaults to ``Path.cwd()``. Parent directories are **not** searched—same rule as
+    local context resolution (``find_local_cgc_dir``).
+    """
+    root = (cwd or Path.cwd()).resolve()
+    candidate = root / ".codegraphcontext" / ".env"
+    return candidate if candidate.exists() else None
 
 
 def save_config(config: Dict[str, str], preserve_db_credentials: bool = True):
@@ -180,6 +262,10 @@ def save_config(config: Dict[str, str], preserve_db_credentials: bool = True):
                             credentials_to_write[key] = value.strip()
         except Exception:
             pass
+        # Merge credentials from the config dict (handles both new and updated values)
+        for key in DATABASE_CREDENTIAL_KEYS:
+            if key in config:
+                credentials_to_write[key] = config[key]
     else:
         # Use credentials from the config dict being passed in
         for key in DATABASE_CREDENTIAL_KEYS:
@@ -263,6 +349,26 @@ def validate_config_value(key: str, value: str) -> tuple[bool, Optional[str]]:
                 return False, "PARALLEL_WORKERS must be between 1 and 32"
         except ValueError:
             return False, "PARALLEL_WORKERS must be a number"
+
+    if key == "MAX_TOOL_RESPONSE_TOKENS":
+        try:
+            limit = int(value)
+            if limit < 0:
+                return False, "MAX_TOOL_RESPONSE_TOKENS must be 0 (unlimited) or a positive integer"
+        except ValueError:
+            return False, "MAX_TOOL_RESPONSE_TOKENS must be an integer (0 = unlimited)"
+
+    if key == "TOOL_RESULT_LIMITS":
+        import json as _json
+        try:
+            parsed = _json.loads(value)
+            if not isinstance(parsed, dict):
+                return False, "TOOL_RESULT_LIMITS must be a JSON object, e.g. {\"find_code\": 20}"
+            for k, v in parsed.items():
+                if not isinstance(v, int) or v < 1:
+                    return False, f"TOOL_RESULT_LIMITS: value for '{k}' must be a positive integer"
+        except _json.JSONDecodeError:
+            return False, "TOOL_RESULT_LIMITS must be valid JSON, e.g. {\"find_code\": 20, \"find_dead_code\": 30}"
     
     if key == "MAX_DEPTH":
         if value.lower() != "unlimited":
@@ -303,7 +409,14 @@ def get_config_value(key: str) -> Optional[str]:
 
 
 def set_config_value(key: str, value: str) -> bool:
-    """Set a configuration value. Returns True if successful."""
+    """Set a configuration value. Returns True if successful.
+
+    The special key ``mode`` is delegated to :func:`set_context_mode` so
+    that ``cgc config set mode named`` works as expected.
+    """
+    if key.lower() == "mode":
+        return set_context_mode(value.lower())
+
     # Ensure config directory exists
     ensure_config_dir()
     
@@ -329,6 +442,45 @@ def reset_config():
     console.print("[green]✅ Configuration reset to defaults[/green]")
     console.print("[cyan]Note: Database credentials were preserved[/cyan]")
 
+
+
+_FIRST_RUN_MARKER = CONFIG_DIR / ".first_run_done"
+
+
+def _print_welcome_banner() -> None:
+    """Print a one-time welcome message explaining the context system."""
+    console.print()
+    console.print("[bold green]Welcome to CodeGraphContext![/bold green]")
+    console.print()
+    console.print("CGC organises your code graphs using [bold]contexts[/bold]:")
+    console.print("  [cyan]global[/cyan]    - One shared graph for all projects (default)")
+    console.print("  [cyan]per-repo[/cyan]  - Each repo gets its own .codegraphcontext/ folder")
+    console.print("  [cyan]named[/cyan]     - Create named workspaces (e.g. cgc index . --context MyProject)")
+    console.print()
+    console.print("Switch modes anytime:  [dim]cgc context mode <global|per-repo|named>[/dim]")
+    console.print("Or:                    [dim]cgc config set mode <global|per-repo|named>[/dim]")
+    console.print()
+
+
+def ensure_first_run_bootstrap() -> bool:
+    """Run one-time setup for brand-new installs.
+
+    Creates default config files, the global .cgcignore, and prints a
+    welcome banner.  Returns True when bootstrap was performed.
+    """
+    if _FIRST_RUN_MARKER.exists():
+        return False
+
+    ensure_config_dir()
+    ensure_global_cgcignore()
+    # Ensure config.yaml exists (triggers creation with defaults)
+    load_context_config()
+    _print_welcome_banner()
+
+    # Stamp so we don't repeat
+    _FIRST_RUN_MARKER.parent.mkdir(parents=True, exist_ok=True)
+    _FIRST_RUN_MARKER.write_text("1")
+    return True
 
 
 def ensure_config_file():
@@ -396,3 +548,531 @@ def show_config():
     
     console.print(table)
     console.print(f"\n[cyan]Config file: {CONFIG_FILE}[/cyan]")
+
+
+# =============================================================================
+# CONTEXT SYSTEM  (config.yaml)
+# =============================================================================
+
+CONTEXT_CONFIG_FILE = CONFIG_DIR / "config.yaml"
+_LEGACY_CONTEXT_CONFIG_FILE = CONFIG_DIR / "cgc_config.yaml"
+
+# Valid mode values
+VALID_MODES = ["global", "per-repo", "named"]
+
+
+@dataclass
+class ContextInfo:
+    """Metadata for a single named context."""
+    name: str
+    database: str = "falkordb"          # neo4j | falkordb | kuzudb
+    db_path: str = ""                    # resolved at init if empty
+    repos: List[str] = field(default_factory=list)
+    cgcignore_path: str = ""            # resolved at init if empty
+
+
+@dataclass
+class ContextConfig:
+    """Top-level structure stored in ~/.codegraphcontext/config.yaml."""
+    version: int = 1
+    mode: str = "global"                 # global | per-repo | named
+    default_context: str = ""           # used when mode=named and no --context flag
+    contexts: Dict[str, ContextInfo] = field(default_factory=dict)
+
+
+def _default_db_path(context_name: str, database: str) -> str:
+    """Return the canonical DB path for a named context."""
+    return str(CONFIG_DIR / "contexts" / context_name / "db" / database)
+
+
+_LEGACY_FALKORDB_PATH = CONFIG_DIR / "global" / "falkordb.db"
+
+
+def _default_global_db_path(database: str) -> str:
+    """Return the canonical DB path for the global context.
+
+    New layout: ``~/.codegraphcontext/global/db/<backend>/``
+    For backward-compat, if the legacy flat path exists we keep using it.
+    """
+    if database == "falkordb" and _LEGACY_FALKORDB_PATH.exists():
+        return str(_LEGACY_FALKORDB_PATH)
+    return str(CONFIG_DIR / "global" / "db" / database)
+
+
+def _migrate_legacy_config_yaml() -> None:
+    """Rename cgc_config.yaml -> config.yaml if the old name exists and the new one does not."""
+    if _LEGACY_CONTEXT_CONFIG_FILE.exists() and not CONTEXT_CONFIG_FILE.exists():
+        import shutil
+        shutil.copy2(_LEGACY_CONTEXT_CONFIG_FILE, CONTEXT_CONFIG_FILE)
+        console.print(f"[dim]Migrated {_LEGACY_CONTEXT_CONFIG_FILE.name} -> {CONTEXT_CONFIG_FILE.name}[/dim]")
+
+
+def load_context_config() -> ContextConfig:
+    """
+    Load ~/.codegraphcontext/config.yaml.
+    Returns a ContextConfig with defaults if the file does not exist.
+    """
+    _migrate_legacy_config_yaml()
+
+    if not CONTEXT_CONFIG_FILE.exists():
+        cfg = ContextConfig()
+        save_context_config(cfg)
+        return cfg
+
+    try:
+        with open(CONTEXT_CONFIG_FILE, "r") as f:
+            raw = yaml.safe_load(f) or {}
+
+        contexts: Dict[str, ContextInfo] = {}
+        for name, meta in raw.get("contexts", {}).items():
+            meta = meta or {}
+            db = meta.get("database", "falkordb")
+            ctx = ContextInfo(
+                name=name,
+                database=db,
+                db_path=meta.get("db_path") or _default_db_path(name, db),
+                repos=[str(r) for r in meta.get("repos", [])],
+                cgcignore_path=meta.get("cgcignore_path") or str(
+                    CONFIG_DIR / "contexts" / name / ".cgcignore"
+                ),
+            )
+            contexts[name] = ctx
+
+        return ContextConfig(
+            version=raw.get("version", 1),
+            mode=raw.get("mode", "global"),
+            default_context=raw.get("default_context", ""),
+            contexts=contexts,
+        )
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not load config.yaml: {e}. Using defaults.[/yellow]")
+        return ContextConfig()
+
+
+def save_context_config(cfg: ContextConfig) -> None:
+    """Persist ContextConfig to ~/.codegraphcontext/config.yaml."""
+    ensure_config_dir()
+
+    contexts_raw: Dict[str, Any] = {}
+    for name, ctx in cfg.contexts.items():
+        contexts_raw[name] = {
+            "database": ctx.database,
+            "db_path": ctx.db_path,
+            "repos": ctx.repos,
+            "cgcignore_path": ctx.cgcignore_path,
+        }
+
+    raw = {
+        "version": cfg.version,
+        "mode": cfg.mode,
+        "default_context": cfg.default_context,
+        "contexts": contexts_raw,
+    }
+
+    try:
+        with open(CONTEXT_CONFIG_FILE, "w") as f:
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+    except Exception as e:
+        console.print(f"[red]Error saving config.yaml: {e}[/red]")
+
+
+# ---------------------------------------------------------------------------
+# Context Resolution
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ResolvedContext:
+    """Result of resolve_context() — everything needed to instantiate the DB."""
+    mode: str             # global | per-repo | named
+    context_name: str     # empty for global / per-repo
+    database: str         # neo4j | falkordb | kuzudb
+    db_path: str          # absolute path to the DB directory
+    cgcignore_path: str   # path to the applicable .cgcignore
+    is_local: bool = False  # True when a local .codegraphcontext/ was found
+
+
+def find_local_cgc_dir(start: Optional[Path] = None) -> Optional[Path]:
+    """
+    Check *start* (default: cwd) for a ``.codegraphcontext/`` directory that
+    belongs to a repo (i.e. is NOT the global ``~/.codegraphcontext``).
+    Returns the directory path or None.
+    """
+    current = start or Path.cwd()
+    global_dir = CONFIG_DIR.resolve()
+
+    candidate = current / ".codegraphcontext"
+    if candidate.exists() and candidate.resolve() != global_dir:
+        return candidate
+    return None
+
+
+def resolve_context(
+    cli_context: Optional[str] = None,
+    cwd: Optional[Path] = None,
+) -> ResolvedContext:
+    """
+    Determine which context / DB to use.
+
+    Resolution order (highest priority first):
+      1. --context <name>  CLI flag
+      2. Local .codegraphcontext/ directory (per-repo)
+      3. Global config.yaml: mode + default_context
+      4. Ultimate fallback: global mode, default DB
+    """
+    cfg = load_context_config()
+    cwd = cwd or Path.cwd()
+
+    # --- 1. Explicit CLI flag ---
+    if cli_context:
+        ctx = cfg.contexts.get(cli_context)
+        db = ctx.database if ctx else "falkordb"
+        db_path = ctx.db_path if ctx else _default_db_path(cli_context, db)
+        cgcignore = (
+            ctx.cgcignore_path
+            if ctx
+            else str(CONFIG_DIR / "contexts" / cli_context / ".cgcignore")
+        )
+        return ResolvedContext(
+            mode="named",
+            context_name=cli_context,
+            database=db,
+            db_path=db_path,
+            cgcignore_path=cgcignore,
+        )
+
+    # --- 2. Local .codegraphcontext/ in repo ---
+    local_cgc = find_local_cgc_dir(cwd)
+    
+    # If we are in per-repo mode and no local folder was found, create it in CWD
+    if local_cgc is None and cfg.mode == "per-repo":
+        local_cgc = cwd / ".codegraphcontext"
+        local_cgc.mkdir(parents=True, exist_ok=True)
+        (local_cgc / "db").mkdir(exist_ok=True)
+        
+        # Copy global .env into local context for easy per-repo tweaking
+        import shutil
+        if CONFIG_FILE.exists():
+            shutil.copy2(CONFIG_FILE, local_cgc / ".env")
+            
+        console.print(f"[dim]Auto-initialized per-repo context at {local_cgc}[/dim]")
+
+    if local_cgc is not None:
+        # Read local config.yaml if present
+        local_yaml = local_cgc / "config.yaml"
+        local_db = "falkordb"
+        if local_yaml.exists():
+            try:
+                with open(local_yaml) as f:
+                    local_raw = yaml.safe_load(f) or {}
+                local_db = local_raw.get("database", "falkordb")
+            except Exception:
+                pass
+        db_path = str(local_cgc / "db" / local_db)
+        cgcignore = str(local_cgc / ".cgcignore")
+        return ResolvedContext(
+            mode="per-repo",
+            context_name="",
+            database=local_db,
+            db_path=db_path,
+            cgcignore_path=cgcignore,
+            is_local=True,
+        )
+
+    # --- 2b. Saved workspace mapping (CWD -> child .codegraphcontext/) ---
+    mapping = get_workspace_mapping(cwd)
+    if mapping:
+        mapped_ctx_path = Path(mapping["context_path"])
+        if mapped_ctx_path.exists() and mapped_ctx_path.is_dir():
+            mapped_db = mapping.get("database", "falkordb")
+            return ResolvedContext(
+                mode="per-repo",
+                context_name="",
+                database=mapped_db,
+                db_path=str(mapped_ctx_path / "db" / mapped_db),
+                cgcignore_path=str(mapped_ctx_path / ".cgcignore"),
+                is_local=True,
+            )
+
+    # --- 3. Global config.yaml ---
+    if cfg.mode == "named":
+        ctx_name = cfg.default_context
+        ctx = cfg.contexts.get(ctx_name) if ctx_name else None
+        db = ctx.database if ctx else "falkordb"
+        db_path = ctx.db_path if ctx else _default_db_path(ctx_name, db) if ctx_name else ""
+        if not db_path:
+            # No default context set — fall through to global
+            pass
+        else:
+            cgcignore = (
+                ctx.cgcignore_path
+                if ctx
+                else str(CONFIG_DIR / "contexts" / ctx_name / ".cgcignore")
+            )
+            return ResolvedContext(
+                mode="named",
+                context_name=ctx_name,
+                database=db,
+                db_path=db_path,
+                cgcignore_path=cgcignore,
+            )
+
+    # --- 4. Global fallback ---
+    db = load_config().get("DEFAULT_DATABASE", "falkordb")
+    return ResolvedContext(
+        mode="global",
+        context_name="",
+        database=db,
+        db_path=_default_global_db_path(db),
+        cgcignore_path=str(CONFIG_DIR / "global" / ".cgcignore"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Context CRUD helpers
+# ---------------------------------------------------------------------------
+
+def create_context(
+    name: str,
+    database: str = "falkordb",
+    db_path: Optional[str] = None,
+) -> bool:
+    """Create a new named context. Returns True on success."""
+    cfg = load_context_config()
+    if name in cfg.contexts:
+        console.print(f"[yellow]Context '{name}' already exists.[/yellow]")
+        return False
+
+    resolved_db_path = db_path or _default_db_path(name, database)
+    cgcignore = str(CONFIG_DIR / "contexts" / name / ".cgcignore")
+
+    # Ensure the context directories exist (create parent of db_path so DBs can create their files/dirs)
+    Path(resolved_db_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(cgcignore).parent.mkdir(parents=True, exist_ok=True)
+
+    cfg.contexts[name] = ContextInfo(
+        name=name,
+        database=database,
+        db_path=resolved_db_path,
+        repos=[],
+        cgcignore_path=cgcignore,
+    )
+    save_context_config(cfg)
+    console.print(f"[green]✅ Created context '{name}' (DB: {database})[/green]")
+    console.print(f"   [dim]DB path: {resolved_db_path}[/dim]")
+    return True
+
+
+def delete_context(name: str) -> bool:
+    """Delete a named context from the registry. Returns True on success."""
+    cfg = load_context_config()
+    if name not in cfg.contexts:
+        console.print(f"[red]Context '{name}' not found.[/red]")
+        return False
+    del cfg.contexts[name]
+    if cfg.default_context == name:
+        cfg.default_context = ""
+    save_context_config(cfg)
+    console.print(f"[green]✅ Deleted context '{name}'[/green]")
+    console.print("[dim]Note: DB files were NOT deleted. Remove manually if needed.[/dim]")
+    return True
+
+
+def register_repo_in_context(context_name: str, repo_path: str, auto_create: bool = False) -> bool:
+    """Add a repo path to a named context (idempotent).
+
+    When *auto_create* is True the context is silently created with default
+    settings if it does not yet exist, matching the UX of
+    ``cgc index ./frontend --context ProjectAB`` "just working".
+    """
+    cfg = load_context_config()
+    ctx = cfg.contexts.get(context_name)
+    if ctx is None:
+        if not auto_create:
+            console.print(f"[red]Context '{context_name}' not found. Create it first with 'cgc context create {context_name}'.[/red]")
+            return False
+        create_context(context_name)
+        cfg = load_context_config()
+        ctx = cfg.contexts.get(context_name)
+        if ctx is None:
+            return False
+    resolved = str(Path(repo_path).resolve())
+    if resolved not in ctx.repos:
+        ctx.repos.append(resolved)
+        save_context_config(cfg)
+    return True
+
+
+def set_context_mode(mode: str) -> bool:
+    """Set the global CGC mode. Returns True on success."""
+    if mode not in VALID_MODES:
+        console.print(f"[red]Invalid mode '{mode}'. Must be one of: {', '.join(VALID_MODES)}[/red]")
+        return False
+    cfg = load_context_config()
+    cfg.mode = mode
+    save_context_config(cfg)
+    console.print(f"[green]✅ Mode set to '{mode}'[/green]")
+    return True
+
+
+def set_default_context(name: str) -> bool:
+    """Set the default named context used when no --context flag is given."""
+    cfg = load_context_config()
+    if name and name not in cfg.contexts:
+        console.print(f"[red]Context '{name}' not found. Create it first.[/red]")
+        return False
+    cfg.default_context = name
+    save_context_config(cfg)
+    console.print(f"[green]✅ Default context set to '{name}'[/green]")
+    return True
+
+
+def list_contexts() -> List[ContextInfo]:
+    """Return all named contexts."""
+    cfg = load_context_config()
+    return list(cfg.contexts.values())
+
+
+# =============================================================================
+# CHILD CONTEXT DISCOVERY
+# =============================================================================
+
+@dataclass
+class DiscoveredContext:
+    """A .codegraphcontext folder found in a child directory."""
+    path: str            # absolute path to the parent repo directory
+    cgc_path: str        # absolute path to the .codegraphcontext directory
+    repo_name: str       # name of the parent directory
+    database: str        # backend from local config.yaml, or default
+    db_path: str         # resolved db path
+    cgcignore_path: str  # path to .cgcignore if present
+
+
+def discover_child_contexts(
+    start: Optional[Path] = None,
+    max_depth: int = 1,
+) -> List[DiscoveredContext]:
+    """Walk child directories of *start* up to *max_depth* levels looking for
+    ``.codegraphcontext/`` folders that represent per-repo databases.
+
+    Returns a list of :class:`DiscoveredContext` for each match found.
+    The global ``~/.codegraphcontext`` is always excluded.
+    """
+    start = (start or Path.cwd()).resolve()
+    global_dir = CONFIG_DIR.resolve()
+    results: List[DiscoveredContext] = []
+
+    def _scan(directory: Path, depth: int) -> None:
+        if depth > max_depth:
+            return
+        try:
+            entries = sorted(directory.iterdir())
+        except PermissionError:
+            return
+        for entry in entries:
+            if not entry.is_dir() or entry.name.startswith("."):
+                continue
+            candidate = entry / ".codegraphcontext"
+            if candidate.exists() and candidate.is_dir() and candidate.resolve() != global_dir:
+                local_db = "falkordb"
+                local_yaml = candidate / "config.yaml"
+                if local_yaml.exists():
+                    try:
+                        with open(local_yaml) as f:
+                            raw = yaml.safe_load(f) or {}
+                        local_db = raw.get("database", "falkordb")
+                    except Exception:
+                        pass
+                results.append(DiscoveredContext(
+                    path=str(entry),
+                    cgc_path=str(candidate),
+                    repo_name=entry.name,
+                    database=local_db,
+                    db_path=str(candidate / "db" / local_db),
+                    cgcignore_path=str(candidate / ".cgcignore"),
+                ))
+            if depth < max_depth:
+                _scan(entry, depth + 1)
+
+    _scan(start, 1)
+    return results
+
+
+# =============================================================================
+# WORKSPACE MAPPINGS  (global persistence of CWD -> context path)
+# =============================================================================
+
+def _load_workspace_mappings() -> Dict[str, Dict[str, str]]:
+    """Load the ``workspace_mappings`` section from config.yaml."""
+    if not CONTEXT_CONFIG_FILE.exists():
+        return {}
+    try:
+        with open(CONTEXT_CONFIG_FILE, "r") as f:
+            raw = yaml.safe_load(f) or {}
+        return raw.get("workspace_mappings", {}) or {}
+    except Exception:
+        return {}
+
+
+def _save_workspace_mappings(mappings: Dict[str, Dict[str, str]]) -> None:
+    """Write *mappings* back into the ``workspace_mappings`` key of config.yaml,
+    preserving all other keys."""
+    ensure_config_dir()
+    raw: Dict[str, Any] = {}
+    if CONTEXT_CONFIG_FILE.exists():
+        try:
+            with open(CONTEXT_CONFIG_FILE, "r") as f:
+                raw = yaml.safe_load(f) or {}
+        except Exception:
+            raw = {}
+    raw["workspace_mappings"] = mappings
+    try:
+        with open(CONTEXT_CONFIG_FILE, "w") as f:
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+    except Exception as e:
+        console.print(f"[red]Error saving workspace mappings: {e}[/red]")
+
+
+def get_workspace_mapping(cwd: Path) -> Optional[Dict[str, str]]:
+    """Look up a saved workspace mapping for *cwd*.
+
+    Returns a dict with ``context_path`` and ``database`` keys, or None.
+    """
+    mappings = _load_workspace_mappings()
+    return mappings.get(str(cwd.resolve()))
+
+
+def save_workspace_mapping(cwd: Path, context_path: Path) -> None:
+    """Persist an association from *cwd* to a ``.codegraphcontext`` directory."""
+    context_path = context_path.resolve()
+    local_db = "falkordb"
+    local_yaml = context_path / "config.yaml"
+    if local_yaml.exists():
+        try:
+            with open(local_yaml) as f:
+                raw = yaml.safe_load(f) or {}
+            local_db = raw.get("database", "falkordb")
+        except Exception:
+            pass
+
+    mappings = _load_workspace_mappings()
+    mappings[str(cwd.resolve())] = {
+        "context_path": str(context_path),
+        "database": local_db,
+    }
+    _save_workspace_mappings(mappings)
+
+
+def remove_workspace_mapping(cwd: Path) -> bool:
+    """Delete a saved workspace mapping. Returns True if one was removed."""
+    mappings = _load_workspace_mappings()
+    key = str(cwd.resolve())
+    if key in mappings:
+        del mappings[key]
+        _save_workspace_mappings(mappings)
+        return True
+    return False
+
+
+def list_workspace_mappings() -> Dict[str, Dict[str, str]]:
+    """Return all saved workspace mappings."""
+    return _load_workspace_mappings()

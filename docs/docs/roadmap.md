@@ -1,36 +1,39 @@
-# 🗺️ Project Roadmap
+# Project Roadmap
 
 CodeGraphContext is an evolving tool. We believe in transparency about where we are and where we are going.
 
-## 🟢 Currently Supported (Stable)
+## Currently Supported (Stable)
 
-These features are live and battle-tested in version `0.2.1+`.
+These capabilities are live in version **0.4.5**.
 
-*   **Core Indexing:** Python, JavaScript, TypeScript, Go, Java, C++, Ruby, PHP.
-*   **Database Backends:**
-    *   FalkorDB Lite (In-memory, default for Unix).
-    *   Neo4j (Docker/Native, default for Production).
-*   **MCP Server:** Full support for Cursor, Claude Desktop, Windsurf, VS Code.
-*   **Live Watching:** Real-time updates via `cgc watch`.
-*   **Bundles:** Export/Import indexed graphs.
+- **Languages (19):** Python, JavaScript, TypeScript, TSX, Go, Rust, C, C++, Java, Ruby, C#, PHP, Kotlin, Scala, Swift, Dart, Perl, Haskell, and Elixir.
+- **Database backends (4):** FalkorDB Lite (default on Unix with Python 3.12+), FalkorDB Remote, KuzuDB (Windows and embedded fallback), and Neo4j.
+- **MCP server:** 20 tools for Cursor, Claude Desktop, Windsurf, VS Code, and other MCP clients (`cgc mcp start`).
+- **Live watching:** Real-time updates via `cgc watch`.
+- **Bundles and registry (shipped):** Export/import graphs and use the public bundle registry from the CLI and website.
+- **Contexts:** Multiple isolated graphs (multi-graph workflows).
+- **Visualization server (shipped):** Local graph exploration via `cgc visualize` (FastAPI + React UI).
+- **SCIP indexing:** Available as an opt-in beta for richer symbol indexing.
+- **CLI:** 55+ commands, including `cgc query` for Cypher and `cgc find` for name-based search.
 
-## 🚧 In Progress (Beta / Active Dev)
+## In Progress
 
-We are actively writing code for these right now.
+Work underway in active development.
 
-*   **Interactive Visualizer:** A new web-based UI to explore the graph without Neo4j Browser.
-*   **Better C++ Support:** improved parsing for header/implementation linkage.
-*   **Configuration UI:** A TUI (Text User Interface) for managing `mcp.json` configs.
+- **Advanced language query toolkits:** Deeper, language-aware query helpers on top of the graph.
+- **Streaming for large results:** Better handling of very large query result sets.
+- **More parser tests:** Broader coverage and regression tests across the Tree-sitter parsers.
 
-## 🔮 Planned (Future)
+## Planned
 
-Concepts we are researching for the next major versions.
+Directions we are exploring for upcoming releases.
 
-*   **Cloud Sync:** Option to share private implementation graphs with team members.
-*   **CI/CD Action:** GitHub Action to auto-index PRs and comment with impact analysis.
-*   **Natural Language Query to Graph:** Improved "Text-to-Cypher" translation for the CLI.
+- **SSE/HTTP MCP transport:** Alternatives to stdio for MCP hosting and integration.
+- **CI/CD GitHub Action:** Automated indexing and feedback in pull-request workflows.
+- **Semantic search:** Search and navigation beyond exact symbol and structural queries.
+- **Cloud sync:** Optional sharing and synchronization of graphs across environments and teams.
 
 ---
 
-!!! info "Request a Feature"
-    Have an idea? Open an issue on our [GitHub Repository](https://github.com/CodeGraphContext/CodeGraphContext/issues).
+!!! info "Request a feature"
+    Have an idea? Open an issue on our [GitHub repository](https://github.com/CodeGraphContext/CodeGraphContext/issues).

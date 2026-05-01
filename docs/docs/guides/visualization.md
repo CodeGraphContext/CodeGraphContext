@@ -1,25 +1,36 @@
 # Visualizing the Graph
 
-Sometimes a table of text isn't enough. You need to see the map.
+Sometimes a table of text is not enough—you need to see the map. CodeGraphContext ships a local visualization server and also offers a hosted explorer.
 
-## 1. Browser link (`cgc visualize`)
+## Local server: `cgc visualize`
 
-The easiest way involves the `cgc visualize` command (alias `cgc v`).
+Run:
 
 ```bash
 cgc visualize
 ```
 
-This will print a URL (e.g., `http://localhost:7474/browser?cmd=edit&arg=MATCH...`).
-Clicking this links opens the **Neo4j Browser** with a pre-filled query to show the immediate neighborhood of your code.
+This starts a **local FastAPI server** that serves a **React** visualization of your current graph. Open the URL printed in the terminal (typically `http://127.0.0.1` with a chosen port).
 
-## 2. Using Neo4j Bloom (Advanced)
+### Modes
 
-If you are using Neo4j Desktop, you can use **Bloom**.
-*   Bloom allows "Google Maps" style zooming.
-*   Type logical phrases like "Show me callers of X".
+The UI supports several views of the same graph data:
 
-## 3. Interactive Web View (Coming Soon)
+- **2D force-directed graph** — classic node–link layout for navigation and clustering.
+- **3D force-directed graph** — spatial exploration of larger graphs.
+- **3D city view** — an alternative structural layout for hierarchy and density.
+- **Mermaid flowchart** — diagram-style export and inspection of selected subgraphs.
 
-We are building a lightweight React-based visualizer that runs directly from `cgc analyze --viz`.
-*   [View Roadmap](../roadmap.md)
+Use the in-app controls to switch modes and focus on the neighborhood you care about.
+
+## Hosted explorer
+
+You can also open the public site **[codegraphcontext.vercel.app/explore](https://codegraphcontext.vercel.app/explore)** to explore graphs in the browser (including flows that align with bundle and registry workflows).
+
+## Neo4j users: Neo4j Browser and Bloom
+
+If your **`DEFAULT_DATABASE`** (or config) points at **Neo4j**, you can still use **Neo4j Browser** (and **Neo4j Bloom** on Desktop) for Cypher-centric exploration. The local `cgc visualize` experience is backend-agnostic where supported; Neo4j-specific URLs and tools remain available when Neo4j is your active backend.
+
+---
+
+For CLI details and options, see the CLI reference for the `visualize` command.

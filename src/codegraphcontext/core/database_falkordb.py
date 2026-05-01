@@ -3,6 +3,13 @@
 This module provides a thread-safe singleton manager for the FalkorDB Lite database connection.
 FalkorDB Lite is an embedded graph database that requires no external server setup.
 """
+
+class FalkorDBUnavailableError(RuntimeError):
+    """
+    Raised when FalkorDB Lite is installed but cannot actually run in this
+    environment (e.g. falkordb.so not found in a PyInstaller bundle,
+    or GRAPH.QUERY not available). Callers should fall back to KùzuDB.
+    """
 import os
 import sys
 import subprocess
@@ -15,6 +22,21 @@ from typing import Optional, Tuple
 
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 
+# ---------------------------------------------------------------------------
+# Compatibility patch: redis-py >= 5.x added OpenTelemetry error telemetry that
+# accesses conn.port inside its error handler. UnixDomainSocketConnection never
+# had a 'port' attribute, so any exception raised during a Unix-socket connection
+# (e.g. the sentinel-detection INFO call inside FalkorDB.__init__) would produce
+# a secondary AttributeError masking the real problem.
+# Patching the class at import time costs nothing and fixes all call-sites.
+# ---------------------------------------------------------------------------
+try:
+    from redis.connection import UnixDomainSocketConnection as _UDSC
+    if not hasattr(_UDSC, 'port'):
+        _UDSC.port = 0  # type: ignore[attr-defined]
+except Exception:
+    pass  # redis not installed or class structure changed — safe to ignore
+
 class FalkorDBManager:
     """
     Manages the FalkorDB Lite database connection as a singleton.
@@ -26,7 +48,7 @@ class FalkorDBManager:
     _graph = None
     _lock = threading.Lock()
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         """Standard singleton pattern implementation."""
         if cls._instance is None:
             with cls._lock:
@@ -34,13 +56,18 @@ class FalkorDBManager:
                     cls._instance = super(FalkorDBManager, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self, db_path: Optional[str] = None, socket_path: Optional[str] = None):
         """
-        Initializes the manager with default database path.
+        Initializes the manager with default database path or explicit overrides.
         The `_initialized` flag prevents re-initialization on subsequent calls.
         """
-        if hasattr(self, '_initialized'):
+        # If we have an existing instance but are being asked to connect to a different path
+        # we need to be careful — it's a singleton. For the new context system, we ensure
+        # the singleton instance gets re-initialized if the path changes.
+        if hasattr(self, '_initialized') and self.db_path == db_path:
             return
+
+        self._initialized = False
 
         # Configuration priority:
         # 1. Environment variable (highest priority)
@@ -57,17 +84,25 @@ class FalkorDBManager:
             config_db_path = None
             config_socket_path = None
         
-        # Database path with fallback chain
-        self.db_path = os.getenv(
+        # Database path with fallback chain (Explicit > Env > Config/Default)
+        self.db_path = db_path or os.getenv(
             'FALKORDB_PATH',
-            config_db_path or str(Path.home() / '.codegraphcontext' / 'falkordb.db')
+            config_db_path or str(Path.home() / '.codegraphcontext' / 'global' / 'falkordb.db')
         )
         
         # Socket path with fallback chain
-        self.socket_path = os.getenv(
-            'FALKORDB_SOCKET_PATH',
-            config_socket_path or str(Path.home() / '.codegraphcontext' / 'falkordb.sock')
-        )
+        if socket_path:
+            self.socket_path = socket_path
+        elif db_path:
+            # If a custom DB path was given but no socket path, infer socket path automatically
+            # near the custom database rather than putting it in the global directory.
+            db_dir = Path(db_path).parent
+            self.socket_path = str(db_dir / 'falkordb.sock')
+        else:
+            self.socket_path = os.getenv(
+                'FALKORDB_SOCKET_PATH',
+                config_socket_path or str(Path.home() / '.codegraphcontext' / 'global' / 'falkordb.sock')
+            )
         
         self.graph_name = os.getenv('FALKORDB_GRAPH_NAME', 'codegraph')
         self._initialized = True
@@ -152,15 +187,16 @@ class FalkorDBManager:
             try:
                 from falkordb import FalkorDB
                 d = FalkorDB(unix_socket_path=self.socket_path)
-                try:
-                    d.execute_command("PING")
-                except AttributeError:
-                    pass
-                info_logger("Connected to existing FalkorDB Lite process.")
+                # Test not just connectivity (PING), but functionality (GRAPH.QUERY)
+                # This ensures we don't connect to a "stale" process that doesn't have the module loaded
+                test_graph = d.select_graph('__cgc_health_check')
+                test_graph.query("RETURN 1")
+                info_logger("Connected to existing (functional) FalkorDB Lite process.")
                 return
-            except Exception:
-                # Stale socket or unresponsive
-                info_logger("Found stale socket, cleaning up...")
+            except Exception as e:
+                # Stale socket, unresponsive, or "brainless" (unknown command GRAPH.QUERY)
+                info_logger(f"Existing FalkorDB process at {self.socket_path} is stale or non-functional: {e}")
+                info_logger("Cleaning up and attempting fresh start...")
                 try:
                     os.remove(self.socket_path)
                 except OSError:
@@ -175,7 +211,21 @@ class FalkorDBManager:
         python_exe = sys.executable
         
         # We assume codegraphcontext is installed or in python path
-        cmd = [python_exe, '-m', 'codegraphcontext.core.falkor_worker']
+        if getattr(sys, 'frozen', False):
+            # In frozen mode, the executable is the bundle itself.
+            # We tell the bundle to run the worker instead of the app via environment variable.
+            env['CGC_RUN_FALKOR_WORKER'] = 'true'
+            cmd = [python_exe]
+        else:
+            # If not frozen, sys.executable should be python.
+            # But on some platforms (like PIP installs), it might be the 'cgc' entry point script.
+            # We check if it looks like python, otherwise search the PATH.
+            import shutil
+            exe_name = os.path.basename(python_exe).lower()
+            if not any(x in exe_name for x in ['python', 'py.exe', 'pypy']):
+                python_exe = shutil.which('python3') or shutil.which('python') or sys.executable
+            
+            cmd = [python_exe, '-m', 'codegraphcontext.core.falkor_worker']
         
         info_logger("Starting FalkorDB Lite worker subprocess...")
         self._process = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -194,7 +244,15 @@ class FalkorDBManager:
             # Check if process died
             if self._process.poll() is not None:
                 out, err = self._process.communicate()
-                raise RuntimeError(f"FalkorDB worker failed to start (Exit Code {self._process.returncode}):\nSTDOUT: {out.decode()}\nSTDERR: {err.decode()}")
+                returncode = self._process.returncode
+                
+                # Any non-zero exit code during startup means this backend is toast
+                # Raise FalkorDBUnavailableError to trigger the automatic KùzuDB fallback
+                raise FalkorDBUnavailableError(
+                    f"FalkorDB Lite worker failed to start (Exit Code {returncode}).\n"
+                    f"STDOUT: {out.decode().strip()}\n"
+                    f"STDERR: {err.decode().strip()}"
+                )
             
             time.sleep(0.5)
             
@@ -202,8 +260,10 @@ class FalkorDBManager:
 
     def close_driver(self):
         """Closes the connection."""
-        self._driver = None
-        self._graph = None
+        if self._driver is not None:
+            info_logger("Closing FalkorDB Lite connection")
+            self._driver = None
+            self._graph = None
 
     def shutdown(self):
         """Kills the subprocess on exit."""

@@ -15,15 +15,21 @@ jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install CGC
         run: pip install codegraphcontext
+      - name: Use embedded DB in CI (recommended)
+        run: cgc config db kuzudb
       - name: Index Code
         run: cgc index .
       - name: Check Complexity
         # Fail if any function is complexity > 20
         run: cgc analyze complexity --threshold 20 --fail-on-found
 ```
+
+## CI without Docker
+
+**FalkorDB Lite** and **KuzuDB** work in CI **without Docker** or external graph services—ideal for GitHub Actions and locked-down runners. **KuzuDB** is especially convenient when you want a file-backed embedded store and no extra services; set the backend explicitly with **`cgc config db kuzudb`** in the job so behavior is predictable across environments.
 
 ## Large Scale Indexing
 

@@ -1,36 +1,93 @@
-# src/codegraphcontext/cli/cli_helpers.py
 import asyncio
 import json
+import uuid
 import urllib.parse
 from pathlib import Path
 import time
+import os
+from typing import Optional, List, Dict, Any
 from rich.console import Console
 from rich.table import Table
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+    TimeRemainingColumn,
+    MofNCompleteColumn,
+)
 
 from ..core import get_database_manager
 from ..core.jobs import JobManager
 from ..tools.code_finder import CodeFinder
 from ..tools.graph_builder import GraphBuilder
 from ..tools.package_resolver import get_local_package_path
+from ..utils.debug_log import info_logger, warning_logger
+from ..utils.repo_path import any_repo_matches_path
+from .config_manager import resolve_context, ResolvedContext, register_repo_in_context, ensure_first_run_bootstrap
 
 console = Console()
 
 
-def _initialize_services():
-    """Initializes and returns core service managers."""
+def _initialize_services(cli_context_flag: Optional[str] = None) -> tuple[Any, Any, Any, ResolvedContext]:
+    """
+    Initializes and returns core service managers based on the resolved context.
+    Returns (db_manager, graph_builder, code_finder, resolved_context).
+    """
+    ensure_first_run_bootstrap()
+    console.print("[dim]Resolving context...[/dim]")
+    ctx = resolve_context(cli_context_flag)
+    
+    # Let the user know what context we're operating in
+    if ctx.mode == "named":
+        console.print(f"[cyan]Context:[/cyan] {ctx.context_name} (Database: {ctx.database})")
+    elif ctx.mode == "per-repo":
+        console.print(f"[cyan]Context:[/cyan] Per-repo local mode (Database: {ctx.database})")
+    else:
+        # Default global mode — silent to keep CLI clean for existing users
+        pass
+
     console.print("[dim]Initializing services and database connection...[/dim]")
     try:
-        db_manager = get_database_manager()
+        # Override the database backend with the context's specific choice
+        if ctx.database:
+            os.environ['CGC_RUNTIME_DB_TYPE'] = ctx.database
+        
+        # Pass the exact DB path resolved from the context
+        db_manager = get_database_manager(db_path=ctx.db_path)
     except ValueError as e:
         console.print(f"[bold red]Database Configuration Error:[/bold red] {e}")
-        return None, None, None
+        return None, None, None, ctx
 
     try:
         db_manager.get_driver()
-    except ValueError as e:
-        console.print(f"[bold red]Database Connection Error:[/bold red] {e}")
-        console.print("Please ensure your Neo4j credentials are correct and the database is running.")
-        return None, None, None
+    except Exception as e:
+        # Check if this is a FalkorDB failure that should trigger a KùzuDB fallback
+        from ..core.database_falkordb import FalkorDBUnavailableError
+        if isinstance(e, FalkorDBUnavailableError):
+            console.print(f"[yellow]⚠ FalkorDB Lite is not functional in this environment: {e}[/yellow]")
+            console.print("[cyan]Falling back to KùzuDB for a reliable experience...[/cyan]")
+            
+            # Close the broken driver/socket
+            try:
+                db_manager.close_driver()
+            except Exception:
+                pass
+            
+            # Re-initialize explicitly with KùzuDB
+            from ..core.database_kuzu import KuzuDBManager
+            db_manager = KuzuDBManager()
+            try:
+                db_manager.get_driver()
+                console.print("[green]✓[/green] Successfully switched to KùzuDB fallback")
+            except Exception as kuzu_e:
+                console.print(f"[bold red]Critical Error:[/bold red] Both FalkorDB and KùzuDB failed: {kuzu_e}")
+                return None, None, None, ctx
+        else:
+            console.print(f"[bold red]Database Connection Error:[/bold red] {e}")
+            console.print("Please ensure your database is configured correctly or run 'cgc doctor'.")
+            return None, None, None, ctx
     
     # The GraphBuilder requires an event loop, even for synchronous-style execution
     try:
@@ -42,17 +99,75 @@ def _initialize_services():
     graph_builder = GraphBuilder(db_manager, JobManager(), loop)
     code_finder = CodeFinder(db_manager)
     console.print("[dim]Services initialized.[/dim]")
-    return db_manager, graph_builder, code_finder
+    return db_manager, graph_builder, code_finder, ctx
 
 
-def index_helper(path: str):
-    """Synchronously indexes a repository."""
+async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, is_dependency: bool = False, cgcignore_path: str = None):
+    """Internal helper to run indexing with a Live progress bar."""
+    job_id = graph_builder.job_manager.create_job(str(path_obj), is_dependency=is_dependency)
+    
+    # Create the progress bar
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        MofNCompleteColumn(),
+        TimeRemainingColumn(),
+        TextColumn("[dim]{task.fields[filename]}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        
+        task_id = progress.add_task(
+            "Indexing...", 
+            total=None,  # Will be updated once file discovery is done
+            filename=""
+        )
+
+        indexing_task = asyncio.create_task(
+            graph_builder.build_graph_from_path_async(path_obj, is_dependency=is_dependency, job_id=job_id, cgcignore_path=cgcignore_path)
+        )
+
+        from ..core.jobs import JobStatus
+        
+        # Poll for updates
+        while not indexing_task.done():
+            job = graph_builder.job_manager.get_job(job_id)
+            if job:
+                if job.total_files > 0:
+                    progress.update(task_id, total=job.total_files, completed=job.processed_files)
+                
+                # Update the current filename in the UI
+                current_file = job.current_file or ""
+                if len(current_file) > 40:
+                    current_file = "..." + current_file[-37:]
+                progress.update(task_id, filename=current_file)
+
+                if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
+                    break
+            
+            await asyncio.sleep(0.1)
+
+        # Wait for actual completion and handle final state
+        try:
+            await indexing_task
+            job = graph_builder.job_manager.get_job(job_id)
+            if job and job.status == JobStatus.FAILED:
+                error_msg = job.errors[0] if job.errors else "Unknown error"
+                raise RuntimeError(error_msg)
+        except Exception as e:
+            raise e
+
+
+def index_helper(path: str, context: Optional[str] = None):
+    """Synchronously indexes a repository in a given context."""
     time_start = time.time()
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, graph_builder, code_finder = services
+    db_manager, graph_builder, code_finder, ctx = services
     path_obj = Path(path).resolve()
 
     if not path_obj.exists():
@@ -61,14 +176,16 @@ def index_helper(path: str):
         return
 
     indexed_repos = code_finder.list_indexed_repositories()
-    repo_exists = any(Path(repo["path"]).resolve() == path_obj for repo in indexed_repos)
-    
+    repo_exists = any_repo_matches_path(indexed_repos, path_obj)
+
     if repo_exists:
         # Check if the repository actually has files (not just an empty node from interrupted indexing)
+        # Use variable-length path to handle both flat (Repository->File) and
+        # hierarchical (Repository->Directory->...->File) graph structures
         try:
             with db_manager.get_driver().session() as session:
                 result = session.run(
-                    "MATCH (r:Repository {path: $path})-[:CONTAINS]->(f:File) RETURN count(f) as file_count",
+                    "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(DISTINCT f) as file_count",
                     path=str(path_obj)
                 )
                 record = result.single()
@@ -84,14 +201,14 @@ def index_helper(path: str):
         except Exception as e:
             console.print(f"[yellow]Warning: Could not check file count: {e}. Proceeding with indexing...[/yellow]")
 
-    console.print(f"Starting indexing for: {path_obj}")
-    console.print("[yellow]This may take a few minutes for large repositories...[/yellow]")
+    # Auto-register the repo into the named context (auto-creates if needed)
+    if context and ctx.mode == "named":
+        register_repo_in_context(context, str(path_obj), auto_create=True)
 
-    async def do_index():
-        await graph_builder.build_graph_from_path_async(path_obj, is_dependency=False)
+    console.print(f"Starting indexing for: {path_obj}")
 
     try:
-        asyncio.run(do_index())
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
         time_end = time.time()
         elapsed = time_end - time_start
         console.print(f"[green]Successfully finished indexing: {path} in {elapsed:.2f} seconds[/green]")
@@ -114,13 +231,13 @@ def index_helper(path: str):
         db_manager.close_driver()
 
 
-def add_package_helper(package_name: str, language: str):
+def add_package_helper(package_name: str, language: str, context: Optional[str] = None):
     """Synchronously indexes a package."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, graph_builder, code_finder = services
+    db_manager, graph_builder, code_finder, ctx = services
 
     package_path_str = get_local_package_path(package_name, language)
     if not package_path_str:
@@ -137,13 +254,9 @@ def add_package_helper(package_name: str, language: str):
         return
 
     console.print(f"Starting indexing for package '{package_name}' at: {package_path}")
-    console.print("[yellow]This may take a few minutes...[/yellow]")
-
-    async def do_index():
-        await graph_builder.build_graph_from_path_async(package_path, is_dependency=True)
 
     try:
-        asyncio.run(do_index())
+        asyncio.run(_run_index_with_progress(graph_builder, package_path, is_dependency=True, cgcignore_path=ctx.cgcignore_path))
         console.print(f"[green]Successfully finished indexing package: {package_name}[/green]")
     except Exception as e:
         console.print(f"[bold red]An error occurred during package indexing:[/bold red] {e}")
@@ -151,13 +264,13 @@ def add_package_helper(package_name: str, language: str):
         db_manager.close_driver()
 
 
-def list_repos_helper():
+def list_repos_helper(context: Optional[str] = None):
     """Lists all indexed repositories."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
     
-    db_manager, _, code_finder = services
+    db_manager, _, code_finder, ctx = services
     
     try:
         repos = code_finder.list_indexed_repositories()
@@ -172,7 +285,7 @@ def list_repos_helper():
 
         for repo in repos:
             repo_type = "Dependency" if repo.get("is_dependency") else "Project"
-            table.add_row(repo["name"], repo["path"], repo_type)
+            table.add_row(repo.get("name") or "", str(repo.get("path") or ""), repo_type)
         
         console.print(table)
     except Exception as e:
@@ -181,13 +294,13 @@ def list_repos_helper():
         db_manager.close_driver()
 
 
-def delete_helper(repo_path: str):
+def delete_helper(repo_path: str, context: Optional[str] = None):
     """Deletes a repository from the graph."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, graph_builder, _ = services
+    db_manager, graph_builder, _, ctx = services
     
     try:
         if graph_builder.delete_repository_from_graph(repo_path):
@@ -201,13 +314,13 @@ def delete_helper(repo_path: str):
         db_manager.close_driver()
 
 
-def cypher_helper(query: str):
+def cypher_helper(query: str, context: Optional[str] = None):
     """Executes a read-only Cypher query."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, _, _ = services
+    db_manager, _, _, ctx = services
     
     # Replicating safety checks from MCPServer
     forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
@@ -227,15 +340,15 @@ def cypher_helper(query: str):
         db_manager.close_driver()
 
 
-def cypher_helper_visual(query: str):
+def cypher_helper_visual(query: str, context: Optional[str] = None):
     """Executes a read-only Cypher query and visualizes the results."""
     from .visualizer import visualize_cypher_results
     
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, _, _ = services
+    db_manager, _, _, ctx = services
     
     # Replicating safety checks from MCPServer
     forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
@@ -260,145 +373,114 @@ def cypher_helper_visual(query: str):
         db_manager.close_driver()
 
 
-import webbrowser
+import uvicorn
+import urllib.parse
+from ..viz.server import run_server, set_db_manager
 
-def visualize_helper(query: str):
-    """Generates a visualization."""
-    services = _initialize_services()
-    if not all(services):
+def visualize_helper(repo_path: Optional[str] = None, port: int = 8000, context: Optional[str] = None):
+    """Generates an interactive visualization using the Playground UI."""
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, _, _ = services
+    db_manager, _, _, ctx = services
     
-    # Check if FalkorDB
-    if "FalkorDB" in db_manager.__class__.__name__:
-        _visualize_falkordb(db_manager)
-    else:
-        try:
-            encoded_query = urllib.parse.quote(query)
-            visualization_url = f"http://localhost:7474/browser/?cmd=edit&arg={encoded_query}"
-            console.print("[green]Graph visualization URL:[/green]")
-            console.print(visualization_url)
-            console.print("Open the URL in your browser to see the graph.")
-        except Exception as e:
-            console.print(f"[bold red]An error occurred while generating URL:[/bold red] {e}")
-        finally:
-            db_manager.close_driver()
+    # Set the DB manager for the server
+    set_db_manager(db_manager)
+    
+    # Determine the static directory (built React app)
+    # This points to src/codegraphcontext/viz/dist where we build the website
+    # (relative to src/codegraphcontext/cli/cli_helpers.py)
+    # Using .resolve() is more robust for path comparison and existence checks
+    this_file = Path(__file__).resolve()
+    package_root = this_file.parent.parent
+    static_dir = package_root / "viz" / "dist"
+    
+    # Fallback for development if not yet built in viz/dist
+    if not static_dir.exists():
+        # Look for website/dist in the project root (3 levels up from cli/cli_helpers.py, 4 parents)
+        # 1: cli/, 2: codegraphcontext/, 3: src/, 4: project_root/
+        project_root = this_file.parent.parent.parent.parent
+        dev_static_dir = project_root / "website" / "dist"
+        
+        # Also try one level up from package_root just in case of different layouts
+        alt_dev_dir = package_root.parent.parent / "website" / "dist"
+        
+        if dev_static_dir.exists():
+            static_dir = dev_static_dir
+        elif alt_dev_dir.exists():
+            static_dir = alt_dev_dir
+        else:
+            # Last resort: try current working directory
+            cwd_static_dir = Path.cwd() / "website" / "dist"
+            if cwd_static_dir.exists():
+                static_dir = cwd_static_dir
+            else:
+                console.print("[bold red]Visualization assets not found.[/bold red]")
+                console.print("[dim]Checked paths:[/dim]")
+                console.print(f"  [dim]- {package_root / 'viz' / 'dist'}[/dim]")
+                console.print(f"  [dim]- {dev_static_dir}[/dim]")
+                console.print(f"  [dim]- {alt_dev_dir}[/dim]")
+                console.print(f"  [dim]- {cwd_static_dir}[/dim]")
+                console.print(
+                    "[dim]If you installed from PyPI, upgrade after the next release "
+                    "(wheels must bundle viz/dist). If you are developing from source, run:[/dim]"
+                )
+                console.print("  [cyan]./scripts/sync_viz_dist.sh[/cyan]")
+                console.print(
+                    "[dim]or[/dim] [cyan]cd website && npm ci && npm run build[/cyan] "
+                    "[dim]then sync[/dim] [cyan]website/dist[/cyan] [dim]→[/dim] "
+                    "[cyan]src/codegraphcontext/viz/dist[/cyan][dim].[/dim]"
+                )
+                db_manager.close_driver()
+                raise SystemExit(1)
 
-def _visualize_falkordb(db_manager):
-    console.print("[dim]Generating FalkorDB visualization (showing up to 500 relationships)...[/dim]")
+    index_html = static_dir / "index.html"
+    if not index_html.is_file():
+        console.print(
+            f"[bold red]Invalid visualization bundle:[/bold red] missing {index_html}"
+        )
+        db_manager.close_driver()
+        raise SystemExit(1)
+
+    # Construct the URL
+    backend_url = f"http://localhost:{port}"
+    params = {"backend": backend_url}
+    if repo_path:
+        params["repo_path"] = str(Path(repo_path).resolve())
+    
+    query_string = urllib.parse.urlencode(params)
+    visualization_url = f"{backend_url}/explore?{query_string}"
+    
+    console.print(f"[green]Starting visualizer server on {backend_url}...[/green]")
+    console.print(f"[cyan]Opening Playground UI:[/cyan] {visualization_url}")
+    
+    # Open browser in a separate thread/process if possible, or just before starting server
+    def open_browser():
+        import time
+        import webbrowser
+        time.sleep(1.5) # Give the server a moment to start
+        webbrowser.open(visualization_url)
+    
+    import threading
+    threading.Thread(target=open_browser, daemon=True).start()
+    
     try:
-        data_nodes = []
-        data_edges = []
-        
-        with db_manager.get_driver().session() as session:
-            # Fetch nodes and edges
-            q = "MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 500"
-            result = session.run(q)
-            
-            seen_nodes = set()
-            
-            for record in result:
-                # record values are Node/Relationship objects from falkordb client
-                n = record['n']
-                r = record['r']
-                m = record['m']
-                
-                # Process Node helper
-                def process_node(node):
-                    nid = getattr(node, 'id', -1)
-                    labels = getattr(node, 'labels', [])
-                    lbl = list(labels)[0] if labels else "Node"
-                    props = getattr(node, 'properties', {})
-                    name = props.get('name', str(nid))
-                    
-                    if nid not in seen_nodes:
-                        seen_nodes.add(nid)
-                        color = "#97c2fc" # Default blue
-                        if "Repository" in labels: color = "#ffb3ba" # Red
-                        elif "File" in labels: color = "#baffc9" # Green
-                        elif "Class" in labels: color = "#bae1ff" # Light Blue
-                        elif "Function" in labels: color = "#ffffba" # Yellow
-                        elif "Package" in labels: color = "#ffdfba" # Orange
-                        
-                        data_nodes.append({
-                            "id": nid, 
-                            "label": name, 
-                            "group": lbl, 
-                            "title": str(props),
-                            "color": color
-                        })
-                    return nid
-
-                nid = process_node(n)
-                mid = process_node(m)
-                
-                # Check Edge
-                e_type = getattr(r, 'relation', '') or getattr(r, 'type', 'REL')
-                data_edges.append({
-                    "from": nid,
-                    "to": mid,
-                    "label": e_type,
-                    "arrows": "to"
-                })
-        
-        filename = "codegraph_viz.html"
-        html_content = f"""
-<!DOCTYPE html>
-<html>
-<head>
-  <title>CodeGraphContext Visualization</title>
-  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-  <style type="text/css">
-    #mynetwork {{
-      width: 100%;
-      height: 100vh;
-      border: 1px solid lightgray;
-    }}
-  </style>
-</head>
-<body>
-  <div id="mynetwork"></div>
-  <script type="text/javascript">
-    var nodes = new vis.DataSet({json.dumps(data_nodes)});
-    var edges = new vis.DataSet({json.dumps(data_edges)});
-    var container = document.getElementById('mynetwork');
-    var data = {{ nodes: nodes, edges: edges }};
-    var options = {{
-        nodes: {{ shape: 'dot', size: 16 }},
-        physics: {{ stabilization: false }},
-        layout: {{ improvedLayout: false }}
-    }};
-    var network = new vis.Network(container, data, options);
-  </script>
-</body>
-</html>
-"""
-        
-        out_path = Path(filename).resolve()
-        with open(out_path, "w") as f:
-            f.write(html_content)
-            
-        console.print(f"[green]Visualization generated at:[/green] {out_path}")
-        console.print("Opening in default browser...")
-        webbrowser.open(f"file://{out_path}")
-
+        run_server(host="127.0.0.1", port=port, static_dir=str(static_dir))
     except Exception as e:
-        console.print(f"[bold red]Visualization failed:[/bold red] {e}")
-        import traceback
-        traceback.print_exc()
+        console.print(f"[bold red]An error occurred while running the server:[/bold red] {e}")
     finally:
         db_manager.close_driver()
 
 
-def reindex_helper(path: str):
+def reindex_helper(path: str, context: Optional[str] = None):
     """Force re-index by deleting and rebuilding the repository."""
     time_start = time.time()
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, graph_builder, code_finder = services
+    db_manager, graph_builder, code_finder, ctx = services
     path_obj = Path(path).resolve()
 
     if not path_obj.exists():
@@ -408,8 +490,8 @@ def reindex_helper(path: str):
 
     # Check if already indexed
     indexed_repos = code_finder.list_indexed_repositories()
-    repo_exists = any(Path(repo["path"]).resolve() == path_obj for repo in indexed_repos)
-    
+    repo_exists = any_repo_matches_path(indexed_repos, path_obj)
+
     if repo_exists:
         console.print(f"[yellow]Deleting existing index for: {path_obj}[/yellow]")
         try:
@@ -421,13 +503,9 @@ def reindex_helper(path: str):
             return
     
     console.print(f"[cyan]Re-indexing: {path_obj}[/cyan]")
-    console.print("[yellow]This may take a few minutes for large repositories...[/yellow]")
-
-    async def do_index():
-        await graph_builder.build_graph_from_path_async(path_obj, is_dependency=False)
-
+    
     try:
-        asyncio.run(do_index())
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
         time_end = time.time()
         elapsed = time_end - time_start
         console.print(f"[green]Successfully re-indexed: {path} in {elapsed:.2f} seconds[/green]")
@@ -437,60 +515,39 @@ def reindex_helper(path: str):
         db_manager.close_driver()
 
 
-def update_helper(path: str):
+def update_helper(path: str, context: Optional[str] = None):
     """Update/refresh index for a path (alias for reindex)."""
     console.print("[cyan]Updating repository index...[/cyan]")
-    reindex_helper(path)
+    reindex_helper(path, context)
 
 
-def clean_helper():
+def clean_helper(context: Optional[str] = None):
     """Remove orphaned nodes and relationships from the database."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, _, _ = services
+    db_manager, _, _, ctx = services
     
     console.print("[cyan]🧹 Cleaning database (removing orphaned nodes)...[/cyan]")
     
     try:
-        # Determine if we're using FalkorDB or Neo4j for query optimization
-        db_type = db_manager.__class__.__name__
-        is_falkordb = "Falkor" in db_type
-        
         total_deleted = 0
-        batch_size = 1000
+        batch_size = 500
         
         with db_manager.get_driver().session() as session:
-            # Keep deleting orphaned nodes in batches until none are found
+            # Layer-by-layer deletion: iteratively delete nodes that lost
+            # their CONTAINS parent. Each pass peels one layer of the
+            # Repository → File → Class/Function → Variable hierarchy.
             while True:
-                if is_falkordb:
-                    # FalkorDB-compatible query using OPTIONAL MATCH
-                    query = """
+                result = session.run("""
                     MATCH (n)
-                    WHERE NOT (n:Repository)
-                    OPTIONAL MATCH path = (n)-[*..10]-(r:Repository)
-                    WITH n, path
-                    WHERE path IS NULL
+                    WHERE NOT n:Repository
+                      AND NOT ()-[:CONTAINS]->(n)
                     WITH n LIMIT $batch_size
                     DETACH DELETE n
                     RETURN count(n) as deleted
-                    """
-                else:
-                    # Neo4j optimized query using NOT EXISTS with bounded path
-                    # This is much faster than OPTIONAL MATCH with variable-length paths
-                    query = """
-                    MATCH (n)
-                    WHERE NOT (n:Repository)
-                      AND NOT EXISTS {
-                        MATCH (n)-[*..10]-(r:Repository)
-                      }
-                    WITH n LIMIT $batch_size
-                    DETACH DELETE n
-                    RETURN count(n) as deleted
-                    """
-                
-                result = session.run(query, batch_size=batch_size)
+                """, batch_size=batch_size)
                 record = result.single()
                 deleted_count = record["deleted"] if record else 0
                 total_deleted += deleted_count
@@ -498,16 +555,12 @@ def clean_helper():
                 if deleted_count == 0:
                     break
                     
-                console.print(f"[dim]Deleted {deleted_count} orphaned nodes (batch)...[/dim]")
+                console.print(f"[dim]  Deleted {deleted_count} orphaned nodes (batch)...[/dim]")
             
             if total_deleted > 0:
                 console.print(f"[green]✓[/green] Deleted {total_deleted} orphaned nodes total")
             else:
                 console.print("[green]✓[/green] No orphaned nodes found")
-            
-            # Clean up any duplicate relationships (if any)
-            console.print("[dim]Checking for duplicate relationships...[/dim]")
-            # Note: This is database-specific and might not work for all backends
             
         console.print("[green]✅ Database cleanup complete![/green]")
     except Exception as e:
@@ -516,13 +569,13 @@ def clean_helper():
         db_manager.close_driver()
 
 
-def stats_helper(path: str = None):
+def stats_helper(path: str = None, context: Optional[str] = None):
     """Show indexing statistics for a repository or overall."""
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, _, code_finder = services
+    db_manager, _, code_finder, ctx = services
     
     try:
         if path:
@@ -604,7 +657,7 @@ def stats_helper(path: str = None):
         db_manager.close_driver()
 
 
-def watch_helper(path: str):
+def watch_helper(path: str, context: Optional[str] = None):
     """Watch a directory for changes and auto-update the graph (blocking mode)."""
     import logging
     from ..core.watcher import CodeWatcher
@@ -614,11 +667,11 @@ def watch_helper(path: str):
     logging.getLogger('watchdog.observers').setLevel(logging.WARNING)
     logging.getLogger('watchdog.observers.inotify_buffer').setLevel(logging.WARNING)
     
-    services = _initialize_services()
-    if not all(services):
+    services = _initialize_services(context)
+    if not all(services[:3]):
         return
 
-    db_manager, graph_builder, code_finder = services
+    db_manager, graph_builder, code_finder, ctx = services
     path_obj = Path(path).resolve()
 
     if not path_obj.exists():
@@ -633,9 +686,29 @@ def watch_helper(path: str):
 
     console.print(f"[bold cyan]🔍 Watching {path_obj} for changes...[/bold cyan]")
     
-    # Check if already indexed
+    # Check if already indexed — use File node count as a robust fallback so a
+    # transient empty result from list_indexed_repositories never triggers a
+    # destructive full rescan of an already-populated graph.
     indexed_repos = code_finder.list_indexed_repositories()
-    is_indexed = any(Path(repo["path"]).resolve() == path_obj for repo in indexed_repos)
+    is_indexed = any_repo_matches_path(indexed_repos, path_obj)
+    if not is_indexed:
+        # Fallback: count File nodes whose path starts with this repo's path.
+        # If > 100 exist, the repo is clearly already indexed — skip the scan.
+        try:
+            with code_finder.driver.session() as _s:
+                _r = _s.run(
+                    "MATCH (n:File) WHERE n.path STARTS WITH $p RETURN count(n) AS c",
+                    p=str(path_obj) + "/"
+                )
+                _count = _r.single()["c"]
+            if _count > 100:
+                info_logger(
+                    f"[watch] list_indexed_repositories returned no match for {path_obj} "
+                    f"but {_count} File nodes exist — treating as already indexed."
+                )
+                is_indexed = True
+        except Exception as _e:
+            warning_logger(f"[watch] Fallback indexed check failed: {_e}")
     
     # Create watcher instance
     job_manager = JobManager()
@@ -648,19 +721,31 @@ def watch_helper(path: str):
         # Add the directory to watch
         if is_indexed:
             console.print("[green]✓[/green] Already indexed (no initial scan needed)")
-            watcher.watch_directory(str(path_obj), perform_initial_scan=False)
+            watcher.watch_directory(
+                str(path_obj),
+                perform_initial_scan=False,
+                cgcignore_path=ctx.cgcignore_path,
+            )
         else:
             console.print("[yellow]⚠[/yellow]  Not indexed yet. Performing initial scan...")
             
             # Index the repository first (like MCP does)
             async def do_index():
-                await graph_builder.build_graph_from_path_async(path_obj, is_dependency=False)
+                await graph_builder.build_graph_from_path_async(
+                    path_obj,
+                    is_dependency=False,
+                    cgcignore_path=ctx.cgcignore_path,
+                )
             
             asyncio.run(do_index())
             console.print("[green]✓[/green] Initial scan complete")
             
             # Now start watching (without another scan)
-            watcher.watch_directory(str(path_obj), perform_initial_scan=False)
+            watcher.watch_directory(
+                str(path_obj),
+                perform_initial_scan=False,
+                cgcignore_path=ctx.cgcignore_path,
+            )
         
         console.print("[bold green]👀 Monitoring for file changes...[/bold green] (Press Ctrl+C to stop)")
         console.print("[dim]💡 Tip: Open a new terminal window to continue working[/dim]\n")
