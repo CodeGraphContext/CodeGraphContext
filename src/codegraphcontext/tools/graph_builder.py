@@ -3,6 +3,7 @@
 """Facade for graph indexing; implementation lives in indexing/."""
 
 import asyncio
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -13,6 +14,7 @@ from ..core.jobs import JobManager, JobStatus
 from ..utils.debug_log import debug_log, error_logger, info_logger, warning_logger
 from .indexing.constants import DEFAULT_IGNORE_PATTERNS
 from .indexing.persistence.writer import GraphWriter
+from .indexing import profiling
 from .indexing.pipeline import run_tree_sitter_index_async
 from .indexing.pre_scan import pre_scan_for_imports
 from .indexing.resolution.calls import build_function_call_groups, resolve_function_call
@@ -67,7 +69,6 @@ class GraphBuilder:
             ".html": "html",
             ".css": "css",
         }
-        
         # Files that should be added to the graph as minimal File nodes, even if not parsed
         self.generic_extensions = {
             ".toml", ".sh", ".yaml", ".yml", ".json", ".ini", ".cfg", ".md", ".txt", ".env",
@@ -76,8 +77,7 @@ class GraphBuilder:
         self.generic_filenames = {
             "Dockerfile", "Makefile"
         }
-        
-        self._parsed_cache = {}
+        self._parsed_cache: Dict[Tuple[str, int], TreeSitterParser] = {}
         self.create_schema()
 
     def get_parser(self, extension: str) -> Optional[TreeSitterParser]:
@@ -86,15 +86,17 @@ class GraphBuilder:
         if not lang_name:
             return None
 
-        if lang_name not in self._parsed_cache:
+        cache_key = (lang_name, threading.get_ident())
+        if cache_key not in self._parsed_cache:
             try:
-                self._parsed_cache[lang_name] = TreeSitterParser(lang_name)
+                self._parsed_cache[cache_key] = TreeSitterParser(lang_name)
             except Exception as e:
                 warning_logger(f"Failed to initialize parser for {lang_name}: {e}")
                 return None
-        return self._parsed_cache[lang_name]
+        return self._parsed_cache[cache_key]
 
     def create_schema(self) -> None:
+        profiling.set_phase("schema")
         create_graph_schema(self.driver, self.db_manager)
 
     _MAX_STR_LEN = MAX_STR_LEN
@@ -118,7 +120,7 @@ class GraphBuilder:
 
     def pre_scan_imports(self, files: list[Path]) -> dict:
         """Build global imports_map from language pre-scans (public API for watchers/pipeline)."""
-        return pre_scan_for_imports(files, self.parsers, self.get_parser)
+        return pre_scan_for_imports(files, self.parsers.keys(), self.get_parser, parsers_map=self.parsers)
 
     def _pre_scan_for_imports(self, files: list[Path]) -> dict:
         return self.pre_scan_imports(files)
@@ -126,10 +128,25 @@ class GraphBuilder:
     def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
         self._writer.add_repository_to_graph(repo_path, is_dependency)
 
+    def pre_create_directory_structure(self, file_paths: list, repo_path: Path) -> None:
+        self._writer.pre_create_directory_structure(file_paths, repo_path)
+
+    def pre_create_module_nodes(self, all_file_data: list) -> None:
+        self._writer.pre_create_module_nodes(all_file_data)
+
     def add_file_to_graph(
-        self, file_data: Dict, repo_name: str, imports_map: dict, repo_path_str: str = None
+        self,
+        file_data: Dict,
+        repo_name: str,
+        imports_map: dict,
+        repo_path_str: str = None,
+        directories_pre_created: bool = False,
     ) -> None:
-        self._writer.add_file_to_graph(file_data, repo_name, imports_map, repo_path_str=repo_path_str)
+        self._writer.add_file_to_graph(
+            file_data, repo_name, imports_map,
+            repo_path_str=repo_path_str,
+            directories_pre_created=directories_pre_created,
+        )
 
     def link_function_calls(
         self,

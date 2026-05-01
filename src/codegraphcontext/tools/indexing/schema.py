@@ -34,6 +34,9 @@ def create_graph_schema(driver: Any, db_manager: Any) -> None:
             session.run(
                 "CREATE CONSTRAINT variable_unique IF NOT EXISTS FOR (v:Variable) REQUIRE (v.name, v.path, v.line_number) IS UNIQUE"
             )
+            session.run(
+                "CREATE CONSTRAINT parameter_unique IF NOT EXISTS FOR (p:Parameter) REQUIRE (p.name, p.path, p.function_line_number) IS UNIQUE"
+            )
             session.run("CREATE CONSTRAINT module_name IF NOT EXISTS FOR (m:Module) REQUIRE m.name IS UNIQUE")
             session.run(
                 "CREATE CONSTRAINT struct_cpp IF NOT EXISTS FOR (cstruct: Struct) REQUIRE (cstruct.name, cstruct.path, cstruct.line_number) IS UNIQUE"
@@ -58,8 +61,18 @@ def create_graph_schema(driver: Any, db_manager: Any) -> None:
             session.run("CREATE INDEX class_lang IF NOT EXISTS FOR (c:Class) ON (c.lang)")
             session.run("CREATE INDEX annotation_lang IF NOT EXISTS FOR (a:Annotation) ON (a.lang)")
 
-            backend_type = getattr(db_manager, "get_backend_type", lambda: "neo4j")()
-            if backend_type == "falkordb":
+            # Covering indexes for CALLS/INHERITS lookups that match on (name, path) without
+            # line_number — a composite unique constraint on (name, path, line_number) is used as
+            # a prefix scan, but a dedicated 2-column index is faster for these hot paths.
+            session.run(
+                "CREATE INDEX function_name_path IF NOT EXISTS FOR (f:Function) ON (f.name, f.path)"
+            )
+            session.run(
+                "CREATE INDEX class_name_path IF NOT EXISTS FOR (c:Class) ON (c.name, c.path)"
+            )
+
+            is_falkordb = getattr(db_manager, "get_backend_type", lambda: "neo4j")() != "neo4j"
+            if is_falkordb:
                 for label in ["Function", "Class"]:
                     try:
                         session.run(
