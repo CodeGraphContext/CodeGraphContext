@@ -307,7 +307,7 @@ def test_cli_inventory_grouped_from_source():
 
     assert {"root", "mcp", "neo4j", "config", "bundle", "registry", "find", "analyze"}.issubset(set(inventory.keys()))
     assert inventory["mcp"] == {"setup", "start", "tools"}
-    assert inventory["neo4j"] == {"setup"}
+    assert inventory["neo4j"] == {"setup", "tune"}
     assert inventory["config"] == {"show", "set", "reset", "db"}
     assert inventory["bundle"] == {"export", "import", "load"}
     assert inventory["registry"] == {"list", "search", "download", "request"}
@@ -326,6 +326,7 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
         ["mcp", "start"],
         ["mcp", "tools"],
         ["neo4j", "setup"],
+        ["neo4j", "tune", "--dry-run"],
         ["config", "show"],
         ["config", "set", "MAX_FILE_SIZE_MB", "11"],
         ["config", "reset"],
