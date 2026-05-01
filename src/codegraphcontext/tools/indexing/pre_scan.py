@@ -1,7 +1,11 @@
 """Build global imports_map via language-specific pre-scan (registry dispatch)."""
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+
+from ..tree_sitter_parser import TreeSitterParser
+from .worker_config import resolve_parallel_workers
 
 # (extension -> callable(files, get_parser_for_ext) -> dict updates)
 _PreScanFn = Callable[[List[Path], Callable[[str], Any]], dict]
@@ -74,6 +78,7 @@ def _register_prescans() -> Dict[str, _PreScanFn]:
 
 
 _PRESCAN_REGISTRY: Optional[Dict[str, _PreScanFn]] = None
+_WORKER_PARSER_CACHE: Dict[str, TreeSitterParser] = {}
 
 
 def _get_registry() -> Dict[str, _PreScanFn]:
@@ -83,10 +88,38 @@ def _get_registry() -> Dict[str, _PreScanFn]:
     return _PRESCAN_REGISTRY
 
 
+def _worker_get_parser(ext: str, parsers_map: Dict[str, str]) -> Optional[TreeSitterParser]:
+    lang_name = parsers_map.get(ext)
+    if not lang_name:
+        return None
+    parser = _WORKER_PARSER_CACHE.get(lang_name)
+    if parser is None:
+        parser = TreeSitterParser(lang_name)
+        _WORKER_PARSER_CACHE[lang_name] = parser
+    return parser
+
+
+def _process_prescan_chunk(task: tuple[str, int, List[str], Dict[str, str]]) -> tuple[str, int, dict]:
+    ext, chunk_idx, file_paths, parsers_map = task
+    scanner = _get_registry().get(ext)
+    if not scanner:
+        return ext, chunk_idx, {}
+
+    parser = _worker_get_parser(ext, parsers_map)
+    if parser is None:
+        return ext, chunk_idx, {}
+
+    files = [Path(path) for path in file_paths]
+    result = scanner(files, lambda _ext: parser)
+    return ext, chunk_idx, result
+
+
 def pre_scan_for_imports(
     files: List[Path],
     parsers_keys: Any,
     get_parser: Callable[[str], Any],
+    parsers_map: Optional[Dict[str, str]] = None,
+    executor: Optional[ProcessPoolExecutor] = None,
 ) -> dict:
     """Dispatch pre-scan by file extension; *parsers_keys* is the set of supported extensions (e.g. graph_builder.parsers.keys())."""
     imports_map: dict = {}
@@ -96,10 +129,44 @@ def pre_scan_for_imports(
             ext = file.suffix
             files_by_ext.setdefault(ext, []).append(file)
 
+    parallel_workers = resolve_parallel_workers()
+
     registry = _get_registry()
-    for ext, file_list in files_by_ext.items():
-        scanner = registry.get(ext)
-        if scanner:
-            imports_map.update(scanner(file_list, get_parser))
+    if parallel_workers == 1 or not parsers_map:
+        for ext, file_list in files_by_ext.items():
+            scanner = registry.get(ext)
+            if scanner:
+                imports_map.update(scanner(file_list, get_parser))
+        return imports_map
+
+    manage_executor = executor is None
+    process_pool = executor or ProcessPoolExecutor(max_workers=parallel_workers)
+    try:
+        futures = {}
+        for ext, file_list in files_by_ext.items():
+            if ext not in registry:
+                continue
+            chunk_size = max(1, len(file_list) // parallel_workers)
+            chunks = [file_list[i : i + chunk_size] for i in range(0, len(file_list), chunk_size)]
+            for idx, chunk in enumerate(chunks):
+                task = (ext, idx, [str(path) for path in chunk], parsers_map)
+                future = process_pool.submit(_process_prescan_chunk, task)
+                futures[future] = (ext, idx)
+
+        ordered_results: Dict[str, Dict[int, dict]] = {}
+        for future in as_completed(futures):
+            ext, idx = futures[future]
+            result_ext, result_idx, result = future.result()
+            ext = result_ext if result_ext else ext
+            idx = result_idx if result_idx is not None else idx
+            ordered_results.setdefault(ext, {})[idx] = result
+    finally:
+        if manage_executor:
+            process_pool.shutdown(wait=True)
+
+    for ext in sorted(ordered_results.keys()):
+        per_ext = ordered_results[ext]
+        for idx in sorted(per_ext.keys()):
+            imports_map.update(per_ext[idx])
 
     return imports_map
