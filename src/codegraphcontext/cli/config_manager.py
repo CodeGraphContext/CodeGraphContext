@@ -19,11 +19,16 @@ CONFIG_DIR = Path.home() / ".codegraphcontext"
 CONFIG_FILE = CONFIG_DIR / ".env"
 
 # Database credential keys (stored in same .env file but not managed as config)
-DATABASE_CREDENTIAL_KEYS = {"NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE"}
+DATABASE_CREDENTIAL_KEYS = {
+    "NEO4J_URI",
+    "NEO4J_USERNAME",
+    "NEO4J_PASSWORD",
+    "NEO4J_DATABASE",
+}
 
 # Default configuration values
 DEFAULT_CONFIG = {
-    "DEFAULT_DATABASE": "falkordb",
+    "DEFAULT_DATABASE": "neo4j",
     "FALKORDB_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb"),
     "FALKORDB_SOCKET_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb.sock"),
     "INDEX_VARIABLES": "true",
@@ -39,7 +44,7 @@ DEFAULT_CONFIG = {
     "ENABLE_AUTO_WATCH": "false",
     "COMPLEXITY_THRESHOLD": "10",
     "MAX_DEPTH": "unlimited",
-    "PARALLEL_WORKERS": "4",
+    "PARALLEL_WORKERS": "auto",
     "CACHE_ENABLED": "true",
     "IGNORE_DIRS": "node_modules,venv,.venv,env,.env,dist,build,target,out,.git,.idea,.vscode,__pycache__",
     "INDEX_SOURCE": "true",
@@ -51,7 +56,7 @@ DEFAULT_CONFIG = {
 
 # Configuration key descriptions
 CONFIG_DESCRIPTIONS = {
-    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|kuzudb)",
+    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|falkordb-remote|kuzudb)",
     "FALKORDB_PATH": "Path to FalkorDB database file",
     "FALKORDB_SOCKET_PATH": "Path to FalkorDB Unix socket",
     "INDEX_VARIABLES": "Index variable nodes in the graph (lighter graph if false)",
@@ -67,7 +72,7 @@ CONFIG_DESCRIPTIONS = {
     "ENABLE_AUTO_WATCH": "Automatically watch directory after indexing",
     "COMPLEXITY_THRESHOLD": "Cyclomatic complexity warning threshold",
     "MAX_DEPTH": "Maximum directory depth for indexing (unlimited or number)",
-    "PARALLEL_WORKERS": "Number of parallel indexing workers",
+    "PARALLEL_WORKERS": "Parallel indexing workers (auto uses CPU count minus 2)",
     "CACHE_ENABLED": "Enable caching for faster re-indexing",
     "IGNORE_DIRS": "Comma-separated list of directory names to ignore during indexing",
     "INDEX_SOURCE": "Store full source code in graph database (for faster indexing use false, for better performance use true)",
@@ -336,12 +341,14 @@ def validate_config_value(key: str, value: str) -> tuple[bool, Optional[str]]:
             return False, "COMPLEXITY_THRESHOLD must be a number"
     
     if key == "PARALLEL_WORKERS":
+        if value.lower() == "auto":
+            return True, None
         try:
             workers = int(value)
-            if workers <= 0 or workers > 32:
-                return False, "PARALLEL_WORKERS must be between 1 and 32"
+            if workers <= 0:
+                return False, "PARALLEL_WORKERS must be a positive number or 'auto'"
         except ValueError:
-            return False, "PARALLEL_WORKERS must be a number"
+            return False, "PARALLEL_WORKERS must be a number or 'auto'"
     
     if key == "MAX_DEPTH":
         if value.lower() != "unlimited":

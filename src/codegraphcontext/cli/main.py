@@ -24,6 +24,11 @@ from importlib.metadata import version as pkg_version, PackageNotFoundError
 from codegraphcontext.server import MCPServer
 from codegraphcontext.core.database import DatabaseManager
 from .setup_wizard import run_neo4j_setup_wizard, configure_mcp_client
+from .neo4j_tuning import (
+    apply_neo4j_memory_tuning,
+    detect_neo4j_conf_path,
+    detect_neo4j_memory_settings,
+)
 from . import config_manager
 # Import the new helper functions
 from .cli_helpers import (
@@ -205,6 +210,66 @@ def neo4j_setup():
     console.print("Configure Neo4j database connection for CodeGraphContext.\n")
     run_neo4j_setup_wizard()
 
+
+@neo4j_app.command("tune")
+def neo4j_tune(
+    apply: bool = typer.Option(
+        True,
+        "--apply/--dry-run",
+        help="Apply settings to neo4j.conf (default) or print recommendations only.",
+    ),
+    conf_path: Optional[str] = typer.Option(
+        None,
+        "--conf-path",
+        help="Path to neo4j.conf. Auto-detected when omitted.",
+    ),
+):
+    """
+    Auto-detect and apply Neo4j memory tuning for the local machine.
+    """
+    settings = detect_neo4j_memory_settings()
+    target_path = Path(conf_path) if conf_path else detect_neo4j_conf_path()
+
+    console.print("\n[bold cyan]Neo4j Auto-Tuning[/bold cyan]")
+    for key, value in settings.items():
+        console.print(f"[green]{key}[/green] = [bold]{value}[/bold]")
+
+    if not apply:
+        if target_path:
+            console.print(f"\n[cyan]Detected neo4j.conf:[/cyan] {target_path}")
+        else:
+            console.print(
+                "\n[yellow]neo4j.conf was not auto-detected. "
+                "Use --conf-path to apply settings.[/yellow]"
+            )
+        return
+
+    if not target_path:
+        console.print(
+            "\n[red]Could not auto-detect neo4j.conf.[/red] "
+            "Run with --conf-path /path/to/neo4j.conf"
+        )
+        raise typer.Exit(code=1)
+
+    if not target_path.exists():
+        console.print(f"\n[red]neo4j.conf not found:[/red] {target_path}")
+        raise typer.Exit(code=1)
+
+    try:
+        backup_path, applied = apply_neo4j_memory_tuning(target_path, settings)
+    except PermissionError:
+        console.print(
+            f"\n[red]Permission denied writing:[/red] {target_path}\n"
+            "[yellow]Re-run with elevated permissions or writable config path.[/yellow]"
+        )
+        raise typer.Exit(code=1)
+
+    console.print(f"\n[green]Updated:[/green] {target_path}")
+    console.print(f"[green]Backup:[/green] {backup_path}")
+    for key, value in applied.items():
+        console.print(f"[dim]{key}={value}[/dim]")
+    console.print("\n[yellow]Restart Neo4j for changes to take effect.[/yellow]")
+
 # Abbreviation for neo4j setup
 @app.command("n", rich_help_panel="Shortcuts")
 def neo4j_setup_alias():
@@ -348,14 +413,14 @@ def _load_credentials():
         merged_config.update(config)
     
     # Apply merged config to environment.
-    # IMPORTANT: DB-selection keys set in the shell must win over .env defaults.
-    # E.g. `DEFAULT_DATABASE=falkordb cgc index …` must not be overridden by
-    # DEFAULT_DATABASE=neo4j sitting in ~/.codegraphcontext/.env
-    DB_OVERRIDE_KEYS = {"CGC_RUNTIME_DB_TYPE", "DEFAULT_DATABASE"}
+    # IMPORTANT: shell-provided keys must win over .env defaults for runtime tuning.
+    # Example: `PARALLEL_WORKERS=8 cgc index ...` must not be overridden by
+    # PARALLEL_WORKERS from ~/.codegraphcontext/.env.
+    SHELL_OVERRIDE_KEYS = {"CGC_RUNTIME_DB_TYPE", "DEFAULT_DATABASE", "PARALLEL_WORKERS"}
     for key, value in merged_config.items():
         if value is not None:  # Only set non-None values
-            # Never let .env clobber a DB-type key that the user already set in the shell
-            if key in DB_OVERRIDE_KEYS and key in os.environ:
+            # Never let .env clobber explicitly provided shell values
+            if key in SHELL_OVERRIDE_KEYS and key in os.environ:
                 continue
             os.environ[key] = str(value)
     
