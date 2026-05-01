@@ -6,6 +6,7 @@ from pathlib import Path
 import time
 import os
 from typing import Optional, List, Dict, Any
+import typer
 from rich.console import Console
 from rich.table import Table
 from rich.progress import (
@@ -22,12 +23,31 @@ from ..core import get_database_manager
 from ..core.jobs import JobManager
 from ..tools.code_finder import CodeFinder
 from ..tools.graph_builder import GraphBuilder
+from ..tools.indexing import profiling
 from ..tools.package_resolver import get_local_package_path
 from ..utils.debug_log import info_logger, warning_logger
 from ..utils.repo_path import any_repo_matches_path
 from .config_manager import resolve_context, ResolvedContext, register_repo_in_context, ensure_first_run_bootstrap
 
 console = Console()
+
+
+def _profile_mode_from_env() -> str:
+    return "default"
+
+
+def _write_profiling_metrics() -> Optional[Path]:
+    if not profiling.is_enabled():
+        return None
+    output = os.getenv("CGC_PROFILING_OUTPUT")
+    if output:
+        out_path = Path(output).resolve()
+    else:
+        out_path = Path.cwd() / "profiling_metrics.json"
+    profiling.dump_snapshot(out_path)
+    console.print(f"[dim]Profiling metrics written: {out_path}[/dim]")
+    print(f"PROFILING_JSON={out_path}")
+    return out_path
 
 
 def _initialize_services(cli_context_flag: Optional[str] = None) -> tuple[Any, Any, Any, ResolvedContext]:
@@ -205,6 +225,7 @@ def index_helper(path: str, context: Optional[str] = None):
     if context and ctx.mode == "named":
         register_repo_in_context(context, str(path_obj), auto_create=True)
 
+    profiling.reset_run(backend=ctx.database, mode=_profile_mode_from_env())
     console.print(f"Starting indexing for: {path_obj}")
 
     try:
@@ -227,7 +248,9 @@ def index_helper(path: str, context: Optional[str] = None):
             
     except Exception as e:
         console.print(f"[bold red]An error occurred during indexing:[/bold red] {e}")
+        raise typer.Exit(code=1)
     finally:
+        _write_profiling_metrics()
         db_manager.close_driver()
 
 
@@ -503,6 +526,7 @@ def reindex_helper(path: str, context: Optional[str] = None):
             return
     
     console.print(f"[cyan]Re-indexing: {path_obj}[/cyan]")
+    profiling.reset_run(backend=ctx.database, mode=_profile_mode_from_env())
     
     try:
         asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
@@ -511,7 +535,9 @@ def reindex_helper(path: str, context: Optional[str] = None):
         console.print(f"[green]Successfully re-indexed: {path} in {elapsed:.2f} seconds[/green]")
     except Exception as e:
         console.print(f"[bold red]An error occurred during re-indexing:[/bold red] {e}")
+        raise typer.Exit(code=1)
     finally:
+        _write_profiling_metrics()
         db_manager.close_driver()
 
 
