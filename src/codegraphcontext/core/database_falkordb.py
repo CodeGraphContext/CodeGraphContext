@@ -356,6 +356,12 @@ class FalkorDBSessionWrapper:
         """
         Execute a Cypher query on FalkorDB.
         """
+        try:
+            from ..tools.indexing import profiling
+
+            profiling.record_session_run(query, parameters)
+        except Exception:
+            pass
         # Translate Neo4j schema queries to FalkorDB syntax
         query = self._translate_schema_query(query)
         
