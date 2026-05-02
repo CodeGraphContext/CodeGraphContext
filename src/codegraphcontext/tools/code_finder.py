@@ -57,7 +57,7 @@ class CodeFinder:
                 MATCH (node:{find_by})
                 WHERE {name_filter} {repo_filter}
                 RETURN node.name as name, node.path as path, node.line_number as line_number,
-                    node.source as source, node.docstring as docstring, node.is_dependency as is_dependency
+                    node.docstring as docstring, node.is_dependency as is_dependency
                 ORDER BY node.is_dependency ASC, node.name
                 LIMIT 20
             """
@@ -66,7 +66,7 @@ class CodeFinder:
                 WITH node, score
                 WHERE node:{find_by} {'AND node.name CONTAINS $search_term' if not fuzzy_search else ''} {repo_filter}
                 RETURN node.name as name, node.path as path, node.line_number as line_number,
-                    node.source as source, node.docstring as docstring, node.is_dependency as is_dependency
+                    node.docstring as docstring, node.is_dependency as is_dependency
                 ORDER BY score DESC
                 LIMIT 20
             """
@@ -93,15 +93,17 @@ class CodeFinder:
         params: Dict[str, Any] = {}
         if repo_path:
             params["repo_path"] = repo_path
-        query = f"""
+        # Scan query omits source/docstring — fetching those for up to 20 000 rows
+        # is extremely wasteful since scoring only needs node names.
+        scan_query = f"""
             MATCH (node:{label})
             {where_clause}
             RETURN node.name as name, node.path as path, node.line_number as line_number,
-                node.source as source, node.docstring as docstring, node.is_dependency as is_dependency
+                node.is_dependency as is_dependency
             {limit_tail}
         """
         with self.driver.session() as session:
-            rows = session.run(query, **params).data()
+            rows = session.run(scan_query, **params).data()
 
         # Two query forms:
         #   q_raw  – lowercased original (e.g. "myFuncton" → "myfuncton")
@@ -126,7 +128,30 @@ class CodeFinder:
             if d <= edit_distance:
                 scored.append((d, row))
         scored.sort(key=lambda x: x[0])
-        return [r for _, r in scored[:20]]
+
+        matched = [r for _, r in scored[:20]]
+        if not matched:
+            return matched
+
+        # Second pass: fetch docstring for only the matched candidates.
+        matched_names = [r["name"] for r in matched]
+        matched_paths = [r["path"] for r in matched if r.get("path")]
+        with self.driver.session() as session:
+            detail_rows = session.run(
+                f"""
+                MATCH (node:{label})
+                WHERE node.name IN $names AND node.path IN $paths
+                RETURN node.name as name, node.path as path, node.line_number as line_number,
+                    node.docstring as docstring, node.is_dependency as is_dependency
+                """,
+                names=matched_names,
+                paths=matched_paths,
+            ).data()
+        detail_index = {(r["name"], r["path"]): r for r in detail_rows}
+        return [
+            detail_index.get((r["name"], r.get("path")), r)
+            for r in matched
+        ]
 
     def find_by_function_name(
         self,
@@ -142,7 +167,7 @@ class CodeFinder:
                     MATCH (node:Function {{name: $name}})
                     {"WHERE node.path STARTS WITH $repo_path" if repo_path else ""}
                     RETURN node.name as name, node.path as path, node.line_number as line_number,
-                           node.source as source, node.docstring as docstring, node.is_dependency as is_dependency
+                           node.docstring as docstring, node.is_dependency as is_dependency
                     LIMIT 20
                 """, name=search_term, repo_path=repo_path)
                 return result.data()
@@ -175,7 +200,7 @@ class CodeFinder:
                     MATCH (node:Class {{name: $name}})
                     {"WHERE node.path STARTS WITH $repo_path" if repo_path else ""}
                     RETURN node.name as name, node.path as path, node.line_number as line_number,
-                           node.source as source, node.docstring as docstring, node.is_dependency as is_dependency
+                           node.docstring as docstring, node.is_dependency as is_dependency
                     LIMIT 20
                 """, name=search_term, repo_path=repo_path)
                 return result.data()
@@ -225,7 +250,7 @@ class CodeFinder:
                         ELSE 'variable'
                     END as type,
                     node.name as name, f.path as path,
-                    node.line_number as line_number, node.source as source,
+                    node.line_number as line_number,
                     node.docstring as docstring, node.is_dependency as is_dependency
                 ORDER BY score DESC
                 LIMIT 20
@@ -250,7 +275,7 @@ class CodeFinder:
                         RETURN
                             '{type_name}' as type,
                             node.name as name, node.path as path,
-                            node.line_number as line_number, node.source as source,
+                            node.line_number as line_number,
                             node.docstring as docstring, node.is_dependency as is_dependency
                         ORDER BY node.is_dependency ASC, node.name
                         LIMIT 20
