@@ -28,7 +28,7 @@ TOOLS = {
     },
     "find_code": {
         "name": "find_code",
-        "description": "Find relevant code snippets related to a keyword (e.g., function name, class name, or content).",
+        "description": "Find relevant code symbols (functions, classes, variables) by name or content keyword. Returns metadata: name, file path, line number, and docstring. Use execute_cypher_query to fetch full source for specific results.",
         "inputSchema": {
             "type": "object",
             "properties": { "query": {"type": "string", "description": "Keyword or phrase to search for"}, "fuzzy_search": {"type": "boolean", "description": "Whether to use fuzzy search", "default": False}, "edit_distance": {"type": "number", "description": "Edit distance for fuzzy search (between 0-2)", "default": 2}, "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}}, 
