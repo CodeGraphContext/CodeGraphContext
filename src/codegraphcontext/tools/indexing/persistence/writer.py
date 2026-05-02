@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
+import random
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from ....utils.debug_log import info_logger, warning_logger
 from ....utils.git_utils import get_repo_commit_hash
 from ..sanitize import sanitize_props
+from .. import profiling
 
 
 class GraphWriter:
@@ -17,6 +21,158 @@ class GraphWriter:
 
     def __init__(self, driver: Any):
         self.driver = driver
+
+    @staticmethod
+    def _chunk_items(items: List[Dict], chunk_size: int):
+        for i in range(0, len(items), chunk_size):
+            yield items[i : i + chunk_size]
+
+    @staticmethod
+    def _adaptive_batch_size(total_items: int, base: int, minimum: int, maximum: int) -> int:
+        if total_items <= base * 4:
+            return max(minimum, base)
+        if total_items <= 50000:
+            return min(maximum, base * 2)
+        if total_items <= 200000:
+            return min(maximum, base * 4)
+        return maximum
+
+    @staticmethod
+    @staticmethod
+    def _is_oom_error(exc: Exception) -> bool:
+        return "MemoryPoolOutOfMemoryError" in str(exc)
+
+    @staticmethod
+    def _is_retryable_write_error(exc: Exception) -> bool:
+        msg = str(exc)
+        if "MemoryPoolOutOfMemoryError" in msg:
+            return False  # OOM needs batch reduction, not same-batch retry
+        return "TransientError" in msg or "DeadlockDetected" in msg
+
+    def _run_with_deadlock_retry(
+        self,
+        session: Any,
+        query: str,
+        max_attempts: int = 6,
+        **parameters: Any,
+    ) -> None:
+        """session.run() with exponential-backoff retry on transient Neo4j deadlocks."""
+        attempt = 0
+        while True:
+            try:
+                self._run_and_maybe_consume(session, query, **parameters)
+                return
+            except Exception as e:
+                if not self._is_retryable_write_error(e) or attempt >= max_attempts:
+                    raise
+                attempt += 1
+                time.sleep((0.05 * (2**attempt)) + random.uniform(0.01, 0.20))
+
+    @staticmethod
+    def _run_and_maybe_consume(session: Any, query: str, **parameters: Any) -> None:
+        """
+        Execute a write query and consume when the driver result supports it.
+
+        Some unit-test fakes return lightweight result objects without `consume()`;
+        production drivers expose it.
+        """
+        result = session.run(query, **parameters)
+        consume = getattr(result, "consume", None)
+        if callable(consume):
+            consume()
+
+    @staticmethod
+    def _resolve_neo4j_worker_count(
+        *, configured: Optional[str], default_auto: int, min_workers: int, max_workers: int
+    ) -> int:
+        raw = (configured or "auto").strip().lower()
+        if raw == "auto":
+            base = max(1, default_auto)
+        else:
+            try:
+                base = max(1, int(raw))
+            except ValueError:
+                base = max(1, default_auto)
+        return max(min_workers, min(max_workers, base))
+
+    def _neo4j_rel_write_workers(self) -> int:
+        """Bounded concurrent transaction workers for Neo4j relationship writes."""
+        backend = (os.getenv("CGC_RUNTIME_DB_TYPE") or os.getenv("DEFAULT_DATABASE") or "").strip().lower()
+        if backend != "neo4j":
+            return 1
+        configured = (
+            os.getenv("CGC_NEO4J_REL_WRITE_WORKERS")
+            or os.getenv("NEO4J_REL_WRITE_WORKERS")
+            or os.getenv("PARALLEL_WORKERS")
+        )
+        max_cap = os.getenv("CGC_NEO4J_REL_WRITE_WORKERS_MAX") or "12"
+        try:
+            max_workers = max(2, int(max_cap))
+        except ValueError:
+            max_workers = 12
+        min_workers = 1 if (configured or "").strip() == "1" else 2
+        return self._resolve_neo4j_worker_count(
+            configured=configured,
+            default_auto=max(1, (os.cpu_count() or 4) - 2),
+            min_workers=min_workers,
+            max_workers=max_workers,
+        )
+
+    def _batched_unwind_write(
+        self,
+        session: Any,
+        query: str,
+        batch: List[Dict[str, Any]],
+        *,
+        file_path: str,
+        base: int,
+        minimum: int,
+        maximum: int,
+    ) -> None:
+        if not batch:
+            return
+        batch_size = self._adaptive_batch_size(len(batch), base=base, minimum=minimum, maximum=maximum)
+        for chunk in self._chunk_items(batch, batch_size):
+            self._run_with_deadlock_retry(session, query, batch=chunk, file_path=file_path)
+
+    @staticmethod
+    def _calls_batch_size_params(label: str) -> Tuple[int, int, int]:
+        # Reduced maximums vs. earlier defaults to stay within Neo4j transaction memory limits
+        # under concurrent write workers (8 workers × large batches can exceed 1 GB tx pool).
+        if label.startswith("file→"):
+            return 700, 300, 1500
+        if label.startswith("cls→"):
+            return 900, 400, 2500
+        return 1200, 500, 3000
+
+    def _write_calls_group(self, label: str, calls: List[Dict], query: str, batch_size: int) -> Tuple[str, int, float]:
+        profiling.set_phase("function_calls")
+        t0 = time.time()
+        with self.driver.session() as session:
+            i = 0
+            current_batch_size = batch_size
+            while i < len(calls):
+                batch = calls[i : i + current_batch_size]
+                attempt = 0
+                while True:
+                    try:
+                        self._run_and_maybe_consume(session, query, batch=batch)
+                        i += len(batch)
+                        break
+                    except Exception as e:
+                        if self._is_oom_error(e) and current_batch_size > 50:
+                            # Transaction memory exhausted — halve batch size and retry this slice.
+                            profiling.record_oom_retry()
+                            current_batch_size = max(50, current_batch_size // 2)
+                            batch = calls[i : i + current_batch_size]
+                            attempt = 0
+                        elif not self._is_retryable_write_error(e) or attempt >= 8:
+                            raise
+                        else:
+                            profiling.record_deadlock_retry()
+                            attempt += 1
+                            time.sleep((0.05 * (2**attempt)) + random.uniform(0.01, 0.20))
+        return label, len(calls), time.time() - t0
 
     def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
         repo_name = repo_path.name
@@ -51,13 +207,137 @@ class GraphWriter:
                     commit_hash=commit_hash,
                 )
 
+    def pre_create_directory_structure(self, file_paths: List[Path], repo_path: Path) -> None:
+        """Bulk-create all Directory nodes + CONTAINS edges before parallel file writes.
+
+        Calling this before any `add_file_to_graph(..., directories_pre_created=True)` calls
+        eliminates concurrent MERGE lock contention on shared parent directories, which is the
+        primary source of Neo4j CPU thrashing under multiple write workers.
+        """
+        repo_path_str = str(repo_path.resolve())
+
+        dir_rows: List[Dict[str, Any]] = []
+        seen: set = set()
+
+        for file_path in file_paths:
+            try:
+                rel = Path(str(file_path.resolve())).relative_to(repo_path_str)
+            except ValueError:
+                continue
+            parts = list(rel.parts[:-1])
+            if not parts:
+                continue
+            prev = repo_path_str
+            is_repo_parent = True
+            for part in parts:
+                current = str(Path(prev) / part)
+                key = (prev, current)
+                if key not in seen:
+                    seen.add(key)
+                    dir_rows.append(
+                        {
+                            "parent_path": prev,
+                            "dir_path": current,
+                            "dir_name": part,
+                            "is_repo_parent": is_repo_parent,
+                        }
+                    )
+                prev = current
+                is_repo_parent = False
+
+        if not dir_rows:
+            return
+
+        chunk_size = self._adaptive_batch_size(len(dir_rows), base=500, minimum=200, maximum=5000)
+        repo_rows = [r for r in dir_rows if r["is_repo_parent"]]
+        dir_dir_rows = [r for r in dir_rows if not r["is_repo_parent"]]
+
+        with self.driver.session() as session:
+            # 1) Create all Directory nodes first (no parent MATCH needed).
+            for chunk in self._chunk_items(dir_rows, chunk_size):
+                self._run_and_maybe_consume(
+                    session,
+                    "UNWIND $batch AS row MERGE (d:Directory {path: row.dir_path}) SET d.name = row.dir_name",
+                    batch=chunk,
+                )
+            # 2) Repository → first-level Directory CONTAINS.
+            for chunk in self._chunk_items(repo_rows, chunk_size):
+                self._run_and_maybe_consume(
+                    session,
+                    """UNWIND $batch AS row
+                    MATCH (p:Repository {path: row.parent_path})
+                    MATCH (d:Directory {path: row.dir_path})
+                    MERGE (p)-[:CONTAINS]->(d)""",
+                    batch=chunk,
+                )
+            # 3) Directory → Directory CONTAINS.
+            for chunk in self._chunk_items(dir_dir_rows, chunk_size):
+                self._run_and_maybe_consume(
+                    session,
+                    """UNWIND $batch AS row
+                    MATCH (p:Directory {path: row.parent_path})
+                    MATCH (d:Directory {path: row.dir_path})
+                    MERGE (p)-[:CONTAINS]->(d)""",
+                    batch=chunk,
+                )
+
+        info_logger(f"[DIRS] Pre-created {len(dir_rows)} directory path entries.")
+
+    def pre_create_module_nodes(self, all_file_data: List[Dict[str, Any]]) -> None:
+        """Bulk-create all Module nodes before parallel file writes.
+
+        Module nodes are shared across files (every file that imports 'os' references the
+        same Module node).  When 4+ workers all race to MERGE Module('os') and then
+        MERGE (:File)-[:IMPORTS]->(:Module) simultaneously, Neo4j generates a lock-order
+        inversion deadlock: one tx holds NODE(module) waiting for REL_GROUP, another holds
+        REL_GROUP waiting for NODE.  Pre-creating the nodes so parallel writes only need
+        to MATCH them eliminates this cycle entirely.
+        """
+        module_names: set = set()
+        for file_data in all_file_data:
+            lang = file_data.get("lang")
+            if lang == "javascript":
+                for imp in file_data.get("imports", []):
+                    src = imp.get("source")
+                    if src:
+                        module_names.add(src)
+            else:
+                for imp in file_data.get("imports", []):
+                    name = imp.get("name")
+                    if name:
+                        module_names.add(name)
+            for inc in file_data.get("module_inclusions", []):
+                mod = inc.get("module")
+                if mod:
+                    module_names.add(mod)
+            for m in file_data.get("modules", []):
+                n = m.get("name")
+                if n:
+                    module_names.add(n)
+
+        if not module_names:
+            return
+
+        rows = [{"name": n} for n in module_names]
+        chunk_size = self._adaptive_batch_size(len(rows), base=500, minimum=200, maximum=5000)
+        with self.driver.session() as session:
+            for chunk in self._chunk_items(rows, chunk_size):
+                self._run_and_maybe_consume(
+                    session,
+                    "UNWIND $batch AS row MERGE (m:Module {name: row.name})",
+                    batch=chunk,
+                )
+        info_logger(f"[MODULES] Pre-created {len(module_names)} module nodes.")
+
     def add_file_to_graph(
         self,
         file_data: Dict[str, Any],
         repo_name: str,
         imports_map: dict,
         repo_path_str: Optional[str] = None,
+        directories_pre_created: bool = False,
     ) -> None:
+        profiling.set_phase("file_writes")
         file_path_str = str(Path(file_data["path"]).resolve())
         file_name = Path(file_path_str).name
         is_dependency = file_data.get("is_dependency", False)
@@ -98,32 +378,78 @@ class GraphWriter:
             file_path_obj = Path(file_path_str)
             repo_path_obj = Path(resolved_repo_str)
             relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
-            parent_path = resolved_repo_str
-            parent_label = "Repository"
-            for part in relative_path_to_file.parts[:-1]:
-                current_path_str = str(Path(parent_path) / part)
+            dir_parts = list(relative_path_to_file.parts[:-1])
+
+            if directories_pre_created:
+                # Directories already exist from pre_create_directory_structure; only
+                # link the file to its immediate parent.
+                if dir_parts:
+                    parent_path = str(Path(resolved_repo_str).joinpath(*dir_parts))
+                    parent_label = "Directory"
+                else:
+                    parent_path = resolved_repo_str
+                    parent_label = "Repository"
+                self._run_with_deadlock_retry(
+                    session,
+                    f"""
+                    MATCH (p:{parent_label} {{path: $parent_path}})
+                    MATCH (f:File {{path: $path}})
+                    MERGE (p)-[:CONTAINS]->(f)
+                """,
+                    parent_path=parent_path,
+                    path=file_path_str,
+                )
+            else:
+                parent_path = resolved_repo_str
+                parent_label = "Repository"
+                if dir_parts:
+                    first_dir_path = str(Path(resolved_repo_str) / dir_parts[0])
+                    session.run(
+                        """
+                        MATCH (p:Repository {path: $repo_path})
+                        MERGE (d:Directory {path: $dir_path})
+                        SET d.name = $dir_name
+                        MERGE (p)-[:CONTAINS]->(d)
+                    """,
+                        repo_path=resolved_repo_str,
+                        dir_path=first_dir_path,
+                        dir_name=dir_parts[0],
+                    )
+                    parent_path = first_dir_path
+                    parent_label = "Directory"
+                    if len(dir_parts) > 1:
+                        directory_rows: List[Dict[str, str]] = []
+                        prev_path = first_dir_path
+                        for part in dir_parts[1:]:
+                            current_path = str(Path(prev_path) / part)
+                            directory_rows.append(
+                                {
+                                    "parent_path": prev_path,
+                                    "current_path": current_path,
+                                    "part": part,
+                                }
+                            )
+                            prev_path = current_path
+                        session.run(
+                            """
+                            UNWIND $rows AS row
+                            MATCH (p:Directory {path: row.parent_path})
+                            MERGE (d:Directory {path: row.current_path})
+                            SET d.name = row.part
+                            MERGE (p)-[:CONTAINS]->(d)
+                        """,
+                            rows=directory_rows,
+                        )
+                        parent_path = prev_path
                 session.run(
                     f"""
                     MATCH (p:{parent_label} {{path: $parent_path}})
-                    MERGE (d:Directory {{path: $current_path}})
-                    SET d.name = $part
-                    MERGE (p)-[:CONTAINS]->(d)
+                    MATCH (f:File {{path: $path}})
+                    MERGE (p)-[:CONTAINS]->(f)
                 """,
                     parent_path=parent_path,
-                    current_path=current_path_str,
-                    part=part,
+                    path=file_path_str,
                 )
-                parent_path = current_path_str
-                parent_label = "Directory"
-            session.run(
-                f"""
-                MATCH (p:{parent_label} {{path: $parent_path}})
-                MATCH (f:File {{path: $path}})
-                MERGE (p)-[:CONTAINS]->(f)
-            """,
-                parent_path=parent_path,
-                path=file_path_str,
-            )
 
             item_mappings = [
                 (file_data.get("functions", []), "Function"),
@@ -228,65 +554,76 @@ class GraphWriter:
                     key_order = sorted(all_keys)
                     batch[:] = [{k: b[k] for k in key_order} for b in batch]
 
-                session.run(
-                    f"""
-                    UNWIND $batch AS row
-                    MERGE (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})
-                    SET n += row
-                """,
-                    batch=batch,
-                    file_path=file_path_str,
+                item_batch_size = self._adaptive_batch_size(
+                    len(batch), base=500, minimum=200, maximum=5000
                 )
-                session.run(
-                    f"""
-                    UNWIND $batch AS row
-                    MATCH (f:File {{path: $file_path}})
-                    MATCH (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})
-                    MERGE (f)-[:CONTAINS]->(n)
-                """,
-                    batch=batch,
-                    file_path=file_path_str,
-                )
+                for batch_chunk in self._chunk_items(batch, item_batch_size):
+                    session.run(
+                        f"""
+                        UNWIND $batch AS row
+                        MATCH (f:File {{path: $file_path}})
+                        MERGE (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})
+                        SET n += row
+                        MERGE (f)-[:CONTAINS]->(n)
+                    """,
+                        batch=batch_chunk,
+                        file_path=file_path_str,
+                    )
 
             if params_batch:
-                session.run(
+                self._batched_unwind_write(
+                    session,
                     """
                     UNWIND $batch AS row
                     MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.line_number})
                     MERGE (p:Parameter {name: row.arg_name, path: $file_path, function_line_number: row.line_number})
                     MERGE (fn)-[:HAS_PARAMETER]->(p)
                 """,
-                    batch=params_batch,
+                    params_batch,
                     file_path=file_path_str,
+                    base=400,
+                    minimum=150,
+                    maximum=2000,
                 )
 
             if class_fn_batch:
-                session.run(
+                self._batched_unwind_write(
+                    session,
                     """
                     UNWIND $batch AS row
                     MATCH (c:Class {name: row.class_name, path: $file_path})
                     MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.func_line})
                     MERGE (c)-[:CONTAINS]->(fn)
                 """,
-                    batch=class_fn_batch,
+                    class_fn_batch,
                     file_path=file_path_str,
+                    base=1000,
+                    minimum=400,
+                    maximum=6000,
                 )
 
             if nested_fn_batch:
-                session.run(
+                self._batched_unwind_write(
+                    session,
                     """
                     UNWIND $batch AS row
                     MATCH (outer:Function {name: row.outer, path: $file_path})
                     MATCH (inner:Function {name: row.inner_name, path: $file_path, line_number: row.inner_line})
                     MERGE (outer)-[:CONTAINS]->(inner)
                 """,
-                    batch=nested_fn_batch,
+                    nested_fn_batch,
                     file_path=file_path_str,
+                    base=1000,
+                    minimum=400,
+                    maximum=6000,
                 )
 
             ruby_modules = file_data.get("modules", [])
             if ruby_modules:
-                session.run(
+                # Module MERGE and property set is its own transaction — no relationships
+                # created here, so no REL_GROUP lock contention with concurrent workers.
+                self._run_with_deadlock_retry(
+                    session,
                     """
                     UNWIND $batch AS row
                     MERGE (mod:Module {name: row.name})
@@ -323,11 +660,22 @@ class GraphWriter:
                         )
 
             if js_imports:
-                session.run(
+                # Split into two autocommit transactions to prevent lock-order inversion:
+                # tx-1 acquires NODE locks (MERGE module nodes, no relationship locks).
+                # tx-2 acquires only REL_GROUP locks (MATCH both endpoints, MERGE rel).
+                # A single combined tx holding NODE(module) + REL_GROUP(file/module)
+                # simultaneously can deadlock with a concurrent worker holding the inverse.
+                self._run_with_deadlock_retry(
+                    session,
+                    "UNWIND $batch AS row MERGE (m:Module {name: row.module_name})",
+                    batch=js_imports,
+                )
+                self._run_with_deadlock_retry(
+                    session,
                     """
                     UNWIND $batch AS row
                     MATCH (f:File {path: $file_path})
-                    MERGE (m:Module {name: row.module_name})
+                    MATCH (m:Module {name: row.module_name})
                     MERGE (f)-[r:IMPORTS]->(m)
                     SET r.imported_name = row.imported_name,
                         r.alias = row.alias,
@@ -338,12 +686,24 @@ class GraphWriter:
                 )
 
             if other_imports:
-                session.run(
+                # Same split strategy: Module nodes first (NODE locks), then IMPORTS rels
+                # (REL_GROUP locks only — both endpoints already exist via MATCH).
+                self._run_with_deadlock_retry(
+                    session,
+                    """
+                    UNWIND $batch AS row
+                    MERGE (m:Module {name: row.name})
+                    SET m.alias = coalesce(row.alias, m.alias),
+                        m.full_import_name = coalesce(row.full_import_name, m.full_import_name)
+                """,
+                    batch=other_imports,
+                )
+                self._run_with_deadlock_retry(
+                    session,
                     """
                     UNWIND $batch AS row
                     MATCH (f:File {path: $file_path})
-                    MERGE (m:Module {name: row.name})
-                    SET m.full_import_name = coalesce(row.full_import_name, m.full_import_name)
+                    MATCH (m:Module {name: row.name})
                     MERGE (f)-[r:IMPORTS]->(m)
                     SET r.line_number = row.line_number,
                         r.alias = row.alias
@@ -354,16 +714,24 @@ class GraphWriter:
 
             module_inclusions = file_data.get("module_inclusions", [])
             if module_inclusions:
-                session.run(
+                # Same split: create Module nodes first, then INCLUDES relationships.
+                inc_batch = [
+                    {"class_name": i["class"], "module_name": i["module"]} for i in module_inclusions
+                ]
+                self._run_with_deadlock_retry(
+                    session,
+                    "UNWIND $batch AS row MERGE (m:Module {name: row.module_name})",
+                    batch=inc_batch,
+                )
+                self._run_with_deadlock_retry(
+                    session,
                     """
                     UNWIND $batch AS row
                     MATCH (c:Class {name: row.class_name, path: $file_path})
-                    MERGE (m:Module {name: row.module_name})
+                    MATCH (m:Module {name: row.module_name})
                     MERGE (c)-[:INCLUDES]->(m)
                 """,
-                    batch=[
-                        {"class_name": i["class"], "module_name": i["module"]} for i in module_inclusions
-                    ],
+                    batch=inc_batch,
                     file_path=file_path_str,
                 )
 
@@ -444,7 +812,6 @@ class GraphWriter:
         file_to_fn: List[Dict],
         file_to_cls: List[Dict],
     ) -> None:
-        batch_size = 1000
         q_fn_to_fn = """
             UNWIND $batch AS row
             MATCH (caller:Function {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
@@ -490,22 +857,53 @@ class GraphWriter:
             ("file→cls", file_to_cls, q_file_to_cls),
         ]
         total_all = sum(len(g[1]) for g in groups)
-        with self.driver.session() as session:
-            for label, calls, query in groups:
-                if not calls:
-                    info_logger(f"[CALLS] {label}: 0 (skipped)")
-                    continue
-                t0 = time.time()
-                for i in range(0, len(calls), batch_size):
-                    batch = calls[i : i + batch_size]
-                    session.run(query, batch=batch)
-                    written = min(i + batch_size, len(calls))
-                    if written % 5000 < batch_size or written == len(calls):
-                        elapsed = time.time() - t0
-                        info_logger(f"[CALLS] {label}: {written}/{len(calls)} ({elapsed:.1f}s)")
-                elapsed = time.time() - t0
-                info_logger(f"[CALLS] {label} done: {len(calls)} in {elapsed:.1f}s")
+        runnable_groups = [(label, calls, query) for (label, calls, query) in groups if calls]
+        for label, calls, _query in groups:
+            if not calls:
+                info_logger(f"[CALLS] {label}: 0 (skipped)")
+
+        if not runnable_groups:
+            info_logger(f"[CALLS] All complete: {total_all} CALLS relationships processed.")
+            return
+
+        group_workers = min(self._neo4j_rel_write_workers(), len(runnable_groups))
+        with ThreadPoolExecutor(max_workers=group_workers) as executor:
+            futures = {}
+            for label, calls, query in runnable_groups:
+                base, minimum, maximum = self._calls_batch_size_params(label)
+                batch_size = self._adaptive_batch_size(len(calls), base=base, minimum=minimum, maximum=maximum)
+                future = executor.submit(self._write_calls_group, label, calls, query, batch_size)
+                futures[future] = label
+
+            for future in as_completed(futures):
+                label = futures[future]
+                try:
+                    result_label, written_count, elapsed = future.result()
+                    info_logger(f"[CALLS] {result_label} done: {written_count} in {elapsed:.1f}s")
+                except Exception as e:
+                    warning_logger(f"[CALLS] {label} failed: {e}")
+                    raise
         info_logger(f"[CALLS] All complete: {total_all} CALLS relationships processed.")
+
+    def _write_inheritance_batch(self, batch: List[Dict[str, Any]]) -> int:
+        profiling.set_phase("inheritance")
+        query = """
+            UNWIND $batch AS row
+            MATCH (child:Class {name: row.child_name, path: row.path})
+            MATCH (parent:Class {name: row.parent_name, path: row.resolved_parent_file_path})
+            MERGE (child)-[:INHERITS]->(parent)
+        """
+        attempt = 0
+        while True:
+            try:
+                with self.driver.session() as session:
+                    self._run_and_maybe_consume(session, query, batch=batch)
+                return len(batch)
+            except Exception as e:
+                if not self._is_retryable_write_error(e) or attempt >= 8:
+                    raise
+                attempt += 1
+                time.sleep((0.05 * (2**attempt)) + random.uniform(0.01, 0.20))
 
     def _create_csharp_inheritance_and_interfaces(
         self, session: Any, file_data: Dict[str, Any], imports_map: dict
@@ -579,20 +977,21 @@ class GraphWriter:
             f"[INHERITS] Resolved {len(inheritance_batch)} inheritance links, "
             f"{len(csharp_files)} C# files. Writing to Neo4j..."
         )
-        batch_size = 500
-        with self.driver.session() as session:
-            for i in range(0, len(inheritance_batch), batch_size):
-                batch = inheritance_batch[i : i + batch_size]
-                session.run(
-                    """
-                    UNWIND $batch AS row
-                    MATCH (child:Class {name: row.child_name, path: row.path})
-                    MATCH (parent:Class {name: row.parent_name, path: row.resolved_parent_file_path})
-                    MERGE (child)-[:INHERITS]->(parent)
-                """,
-                    batch=batch,
-                )
+        batch_size = self._adaptive_batch_size(
+            len(inheritance_batch), base=500, minimum=250, maximum=8000
+        )
+        batches = [
+            inheritance_batch[i : i + batch_size]
+            for i in range(0, len(inheritance_batch), batch_size)
+        ]
+        workers = min(self._neo4j_rel_write_workers(), len(batches)) if batches else 1
+        if batches:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [executor.submit(self._write_inheritance_batch, batch) for batch in batches]
+                for future in as_completed(futures):
+                    future.result()
 
+        with self.driver.session() as session:
             for file_data in csharp_files:
                 self._create_csharp_inheritance_and_interfaces(session, file_data, imports_map)
 

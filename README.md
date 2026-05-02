@@ -167,6 +167,74 @@ CodeGraphContext supports multiple graph database backends to suit your environm
 
 ---
 
+## Neo4j Performance Tuning
+
+When indexing large codebases against a Neo4j backend, several env vars and a new CLI command let you push throughput significantly higher.
+
+### Parallel worker controls
+
+| Variable | Default | Description |
+|---|---|---|
+| `PARALLEL_WORKERS` | `auto` | Parse workers (auto = CPU count − 2). Can be overridden per-run in the shell; shell value wins over `~/.codegraphcontext/.env`. |
+| `PARALLEL_WRITE_WORKERS` | `auto` (max 8) | Concurrent Neo4j file-write workers. Falls back to `PARALLEL_WORKERS` if unset. |
+| `CGC_NEO4J_REL_WRITE_WORKERS` | `auto` (max 12) | Concurrent workers for CALLS and INHERITS relationship writes. |
+| `NEO4J_MAX_POOL_SIZE` | `50` | Neo4j driver connection-pool size. |
+
+Example for a large repo:
+
+```bash
+PARALLEL_WORKERS=8 \
+  PARALLEL_WRITE_WORKERS=8 \
+  CGC_NEO4J_REL_WRITE_WORKERS=8 \
+  NEO4J_MAX_POOL_SIZE=25 \
+  cgc index --force .
+```
+
+### Memory tuning (`cgc neo4j tune`)
+
+Neo4j's default `dbms.memory.transaction.total.max` (1 GB) is often too low for parallel indexing of large codebases. The new `tune` sub-command auto-detects your machine's RAM and writes recommended values to `neo4j.conf`:
+
+```bash
+# Preview recommendations (no writes)
+cgc neo4j tune --dry-run
+
+# Apply to auto-detected neo4j.conf (creates a timestamped backup first)
+cgc neo4j tune
+
+# Apply to a specific config file
+cgc neo4j tune --conf-path /path/to/neo4j.conf
+```
+
+Settings written:
+
+| Key | Formula |
+|---|---|
+| `server.memory.heap.initial_size` / `max_size` | 35% of usable RAM |
+| `server.memory.pagecache.size` | 50% of usable RAM |
+| `dbms.memory.transaction.total.max` | 20% of usable RAM (min 2 GB) |
+
+Restart Neo4j after applying. On a 16 GB machine the transaction pool moves from 1 GB to 2 GB, which is sufficient for 8 parallel write workers on most large repos.
+
+### OOM resilience
+
+The write pipeline detects `Neo.TransientError.General.MemoryPoolOutOfMemoryError` separately from ordinary transient errors. Instead of retrying the same oversized batch eight times (always hitting OOM again), it halves the batch size and retries — down to a floor of 50 items. The reduced default batch size caps for CALLS writes (1.5k / 2.5k / 3k by label type, down from 5k / 8k / 10k) make OOM rare in the first place.
+
+### Indexing profiler
+
+Set `CGC_INDEX_PROFILING=true` to emit a per-phase breakdown after every index run:
+
+```bash
+CGC_INDEX_PROFILING=true cgc index --force .
+# Profiling metrics written: ./profiling_metrics.json
+# PROFILING_JSON=./profiling_metrics.json
+```
+
+The JSON includes per-phase `session_run_count`, `avg_batch_size`, `elapsed_s`, and a `retry_events` block (OOM batch reductions + deadlock retries) when non-zero.
+
+Set `CGC_PROFILING_OUTPUT=/path/to/output.json` to write metrics to a specific location instead of the current directory.
+
+---
+
 ## Used By
 
 CodeGraphContext is already being explored by developers and projects for:
@@ -189,7 +257,7 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
 - `inquirerpy>=0.3.7`
 - `python-dotenv>=1.0.0`
 - `tree-sitter>=0.21.0` (not installed on Python 3.13)
-- `tree-sitter-language-pack>=0.6.0` (not installed on Python 3.13)
+- `tree-sitter-language-pack>=0.6.0,<1.0.0` (not installed on Python 3.13)
 - `pyyaml`
 - `pytest`
 - `nbformat`

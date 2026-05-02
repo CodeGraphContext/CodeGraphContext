@@ -356,6 +356,12 @@ class FalkorDBSessionWrapper:
         """
         Execute a Cypher query on FalkorDB.
         """
+        try:
+            from ..tools.indexing import profiling
+
+            profiling.record_session_run(query, parameters)
+        except Exception:
+            pass
         constraint_command = self._translate_constraint_command(query)
         if constraint_command is not None:
             try:

@@ -10,6 +10,34 @@ from neo4j import GraphDatabase, Driver
 
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 
+
+class _InstrumentedSession:
+    """Session proxy that records `session.run` metrics when profiling is enabled."""
+
+    def __init__(self, session):
+        self._session = session
+
+    def run(self, query, **parameters):
+        try:
+            from ..tools.indexing import profiling
+
+            profiling.record_session_run(query, parameters)
+        except Exception:
+            # Metrics must never interfere with indexing.
+            pass
+        return self._session.run(query, **parameters)
+
+    def __enter__(self):
+        self._session.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return self._session.__exit__(exc_type, exc_val, exc_tb)
+
+    def __getattr__(self, name):
+        return getattr(self._session, name)
+
+
 class Neo4jDriverWrapper:
     """
     A simple wrapper around the Neo4j Driver to inject a database name into session() calls.
@@ -22,7 +50,7 @@ class Neo4jDriverWrapper:
         """Proxy method to get a session from the underlying driver."""
         if self._database and 'database' not in kwargs:
             kwargs["database"] = self._database
-        return self._driver.session(**kwargs)
+        return _InstrumentedSession(self._driver.session(**kwargs))
     
     def close(self):
         """Proxy method to close the underlying driver."""
@@ -98,9 +126,15 @@ class DatabaseManager:
                         raise ValueError(validation_error)
 
                     info_logger(f"Creating Neo4j driver connection to {self.neo4j_uri}")
+                    try:
+                        pool_size = int(os.getenv("NEO4J_MAX_POOL_SIZE", "50"))
+                    except ValueError:
+                        pool_size = 50
                     self._driver = GraphDatabase.driver(
                         self.neo4j_uri,
-                        auth=(self.neo4j_username, self.neo4j_password)
+                        auth=(self.neo4j_username, self.neo4j_password),
+                        max_connection_pool_size=pool_size,
+                        keep_alive=True,
                     )
                     # Test the connection immediately to fail fast if credentials are wrong.
                     try:

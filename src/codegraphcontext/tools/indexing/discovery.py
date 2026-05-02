@@ -1,5 +1,6 @@
 """Enumerate files to index with ignore rules."""
 
+import os
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -29,36 +30,37 @@ def discover_files_to_index(
     except OSError as e:
         warning_logger(f"Could not load/create .cgcignore: {e}")
 
-    all_files = path.rglob("*") if path.is_dir() else [path]
-    files = [f for f in all_files if f.is_file()]
-
     from ...cli.config_manager import get_config_value
 
     ignore_dirs_str = get_config_value("IGNORE_DIRS") or ""
-    if ignore_dirs_str and path.is_dir():
-        ignore_dirs = {d.strip().lower() for d in ignore_dirs_str.split(",") if d.strip()}
-        if ignore_dirs:
-            kept_files = []
-            for f in files:
-                try:
-                    parts = set(p.lower() for p in f.relative_to(path).parent.parts)
-                    if not parts.intersection(ignore_dirs):
-                        kept_files.append(f)
-                except ValueError:
-                    kept_files.append(f)
-            files = kept_files
+    ignore_dirs = {d.strip().lower() for d in ignore_dirs_str.split(",") if d.strip()}
 
-    if spec:
-        filtered_files = []
-        for f in files:
+    files: List[Path] = []
+    if path.is_dir():
+        for root, dirs, filenames in os.walk(path):
+            root_path = Path(root)
+            if ignore_dirs:
+                dirs[:] = [d for d in dirs if d.lower() not in ignore_dirs]
+            for filename in filenames:
+                file_path = root_path / filename
+                if spec:
+                    try:
+                        rel_path = file_path.relative_to(ignore_root).as_posix()
+                        if spec.match_file(rel_path):
+                            debug_log(f"Ignored file based on .cgcignore: {rel_path}")
+                            continue
+                    except ValueError:
+                        pass
+                files.append(file_path)
+    elif path.is_file():
+        if spec:
             try:
-                rel_path = f.relative_to(ignore_root).as_posix()
-                if not spec.match_file(rel_path):
-                    filtered_files.append(f)
-                else:
+                rel_path = path.relative_to(ignore_root).as_posix()
+                if spec.match_file(rel_path):
                     debug_log(f"Ignored file based on .cgcignore: {rel_path}")
+                    return [], ignore_root
             except ValueError:
-                filtered_files.append(f)
-        files = filtered_files
+                pass
+        files = [path]
 
     return files, ignore_root
