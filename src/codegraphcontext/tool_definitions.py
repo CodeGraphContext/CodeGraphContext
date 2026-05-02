@@ -43,7 +43,7 @@ TOOLS = {
             "properties": {
                 "query_type": {"type": "string", "description": "Type of relationship query to run.", "enum": ["find_callers", "find_callees", "find_all_callers", "find_all_callees", "find_importers", "who_modifies", "class_hierarchy", "overrides", "dead_code", "call_chain", "module_deps", "variable_scope", "find_complexity", "find_functions_by_argument", "find_functions_by_decorator"]},
                 "target": {"type": "string", "description": "The function, class, or module to analyze."},
-                "context": {"type": "string", "description": "Optional: specific file path for precise results."},
+                "context": {"type": "string", "description": "Optional: file path of the file containing the target function. Accepts absolute or relative/partial paths (e.g. 'shared/tracer/tracer.go'). ALWAYS provide this for generic names like Run, New, Get to avoid false positives from other functions with the same name."},
                 "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
             },
             "required": ["query_type", "target"]

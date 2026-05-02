@@ -431,13 +431,7 @@ class CodeFinder:
     
     def who_calls_function(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
         """Find what functions call a specific function using CALLS relationships with improved matching"""
-        with self.driver.session() as session:
-            repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
-            if path:
-                result = session.run(f"""
-                    MATCH (caller)-[call:CALLS]->(target:Function {{name: $function_name, path: $path}})
-                    WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
-                    OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
+        _CALLER_RETURN = """
                     RETURN DISTINCT
                         caller.name as caller_function,
                         COALESCE(caller.path, caller_file.path) as caller_file_path,
@@ -448,29 +442,32 @@ class CodeFinder:
                         call.args as call_args,
                         call.full_call_name as full_call_name,
                         target.path as target_file_path
-                ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
+                    ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
                     LIMIT 20
+        """
+        with self.driver.session() as session:
+            repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
+            if path:
+                # 1. Try exact absolute path match.
+                result = session.run(f"""
+                    MATCH (caller)-[call:CALLS]->(target:Function {{name: $function_name, path: $path}})
+                    WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
+                    OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
+                    {_CALLER_RETURN}
                 """, function_name=function_name, path=path, repo_path=repo_path)
-                
                 results = result.data()
+
                 if not results:
+                    # 2. Treat the provided path as a suffix (handles relative/partial paths).
+                    #    Never fall back to an unfiltered query — that causes false positives
+                    #    for generic names like Run, New, Get.
                     result = session.run(f"""
                         MATCH (caller)-[call:CALLS]->(target:Function {{name: $function_name}})
-                        WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
+                        WHERE target.path ENDS WITH $path
+                          AND (caller:Function OR caller:Class OR caller:File) {repo_filter}
                         OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
-                        RETURN DISTINCT
-                            caller.name as caller_function,
-                            COALESCE(caller.path, caller_file.path) as caller_file_path,
-                            caller.line_number as caller_line_number,
-                            caller.docstring as caller_docstring,
-                            caller.is_dependency as caller_is_dependency,
-                            call.line_number as call_line_number,
-                            call.args as call_args,
-                            call.full_call_name as full_call_name,
-                            target.path as target_file_path
-                    ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
-                        LIMIT 20
-                    """, function_name=function_name, repo_path=repo_path)
+                        {_CALLER_RETURN}
+                    """, function_name=function_name, path=path, repo_path=repo_path)
                     results = result.data()
             else:
                 result = session.run(f"""
@@ -738,7 +735,8 @@ class CodeFinder:
         """Find all direct and indirect callers of a specific function."""
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path " if repo_path else ""
-            path_filter = "AND target.path = $path" if path else ""
+            # Accept both absolute and relative/partial paths via ENDS WITH.
+            path_filter = "AND (target.path = $path OR target.path ENDS WITH $path)" if path else ""
             # KùzuDB-compatible: Use anonymous end node and filter with WHERE
             query = f"""
                 MATCH p = (f:Function)-[:CALLS*]->()
