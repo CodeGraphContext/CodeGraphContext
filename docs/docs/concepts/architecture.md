@@ -22,8 +22,11 @@ graph LR
 
 ### 1. Ingestion Layer
 This layer is responsible for translating raw source code into semantic graph entities.
+
 *   **Parsers**: Uses Tree-sitter for high-fidelity AST extraction and SCIP for precise symbol resolution across files.
+
 *   **Graph Builder**: Orchestrates the parsing process, resolves imports, and establishes relationships (edges) between nodes.
+
 *   **Background Jobs**: Long-running indexing tasks are managed via an internal job queue to ensure the UI remains responsive.
 
 ### 2. Persistence Layer

@@ -6,6 +6,7 @@ When CodeGraphContext is running as an MCP server, it exposes a set of tools tha
 
 ### `find_code`
 Find relevant code snippets related to a keyword or phrase.
+
 *   **Parameters**: `query` (string), `fuzzy_search` (boolean), `repo_path` (optional).
 
 ### `list_indexed_repositories`

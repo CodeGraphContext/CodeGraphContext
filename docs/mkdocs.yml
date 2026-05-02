@@ -3,6 +3,8 @@ repo_url: https://github.com/CodeGraphContext/CodeGraphContext
 repo_name: CodeGraphContext/CodeGraphContext
 theme:
   name: material
+  logo: images/cgcIcon.png
+  favicon: images/cgcIcon.png
   features:
     - navigation.tabs
     - navigation.sections
