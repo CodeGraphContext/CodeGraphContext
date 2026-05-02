@@ -51,6 +51,18 @@ GO_QUERIES = {
                 field: (field_identifier) @name
             )
         )
+        (call_expression
+            function: (index_expression
+                operand: (selector_expression
+                    field: (field_identifier) @name
+                )
+            )
+        )
+        (call_expression
+            function: (index_expression
+                operand: (identifier) @name
+            )
+        )
     """,
     "variables": """
         (var_declaration
