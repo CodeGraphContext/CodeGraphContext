@@ -7,7 +7,7 @@
 - 🇨🇳 [中文](README.zh-CN.md)
 - 🇰🇷 [한국어](README.kor.md)
 - 🇺🇦 [Українська](README.uk.md)
-- 🇷🇺 Русский (README.ru-RU.md)
+- 🇷🇺 [Русский](README.ru-RU.md)
 - 🇯🇵 日本語 (준비 중)
 - 🇪🇸 Español (준비 중)
 
@@ -97,7 +97,7 @@
 ---
 
 ## 프로젝트 세부 정보
-- **버전:** 0.3.9
+- **버전:** 0.4.6
 - **저자:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **라이선스:** MIT License (자세한 내용은 [LICENSE](LICENSE) 참조)
 - **웹사이트:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
@@ -159,7 +159,7 @@ CodeGraphContext는 사용 환경에 맞는 다양한 그래프 데이터베이�
 | **설정** | 설정 불필요 / 임베디드 | 설정 불필요 / 인프로세스 | Docker / 외부 |
 | **플랫폼** | **모든 플랫폼 (Windows, macOS, Linux)** | Unix 전용 (Linux/macOS/WSL) | 모든 플랫폼 |
 | **사용 사례** | 데스크톱, IDE, 로컬 개발 | 특화된 Unix 개발 | 엔터프라이즈, 대규모 그래프 |
-| **요구 사항**| `pip install kuzu` | `pip install falkordblite` | Neo4j Server / Docker |
+| **요구 사항**| `pip install real_ladybug` | `pip install falkordblite` | Neo4j Server / Docker |
 | **속도** | ⚡ 매우 빠름 | ⚡ 빠름 | 🚀 확장 가능 |
 | **영속성**| 예 (디스크) | 예 (디스크) | 예 (디스크) |
 
@@ -270,7 +270,7 @@ CodeGraphContext를 AI 어시스턴트를 위한 **MCP 서버**로 사용하세�
 
 2.  **데이터베이스 설정 (자동)**
 
-    - **KùzuDB (기본):** Windows, macOS, Linux에서 설정 없이 기본적으로 실행됩니다. `pip install kuzu`만 하면 준비 완료!
+    - **KùzuDB (기본):** Windows, macOS, Linux에서 설정 없이 기본적으로 실행됩니다. `pip install real_ladybug`만 하면 준비 완료!
     - **FalkorDB Lite (대안):** Python 3.12+의 Unix/macOS/WSL에서 지원됩니다.
     - **Neo4j (대안):** Neo4j를 사용하거나 서버 기반 접근 방식을 선호하는 경우: `cgc neo4j setup` 실행
 

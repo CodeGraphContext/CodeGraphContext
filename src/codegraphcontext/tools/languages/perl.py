@@ -77,8 +77,13 @@ class PerlTreeSitterParser:
             nonlocal count
             if n.type in complexity_nodes:
                 if n.type == "binary_expression":
-                    # Check for &&, ||, and, or
-                    pass 
+                    op_node = None
+                    for child in n.children:
+                        if child.type in ("&&", "||") or (hasattr(child, 'text') and child.text and child.text.decode("utf-8") in ("&&", "||", "and", "or")):
+                            op_node = child
+                            break
+                    if not op_node:
+                        return
                 count += 1
             for child in n.children:
                 traverse(child)

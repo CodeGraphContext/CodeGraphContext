@@ -5,6 +5,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _github_headers() -> dict:
+    """Return GitHub API headers, including auth token if available."""
+    import os
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"token {token}"
+    return headers
+
 GITHUB_ORG = "CodeGraphContext"
 GITHUB_REPO = "CodeGraphContext"
 REGISTRY_API_URL = f"https://api.github.com/repos/{GITHUB_ORG}/{GITHUB_REPO}/releases"
@@ -27,7 +37,7 @@ class BundleRegistry:
         
         # 1. Fetch on-demand bundles from manifest
         try:
-            response = requests.get(MANIFEST_URL, timeout=10)
+            response = requests.get(MANIFEST_URL, headers=_github_headers(), timeout=10)
             if response.status_code == 200:
                 manifest = response.json()
                 if manifest.get('bundles'):
@@ -43,7 +53,7 @@ class BundleRegistry:
         
         # 2. Fetch weekly pre-indexed bundles
         try:
-            response = requests.get(REGISTRY_API_URL, timeout=10)
+            response = requests.get(REGISTRY_API_URL, headers=_github_headers(), timeout=10)
             if response.status_code == 200:
                 releases = response.json()
                 

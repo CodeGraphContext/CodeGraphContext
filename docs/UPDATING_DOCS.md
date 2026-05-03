@@ -37,14 +37,18 @@ docs/
 ├── mkdocs.yml           # Configuration & navigation
 ├── docs/                # Markdown content
 │   ├── index.md
-│   ├── installation.md
+│   ├── getting-started/
+│   │   └── installation.md
 │   ├── cookbook.md
+│   ├── deployment/      # Deployment guides
+│   │   ├── README.md
+│   │   ├── DOCKER_README.md
+│   │   └── ...
 │   └── ...
-└── deployment/          # Deployment guides (NEW!)
-    ├── README.md
-    ├── DOCKER_README.md
-    └── ...
+└── ...
 ```
+
+**Note:** Deployment pages live under **`docs/docs/deployment/`**. They are linked from the **`Deployment`** section in **`mkdocs.yml`** `nav`; if you add a new deployment markdown file, remember to add a `nav` entry or it will not appear in the site sidebar.
 
 ### Adding New Pages
 
@@ -106,10 +110,10 @@ npm run build  # Generates dist/ folder
 
 ### What We Just Did
 
-1. ✅ Moved deployment docs from root to `docs/deployment/`
-2. ✅ Updated `docs/mkdocs.yml` to include deployment section
+1. ✅ Moved deployment docs from root to `docs/docs/deployment/`
+2. ✅ Updated `docs/mkdocs.yml` to include a **Deployment** section in `nav`
 3. ✅ Updated `website/src/components/Footer.tsx` to link to deployment docs
-4. ✅ Created `docs/deployment/README.md` as navigation index
+4. ✅ Created `docs/docs/deployment/README.md` as navigation index
 
 ### Next Steps to Publish
 
@@ -146,6 +150,6 @@ npm run build  # Generates dist/ folder
 ## 💡 Tips
 
 - **MkDocs** uses relative paths from `docs/docs/` directory
-- Use `../deployment/FILE.md` to reference files outside `docs/docs/`
+- Use paths under `docs/docs/deployment/` for deployment markdown; link from other pages with relative paths (e.g. `deployment/README.md` from a page in `docs/docs/`).
 - The React site links to GitHub for docs (see Footer.tsx)
 - TypeScript errors in `website/` are normal without `npm install`

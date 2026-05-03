@@ -25,8 +25,13 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
   const [githubUrl, setGithubUrl] = useState("");
 
   const processFiles = async (files: { path: string, content: string }[]) => {
+    // Build fileContents map before the worker clears content for memory
+    const fileContents: Record<string, string> = {};
+    for (const f of files) {
+      fileContents[f.path] = f.content;
+    }
+
     setProgress({ text: `Parsing AST for ${files.length} files...`, value: 50 });
-    // artificial delay to let UI render
     await new Promise(r => setTimeout(r, 800));
     
     setProgress({ text: "Initializing WebAssembly tree-sitter...", value: 80 });
@@ -35,7 +40,7 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
     setProgress({ text: "Complete!", value: 100 });
     await new Promise(r => setTimeout(r, 400));
     
-    onComplete(graphData);
+    onComplete({ ...graphData, fileContents });
   };
 
   const handleFolderSelect = async () => {

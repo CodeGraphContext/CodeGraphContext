@@ -11,11 +11,55 @@ Key design principles:
 4. Support optional tree-sitter dependency
 """
 
-from typing import Dict, Optional
-import threading
+from __future__ import annotations
 
-from tree_sitter import Language, Parser
-from tree_sitter_language_pack import get_language
+from typing import TYPE_CHECKING, Any, Dict, Optional
+import threading
+import sys
+
+if TYPE_CHECKING:
+    from tree_sitter import Language, Parser
+
+Language = Any
+Parser = Any
+_tree_sitter_import_error: Optional[ImportError] = None
+_Language = None
+_Parser = None
+_get_language = None
+
+
+def _missing_tree_sitter_error(import_error: ImportError) -> ImportError:
+    """Return an actionable error for optional tree-sitter dependencies."""
+    if sys.version_info >= (3, 13):
+        return ImportError(
+            "Tree-sitter parsing is not available on Python 3.13 because "
+            "tree-sitter-language-pack does not publish cp313 wheels. "
+            "Install CodeGraphContext with Python 3.12 or 3.14 to use indexing/parsing."
+        )
+    return ImportError(
+        "tree-sitter and tree-sitter-language-pack are required for code parsing. "
+        "Install them with: pip install codegraphcontext[parsing]"
+    )
+
+
+def _load_tree_sitter_dependencies():
+    """Load optional tree-sitter dependencies only when parsing is used."""
+    global _tree_sitter_import_error, _Language, _Parser, _get_language
+
+    if _Language is not None and _Parser is not None and _get_language is not None:
+        return _Language, _Parser, _get_language
+
+    try:
+        from tree_sitter import Language as ImportedLanguage, Parser as ImportedParser
+        from tree_sitter_language_pack import get_language as imported_get_language
+    except ImportError as e:
+        _tree_sitter_import_error = e
+        raise _missing_tree_sitter_error(e) from e
+
+    _Language = ImportedLanguage
+    _Parser = ImportedParser
+    _get_language = imported_get_language
+    return _Language, _Parser, _get_language
 
 
 # Language name aliases for compatibility
@@ -33,11 +77,13 @@ LANGUAGE_ALIASES = {
     "go": "go",
     "php": "php",
     ".php": "php",
+    "lua": "lua",
     
     # Canonical names (map to themselves for consistency)
     "python": "python",
     "javascript": "javascript",
     "typescript": "typescript",
+    "tsx": "tsx",
     "cpp": "cpp",
     "c_sharp": "c_sharp",
     "c": "c",
@@ -58,6 +104,8 @@ LANGUAGE_ALIASES = {
     "elixir": "elixir",
     "ex": "elixir",
     "exs": "elixir",
+    "html": "html",
+    "css": "css",
 }
 
 # Canonical names that differ from tree-sitter-language-pack names
@@ -121,6 +169,7 @@ class TreeSitterManager:
         """
         # Normalize the language name
         canonical_name = self._normalize_language_name(lang)
+        _, _, load_language = _load_tree_sitter_dependencies()
         
         # Check cache first (fast path, no lock needed for reads)
         if canonical_name in self._language_cache:
@@ -135,7 +184,7 @@ class TreeSitterManager:
             try:
                 # Map canonical name to language-pack name where they differ
                 pack_name = LANGUAGE_PACK_NAMES.get(canonical_name, canonical_name)
-                language = get_language(pack_name)
+                language = load_language(pack_name)
                 
                 self._language_cache[canonical_name] = language
                 return language
@@ -166,9 +215,10 @@ class TreeSitterManager:
             ValueError: If language is not supported
             Exception: If parser creation fails
         """
+        _, parser_cls, _ = _load_tree_sitter_dependencies()
         language = self.get_language_safe(lang)
         # In tree-sitter 0.25+, Parser takes language in constructor
-        parser = Parser(language)
+        parser = parser_cls(language)
         return parser
     
     def is_language_available(self, lang: str) -> bool:
@@ -255,7 +305,10 @@ def execute_query(language: Language, query_string: str, node):
         >>> for node, name in captures:
         ...     print(f'{name}: {node.type}')
     """
-    from tree_sitter import Query, QueryCursor
+    try:
+        from tree_sitter import Query, QueryCursor
+    except ImportError as e:
+        raise _missing_tree_sitter_error(e) from e
     
     try:
         # Create query and cursor
@@ -281,4 +334,3 @@ def execute_query(language: Language, query_string: str, node):
             f"Failed to execute query: {e}\n"
             f"Query string: {query_string[:100]}..."
         )
-

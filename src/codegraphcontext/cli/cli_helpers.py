@@ -24,6 +24,7 @@ from ..tools.code_finder import CodeFinder
 from ..tools.graph_builder import GraphBuilder
 from ..tools.package_resolver import get_local_package_path
 from ..utils.debug_log import info_logger, warning_logger
+from ..utils.repo_path import any_repo_matches_path
 from .config_manager import resolve_context, ResolvedContext, register_repo_in_context, ensure_first_run_bootstrap
 
 console = Console()
@@ -175,8 +176,8 @@ def index_helper(path: str, context: Optional[str] = None):
         return
 
     indexed_repos = code_finder.list_indexed_repositories()
-    repo_exists = any(Path(repo["path"]).resolve() == path_obj for repo in indexed_repos)
-    
+    repo_exists = any_repo_matches_path(indexed_repos, path_obj)
+
     if repo_exists:
         # Check if the repository actually has files (not just an empty node from interrupted indexing)
         # Use variable-length path to handle both flat (Repository->File) and
@@ -184,7 +185,7 @@ def index_helper(path: str, context: Optional[str] = None):
         try:
             with db_manager.get_driver().session() as session:
                 result = session.run(
-                    "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as file_count",
+                    "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(DISTINCT f) as file_count",
                     path=str(path_obj)
                 )
                 record = result.single()
@@ -284,7 +285,7 @@ def list_repos_helper(context: Optional[str] = None):
 
         for repo in repos:
             repo_type = "Dependency" if repo.get("is_dependency") else "Project"
-            table.add_row(repo["name"], repo["path"], repo_type)
+            table.add_row(repo.get("name") or "", str(repo.get("path") or ""), repo_type)
         
         console.print(table)
     except Exception as e:
@@ -377,7 +378,7 @@ import urllib.parse
 from ..viz.server import run_server, set_db_manager
 
 def visualize_helper(repo_path: Optional[str] = None, port: int = 8000, context: Optional[str] = None):
-    """"Generates an interactive visualization using the Playground UI."""
+    """Generates an interactive visualization using the Playground UI."""
     services = _initialize_services(context)
     if not all(services[:3]):
         return
@@ -415,15 +416,33 @@ def visualize_helper(repo_path: Optional[str] = None, port: int = 8000, context:
             if cwd_static_dir.exists():
                 static_dir = cwd_static_dir
             else:
-                console.print(f"[yellow]Warning: Visualization assets not found.[/yellow]")
-                console.print(f"[dim]Checked paths:[/dim]")
-                console.print(f"  [dim]- {static_dir}[/dim]")
+                console.print("[bold red]Visualization assets not found.[/bold red]")
+                console.print("[dim]Checked paths:[/dim]")
+                console.print(f"  [dim]- {package_root / 'viz' / 'dist'}[/dim]")
                 console.print(f"  [dim]- {dev_static_dir}[/dim]")
                 console.print(f"  [dim]- {alt_dev_dir}[/dim]")
                 console.print(f"  [dim]- {cwd_static_dir}[/dim]")
-                console.print("[dim]Please run 'cd website && npm run build' first.[/dim]")
-                # We continue anyway to let the server start (helpful for dev)
-    
+                console.print(
+                    "[dim]If you installed from PyPI, upgrade after the next release "
+                    "(wheels must bundle viz/dist). If you are developing from source, run:[/dim]"
+                )
+                console.print("  [cyan]./scripts/sync_viz_dist.sh[/cyan]")
+                console.print(
+                    "[dim]or[/dim] [cyan]cd website && npm ci && npm run build[/cyan] "
+                    "[dim]then sync[/dim] [cyan]website/dist[/cyan] [dim]→[/dim] "
+                    "[cyan]src/codegraphcontext/viz/dist[/cyan][dim].[/dim]"
+                )
+                db_manager.close_driver()
+                raise SystemExit(1)
+
+    index_html = static_dir / "index.html"
+    if not index_html.is_file():
+        console.print(
+            f"[bold red]Invalid visualization bundle:[/bold red] missing {index_html}"
+        )
+        db_manager.close_driver()
+        raise SystemExit(1)
+
     # Construct the URL
     backend_url = f"http://localhost:{port}"
     params = {"backend": backend_url}
@@ -471,8 +490,8 @@ def reindex_helper(path: str, context: Optional[str] = None):
 
     # Check if already indexed
     indexed_repos = code_finder.list_indexed_repositories()
-    repo_exists = any(Path(repo["path"]).resolve() == path_obj for repo in indexed_repos)
-    
+    repo_exists = any_repo_matches_path(indexed_repos, path_obj)
+
     if repo_exists:
         console.print(f"[yellow]Deleting existing index for: {path_obj}[/yellow]")
         try:
@@ -671,7 +690,7 @@ def watch_helper(path: str, context: Optional[str] = None):
     # transient empty result from list_indexed_repositories never triggers a
     # destructive full rescan of an already-populated graph.
     indexed_repos = code_finder.list_indexed_repositories()
-    is_indexed = any(Path(repo["path"]).resolve() == path_obj for repo in indexed_repos)
+    is_indexed = any_repo_matches_path(indexed_repos, path_obj)
     if not is_indexed:
         # Fallback: count File nodes whose path starts with this repo's path.
         # If > 100 exist, the repo is clearly already indexed — skip the scan.
@@ -702,19 +721,31 @@ def watch_helper(path: str, context: Optional[str] = None):
         # Add the directory to watch
         if is_indexed:
             console.print("[green]✓[/green] Already indexed (no initial scan needed)")
-            watcher.watch_directory(str(path_obj), perform_initial_scan=False)
+            watcher.watch_directory(
+                str(path_obj),
+                perform_initial_scan=False,
+                cgcignore_path=ctx.cgcignore_path,
+            )
         else:
             console.print("[yellow]⚠[/yellow]  Not indexed yet. Performing initial scan...")
             
             # Index the repository first (like MCP does)
             async def do_index():
-                await graph_builder.build_graph_from_path_async(path_obj, is_dependency=False)
+                await graph_builder.build_graph_from_path_async(
+                    path_obj,
+                    is_dependency=False,
+                    cgcignore_path=ctx.cgcignore_path,
+                )
             
             asyncio.run(do_index())
             console.print("[green]✓[/green] Initial scan complete")
             
             # Now start watching (without another scan)
-            watcher.watch_directory(str(path_obj), perform_initial_scan=False)
+            watcher.watch_directory(
+                str(path_obj),
+                perform_initial_scan=False,
+                cgcignore_path=ctx.cgcignore_path,
+            )
         
         console.print("[bold green]👀 Monitoring for file changes...[/bold green] (Press Ctrl+C to stop)")
         console.print("[dim]💡 Tip: Open a new terminal window to continue working[/dim]\n")

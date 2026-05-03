@@ -1,0 +1,25 @@
+"""Shared constants for the indexing pipeline."""
+
+DEFAULT_IGNORE_PATTERNS = [
+    "node_modules/",
+    "venv/",
+    ".venv/",
+    "env/",
+    ".env/",
+    "dist/",
+    "build/",
+    "target/",
+    "out/",
+    ".git/",
+    "__pycache__/",
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.gif",
+    "*.svg",
+    "*.mp4",
+    "*.mp3",
+    "*.zip",
+    "*.tar",
+    "*.gz",
+]

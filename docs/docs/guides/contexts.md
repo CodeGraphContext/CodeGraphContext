@@ -154,7 +154,7 @@ Switching mode does **not** delete any data. Your old databases stay on disk; CG
 
 ```bash
 cgc context create mobile-app
-cgc context create mobile-app --database kuzudb          # use KùzuDB instead
+cgc context create mobile-app --database kuzudb          # use LadybugDB instead
 cgc context create mobile-app --db-path /mnt/fast/cgc    # custom location
 ```
 

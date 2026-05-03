@@ -3,6 +3,7 @@ from dataclasses import asdict
 from datetime import datetime
 from ...core.jobs import JobManager, JobStatus
 from ...utils.debug_log import debug_log
+from ...utils.tool_limits import get_tool_result_limit
 from ..code_finder import CodeFinder
 from ..graph_builder import GraphBuilder
 
@@ -171,9 +172,14 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
             stats = {}
             # Parse simple stats from message if possible, or just return success
             if "Nodes:" in message:
-                 # Best effort parsing, not critical
-                 pass
-                 
+                import re as _re
+                nodes_match = _re.search(r'Nodes:\s*(\d+)', message)
+                edges_match = _re.search(r'Edges:\s*(\d+)', message)
+                if nodes_match:
+                    stats["nodes"] = int(nodes_match.group(1))
+                if edges_match:
+                    stats["edges"] = int(edges_match.group(1))
+
             return {
                 "success": True,
                 "message": message,
@@ -236,14 +242,24 @@ def search_registry_bundles(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         
         # Sort by name
         bundles.sort(key=lambda b: (b.get('name', ''), b.get('full_name', '')))
-        
-        return {
+
+        limit = get_tool_result_limit("search_registry_bundles")
+        truncated = False
+        if limit and len(bundles) > limit:
+            bundles = bundles[:limit]
+            truncated = True
+
+        response = {
             "success": True,
             "bundles": bundles,
             "total": len(bundles),
             "query": query if query else "all",
-            "unique_only": unique_only
+            "unique_only": unique_only,
         }
+        if truncated:
+            response["result_limit"] = limit
+            response["truncated"] = True
+        return response
     
     except Exception as e:
         debug_log(f"Error searching registry: {str(e)}")

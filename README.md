@@ -7,7 +7,7 @@
 - 🇨🇳 [中文](README.zh-CN.md)
 - 🇰🇷 [한국어](README.kor.md)
 - 🇺🇦 [Українська](README.uk.md)
-- 🇷🇺 Русский (README.ru-RU.md)
+- 🇷🇺 [Русский](README.ru-RU.md)
 - 🇯🇵 日本語 (Soon)
 - 🇪🇸 Español (Soon)
 
@@ -97,7 +97,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 ---
 
 ## Project Details
-- **Version:** 0.3.9
+- **Version:** 0.4.6
 - **Authors:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **License:** MIT License (See [LICENSE](LICENSE) for details)
 - **Website:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
@@ -126,11 +126,12 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 -   **Code Indexing:** Analyzes code and builds a knowledge graph of its components.
 -   **Relationship Analysis:** Query for callers, callees, class hierarchies, call chains and more.
 -   **Pre-indexed Bundles:** Load famous repositories instantly with `.cgc` bundles - no indexing required! ([Learn more](docs/BUNDLES.md))
--   **Live File Watching:** Watch directories for changes and automatically update the graph in real-time (`cgc watch`).
+-   **Live File Watching:** Watch directories for changes and automatically update the graph in real-time (`codegraphcontext watch`).
 -   **Interactive Setup:** A user-friendly command-line wizard for easy setup.
 -   **Dual Mode:** Works as a standalone **CLI toolkit** for developers and as an **MCP server** for AI agents.
--   **Multi-Language Support:** Full support for 14 programming languages.
--   **Flexible Database Backend:** KùzuDB (default, zero-config for all platforms), FalkorDB Lite (Unix-only), FalkorDB Remote, or Neo4j (all platforms via Docker/native).
+-   **Multi-Language Support:** Full support for 15 programming languages.
+-   **Flexible Database Backend:** LadybugDB (Default), FalkorDB Lite (Typical Unix default), FalkorDB Remote, Nornic DB, or Neo4j (all platforms via Docker/native).
+
 
 ---
 
@@ -144,7 +145,7 @@ CodeGraphContext provides comprehensive parsing and analysis for the following l
 | ☕ | **Java** | 🏗️ | **C / C++** | #️⃣ | **C#** |
 | 🐹 | **Go** | 🦀 | **Rust** | 💎 | **Ruby** |
 | 🐘 | **PHP** | 🍎 | **Swift** | 🎨 | **Kotlin** |
-| 🎯 | **Dart** | 🐪 | **Perl** | | |
+| 🎯 | **Dart** | 🐪 | **Perl** | 🌙 | **Lua** |
 
 Each language parser extracts functions, classes, methods, parameters, inheritance relationships, function calls, and imports to build a comprehensive code graph.
 
@@ -154,12 +155,13 @@ Each language parser extracts functions, classes, methods, parameters, inheritan
 
 CodeGraphContext supports multiple graph database backends to suit your environment:
 
-| Feature | KùzuDB (Default) | FalkorDB Lite | Neo4j |
+| Feature | LadybugDB | FalkorDB Lite | Neo4j / Nornic DB |
 | :--- | :--- | :--- | :--- |
+| **Typical default** | **Standard Default** (embedded, when `real_ladybug` is installed) | **Unix** (Python 3.12+, when `falkordblite` works) | When explicitly configured |
 | **Setup** | Zero-config / Embedded | Zero-config / In-process | Docker / External |
 | **Platform** | **All (Windows Native, macOS, Linux)** | Unix-only (Linux/macOS/WSL) | All Platforms |
 | **Use Case** | Desktop, IDE, Local development | Specialized Unix development | Enterprise, Massive graphs |
-| **Requirement**| `pip install kuzu` | `pip install falkordblite` | Neo4j Server / Docker |
+| **Requirement**| `pip install real_ladybug` | `pip install falkordblite` | Neo4j Server / Docker / Nornic Cloud |
 | **Speed** | ⚡ Extremely Fast | ⚡ Fast | 🚀 Scalable |
 | **Persistence**| Yes (to disk) | Yes (to disk) | Yes (to disk) |
 
@@ -182,12 +184,12 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
 - `neo4j>=5.15.0`
 - `watchdog>=3.0.0`
 - `stdlibs>=2023.11.18`
-- `typer[all]>=0.9.0`
+- `typer>=0.9.0`
 - `rich>=13.7.0`
 - `inquirerpy>=0.3.7`
 - `python-dotenv>=1.0.0`
-- `tree-sitter>=0.21.0`
-- `tree-sitter-language-pack>=0.6.0`
+- `tree-sitter>=0.21.0` (not installed on Python 3.13)
+- `tree-sitter-language-pack>=0.6.0` (not installed on Python 3.13)
 - `pyyaml`
 - `pytest`
 - `nbformat`
@@ -204,7 +206,7 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
 pip install codegraphcontext
 ```
 
-### If 'cgc' command isn't found, run our one-line fix:
+### If 'codegraphcontext' command isn't found, run our one-line fix:
 ```
 curl -sSL https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/scripts/post_install_fix.sh | bash
 ```
@@ -236,9 +238,9 @@ Use CodeGraphContext as an **MCP server** for AI assistants:
 
 1.  **Install:** `pip install codegraphcontext`
     <details>
-    <summary>⚙️ Troubleshooting: In case, command <code>cgc</code> not found</summary>
-
-    If you encounter <i>"cgc: command not found"</i> after installation, run the PATH fix script:
+    <summary>⚙️ Troubleshooting: In case, command <code>codegraphcontext</code> not found</summary>
+    <br>
+    If you encounter <i>"codegraphcontext: command not found"</i> after installation, run the PATH fix script:
     
     **Linux/Mac:**
     ```bash
@@ -270,9 +272,9 @@ Use CodeGraphContext as an **MCP server** for AI assistants:
 
 2.  **Database Setup (Automatic)**
     
-    - **KùzuDB (Default):** Runs natively on Windows, macOS, and Linux without any setup. Just `pip install kuzu` and you're ready!
-    - **FalkorDB Lite (Alternative):** Supported on Unix/macOS/WSL for Python 3.12+.
-    - **Neo4j (Alternative):** To use Neo4j instead, or if you prefer a server-based approach, run: `cgc neo4j setup`
+    - **LadybugDB (Default):** Runs natively on Windows, macOS, and Linux. It is the primary embedded choice; `pip install real_ladybug` if needed.
+    - **FalkorDB Lite (High Performance Unix):** When Python 3.12+ and `falkordblite` are available on Unix/macOS/WSL, the embedded backend prefers FalkorDB Lite for speed; otherwise LadybugDB is used.
+    - **Neo4j (Alternative):** To use Neo4j instead, or if you prefer a server-based approach, run: `codegraphcontext neo4j setup`
 
 ---
 
@@ -281,25 +283,25 @@ Use CodeGraphContext as an **MCP server** for AI assistants:
 **Start using immediately with CLI commands:**
 ```bash
 # Index your current directory
-cgc index .
+codegraphcontext index .
 
 # List all indexed repositories
-cgc list
+codegraphcontext list
 
 # Analyze who calls a function
-cgc analyze callers my_function
+codegraphcontext analyze callers my_function
 
 # Find complex code
-cgc analyze complexity --threshold 10
+codegraphcontext analyze complexity --threshold 10
 
 # Find dead code
-cgc analyze dead-code
+codegraphcontext analyze dead-code
 
 # Watch for live changes (optional)
-cgc watch .
+codegraphcontext watch .
 
 # See all commands
-cgc help
+codegraphcontext help
 ```
 
   **See the full [CLI Commands Guide](docs/CLI_COMPLETE_REFERENCE.md) for all available commands and usage scenarios.**
@@ -315,13 +317,13 @@ CodeGraphContext can generate stunning, interactive knowledge graphs of your cod
 
 ```bash
 # Visualize function calls
-cgc analyze calls my_function --viz
+codegraphcontext analyze calls my_function --viz
 
 # Explore class hierarchies
-cgc analyze tree MyClass --viz
+codegraphcontext analyze tree MyClass --viz
 
 # Visualize search results
-cgc find pattern "Auth" --viz
+codegraphcontext find pattern "Auth" --viz
 ```
 
 
@@ -333,7 +335,7 @@ cgc find pattern "Auth" --viz
 1.  **Setup:** Run the MCP setup wizard to configure your IDE/AI assistant:
     
     ```bash
-    cgc mcp setup
+    codegraphcontext mcp setup
     ```
     
     The wizard can automatically detect and configure:
@@ -348,14 +350,14 @@ cgc find pattern "Auth" --viz
     *   Amazon Q Developer
     *   Kiro
 
-    Upon successful configuration, `cgc mcp setup` will generate and place the necessary configuration files:
+    Upon successful configuration, `codegraphcontext mcp setup` will generate and place the necessary configuration files:
     *   It creates an `mcp.json` file in your current directory for reference.
     *   It stores your database credentials securely in `~/.codegraphcontext/.env`.
     *   It updates the settings file of your chosen IDE/CLI (e.g., `.claude.json` or VS Code's `settings.json`).
 
 2.  **Start:** Launch the MCP server:    
     ```bash
-    cgc mcp start
+    codegraphcontext mcp start
     ```
 
 3.  **Use:** Now interact with your codebase through your AI assistant using natural language! See examples below.
@@ -384,7 +386,7 @@ You can tell CodeGraphContext to ignore specific files and directories by creati
 
 ## MCP Client Configuration
 
-The `cgc mcp setup` command attempts to automatically configure your IDE/CLI. If you choose not to use the automatic setup, or if your tool is not supported, you can configure it manually.
+The `codegraphcontext mcp setup` command attempts to automatically configure your IDE/CLI. If you choose not to use the automatic setup, or if your tool is not supported, you can configure it manually.
 
 Add the following server configuration to your client's settings file (e.g., VS Code's `settings.json` or `.claude.json`):
 
@@ -392,8 +394,34 @@ Add the following server configuration to your client's settings file (e.g., VS 
 {
   "mcpServers": {
     "CodeGraphContext": {
-      "command": "cgc",
+      "command": "codegraphcontext",
       "args": [
+        "mcp",
+        "start"
+      ],
+      "env": {
+        "NEO4J_URI": "YOUR_NEO4J_URI",
+        "NEO4J_USERNAME": "YOUR_NEO4J_USERNAME",
+        "NEO4J_PASSWORD": "YOUR_NEO4J_PASSWORD"
+      },
+      "disabled": false,
+      "alwaysAllow": []
+    }
+  }
+}
+```
+
+#### If installed via pipx
+
+If you installed CodeGraphContext using `pipx`, use the following configuration instead:
+```json
+{
+  "mcpServers": {
+    "CodeGraphContext": {
+      "command": "pipx",
+      "args": [
+        "run",
+        "codegraphcontext",
         "mcp",
         "start"
       ],

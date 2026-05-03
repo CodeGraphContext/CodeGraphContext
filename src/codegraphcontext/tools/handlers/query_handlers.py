@@ -1,12 +1,9 @@
 import re
-import json
 import urllib.parse
-from pathlib import Path
-import os
-from datetime import datetime
 from typing import Any, Dict
 from neo4j.exceptions import CypherSyntaxError
 from ...utils.debug_log import debug_log
+from ...utils.tool_limits import get_tool_result_limit
 
 def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
     """
@@ -40,15 +37,24 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
         debug_log(f"Executing Cypher query: {cypher_query}")
         with db_manager.get_driver().session() as session:
             result = session.run(cypher_query)
-            # Convert results to a list of dictionaries for clean JSON serialization.
             records = [record.data() for record in result]
-            
-            return {
+
+            limit = get_tool_result_limit("execute_cypher_query")
+            truncated = False
+            if limit and len(records) > limit:
+                records = records[:limit]
+                truncated = True
+
+            response = {
                 "success": True,
                 "query": cypher_query,
                 "record_count": len(records),
-                "results": records
+                "results": records,
             }
+            if truncated:
+                response["result_limit"] = limit
+                response["truncated"] = True
+            return response
     
     except CypherSyntaxError as e:
         debug_log(f"Cypher syntax error: {str(e)}")

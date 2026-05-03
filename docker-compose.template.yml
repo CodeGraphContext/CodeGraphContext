@@ -14,11 +14,11 @@ services:
       - cgc-data:/root/.codegraphcontext
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_TYPE=${DATABASE_TYPE:-falkordb}
+      - DEFAULT_DATABASE=${DEFAULT_DATABASE:-falkordb}
       - FALKORDB_HOST=${FALKORDB_HOST:-}
       - FALKORDB_PORT=${FALKORDB_PORT:-6379}
       # To use the separate falkordb container (recommended for aarch64):
-      # - DATABASE_TYPE=falkordb-remote
+      # - DEFAULT_DATABASE=falkordb-remote
       # - FALKORDB_HOST=falkordb
       # - FALKORDB_PORT=6379
     stdin_open: true

@@ -493,6 +493,9 @@ interface Link {
 const nodes: Node[] = [];
 const links: Link[] = [];
 const nodeSymbolIndex = new Map<string, number>(); 
+const nodes: any[] = [];
+const links: any[] = [];
+const nodeSymbolIndex = new Map<string, number[]>(); 
 const filePathToNodeId = new Map<string, number>();
 const folderNodes = new Map<string, number>(); // relative folder path → node id
 const fileCalls = new Map<number, Set<string>>();
@@ -587,10 +590,27 @@ const addNode = (name: string, type: string, file: string, val: number, extraPro
   const id = nodeIdSequence++;
   nodes.push({ id, name, type, file, val, ...extraProps });
   const symbolKey = `${type}:${name}`;
-  nodeSymbolIndex.set(symbolKey, id);
-  nodeSymbolIndex.set(name, id);
+  if (!nodeSymbolIndex.has(symbolKey)) nodeSymbolIndex.set(symbolKey, []);
+  nodeSymbolIndex.get(symbolKey)!.push(id);
+  if (!nodeSymbolIndex.has(name)) nodeSymbolIndex.set(name, []);
+  nodeSymbolIndex.get(name)!.push(id);
   return id;
 };
+
+/**
+ * Resolve a symbol name to a single node ID, preferring candidates
+ * from the same file as the caller to avoid cross-file collisions.
+ */
+function resolveSymbol(key: string, callerFile?: string): number | undefined {
+  const candidates = nodeSymbolIndex.get(key);
+  if (!candidates?.length) return undefined;
+  if (candidates.length === 1) return candidates[0];
+  if (callerFile) {
+    const sameFile = candidates.find(id => nodes[id - 1]?.file === callerFile);
+    if (sameFile !== undefined) return sameFile;
+  }
+  return candidates[0];
+}
 
 async function processNextBatch() {
   if (pendingFileQueue.length === 0) {
@@ -602,10 +622,11 @@ async function processNextBatch() {
     let callsAdded = 0;
     for (const [callerId, calls] of fileCalls.entries()) {
        if (callsAdded >= MAX_CALL_EDGES) break;
+       const callerFile = nodes[callerId - 1]?.file;
        for (const calledName of calls) {
-          const targetId = nodeSymbolIndex.get(`Function:${calledName}`) || 
-                           nodeSymbolIndex.get(`Class:${calledName}`) || 
-                           nodeSymbolIndex.get(calledName);
+          const targetId = resolveSymbol(`Function:${calledName}`, callerFile) || 
+                           resolveSymbol(`Class:${calledName}`, callerFile) || 
+                           resolveSymbol(calledName, callerFile);
           if (targetId && targetId !== callerId) {
              links.push({ source: callerId, target: targetId, type: 'CALLS' });
              callsAdded++;
@@ -614,8 +635,9 @@ async function processNextBatch() {
        }
     }
     for (const [classId, bases] of inheritances.entries()) {
+       const classFile = nodes[classId - 1]?.file;
        for (const baseName of bases) {
-          const targetId = nodeSymbolIndex.get(`Class:${baseName}`) || nodeSymbolIndex.get(baseName);
+          const targetId = resolveSymbol(`Class:${baseName}`, classFile) || resolveSymbol(baseName, classFile);
           if (targetId) links.push({ source: classId, target: targetId, type: 'INHERITS' });
        }
     }
@@ -764,8 +786,8 @@ async function processNextBatch() {
               const nameNode = cur.children?.find((c: Parser.SyntaxNode) =>
                 ['identifier', 'type_identifier', 'name', 'constant'].includes(c.type));
               if (nameNode) {
-                classNodeId = nodeSymbolIndex.get(`Class:${nameNode.text}`) ??
-                              nodeSymbolIndex.get(`Interface:${nameNode.text}`);
+                classNodeId = resolveSymbol(`Class:${nameNode.text}`, f.path) ??
+                              resolveSymbol(`Interface:${nameNode.text}`, f.path);
               }
               break;
             }

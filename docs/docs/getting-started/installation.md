@@ -1,84 +1,78 @@
 # Installation
 
-We have designed the installation to be as automatic as possible.
+CodeGraphContext (CGC) is distributed as a Python package. You can install it using several methods depending on your workflow.
 
-## Step 1: Install the Package
+## 1. Install the CLI
 
-Open your terminal and run:
+### Recommended: Using `uvx` (Fastest)
+If you use [uv](https://github.com/astral-sh/uv), you can run CGC instantly without manual installation:
 
+```bash
+uvx codegraphcontext --help
+```
+
+### Using `pipx` (Isolated)
+For a persistent global installation in an isolated environment:
+
+```bash
+pipx install codegraphcontext
+```
+
+### Using `pip`
 ```bash
 pip install codegraphcontext
 ```
 
-*Tip: We recommend installing this in a virtual environment (venv) or globally via `pipx`.*
-
 ---
 
-## Step 2: Database Setup
+## 2. Database Backend Selection
 
-CGC requires a graph database backend. Choose **ONE** path below.
+CGC requires a graph database to store the indexed code. You can choose the backend that best fits your needs.
 
-=== "Option A: KùzuDB (Recommended & Default)"
-    
-    **Platforms:** Linux, macOS, Windows (WSL & Native).
+### Option A: LadybugDB (Default & Recommended)
+LadybugDB is an embedded, extremely fast graph database. It requires zero configuration and runs directly within the CGC process.
 
-    **KùzuDB** is an embedded, lightweight graph database written in C++. It is the default for CodeGraphContext because it is extremely fast and requires no external services.
-    *   **Pros:** Requires zero configuration. Runs automatically in-memory or on-disk. No Docker needed.
-    *   **Cons:** No built-in Interactive Browser (unlike Neo4j). Use `cgc visualize` for graph views.
+*   **Installation**: `pip install real_ladybug`
+*   **Best for**: Local development, individual projects, and zero-ops setups.
+*   **Pros**: No external services, portable database files.
 
-    *This is the default out-of-the-box experience. You don't need to do anything else!*
+### Option B: FalkorDB (High Performance)
+FalkorDB is a low-latency graph database. CGC supports both local (embedded) and remote instances.
 
-=== "Option B: Neo4j (Enterprise / Visual)"
+*   **Installation**: `pip install falkordblite` (Linux/macOS only)
+*   **Best for**: Large codebases and performance-critical queries.
+*   **Pros**: Industry-leading query performance.
+*   **Note**: We use `falkordblite` for supported devices (Python 3.12+ on Unix), and LadybugDB (kuzudb) for the rest. We have largely shifted to LadybugDB as the primary embedded engine.
 
-    **Platforms:** Windows, macOS, Linux, Docker.
+### Option C: Neo4j (Enterprise)
+Neo4j is the industry standard for graph databases, offering powerful visualization and management tools.
 
-    Neo4j is the industry-standard enterprise graph database.
-    *   **Pros:** Powerful web-based Graph Browser (`localhost:7474`). Handles massive codebases perfectly.
-    *   **Cons:** Heavier resource usage. Requires Docker or a separate service running in the background.
-
-    1.  **Configure environment for Neo4j:**
-        Create a `.env` file or export `CGC_GRAPH_BACKEND=neo4j` and `NEO4J_URI=bolt://localhost:7687` along with `NEO4J_USER` and `NEO4J_PASSWORD`.
-    2.  **Start Neo4j via Docker:**
-        ```bash
-        docker run -d --name neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:latest
-        ```
-
----
-
-## Step 3: Verify Installation
-
-Let's make sure everything is talking to each other. Run the "Doctor" command (coming soon) or check the CLI help:
-
-```bash
-cgc --help
-```
-
-You should see all the commands available for CodeGraphContext.
-
----
-
-## Step 4: Configure AI Assistant (For MCP Users)
-
-If you plan to use CodeGraphContext with **Cursor**, **Claude**, **Windsurf**, or **Kiro**, you must configure the MCP server.
-
-1.  **Understand MCP Integration:**
-    *   CodeGraphContext runs as an MCP server. This means it provides "Tools" to your LLM.
-    *   To install it in Claude Desktop, for example, add it to your `claude_desktop_config.json`:
-    ```json
-    {
-      "mcpServers": {
-        "CodeGraphContext": {
-          "command": "cgc",
-          "args": ["mcp"]
-        }
-      }
-    }
+*   **Best for**: Teams, massive repositories, and deep visual analysis via the Neo4j Browser.
+*   **Setup**: Requires a running Neo4j instance (Docker or Cloud).
+    ```bash
+    codegraphcontext config set-db neo4j
     ```
 
-2.  **Using cursor:**
-    *   Go to Cursor Settings > Features > MCP.
-    *   Add a new server: type `command`, name it `CodeGraphContext`, and command `cgc mcp`.
+---
 
-3.  **Refresh your AI Tool:**
-    *   Restart your IDE / Claude Desktop.
-    *   Verify that tools like `analyze_code_relationships` or `find_code` are now available for the AI to use.
+## 3. Verify Installation
+
+To ensure everything is configured correctly, run the version check:
+
+```bash
+codegraphcontext --version
+```
+
+You can also run the diagnostic command to check backend connectivity:
+
+```bash
+codegraphcontext doctor
+```
+
+---
+
+## 4. Next Steps
+
+Now that CGC is installed, you are ready to index your first repository.
+
+**[Proceed to Quickstart →](quickstart.md)**

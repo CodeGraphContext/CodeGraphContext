@@ -1,0 +1,223 @@
+{
+  "name": "codegraphcontext-vscode",
+  "displayName": "CodeGraphContext",
+  "description": "Code graph intelligence in VS Code powered by CGC MCP.",
+  "version": "0.1.0",
+  "publisher": "ShashankShekharSingh",
+  "engines": {
+    "vscode": "^1.86.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onCommand:cgc.openDashboard",
+    "onCommand:cgc.showCallGraph",
+    "onCommand:cgc.analyzeRelationships",
+    "onCommand:cgc.refreshIndex",
+    "onCommand:cgc.openEngineConfig",
+    "onCommand:cgc.showVariableImpact",
+    "onView:cgc-repos",
+    "onView:cgc-bundles",
+    "onView:cgc-control"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cgc.openDashboard",
+        "title": "CGC: Open Command Center"
+      },
+      {
+        "command": "cgc.showCallGraph",
+        "title": "CGC: Show Call Graph"
+      },
+      {
+        "command": "cgc.analyzeRelationships",
+        "title": "CGC: Analyze Relationships"
+      },
+      {
+        "command": "cgc.refreshIndex",
+        "title": "CGC: Refresh Index"
+      },
+      {
+        "command": "cgc.openCypherConsole",
+        "title": "CGC: Open Cypher Console"
+      },
+      {
+        "command": "cgc.runIndexWizard",
+        "title": "CGC: Run Indexing Wizard"
+      },
+      {
+        "command": "cgc.openEngineConfig",
+        "title": "CGC: Open Engine Config"
+      },
+      {
+        "command": "cgc.showVariableImpact",
+        "title": "CGC: Show Variable Impact Radius"
+      },
+      {
+        "command": "cgc.refreshExtension",
+        "title": "CGC: Refresh / Restart Extension"
+      },
+      {
+        "command": "cgc.visualizeRepo",
+        "title": "CGC: Visualize Entire Repo"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "cgc.showCallGraph",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "cgc.analyzeRelationships",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "cgc.showVariableImpact",
+          "when": "editorTextFocus"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cgc-explorer",
+          "title": "CodeGraphContext",
+          "icon": "media/cgc.svg"
+        }
+      ]
+    },
+    "views": {
+      "cgc-explorer": [
+        {
+          "id": "cgc-control",
+          "name": "CGC Control Panel",
+          "type": "webview"
+        },
+        {
+          "id": "cgc-repos",
+          "name": "Repositories"
+        },
+        {
+          "id": "cgc-bundles",
+          "name": "Bundles"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CodeGraphContext",
+      "properties": {
+        "cgc.executable": {
+          "type": "string",
+          "default": "cgc",
+          "description": "Path to the CGC executable."
+        },
+        "cgc.pythonPackagePath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional CGC Python package path or uvx executable wrapper."
+        },
+        "cgc.repoPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional repository path override for CGC tools."
+        },
+        "cgc.databaseMode": {
+          "type": "string",
+          "default": "falkordb",
+          "enum": [
+            "neo4j",
+            "ladybugdb",
+            "falkordb"
+          ],
+          "description": "Target database mode for CGC runtime."
+        },
+        "cgc.maxDeadCodeDiagnostics": {
+          "type": "number",
+          "default": 100,
+          "description": "Maximum dead code diagnostics to render."
+        },
+        "cgc.complexityWarningThreshold": {
+          "type": "number",
+          "default": 10,
+          "description": "Complexity score above which warnings are emphasized."
+        },
+        "cgc.maxToolResponseTokens": {
+          "type": "number",
+          "default": 0,
+          "description": "Maximum tool response tokens (0 means unlimited)."
+        },
+        "cgc.neo4jUri": {
+          "type": "string",
+          "default": "",
+          "description": "Optional Neo4j URI for CGC engine transparency."
+        },
+        "cgc.contextMode": {
+          "type": "string",
+          "default": "global",
+          "enum": ["global", "per-repo", "named"],
+          "description": "CGC context mode: global, per-repo, or named workspace."
+        },
+        "cgc.indexVariables": {
+          "type": "boolean",
+          "default": true,
+          "description": "Index variable nodes in the code graph."
+        },
+        "cgc.ignoreDirs": {
+          "type": "string",
+          "default": "node_modules,venv,.venv,dist,build,__pycache__",
+          "description": "Comma-separated directories to exclude from indexing."
+        },
+        "cgc.parallelWorkers": {
+          "type": "number",
+          "default": 4,
+          "description": "Number of parallel indexing workers."
+        },
+        "cgc.enableAutoWatch": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically watch directory after indexing."
+        },
+        "cgc.maxFileSizeMb": {
+          "type": "number",
+          "default": 10,
+          "description": "Maximum file size (MB) to include in indexing."
+        },
+        "cgc.ignoreTestFiles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Skip test files during indexing."
+        },
+        "cgc.scipIndexer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use SCIP-based indexing for higher accuracy (requires scip-<lang> tools)."
+        },
+        "cgc.toolResultLimits": {
+          "type": "string",
+          "default": "{}",
+          "description": "JSON map of tool name to max result count, e.g. {\"find_code\": 20}."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "tsc -p ./ --noEmit",
+    "pretest": "npm run compile",
+    "test": "node --test out/testing/**/*.test.js",
+    "package:vsix": "npx @vscode/vsce package --allow-star-activation",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.6.1",
+    "@types/node": "^22.15.30",
+    "@types/vscode": "^1.86.0",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,137 +1,194 @@
 # MCP Tools Reference
 
-This document describes the Model Context Protocol (MCP) tools available in CodeGraphContext. These tools are exposed to AI assistants to enable them to interact with your codebase.
+This document describes the Model Context Protocol (MCP) tools exposed by CodeGraphContext **0.4.6**. The server registers the full catalog defined in `src/codegraphcontext/tool_definitions.py` (same tools the CLI graph operations rely on). In v0.4.6, MCP `tools/list` returns **21** tool definitions—the subsections below enumerate each one.
 
-## 📋 Tool Categories
+## Tool categories
 
-1. [Indexing & Management](#indexing--management)
-2. [Code Search](#code-search)
-3. [Analysis & Quality](#analysis--quality)
-4. [Bundle Management](#bundle-management)
-5. [Monitoring](#monitoring)
-6. [Advanced Querying](#advanced-querying)
+1. [Context management](#context-management)
+2. [Indexing & management](#indexing--management)
+3. [Code search](#code-search)
+4. [Analysis & quality](#analysis--quality)
+5. [Bundle management](#bundle-management)
+6. [Monitoring](#monitoring)
+7. [Job control](#job-control)
+8. [Advanced querying](#advanced-querying)
 
 ---
 
-## Indexing & Management
+## Context management
+
+### `discover_codegraph_contexts`
+
+Scan child directories for `.codegraphcontext/` folders that contain an indexed database—useful when the IDE opens a parent directory that has no graph, but sub-projects do.
+
+- **Args:** `path` (string, optional), `max_depth` (integer, default `1`)
+- **Returns:** List of discovered contexts with paths and metadata
+
+### `switch_context`
+
+Point the MCP session at a different `.codegraphcontext` database (repository root or `.codegraphcontext/` directory).
+
+- **Args:** `context_path` (string, required), `save` (boolean, default `true` — persist mapping for future sessions)
+- **Returns:** Status, resolved database type, and paths
+
+---
+
+## Indexing & management
 
 ### `add_code_to_graph`
-Performs a one-time scan of a local folder to add its code to the graph. Ideal for libraries or dependencies.
-- **Args**: `path` (string), `is_dependency` (boolean)
-- **Returns**: Job ID
+
+One-time scan of a local folder to add code to the graph (libraries, dependencies, or projects not under active watch).
+
+- **Args:** `path` (string), `is_dependency` (boolean)
+- **Returns:** Job ID
 
 ### `add_package_to_graph`
-Add an external package to the graph by discovering its location.
-- **Args**: `package_name` (string), `language` (string), `is_dependency` (boolean)
-- **Returns**: Job ID
-- **Supported Languages**: python, javascript, typescript, java, c, go, ruby, php, cpp
+
+Add an external package by resolving its install location.
+
+- **Args:** `package_name` (string), `language` (string), `is_dependency` (boolean)
+- **Returns:** Job ID
+- **Supported languages:** python, javascript, typescript, java, c, go, ruby, php, cpp
 
 ### `list_indexed_repositories`
-List all repositories currently indexed in the graph.
-- **Args**: None
-- **Returns**: List of repositories with paths and stats
+
+List repositories currently in the graph.
+
+- **Args:** None
+- **Returns:** Paths and metadata for each indexed repo
 
 ### `delete_repository`
-Delete a repository from the graph.
-- **Args**: `repo_path` (string)
-- **Returns**: Success message
 
-### `check_job_status`
-Check the status of a background job (indexing, scanning).
-- **Args**: `job_id` (string)
-- **Returns**: Job status (running, completed, failed) and progress
+Remove a repository from the graph.
 
-### `list_jobs`
-List all background jobs.
-- **Args**: None
-- **Returns**: List of all jobs
-
----
-
-## Code Search
-
-### `find_code`
-Find code snippets related to a keyword.
-- **Args**: `query` (string), `fuzzy_search` (boolean), `edit_distance` (number)
-- **Returns**: Matches with file path, line number, and content
-
----
-
-## Analysis & Quality
-
-### `analyze_code_relationships`
-Analyze relationships between code elements.
-- **Args**:
-  - `query_type` (enum): `find_callers`, `find_callees`, `class_hierarchy`, `overrides`, etc.
-  - `target` (string): Function/class name
-  - `context` (string): Optional file path
-- **Returns**: List of related elements
-
-### `find_dead_code`
-Find potentially unused functions across the codebase.
-- **Args**: `exclude_decorated_with` (list of strings)
-- **Returns**: List of unused functions
-
-### `calculate_cyclomatic_complexity`
-Calculate complexity for a specific function.
-- **Args**: `function_name` (string), `path` (string)
-- **Returns**: Complexity score
-
-### `find_most_complex_functions`
-Find the most complex functions in the codebase.
-- **Args**: `limit` (integer)
-- **Returns**: List of functions sorted by complexity
+- **Args:** `repo_path` (string)
+- **Returns:** Success message
 
 ### `get_repository_stats`
-Get statistics about indexed repositories.
-- **Args**: `repo_path` (string, optional)
-- **Returns**: Counts of files, functions, classes, modules
+
+Counts of files, functions, classes, and modules for one repo or the whole database.
+
+- **Args:** `repo_path` (string, optional)
+- **Returns:** Statistics object
 
 ---
 
-## Bundle Management
+## Code search
+
+### `find_code`
+
+Keyword search over indexed symbols and content.
+
+- **Args:** `query` (string), `fuzzy_search` (boolean), `edit_distance` (number), `repo_path` (string, optional)
+- **Returns:** Matches with path, line, and snippet context
+
+---
+
+## Analysis & quality
+
+### `analyze_code_relationships`
+
+Callers, callees, imports, hierarchy, and other relationship queries.
+
+- **Args:** `query_type` (enum), `target` (string), `context` (string, optional file path), `repo_path` (string, optional)
+- **Returns:** Structured relationship results
+
+### `find_dead_code`
+
+Potentially unused functions across the indexed codebase.
+
+- **Args:** `exclude_decorated_with` (list of strings), `repo_path` (string, optional)
+- **Returns:** Candidate dead symbols
+
+### `calculate_cyclomatic_complexity`
+
+Complexity for a single function.
+
+- **Args:** `function_name` (string), `path` (string, optional), `repo_path` (string, optional)
+- **Returns:** Complexity score
+
+### `find_most_complex_functions`
+
+Rank functions by cyclomatic complexity.
+
+- **Args:** `limit` (integer), `repo_path` (string, optional)
+- **Returns:** Ordered list of functions
+
+---
+
+## Bundle management
 
 ### `load_bundle`
-Load a pre-indexed `.cgc` bundle. Can download from registry if not found locally.
-- **Args**: `bundle_name` (string), `clear_existing` (boolean)
-- **Returns**: Success message and stats
+
+Load a `.cgc` bundle (local file or registry download).
+
+- **Args:** `bundle_name` (string), `clear_existing` (boolean)
+- **Returns:** Load status and stats
 
 ### `search_registry_bundles`
-Search for bundles in the registry.
-- **Args**: 
-  - `query` (string, optional): Search term
-  - `unique_only` (boolean): Show only latest version per package
-- **Returns**: List of available bundles
+
+Search the public bundle registry.
+
+- **Args:** `query` (string, optional), `unique_only` (boolean)
+- **Returns:** Matching bundles and metadata
 
 ---
 
 ## Monitoring
 
 ### `watch_directory`
-Continuously monitor a directory for changes and keep the graph updated.
-- **Args**: `path` (string)
-- **Returns**: Job ID for initial scan
+
+Initial index plus continuous filesystem watching to keep the graph current.
+
+- **Args:** `path` (string)
+- **Returns:** Job ID for the initial scan
 
 ### `list_watched_paths`
-List directories being watched.
-- **Args**: None
-- **Returns**: List of paths
+
+List active watch roots.
+
+- **Args:** None
+- **Returns:** Paths under watch
 
 ### `unwatch_directory`
+
 Stop watching a directory.
-- **Args**: `path` (string)
-- **Returns**: Success message
+
+- **Args:** `path` (string)
+- **Returns:** Success message
 
 ---
 
-## Advanced Querying
+## Job control
+
+### `list_jobs`
+
+List background jobs (indexing, scans, etc.).
+
+- **Args:** None
+- **Returns:** Job list with status
+
+### `check_job_status`
+
+Poll a single job.
+
+- **Args:** `job_id` (string)
+- **Returns:** Status and progress
+
+---
+
+## Advanced querying
 
 ### `execute_cypher_query`
-Run a direct read-only Cypher query against the graph.
-- **Args**: `cypher_query` (string)
-- **Returns**: Raw query results
+
+Read-only Cypher against the active backend (same graph model across FalkorDB, KuzuDB, Neo4j).
+
+- **Args:** `cypher_query` (string)
+- **Returns:** Tabular query results
 
 ### `visualize_graph_query`
-Generate a URL to visualize query results in Neo4j Browser.
-- **Args**: `cypher_query` (string)
-- **Returns**: URL
+
+Build a Neo4j Browser URL for visual exploration of a query (where Neo4j Browser applies).
+
+- **Args:** `cypher_query` (string)
+- **Returns:** URL string

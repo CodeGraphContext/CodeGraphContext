@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Github, ExternalLink, Mail, MapPin, Phone } from "lucide-react";
+import { Mail, MapPin, Phone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { createClient } from "@supabase/supabase-js";

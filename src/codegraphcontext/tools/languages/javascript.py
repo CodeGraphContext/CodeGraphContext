@@ -108,6 +108,10 @@ JS_QUERIES = {
     "docstrings": """
         (comment) @docstring_comment
     """,
+    "jsx_elements": """
+        (jsx_element) @jsx
+        (jsx_self_closing_element) @jsx
+    """,
 }
 
 
@@ -180,6 +184,7 @@ class JavascriptTreeSitterParser:
         imports = self._find_imports(root_node)
         function_calls = self._find_calls(root_node)
         variables = self._find_variables(root_node)
+        components = self._find_react_components(root_node)
 
         return {
             "path": str(path),
@@ -188,6 +193,7 @@ class JavascriptTreeSitterParser:
             "variables": variables,
             "imports": imports,
             "function_calls": function_calls,
+            "components": components,
             "is_dependency": is_dependency,
             "lang": self.language_name,
         }
@@ -196,7 +202,7 @@ class JavascriptTreeSitterParser:
         functions = []
         query_str = JS_QUERIES['functions']
 
-    # Local helpers so we don't depend on class attrs being present
+        # Local helpers so we don't depend on class attrs being present
         def _fn_for_name(name_node):
             current = name_node.parent
             while current:
@@ -548,6 +554,38 @@ class JavascriptTreeSitterParser:
                 }
                 variables.append(variable_data)
         return variables
+
+    def _find_react_components(self, root_node):
+        """Find React components in JavaScript/JSX files."""
+        components = []
+        # Similar logic to typescriptjsx but for JS
+        query_strings = [
+            '(class_declaration name: (identifier) @name)',
+            '(variable_declarator name: (identifier) @name value: (arrow_function) @fn)',
+            '(variable_declarator name: (identifier) @name value: (function_expression) @fn)',
+            '(function_declaration name: (identifier) @name)',
+        ]
+        
+        # We only treat it as a component if it's in a .jsx file or contains JSX
+        # For simplicity, if we find JSX elements in the file, we're more likely to treat these as components
+        has_jsx = len(execute_query(self.language, JS_QUERIES['jsx_elements'], root_node)) > 0
+        
+        if not has_jsx:
+            return []
+
+        for query_str in query_strings:
+            for node, capture_name in execute_query(self.language, query_str, root_node):
+                if capture_name == 'name':
+                    name = self._get_node_text(node)
+                    # React components usually start with uppercase
+                    if name and name[0].isupper():
+                        components.append({
+                            "name": name,
+                            "line_number": node.start_point[0] + 1,
+                            "type": "component",
+                            "lang": self.language_name,
+                        })
+        return components
 
 
 def pre_scan_javascript(files: list[Path], parser_wrapper) -> dict:

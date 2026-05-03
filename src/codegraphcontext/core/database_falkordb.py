@@ -356,6 +356,18 @@ class FalkorDBSessionWrapper:
         """
         Execute a Cypher query on FalkorDB.
         """
+        constraint_command = self._translate_constraint_command(query)
+        if constraint_command is not None:
+            try:
+                self.graph.execute_command(*constraint_command)
+                return FalkorDBResultWrapper(None)
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "already exists" in error_msg or "already created" in error_msg:
+                    return FalkorDBResultWrapper(None)
+                error_logger(f"FalkorDB constraint failed: {constraint_command!r} Error: {e}")
+                raise
+
         # Translate Neo4j schema queries to FalkorDB syntax
         query = self._translate_schema_query(query)
         
@@ -371,6 +383,56 @@ class FalkorDBSessionWrapper:
             error_logger(f"FalkorDB query failed: {query[:100]}... Error: {e}")
             raise
 
+    def _translate_constraint_command(self, query: str):
+        """
+        Translate Neo4j-style CREATE CONSTRAINT queries to GRAPH.CONSTRAINT CREATE.
+        FalkorDB 4.16.x expects this command path instead of GRAPH.QUERY.
+        """
+        q_upper = query.upper()
+        if "CREATE CONSTRAINT" not in q_upper:
+            return None
+
+        normalized = re.sub(r"\s+IF NOT EXISTS", "", query, flags=re.IGNORECASE)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+
+        entity_match = re.search(r"FOR\s*\((\w+):([^)]+)\)", normalized, flags=re.IGNORECASE)
+        if not entity_match:
+            return None
+        entity_type = "NODE"
+        label = entity_match.group(2).strip()
+
+        composite_match = re.search(
+            r"REQUIRE\s*\(([^)]+)\)\s*IS\s+UNIQUE",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        single_match = re.search(
+            r"REQUIRE\s+\w+\.([A-Za-z_][A-Za-z0-9_]*)\s+IS\s+UNIQUE",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+
+        if composite_match:
+            props = [part.split(".")[-1].strip() for part in composite_match.group(1).split(",") if part.strip()]
+            constraint_type = "UNIQUE"
+        elif single_match:
+            props = [single_match.group(1).strip()]
+            constraint_type = "UNIQUE"
+        else:
+            return None
+
+        return [
+            "GRAPH.CONSTRAINT",
+            "CREATE",
+            self.graph.name,
+            constraint_type,
+            entity_type,
+            label,
+            "PROPERTIES",
+            len(props),
+            *props,
+        ]
+
     def _translate_schema_query(self, query: str) -> str:
         """Translate Neo4j schema queries to FalkorDB/RedisGraph syntax."""
         q_upper = query.upper()
@@ -379,26 +441,9 @@ class FalkorDBSessionWrapper:
         if "CREATE FULLTEXT INDEX" in q_upper:
             return "RETURN 1"
             
-        # Handle Constraints
+        # Handle Constraints through GRAPH.CONSTRAINT in run()
         if "CREATE CONSTRAINT" in q_upper:
-            # Remove "IF NOT EXISTS"
-            query = re.sub(r'\s+IF NOT EXISTS', '', query, flags=re.IGNORECASE)
-            
-            # Handle composite keys: (n.p1, n.p2) -> downgrade to INDEX
-            if "," in query:
-                match_node = re.search(r'FOR\s+(\([^)]+\))', query, flags=re.IGNORECASE)
-                match_props = re.search(r'REQUIRE\s+(\([^)]+\))\s+IS UNIQUE', query, flags=re.IGNORECASE)
-                
-                if match_node and match_props:
-                    return f"CREATE INDEX FOR {match_node.group(1)} ON {match_props.group(1)}"
-
-            # Handle simple uniqueness: CREATE CONSTRAINT name FOR (n:Label) REQUIRE n.prop IS UNIQUE
-            # TO: CREATE CONSTRAINT ON (n:Label) ASSERT n.prop IS UNIQUE
-            
-            # Remove constraint name
-            query = re.sub(r'CREATE CONSTRAINT\s+\w+\s+', 'CREATE CONSTRAINT ', query, flags=re.IGNORECASE)
-            query = re.sub(r'\s+FOR\s+', ' ON ', query, flags=re.IGNORECASE)
-            query = re.sub(r'\s+REQUIRE\s+', ' ASSERT ', query, flags=re.IGNORECASE)
+            return "RETURN 1"
             
         # Handle Regular Indexes
         elif "CREATE INDEX" in q_upper:

@@ -18,7 +18,7 @@ The backend is a Python application located in the `src/codegraphcontext` direct
 
 The `src/codegraphcontext/core` directory contains the fundamental building blocks of the backend:
 
-*   **Database:** A graph database is used to store the code graph. This allows for efficient querying of relationships between code elements (e.g., function calls, class inheritance).
+*   **Database:** The code graph is stored in one of **four graph database backends** (Neo4j, FalkorDB, KuzuDB, and related Lite/local options), selected via configuration (for example the `DEFAULT_DATABASE` key). This allows efficient querying of relationships between code elements (e.g., function calls, class inheritance).
 *   **Jobs:** Asynchronous jobs are used for long-running tasks like indexing a new codebase. This prevents the application from becoming unresponsive.
 *   **Watcher:** A file system watcher monitors the codebase for changes and triggers re-indexing, keeping the code graph up-to-date.
 
@@ -32,15 +32,17 @@ The `src/codegraphcontext/tools` directory contains the logic for code analysis:
 
 ### Server
 
-The `src/codegraphcontext/server.py` file implements the API server. It exposes the functionality of the backend to the frontend through a JSON-RPC API.
+The `src/codegraphcontext/server.py` file implements the MCP server. It exposes the functionality of the backend to MCP clients via **MCP (JSON-RPC over stdio)**.
 
 ### CLI
 
 The `src/codegraphcontext/cli` directory contains the implementation of the command-line interface. It allows users to:
 
-*   Start and stop the backend server.
+*   Start the MCP server with `cgc mcp start` (and related MCP commands).
 *   Index new projects.
 *   Run analysis tools from the command line.
+
+The system also supports **bundles**, a **registry**, and **contexts** for organizing indexed projects, sharing graph snapshots, and scoping tools to the right codebase—see project docs for configuration details.
 
 ## Frontend Architecture
 

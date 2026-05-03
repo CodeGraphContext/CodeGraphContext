@@ -6,7 +6,7 @@ This document outlines the standard pattern for extending the CodeGraphContext t
 
 The system is designed with a clear separation of concerns:
 1.  **Language-Specific Parsers:** Located in `src/codegraphcontext/tools/languages/`, these are responsible for understanding the syntax of a single language and extracting its constructs into a standardized Python dictionary.
-2.  **Generic Graph Builder:** The `GraphBuilder` in `src/codegraphcontext/tools/graph_builder.py` consumes these dictionaries and is responsible for creating nodes and relationships in the Neo4j database. It is language-agnostic.
+2.  **Generic Graph Builder:** The `GraphBuilder` in `src/codegraphcontext/tools/graph_builder.py` consumes these dictionaries and is responsible for creating nodes and relationships in the **graph database (FalkorDB/KuzuDB/Neo4j, depending on configuration)**. It is language-agnostic.
 
 Adding a new feature always involves these two steps: **(1) Specialize the Parser** and **(2) Generalize the Builder**.
 
@@ -110,34 +110,19 @@ Now, teach the `GraphBuilder` how to handle the new key (e.g., `"interfaces"`) p
 **File to Edit:** `src/codegraphcontext/tools/graph_builder.py`
 
 **1. Add a Schema Constraint:**
-In the `create_schema` method, add a uniqueness constraint for the new Neo4j node label you are introducing (e.g., `:Interface`, `:Macro`). This is crucial for data integrity.
+Add a uniqueness constraint (or equivalent) for the new node label you are introducing (e.g., `:Interface`, `:Macro`). This is crucial for data integrity.
 
-```python
-# In GraphBuilder.create_schema()
-def create_schema(self):
-    """Create constraints and indexes in Neo4j."""
-    # When adding a new node type with a unique key, add its constraint here.
-    with self.driver.session() as session:
-        try:
-            # ... existing constraints
-            session.run("CREATE CONSTRAINT class_unique IF NOT EXISTS FOR (c:Class) REQUIRE (c.name, c.path, c.line_number) IS UNIQUE")
-            
-            # Add constraints for the new types
-            session.run("CREATE CONSTRAINT interface_unique IF NOT EXISTS FOR (i:Interface) REQUIRE (i.name, i.path, i.line_number) IS UNIQUE")
-            session.run("CREATE CONSTRAINT macro_unique IF NOT EXISTS FOR (m:Macro) REQUIRE (m.name, m.path, m.line_number) IS UNIQUE")
-            
-            # ... other schema items
-```
+Schema creation is **not** done with ad-hoc `session.run("CREATE CONSTRAINT...")` in the graph builder anymore; persistence goes through **`GraphWriter`** in `src/codegraphcontext/tools/indexing/persistence/writer.py`, with schema definitions coordinated via **`src/codegraphcontext/tools/indexing/schema.py`**. Extend those modules (and any backend-specific paths they delegate to) when you add new labels or constraints so all four backends stay consistent.
 
 **2. Update the Node Creation Loop:**
-In the `add_file_to_graph` method, there is a list called `item_mappings`. Add your new construct to this list. The builder will handle the rest automatically.
+File-to-graph ingestion is routed through **`GraphWriter`** (the old `add_file_to_graph`-style loop lives there). There is typically a mapping from parser keys to node labels (conceptually similar to an `item_mappings` list). Add your new construct there so **`GraphWriter`** persists it like other node types.
 
 ```python
-# In GraphBuilder.add_file_to_graph()
+# Conceptual pattern (actual code lives in GraphWriter / graph pipeline)
 
 # 1. Ensure your language-specific parser returns a list under a unique key (e.g., 'traits': [...] or 'mixins': [...] ).
-# 2. Add a new constraint for the new label in the `create_schema` method.
-# 3. Add a new entry to the `item_mappings` list below (e.g., (file_data.get('traits', []), 'Trait') or (file_data.get('mixins', []), 'Mixin') ).
+# 2. Add schema for the new label via indexing/schema.py and GraphWriter.
+# 3. Register the new key in the writer’s mappings (e.g., (file_data.get('traits', []), 'Trait') or (file_data.get('mixins', []), 'Mixin') ).
 item_mappings = [
     (file_data.get('functions', []), 'Function'),
     (file_data.get('classes', []), 'Class'),
@@ -147,9 +132,9 @@ item_mappings = [
 ]
 for item_data, label in item_mappings:
     for item in item_data:
-        # ... generic node creation logic
+        # ... generic node creation logic (handled by GraphWriter)
 ```
-Using `file_data.get('macros', [])` ensures that the builder doesn't fail if a language parser (like Python's) doesn't produce a `macros` key.
+Using `file_data.get('macros', [])` ensures ingestion does not fail if a language parser (like Python's) doesn't produce a `macros` key.
 
 ---
 
@@ -163,4 +148,4 @@ For example:
 
 This allows for powerful, cross-language queries (e.g., `MATCH (c:Contract)`) while retaining language-specific details.
 
-This can be implemented in `add_file_to_graph` by dynamically constructing the label string based on the data provided by the parser, which already includes a `lang` key.
+This can be implemented in **`GraphWriter`** (during per-file node creation) by dynamically constructing the label string based on the data provided by the parser, which already includes a `lang` key.

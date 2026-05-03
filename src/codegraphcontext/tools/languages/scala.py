@@ -199,7 +199,7 @@ class ScalaTreeSitterParser:
                             "path": str(path),
                             "lang": self.language_name,
                             "context": context_name,
-                            "class_context": context_name if context_type and "class" in str(context_type) or "object" in str(context_type) or "trait" in str(context_type) else None
+                            "class_context": context_name if context_type and ("class" in str(context_type) or "object" in str(context_type) or "trait" in str(context_type)) else None
                         }
 
                         if self.index_source:

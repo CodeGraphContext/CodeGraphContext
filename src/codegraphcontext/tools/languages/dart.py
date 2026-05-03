@@ -51,6 +51,23 @@ DART_QUERIES = {
     """,
 }
 
+SIGNATURE_TYPES = (
+    "function_signature",
+    "method_signature",
+    "getter_signature",
+    "setter_signature",
+    "constructor_signature",
+    "factory_constructor_signature",
+    "operator_signature",
+)
+CONTAINER_TYPES = (
+    "class_definition",
+    "mixin_declaration",
+    "extension_declaration",
+)
+_CALL_PUNCTUATION = {".", "?.", "..", "?..", ";", ",", "(", ")", "[", "]"}
+
+
 class DartTreeSitterParser:
     """A Dart-specific parser using tree-sitter, encapsulating language-specific logic."""
 
@@ -65,14 +82,100 @@ class DartTreeSitterParser:
         if not node: return ""
         return node.text.decode('utf-8')
 
-    def _get_parent_context(self, node, types=('function_signature', 'class_definition', 'mixin_declaration', 'extension_declaration')):
+    def _get_parent_context(self, node, types=SIGNATURE_TYPES + CONTAINER_TYPES):
         curr = node.parent
         while curr:
             if curr.type in types:
                 name_node = curr.child_by_field_name('name')
+                if name_node is None:
+                    for child in curr.children:
+                        if child.type == "identifier":
+                            name_node = child
+                            break
                 return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
+
+            # Dart places function_body next to its signature under class_body/program,
+            # so calls inside a body cannot find the signature through parent links.
+            if curr.type == "function_body":
+                parent = curr.parent
+                if parent is not None:
+                    siblings = list(parent.children)
+                    try:
+                        idx = siblings.index(curr)
+                    except ValueError:
+                        idx = -1
+
+                    for i in range(idx - 1, -1, -1):
+                        sibling = siblings[i]
+                        if sibling.type not in types:
+                            continue
+
+                        target = sibling
+                        for child in sibling.children:
+                            if child.type in SIGNATURE_TYPES:
+                                target = child
+                                break
+
+                        name_node = target.child_by_field_name("name")
+                        if name_node is None:
+                            for child in target.children:
+                                if child.type == "identifier":
+                                    name_node = child
+                                    break
+                        if name_node is not None:
+                            return self._get_node_text(name_node), target.type, target.start_point[0] + 1
             curr = curr.parent
         return None, None, None
+
+    def _last_identifier_in(self, node):
+        """Return the deepest-last identifier under node."""
+        last = None
+        for child in node.children:
+            if child.type == "identifier":
+                last = child
+            else:
+                deeper = self._last_identifier_in(child)
+                if deeper is not None:
+                    last = deeper
+        return last
+
+    def _name_node_for_call_selector(self, call_node):
+        """Find the receiver/member name paired with a captured argument selector."""
+        parent = call_node.parent
+        if parent is None:
+            return None
+
+        siblings = list(parent.children)
+        try:
+            idx = siblings.index(call_node)
+        except ValueError:
+            return None
+
+        for i in range(idx - 1, -1, -1):
+            sibling = siblings[i]
+            if sibling.type in _CALL_PUNCTUATION:
+                continue
+            if sibling.type == "identifier":
+                return sibling
+            name_node = self._last_identifier_in(sibling)
+            if name_node is not None:
+                return name_node
+            break
+        return None
+
+    def _has_call_selector_sibling(self, name_node):
+        """Return True if an identifier is a receiver beside a call selector."""
+        parent = name_node.parent
+        if parent is None:
+            return False
+        for sibling in parent.children:
+            if sibling is name_node:
+                continue
+            if sibling.type == "selector":
+                for child in sibling.children:
+                    if child.type == "argument_part":
+                        return True
+        return False
 
     def _calculate_complexity(self, node):
         complexity_nodes = {
@@ -293,13 +396,14 @@ class DartTreeSitterParser:
         
         for node, capture_name in execute_query(self.language, query_str, root_node):
             if capture_name in ("name", "call"):
-                # Ensure we are at the right node level
-                target_node = node
                 if capture_name == "call":
-                    # For call capture, find the name identifier
-                    # selector -> argument_part -> arguments
-                    # we want the name before this selector
-                    pass 
+                    target_node = self._name_node_for_call_selector(node)
+                    if target_node is None:
+                        continue
+                else:
+                    if self._has_call_selector_sibling(node):
+                        continue
+                    target_node = node
 
                 # Deduplicate by start byte
                 node_id = target_node.start_byte

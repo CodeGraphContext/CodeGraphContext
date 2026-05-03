@@ -81,9 +81,13 @@ class SystemTools:
         if not cypher_query:
             return {"error": "Cypher query cannot be empty."}
 
+        import re as _re
         forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
-        if any(keyword in cypher_query.upper() for keyword in forbidden_keywords):
-            return {"error": "This tool only supports read-only queries."}
+        string_literal_pattern = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
+        query_without_strings = _re.sub(string_literal_pattern, '', cypher_query)
+        for keyword in forbidden_keywords:
+            if _re.search(r'\b' + keyword + r'\b', query_without_strings, _re.IGNORECASE):
+                return {"error": "This tool only supports read-only queries. Prohibited keywords like CREATE, MERGE, DELETE, SET, etc., are not allowed."}
 
         try:
             with self.db_manager.get_driver().session() as session:

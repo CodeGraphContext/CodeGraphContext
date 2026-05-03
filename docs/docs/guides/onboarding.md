@@ -20,13 +20,14 @@ The root directory contains important configuration files for packaging, testing
 
 ### `src/codegraphcontext/`
 This is the **Core Engine** containing all the Python logic to index, watch, and query code contexts.
-- **`cli/`**: Directory housing the command-line interface logic using `click` or `typer` frameworks. All commands like `cgc index`, `cgc list`, and `cgc clean` live here.
-- **`db/`**: The Database Abstraction Layer. Contains drivers and query execution logic for connecting to **KùzuDB** (our embedded default) and **Neo4j** (for enterprise-scale usages).
-- **`parsers/`**: Collection of language-specific Tree-sitter implementations. Each script corresponds to a language (e.g., `python.py`, `javascript.py`) responsible for translating syntax ASTs into standard nodes/edges.
+- **`cli/`**: Directory housing the command-line interface logic using **Typer**. All commands like `cgc index`, `cgc list`, and `cgc clean` live here.
+- **`core/`**: Core engine pieces including **database drivers and connection logic**. **FalkorDB** (Lite and remote) is the primary path on Unix/Python 3.12+; **LadybugDB** supports embedded use (including Windows/fallback); **Neo4j** is available for remote or production deployments.
+- **`tools/languages/`**: Collection of language-specific Tree-sitter implementations. Each module corresponds to a language (e.g., `python.py`, `javascript.py`) responsible for translating syntax ASTs into standard nodes/edges.
 - **`utils/`**: Shared helpers across the project (logging, environment validation).
 - **`graph_builder.py`**: The heavy-lifter file. Coordinates parsing across files, batches nodes and edges, and commits them to the DB.
-- **`server.py`**: The main Model Context Protocol (MCP) server. Used by tools like Cursor or Claude Desktop to natively talk to this tool.
-- **`watchdog/`**: Code that leverages `watchdog` to continuously monitor files for changes and instantly trigger an incremental index.
+- **`server.py`**: The main Model Context Protocol (MCP) server. Used by tools like Cursor or Claude Desktop to natively talk to this tool; tool behavior is implemented in **`tools/handlers/`** modules that the server delegates to.
+- **`core/watcher.py`**: File watching that uses the **`watchdog`** library to monitor paths and trigger incremental indexing.
+- **`tools/indexing/`**: Indexing pipeline pieces (including persistence and graph writing used during builds).
 
 ### `docs/`
 Contains the knowledge base you are currently reading!
@@ -37,7 +38,7 @@ Contains the knowledge base you are currently reading!
 ### `tests/`
 The testing suite. It ensures no PR breaks the engine.
 - **`unit/`**: Isolated testing for small functions (such as specific parsers returning the right class name).
-- **`integration/`**: Ensuring connections to local KùzuDB/Neo4j successfully write and read complex relationships.
+- **`integration/`**: Ensuring connections to local LadybugDB/Neo4j successfully write and read complex relationships.
 - **`fixtures/`**: Mocked codebase folders (small fake python or typescript projects) used to validate parsers.
 
 ### `k8s/`
@@ -63,9 +64,9 @@ A directory used for tracking the core team's research goals, roadmap notes, and
 
 ## Where to start modifying?
 
-- **Want to add a new Language?** Look in `src/codegraphcontext/parsers/`. You'll need to define a new parser class and write Tree-sitter queries.
-- **Want to add a new MCP Action?** Head to `src/codegraphcontext/server.py`. The `@app.tool` decorators expose new commands to Claude/Cursor.
-- **Want to change Database connections?** Modify `src/codegraphcontext/db/`.
+- **Want to add a new language?** Look in `src/codegraphcontext/tools/languages/`. You'll need to define a new parser class and write Tree-sitter queries.
+- **Want to add a new MCP tool?** Add or extend a handler under `src/codegraphcontext/tools/handlers/` and wire it from `src/codegraphcontext/server.py` (the server delegates to these modules rather than using ad-hoc `@app.tool`-style decorators on a monolithic file).
+- **Want to change database connections?** Inspect drivers and related logic under `src/codegraphcontext/core/` and configuration (e.g. **`DEFAULT_DATABASE`**).
 - **UI Tweaks on the Visualizer?** Change `website/src/components/CodeGraphViewer.tsx` and run `npm run dev` in that folder.
 
 Enjoy contributing to CodeGraphContext! 

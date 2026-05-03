@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test all language parsers and identify any query issues."""
 
-from codegraphcontext.tools.graph_builder import TreeSitterParser
+from codegraphcontext.tools.tree_sitter_parser import TreeSitterParser
 from pathlib import Path
 
 test_cases = {

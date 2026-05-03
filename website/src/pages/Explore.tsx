@@ -97,7 +97,7 @@ const Explore = () => {
           <CodeGraphViewer 
             key="viewer" 
             data={graphData} 
-            onClose={() => setGraphData(null)} 
+            onClose={() => setGraphData(null)}
           />
         )}
       </AnimatePresence>

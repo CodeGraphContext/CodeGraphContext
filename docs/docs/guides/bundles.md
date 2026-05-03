@@ -1,30 +1,67 @@
-# Using On-Demand Bundles
+# Portable Code Bundles
 
-Don't index everything yourself. Use pre-built graphs for popular libraries.
+CodeGraphContext (CGC) introduces the concept of **Bundles** (`.cgc` files)—portable snapshots of an indexed codebase. Bundles allow you to share or load pre-indexed graphs instantly without the overhead of parsing source code.
 
-## What is a Bundle?
-A `.cgc` bundle is a snapshot of a graph. It allows you to "import" the knowledge of `flask`, `pandas`, or `react` without parsing it yourself.
+## 1. Creating a Bundle
 
-## How to use them
+Once you have indexed a repository, you can export it as a bundle:
 
-### 1. Search the Registry
 ```bash
-cgc registry search react
+cgc bundle create --name "my-project-v1"
 ```
 
-### 2. Load a Bundle
-```bash
-cgc load react
-```
-*(This downloads ~5MB instead of parsing 50MB of source code).*
+This generates a `.cgc` file containing the entire graph structure and metadata.
 
-### 3. Query it
-Now your AI knows about React's internals.
-"How does `useEffect` work internally in React?" -> The AI can traverse the imported graph nodes.
+## 2. Loading a Bundle
 
-## Requesting a Bundle
-If a library isn't there, request it:
+To load a bundle into your current session:
+
 ```bash
-cgc registry request https://github.com/fastapi/fastapi
+cgc bundle load ./my-project-v1.cgc
 ```
-Our build servers will index it and make it available within minutes.
+
+The graph is now immediately queryable via the CLI and MCP tools.
+
+---
+
+## 3. The CGC Bundle Registry
+
+CGC maintains a registry of pre-indexed bundles for popular open-source libraries. This allows AI agents to understand your dependencies without you needing to have their source code locally.
+
+### Search the Registry
+Find available bundles for your tech stack:
+
+```bash
+cgc bundle search "flask"
+```
+
+### Download and Load
+Fetch a bundle directly from the registry:
+
+```bash
+cgc bundle load flask
+```
+
+---
+
+## 4. Use Cases for Bundles
+
+*   **CI/CD**: Build a code graph as part of your CI pipeline and attach it to releases.
+*   **Onboarding**: Provide new team members with a pre-indexed bundle of the entire microservices architecture.
+*   **AI Context**: Attach bundles of common libraries (e.g., `requests`, `numpy`, `react`) to your AI assistant for better library-specific suggestions.
+
+---
+
+## Managing Local Bundles
+
+You can list all bundles currently stored in your local registry:
+
+```bash
+cgc bundle list
+```
+
+To remove a bundle and free up space:
+
+```bash
+cgc bundle remove <bundle_id>
+```

@@ -1,5 +1,7 @@
 from typing import Any, Dict
-from ...utils.debug_log import debug_log, error_logger
+
+from ...utils.debug_log import error_logger
+from ...utils.repo_path import any_repo_matches_path
 
 def list_watched_paths(code_watcher, **args) -> Dict[str, Any]:
     """Tool to list all currently watched directory paths."""
@@ -50,7 +52,7 @@ def watch_directory(code_watcher, list_repositories_func, add_code_func, **args)
         # 2. Check if the repository is already indexed
         indexed_repos_result = list_repositories_func()
         indexed_repos = indexed_repos_result.get("repositories", [])
-        is_already_indexed = any(Path(repo["path"]).resolve() == path_obj for repo in indexed_repos)
+        is_already_indexed = any_repo_matches_path(indexed_repos, path_obj)
 
         # 3. Decide whether to perform an initial scan
         if is_already_indexed:
@@ -62,9 +64,6 @@ def watch_directory(code_watcher, list_repositories_func, add_code_func, **args)
             }
         else:
             # If not indexed, perform the scan AND start the watcher
-            scan_job_result = add_code_to_graph_tool(path=path_str, is_dependency=False)
-            # The add_code_func passed might be the raw handler or wrapper. 
-            # Ideally we call the function passed in.
             scan_job_result = add_code_func(path=path_str, is_dependency=False)
 
             if "error" in scan_job_result:

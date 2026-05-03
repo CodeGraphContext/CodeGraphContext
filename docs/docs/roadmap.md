@@ -1,36 +1,33 @@
-# 🗺️ Project Roadmap
+# Project Roadmap
 
-CodeGraphContext is an evolving tool. We believe in transparency about where we are and where we are going.
+CodeGraphContext is continuously evolving. This roadmap outlines our current capabilities and our vision for the future of code intelligence.
 
-## 🟢 Currently Supported (Stable)
+## Current Capabilities
 
-These features are live and battle-tested in version `0.2.1+`.
+These features are available in the current release:
 
-*   **Core Indexing:** Python, JavaScript, TypeScript, Go, Java, C++, Ruby, PHP.
-*   **Database Backends:**
-    *   FalkorDB Lite (In-memory, default for Unix).
-    *   Neo4j (Docker/Native, default for Production).
-*   **MCP Server:** Full support for Cursor, Claude Desktop, Windsurf, VS Code.
-*   **Live Watching:** Real-time updates via `cgc watch`.
-*   **Bundles:** Export/Import indexed graphs.
+*   **Multi-Language Support**: Robust parsing for 19+ languages including Python, JS/TS, Go, Rust, C++, and Java.
+*   **Plug-and-Play Backends**: Support for KùzuDB, FalkorDB, and Neo4j.
+*   **MCP Ecosystem**: A rich set of tools for AI assistants, supporting stdio transport.
+*   **Real-time Sync**: File system watchers that keep the code graph up-to-date automatically.
+*   **Portable Bundles**: A registry and CLI tools for sharing and loading pre-indexed code graphs.
+*   **Graph Visualization**: An interactive React-based UI for exploring code relationships.
 
-## 🚧 In Progress (Beta / Active Dev)
+## In Development (Short Term)
 
-We are actively writing code for these right now.
+*   **Language-Specific Query Toolkits**: Specialized queries for deeper analysis of specific language patterns (e.g., React component trees, Python decorator chains).
+*   **Enhanced SCIP Integration**: Moving SCIP support from beta to a first-class indexing citizen for even higher precision.
+*   **Performance Optimizations**: Faster initial indexing for massive (1M+ LOC) repositories.
 
-*   **Interactive Visualizer:** A new web-based UI to explore the graph without Neo4j Browser.
-*   **Better C++ Support:** improved parsing for header/implementation linkage.
-*   **Configuration UI:** A TUI (Text User Interface) for managing `mcp.json` configs.
+## Planned (Long Term)
 
-## 🔮 Planned (Future)
-
-Concepts we are researching for the next major versions.
-
-*   **Cloud Sync:** Option to share private implementation graphs with team members.
-*   **CI/CD Action:** GitHub Action to auto-index PRs and comment with impact analysis.
-*   **Natural Language Query to Graph:** Improved "Text-to-Cypher" translation for the CLI.
+*   **Advanced AI Workflows**: Deeper integration with agentic frameworks to allow AI to perform complex refactorings using the graph.
+*   **CI/CD Integration**: Official GitHub Actions and GitLab CI components for automated graph building.
+*   **Cloud Synchronization**: Optional encrypted cloud storage for syncing code graphs across your development machines.
+*   **Alternative MCP Transports**: Support for HTTP/SSE and WebSocket transports for remote MCP hosting.
 
 ---
 
-!!! info "Request a Feature"
-    Have an idea? Open an issue on our [GitHub Repository](https://github.com/CodeGraphContext/CodeGraphContext/issues).
+> [!NOTE]
+> **Have a feature request?**
+> We value community feedback. Please open an issue on our [GitHub repository](https://github.com/CodeGraphContext/CodeGraphContext/issues) to suggest new features or report bugs.

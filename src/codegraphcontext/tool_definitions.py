@@ -193,5 +193,28 @@ TOOLS = {
                 "repo_path": {"type": "string", "description": "Optional: Path to a specific repository. If not provided, returns overall database statistics."}
             }
         }
+    },
+    "discover_codegraph_contexts": {
+        "name": "discover_codegraph_contexts",
+        "description": "Scan child directories of the current workspace (or a given path) for .codegraphcontext folders that contain indexed code graph databases. Useful when the IDE is opened on a parent folder that itself has no database, but its sub-projects do.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Optional: Root directory to scan. Defaults to the server's current working directory."},
+                "max_depth": {"type": "integer", "description": "How many levels of child directories to scan. Defaults to 1 (immediate children only).", "default": 1}
+            }
+        }
+    },
+    "switch_context": {
+        "name": "switch_context",
+        "description": "Switch the current MCP session to use a different .codegraphcontext database. Provide the path to the repo directory (or its .codegraphcontext/ folder). The server will reconnect to that database so subsequent queries use it. By default the mapping is saved globally for persistence across restarts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "context_path": {"type": "string", "description": "Path to the repository root that contains a .codegraphcontext/ folder, or directly to the .codegraphcontext/ folder itself."},
+                "save": {"type": "boolean", "description": "Whether to persist this mapping so the server reconnects automatically next time. Defaults to true.", "default": True}
+            },
+            "required": ["context_path"]
+        }
     }
 }

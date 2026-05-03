@@ -19,7 +19,10 @@ CONFIG_DIR = Path.home() / ".codegraphcontext"
 CONFIG_FILE = CONFIG_DIR / ".env"
 
 # Database credential keys (stored in same .env file but not managed as config)
-DATABASE_CREDENTIAL_KEYS = {"NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE"}
+DATABASE_CREDENTIAL_KEYS = {
+    "NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE",
+    "NORNIC_URI", "NORNIC_USERNAME", "NORNIC_PASSWORD", "NORNIC_DATABASE"
+}
 
 # Default configuration values
 DEFAULT_CONFIG = {
@@ -47,11 +50,16 @@ DEFAULT_CONFIG = {
     "SCIP_INDEXER": "false",
     "SCIP_LANGUAGES": "python,typescript,go,rust,java",
     "SKIP_EXTERNAL_RESOLUTION": "false",
+    # 0 = unlimited; any positive integer caps MCP tool response size.
+    "MAX_TOOL_RESPONSE_TOKENS": "0",
+    # JSON object mapping tool names to integer result-count limits.
+    # Example: {"find_code": 20, "analyze_code_relationships": 10, "find_dead_code": 30}
+    "TOOL_RESULT_LIMITS": "{}",
 }
 
 # Configuration key descriptions
 CONFIG_DESCRIPTIONS = {
-    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|kuzudb)",
+    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|kuzudb|nornic)",
     "FALKORDB_PATH": "Path to FalkorDB database file",
     "FALKORDB_SOCKET_PATH": "Path to FalkorDB Unix socket",
     "INDEX_VARIABLES": "Index variable nodes in the graph (lighter graph if false)",
@@ -74,11 +82,13 @@ CONFIG_DESCRIPTIONS = {
     "SCIP_INDEXER": "Use SCIP-based indexing for higher accuracy call/inheritance resolution (requires scip-<lang> tools installed)",
     "SCIP_LANGUAGES": "Comma-separated languages to index via SCIP when SCIP_INDEXER=true (python,typescript,go,rust,java)",
     "SKIP_EXTERNAL_RESOLUTION": "Skip resolution attempts for external library method calls (recommended for enterprise large Java/Spring codebases)",
+    "MAX_TOOL_RESPONSE_TOKENS": "Maximum tokens per MCP tool response (0 = unlimited). Truncates oversized payloads and appends a notice.",
+    "TOOL_RESULT_LIMITS": "JSON object mapping tool names to max result counts, e.g. {\"find_code\": 20, \"analyze_code_relationships\": 10}. Missing keys use built-in defaults.",
 }
 
 # Valid values for each config key
 CONFIG_VALIDATORS = {
-    "DEFAULT_DATABASE": ["neo4j", "falkordb", "falkordb-remote", "kuzudb"],
+    "DEFAULT_DATABASE": ["neo4j", "falkordb", "falkordb-remote", "kuzudb", "nornic"],
     "INDEX_VARIABLES": ["true", "false"],
     "ALLOW_DB_DELETION": ["true", "false"],
     "DEBUG_LOGS": ["true", "false"],
@@ -219,6 +229,18 @@ def find_local_env() -> Optional[Path]:
     return None
 
 
+def codegraphcontext_dotenv_at_cwd(cwd: Optional[Path] = None) -> Optional[Path]:
+    """
+    Return ``<cwd>/.codegraphcontext/.env`` if that file exists, else None.
+
+    *cwd* defaults to ``Path.cwd()``. Parent directories are **not** searched—same rule as
+    local context resolution (``find_local_cgc_dir``).
+    """
+    root = (cwd or Path.cwd()).resolve()
+    candidate = root / ".codegraphcontext" / ".env"
+    return candidate if candidate.exists() else None
+
+
 def save_config(config: Dict[str, str], preserve_db_credentials: bool = True):
     """
     Save configuration to file.
@@ -330,6 +352,26 @@ def validate_config_value(key: str, value: str) -> tuple[bool, Optional[str]]:
                 return False, "PARALLEL_WORKERS must be between 1 and 32"
         except ValueError:
             return False, "PARALLEL_WORKERS must be a number"
+
+    if key == "MAX_TOOL_RESPONSE_TOKENS":
+        try:
+            limit = int(value)
+            if limit < 0:
+                return False, "MAX_TOOL_RESPONSE_TOKENS must be 0 (unlimited) or a positive integer"
+        except ValueError:
+            return False, "MAX_TOOL_RESPONSE_TOKENS must be an integer (0 = unlimited)"
+
+    if key == "TOOL_RESULT_LIMITS":
+        import json as _json
+        try:
+            parsed = _json.loads(value)
+            if not isinstance(parsed, dict):
+                return False, "TOOL_RESULT_LIMITS must be a JSON object, e.g. {\"find_code\": 20}"
+            for k, v in parsed.items():
+                if not isinstance(v, int) or v < 1:
+                    return False, f"TOOL_RESULT_LIMITS: value for '{k}' must be a positive integer"
+        except _json.JSONDecodeError:
+            return False, "TOOL_RESULT_LIMITS must be valid JSON, e.g. {\"find_code\": 20, \"find_dead_code\": 30}"
     
     if key == "MAX_DEPTH":
         if value.lower() != "unlimited":
@@ -739,6 +781,21 @@ def resolve_context(
             is_local=True,
         )
 
+    # --- 2b. Saved workspace mapping (CWD -> child .codegraphcontext/) ---
+    mapping = get_workspace_mapping(cwd)
+    if mapping:
+        mapped_ctx_path = Path(mapping["context_path"])
+        if mapped_ctx_path.exists() and mapped_ctx_path.is_dir():
+            mapped_db = mapping.get("database", "falkordb")
+            return ResolvedContext(
+                mode="per-repo",
+                context_name="",
+                database=mapped_db,
+                db_path=str(mapped_ctx_path / "db" / mapped_db),
+                cgcignore_path=str(mapped_ctx_path / ".cgcignore"),
+                is_local=True,
+            )
+
     # --- 3. Global config.yaml ---
     if cfg.mode == "named":
         ctx_name = cfg.default_context
@@ -876,3 +933,149 @@ def list_contexts() -> List[ContextInfo]:
     """Return all named contexts."""
     cfg = load_context_config()
     return list(cfg.contexts.values())
+
+
+# =============================================================================
+# CHILD CONTEXT DISCOVERY
+# =============================================================================
+
+@dataclass
+class DiscoveredContext:
+    """A .codegraphcontext folder found in a child directory."""
+    path: str            # absolute path to the parent repo directory
+    cgc_path: str        # absolute path to the .codegraphcontext directory
+    repo_name: str       # name of the parent directory
+    database: str        # backend from local config.yaml, or default
+    db_path: str         # resolved db path
+    cgcignore_path: str  # path to .cgcignore if present
+
+
+def discover_child_contexts(
+    start: Optional[Path] = None,
+    max_depth: int = 1,
+) -> List[DiscoveredContext]:
+    """Walk child directories of *start* up to *max_depth* levels looking for
+    ``.codegraphcontext/`` folders that represent per-repo databases.
+
+    Returns a list of :class:`DiscoveredContext` for each match found.
+    The global ``~/.codegraphcontext`` is always excluded.
+    """
+    start = (start or Path.cwd()).resolve()
+    global_dir = CONFIG_DIR.resolve()
+    results: List[DiscoveredContext] = []
+
+    def _scan(directory: Path, depth: int) -> None:
+        if depth > max_depth:
+            return
+        try:
+            entries = sorted(directory.iterdir())
+        except PermissionError:
+            return
+        for entry in entries:
+            if not entry.is_dir() or entry.name.startswith("."):
+                continue
+            candidate = entry / ".codegraphcontext"
+            if candidate.exists() and candidate.is_dir() and candidate.resolve() != global_dir:
+                local_db = "falkordb"
+                local_yaml = candidate / "config.yaml"
+                if local_yaml.exists():
+                    try:
+                        with open(local_yaml) as f:
+                            raw = yaml.safe_load(f) or {}
+                        local_db = raw.get("database", "falkordb")
+                    except Exception:
+                        pass
+                results.append(DiscoveredContext(
+                    path=str(entry),
+                    cgc_path=str(candidate),
+                    repo_name=entry.name,
+                    database=local_db,
+                    db_path=str(candidate / "db" / local_db),
+                    cgcignore_path=str(candidate / ".cgcignore"),
+                ))
+            if depth < max_depth:
+                _scan(entry, depth + 1)
+
+    _scan(start, 1)
+    return results
+
+
+# =============================================================================
+# WORKSPACE MAPPINGS  (global persistence of CWD -> context path)
+# =============================================================================
+
+def _load_workspace_mappings() -> Dict[str, Dict[str, str]]:
+    """Load the ``workspace_mappings`` section from config.yaml."""
+    if not CONTEXT_CONFIG_FILE.exists():
+        return {}
+    try:
+        with open(CONTEXT_CONFIG_FILE, "r") as f:
+            raw = yaml.safe_load(f) or {}
+        return raw.get("workspace_mappings", {}) or {}
+    except Exception:
+        return {}
+
+
+def _save_workspace_mappings(mappings: Dict[str, Dict[str, str]]) -> None:
+    """Write *mappings* back into the ``workspace_mappings`` key of config.yaml,
+    preserving all other keys."""
+    ensure_config_dir()
+    raw: Dict[str, Any] = {}
+    if CONTEXT_CONFIG_FILE.exists():
+        try:
+            with open(CONTEXT_CONFIG_FILE, "r") as f:
+                raw = yaml.safe_load(f) or {}
+        except Exception:
+            raw = {}
+    raw["workspace_mappings"] = mappings
+    try:
+        with open(CONTEXT_CONFIG_FILE, "w") as f:
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+    except Exception as e:
+        console.print(f"[red]Error saving workspace mappings: {e}[/red]")
+
+
+def get_workspace_mapping(cwd: Path) -> Optional[Dict[str, str]]:
+    """Look up a saved workspace mapping for *cwd*.
+
+    Returns a dict with ``context_path`` and ``database`` keys, or None.
+    """
+    mappings = _load_workspace_mappings()
+    return mappings.get(str(cwd.resolve()))
+
+
+def save_workspace_mapping(cwd: Path, context_path: Path) -> None:
+    """Persist an association from *cwd* to a ``.codegraphcontext`` directory."""
+    context_path = context_path.resolve()
+    local_db = "falkordb"
+    local_yaml = context_path / "config.yaml"
+    if local_yaml.exists():
+        try:
+            with open(local_yaml) as f:
+                raw = yaml.safe_load(f) or {}
+            local_db = raw.get("database", "falkordb")
+        except Exception:
+            pass
+
+    mappings = _load_workspace_mappings()
+    mappings[str(cwd.resolve())] = {
+        "context_path": str(context_path),
+        "database": local_db,
+    }
+    _save_workspace_mappings(mappings)
+
+
+def remove_workspace_mapping(cwd: Path) -> bool:
+    """Delete a saved workspace mapping. Returns True if one was removed."""
+    mappings = _load_workspace_mappings()
+    key = str(cwd.resolve())
+    if key in mappings:
+        del mappings[key]
+        _save_workspace_mappings(mappings)
+        return True
+    return False
+
+
+def list_workspace_mappings() -> Dict[str, Dict[str, str]]:
+    """Return all saved workspace mappings."""
+    return _load_workspace_mappings()

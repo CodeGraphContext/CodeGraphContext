@@ -16,7 +16,7 @@ the heuristic imports_map approach used in Tree-sitter mode.
 Workflow (called by GraphBuilder.build_graph_from_path_async when enabled):
   1. ScipIndexer.run(path) → runs the appropriate scip-<lang> CLI, returns path to index.scip
   2. ScipIndexParser.parse(index_scip_path) → returns {nodes, edges} dicts
-  3. GraphBuilder writes nodes + edges via the same Cypher MERGE queries as always.
+  3. indexing.persistence.GraphWriter writes nodes + edges via the same Cypher MERGE queries as Tree-sitter mode.
   4. Tree-sitter supplement pass adds: cyclomatic_complexity, source text, decorators.
 
 Supported SCIP indexers and their install commands:
@@ -197,7 +197,7 @@ class ScipIndexer:
 class ScipIndexParser:
     """
     Parses a SCIP index.scip protobuf file and converts it into the same
-    dict structures that graph_builder.py already knows how to write to the DB.
+    dict structures consumed by indexing.persistence.GraphWriter (same shape as Tree-sitter output).
 
     Output format mirrors what Tree-sitter produces:
       nodes: {"functions": [...], "classes": [...], "variables": [...], "imports": [...]}
@@ -226,9 +226,11 @@ class ScipIndexParser:
         """
         try:
             from . import scip_pb2  # type: ignore
-        except ImportError:
+        except Exception as e:
             error_logger(
-                "scip_pb2.py not found in tools directory."
+                "Failed to import codegraphcontext.tools.scip_pb2. "
+                "Ensure protobuf>=3.20,<3.21 is installed in the CodeGraphContext environment. "
+                f"Original error: {e}"
             )
             return {}
 

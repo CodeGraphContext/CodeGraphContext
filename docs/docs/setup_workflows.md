@@ -55,11 +55,18 @@ git --version
 # Install via pip
 pip install codegraphcontext
 
+# Or with pipx (isolated CLI app)
+pipx install codegraphcontext
+
+# Or with uv / uvx
+uv tool install codegraphcontext
+# One-shot: uvx codegraphcontext --help
+
 # Verify installation
 cgc --version
 
 # Expected output:
-# CodeGraphContext version 1.0.0
+# CodeGraphContext version x.y.z
 ```
 
 **Troubleshooting**: If `cgc` command not found, add Python scripts to PATH:
@@ -228,6 +235,8 @@ cgc help
 **Time Required**: 10-15 minutes  
 **Frequency**: Once per machine
 
+**Agent skill (AI assistants)**: For Cursor and other agents, see [Agent skill: CodeGraphContext](agent_skill_codegraphcontext.md) (also under `.cursor/skills/codegraphcontext/SKILL.md` in this repository).
+
 ### Step 1-3: Same as CLI Users
 
 Follow Steps 1-3 from [First-Time Setup: CLI Users](#first-time-setup-cli-users)
@@ -304,6 +313,14 @@ Next steps:
 3. Ask: "What MCP tools do you have access to?"
 4. Verify CodeGraphContext tools are listed
 ```
+
+**For OpenCode:**
+
+OpenCode registers MCP servers through its own config UI or config file. Use the same stdio pattern as other editors: command `cgc`, arguments `mcp` and `start`, plus any environment variables you use for `DEFAULT_DATABASE`, Neo4j, or LadybugDB paths so OpenCode matches your CLI setup.
+
+Step-by-step OpenCode MCP documentation (including server registration): [OpenCode — MCP servers](https://opencode.ai/docs/ko/mcp-servers/#_top).
+
+After adding the server, restart OpenCode (or reload MCP) and confirm tools such as `add_code_to_graph` and `codegraph_find_code` appear for the model.
 
 ### Step 5: Start MCP Server
 

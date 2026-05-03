@@ -27,19 +27,8 @@ JAVA_QUERIES = {
     "imports": """
         (import_declaration) @import
     """,
-    "calls": """
-        (method_invocation
-            name: (identifier) @name
-        ) @call_node
-        
-        (object_creation_expression
-            type: [
-                (type_identifier)
-                (scoped_type_identifier)
-                (generic_type)
-            ] @name
-        ) @call_node
-    """,
+    # variables MUST be parsed before calls so we can build var_type_map
+    # and populate inferred_obj_type on method-call nodes for cross-file resolution.
     "variables": """
         (local_variable_declaration
             type: (_) @type
@@ -55,6 +44,19 @@ JAVA_QUERIES = {
             )
         ) @variable
     """,
+    "calls": """
+        (method_invocation
+            name: (identifier) @name
+        ) @call_node
+        
+        (object_creation_expression
+            type: [
+                (type_identifier)
+                (scoped_type_identifier)
+                (generic_type)
+            ] @name
+        ) @call_node
+    """,
 }
 
 class JavaTreeSitterParser:
@@ -63,6 +65,12 @@ class JavaTreeSitterParser:
         self.language_name = "java"
         self.language = generic_parser_wrapper.language
         self.parser = generic_parser_wrapper.parser
+
+    @staticmethod
+    def _strip_generic(type_str: str) -> str:
+        """Return the raw type name without generic parameters, e.g. 'List<String>' -> 'List'."""
+        bracket = type_str.find('<')
+        return type_str[:bracket].strip() if bracket != -1 else type_str.strip()
 
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict[str, Any]:
         try:
@@ -90,6 +98,10 @@ class JavaTreeSitterParser:
             parsed_variables = []
             parsed_imports = []
             parsed_calls = []
+            # var_type_map is built from the "variables" pass so that the subsequent
+            # "calls" pass can resolve the declared type of field/local-variable
+            # receivers (e.g. `service.doWork()` -> inferred_obj_type='WorkService').
+            var_type_map: Dict[str, str] = {}
 
             for capture_name, query in JAVA_QUERIES.items():
                 results = execute_query(self.language, query, tree.root_node)
@@ -100,11 +112,16 @@ class JavaTreeSitterParser:
                     parsed_classes = self._parse_classes(results, source_code, path)
                 elif capture_name == "imports":
                     parsed_imports = self._parse_imports(results, source_code)
-                elif capture_name == "calls":
-                    parsed_calls = self._parse_calls(results, source_code)
                 elif capture_name == "variables":
-                    # results for variables query
                     parsed_variables = self._parse_variables(results, source_code, path)
+                    # Build name->type map for cross-file call resolution
+                    var_type_map = {
+                        v["name"]: self._strip_generic(v["type"])
+                        for v in parsed_variables
+                        if v.get("type") and v.get("name")
+                    }
+                elif capture_name == "calls":
+                    parsed_calls = self._parse_calls(results, source_code, var_type_map)
 
             return {
                 "path": str(path),
@@ -353,10 +370,12 @@ class JavaTreeSitterParser:
 
         return imports
 
-    def _parse_calls(self, captures: list, source_code: str) -> list[dict]:
+    def _parse_calls(self, captures: list, source_code: str, var_type_map: Optional[Dict[str, str]] = None) -> list[dict]:
         calls = []
         seen_calls = set()
-        
+        if var_type_map is None:
+            var_type_map = {}
+
         debug_log(f"Processing {len(captures)} captures for calls")
 
         for node, capture_name in captures:
@@ -364,22 +383,22 @@ class JavaTreeSitterParser:
                 try:
                     call_name = self._get_node_text(node)
                     line_number = node.start_point[0] + 1
-                    
+
                     # Ensure we identify the full call node
                     call_node = node.parent
                     while call_node and call_node.type not in ("method_invocation", "object_creation_expression"):
                         call_node = call_node.parent
-                    
+
                     if not call_node:
-                         # fallback if we matched a loose identifier
-                         call_node = node
+                        # fallback if we matched a loose identifier
+                        call_node = node
 
                     # Avoid duplicates
                     call_key = f"{call_name}_{line_number}"
                     if call_key in seen_calls:
                         continue
                     seen_calls.add(call_key)
-                    
+
                     # Extract arguments
                     args = []
                     if call_node:
@@ -389,27 +408,37 @@ class JavaTreeSitterParser:
                                 if arg.type not in ('(', ')', ','):
                                     args.append(self._get_node_text(arg))
 
-                    # Extract meaningful full_name
+                    # Extract meaningful full_name and infer the receiver's declared type.
+                    # When a method is called on a field or local variable whose type was
+                    # declared in this file (e.g. `private WorkService workService;`),
+                    # we populate inferred_obj_type so that resolve_function_call can
+                    # look it up in imports_map and create an accurate cross-file CALLS edge.
                     full_name = call_name
+                    inferred_obj_type = None
                     if call_node.type == 'method_invocation':
                         obj_node = call_node.child_by_field_name('object')
                         if obj_node:
-                             full_name = f"{self._get_node_text(obj_node)}.{call_name}"
+                            obj_text = self._get_node_text(obj_node)
+                            full_name = f"{obj_text}.{call_name}"
+                            # Only resolve simple identifiers (not chained calls like foo.bar().baz())
+                            base_obj = obj_text.split(".")[0]
+                            if "(" not in base_obj and base_obj in var_type_map:
+                                inferred_obj_type = var_type_map[base_obj]
                     elif call_node.type == 'object_creation_expression':
                         type_node = call_node.child_by_field_name('type')
                         if type_node:
                             full_name = self._get_node_text(type_node)
-                    
+
                     ctx_name, ctx_type, ctx_line = self._get_parent_context(node)
-                    
-                    debug_log(f"Found call: {call_name} (full_name: {full_name}, args: {args}) in context {ctx_name}")
+
+                    debug_log(f"Found call: {call_name} (full_name: {full_name}, inferred_obj_type: {inferred_obj_type}, args: {args}) in context {ctx_name}")
 
                     call_data = {
                         "name": call_name,
                         "full_name": full_name,
                         "line_number": line_number,
                         "args": args,
-                        "inferred_obj_type": None,
+                        "inferred_obj_type": inferred_obj_type,
                         "context": (ctx_name, ctx_type, ctx_line),
                         "class_context": (ctx_name, ctx_line) if ctx_type and "class" in ctx_type else (None, None),
                         "lang": self.language_name,
@@ -469,27 +498,3 @@ def pre_scan_java(files: list[Path], parser_wrapper) -> dict:
             error_logger(f"Error pre-scanning Java file {path}: {e}")
             
     return name_to_files
-def _find_annotations(tree):
-    # Detect annotation definitions like @interface CustomAnnotation
-    annotations = []
-    for node in tree.find_all("annotation_type_declaration"):
-        name = node.child_by_field_name("name").text
-        annotations.append({
-            "type": "Annotation",
-            "name": name,
-            "location": node.start_point
-        })
-    return annotations
-
-def _find_applied_annotations(tree):
-    # Detect usages like @Entity, @Override
-    applied = []
-    for node in tree.find_all("marker_annotation"):
-        name = node.child_by_field_name("name").text
-        applied.append({
-            "type": "AnnotationUsage",
-            "name": name,
-            "location": node.start_point
-        })
-    return applied
-

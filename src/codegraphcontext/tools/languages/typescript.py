@@ -90,7 +90,7 @@ TS_QUERIES = {
 }
 
 def is_typescript_file(path: Path) -> bool:
-    return path.suffix in {".ts", ".tsx"}
+    return path.suffix in {".ts", ".tsx", ".d.ts"}
 
 class TypescriptTreeSitterParser:
     """A TypeScript-specific parser using tree-sitter, encapsulating language-specific logic."""
@@ -239,7 +239,6 @@ class TypescriptTreeSitterParser:
                 "line_number": func_node.start_point[0] + 1,
                 "end_line": func_node.end_point[0] + 1,
                 "args": args,
-                "args": args,
                 "cyclomatic_complexity": self._calculate_complexity(func_node),
                 "context": context,
                 "context_type": context_type,
@@ -312,7 +311,6 @@ class TypescriptTreeSitterParser:
                     "name": name,
                     "line_number": class_node.start_point[0] + 1,
                     "end_line": class_node.end_point[0] + 1,
-                    "bases": bases,
                     "bases": bases,
                     "context": None,
                     "decorators": [],
