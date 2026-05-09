@@ -1,1464 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeGraphContext — Your codebase, as a living graph</title>
+  <meta name="description" content="Transform your source code into a queryable property graph. Semantic indexing, call graph tracing, and AI-ready MCP support.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=Playfair+Display:wght@700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --red: #C74634;
+      --red-dark: #a83828;
+      --red-glow: rgba(199, 70, 52, 0.15);
+      --cream: #FAF8F5;
+      --warm-gray: #F0ECE6;
+      --charcoal: #1a1a1a;
+      --ink: #0d0d0d;
+      --text-secondary: #6b6b6b;
+      --border: rgba(0,0,0,0.08);
+      --font-display: 'Playfair Display', Georgia, serif;
+      --font-body: 'DM Sans', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
 
-<!doctype html>
-<html lang="en" class="no-js">
-  <head>
-    
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width,initial-scale=1">
-      
-      
-      
-      
-      
-        <link rel="next" href="getting-started/installation/">
-      
-      
-        
-      
-      
-      <link rel="icon" href="assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
-    
-    
-      
-        <title>CodeGraphContext</title>
-      
-    
-    
-      <link rel="stylesheet" href="assets/stylesheets/main.484c7ddc.min.css">
-      
-        
-        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
-      
-      
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    html { scroll-behavior: smooth; }
 
-    
-    
-      
-    
-    
-      
-        
-        
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
-        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
-      
-    
-    
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
-    
-      
+    body {
+      font-family: var(--font-body);
+      color: var(--charcoal);
+      background: #fff;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
 
-    
-    
-  </head>
-  
-  
-    
-    
-      
-    
-    
-    
-    
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple">
-  
-    
-    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
-    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
-    <label class="md-overlay" for="__drawer"></label>
-    <div data-md-component="skip">
-      
-        
-        <a href="#codegraphcontext-cgc" class="md-skip">
-          Skip to content
-        </a>
-      
-    </div>
-    <div data-md-component="announce">
-      
-    </div>
-    
-    
-      
+    /* ─── NAV ─── */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: var(--red);
+      padding: 0 clamp(24px, 4vw, 60px);
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
 
-<header class="md-header" data-md-component="header">
-  <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="CodeGraphContext" class="md-header__button md-logo" aria-label="CodeGraphContext" data-md-component="logo">
-      
-  
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+    .nav__brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: #fff;
+      font-family: var(--font-body);
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: -0.3px;
+    }
 
+    .nav__brand img {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+    }
+
+    .nav__links {
+      display: flex;
+      align-items: center;
+      gap: 36px;
+    }
+
+    .nav__links a {
+      color: rgba(255,255,255,0.85);
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: 0.2px;
+      transition: color 0.2s;
+    }
+
+    .nav__links a:hover { color: #fff; }
+
+    .nav__cta {
+      background: #fff !important;
+      color: var(--red) !important;
+      padding: 10px 24px !important;
+      border-radius: 8px !important;
+      font-weight: 700 !important;
+      font-size: 14px !important;
+      letter-spacing: 0.3px;
+      transition: transform 0.2s, box-shadow 0.2s !important;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .nav__cta:hover {
+      transform: translateY(-1px) !important;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15) !important;
+    }
+
+    .nav__theme-btn {
+      background: none;
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      padding: 6px;
+      cursor: pointer;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .nav__theme-btn:hover {
+      border-color: rgba(255,255,255,0.6);
+      background: rgba(255,255,255,0.1);
+    }
+
+    .nav__github:hover { opacity: 1 !important; }
+
+    /* ─── MOBILE NAV ─── */
+    .nav__hamburger {
+      display: none;
+      background: none;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      padding: 8px;
+      transition: opacity 0.2s;
+    }
+    .nav__hamburger:hover { opacity: 0.8; }
+
+    .nav__mobile-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .nav__mobile-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .nav__mobile-menu {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 300px;
+      background: var(--red);
+      z-index: 1200;
+      transform: translateX(100%);
+      transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      box-shadow: -10px 0 30px rgba(0,0,0,0.2);
+      overflow-y: auto;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    .nav__mobile-menu::-webkit-scrollbar {
+      display: none;
+    }
+    .nav__mobile-menu.active {
+      transform: translateX(0);
+    }
+
+    .nav__mobile-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 40px;
+    }
+
+    .nav__close {
+      background: none;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      padding: 8px;
+    }
+
+    .nav__mobile-links {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .nav__mobile-links a {
+      color: #fff;
+      text-decoration: none;
+      font-size: 18px;
+      font-weight: 500;
+      transition: opacity 0.2s;
+    }
+    .nav__mobile-links a:hover { opacity: 0.8; }
+
+    .nav__mobile-links .nav__cta {
+      margin-top: 12px;
+      justify-content: center;
+    }
+
+    /* ─── HERO ─── */
+    .hero {
+      position: relative;
+      padding: 120px clamp(24px, 6vw, 80px) 80px;
+      background: var(--cream);
+      overflow: hidden;
+      min-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Atmospheric grain overlay */
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Decorative red accent line */
+    .hero::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 1px;
+      height: 80px;
+      background: linear-gradient(to bottom, var(--red), transparent);
+      z-index: 1;
+    }
+
+    .hero__eyebrow {
+      position: relative;
+      z-index: 2;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--red);
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      animation: fadeUp 0.8s ease both;
+    }
+
+    .hero__eyebrow::before,
+    .hero__eyebrow::after {
+      content: '';
+      width: 40px;
+      height: 1px;
+      background: var(--red);
+      opacity: 0.4;
+    }
+
+    .hero__title {
+      position: relative;
+      z-index: 2;
+      font-family: var(--font-display);
+      font-size: clamp(52px, 8vw, 96px);
+      font-weight: 900;
+      line-height: 1.05;
+      letter-spacing: -3px;
+      text-align: center;
+      color: var(--ink);
+      margin-bottom: 32px;
+      max-width: 900px;
+      animation: fadeUp 0.8s ease 0.1s both;
+    }
+
+    .hero__title em {
+      font-style: italic;
+      color: var(--red);
+      position: relative;
+    }
+
+    .hero__title em::after {
+      content: '';
+      position: absolute;
+      bottom: 4px;
+      left: 0;
+      right: 0;
+      height: 6px;
+      background: var(--red-glow);
+      border-radius: 3px;
+    }
+
+    .hero__subtitle {
+      position: relative;
+      z-index: 2;
+      font-size: clamp(18px, 2.2vw, 22px);
+      color: var(--text-secondary);
+      max-width: 620px;
+      text-align: center;
+      line-height: 1.65;
+      margin-bottom: 56px;
+      animation: fadeUp 0.8s ease 0.2s both;
+    }
+
+    .hero__actions {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      gap: 20px;
+      animation: fadeUp 0.8s ease 0.3s both;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 16px 36px;
+      border-radius: 10px;
+      font-family: var(--font-body);
+      font-size: 17px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .btn--primary {
+      background: var(--red);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(199, 70, 52, 0.3);
+    }
+
+    .btn--primary:hover {
+      background: var(--red-dark);
+      transform: translateY(-3px);
+      box-shadow: 0 8px 32px rgba(199, 70, 52, 0.4);
+    }
+
+    .btn--ghost {
+      background: transparent;
+      color: var(--charcoal);
+      border: 2px solid var(--charcoal);
+    }
+
+    .btn--ghost:hover {
+      background: var(--charcoal);
+      color: #fff;
+      transform: translateY(-3px);
+    }
+
+    .hero__visual {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      max-width: 820px;
+      margin-top: 80px;
+      animation: fadeUp 1s ease 0.5s both;
+    }
+
+    .hero__visual iframe {
+      width: 100%;
+      height: 950px;
+      border: none;
+      border-radius: 16px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04);
+      background: #0a0a0a;
+      overflow: hidden;
+    }
+
+    /* ─── STATS ─── */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      width: 100%;
+      position: relative;
+      z-index: 10;
+      background: #fff;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stat {
+      padding: 48px 24px;
+      text-align: center;
+      border-right: 1px solid var(--border);
+    }
+
+    .stat:last-child { border-right: none; }
+
+    .stat__val {
+      font-family: var(--font-display);
+      font-size: 44px;
+      font-weight: 800;
+      color: var(--red);
+      line-height: 1;
+      margin-bottom: 12px;
+    }
+
+    .stat__label {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+
+    /* ─── FEATURE SPLIT ─── */
+    .feature {
+      padding: 160px clamp(24px, 6vw, 80px);
+      background: var(--warm-gray);
+    }
+
+    .feature__inner {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .feature__split {
+      display: flex;
+      align-items: center;
+      gap: 80px;
+    }
+
+    .feature__content {
+      flex: 1;
+    }
+
+    .feature__label {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      color: var(--red);
+      margin-bottom: 20px;
+    }
+
+    .feature__content h2 {
+      font-family: var(--font-display);
+      font-size: clamp(36px, 4vw, 56px);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -1.5px;
+      color: var(--ink);
+      margin-bottom: 24px;
+    }
+
+    .feature__content p {
+      font-size: 19px;
+      line-height: 1.7;
+      color: var(--text-secondary);
+      margin-bottom: 40px;
+      max-width: 480px;
+    }
+
+    .feature__visual {
+      flex: 1.3;
+    }
+
+    .feature__visual iframe {
+      width: 100%;
+      height: 480px;
+      border: none;
+      border-radius: 16px;
+      background: #0e0e0e;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.06);
+      overflow: hidden;
+    }
+
+    /* ─── CARDS ─── */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+      max-width: 1200px;
+      margin: 100px auto 0;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 48px 36px;
+      transition: transform 0.3s, box-shadow 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--red);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 20px 48px rgba(0,0,0,0.06);
+    }
+
+    .card:hover::before {
+      transform: scaleX(1);
+    }
+
+    .card__icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      background: var(--cream);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 28px;
+    }
+
+    .card__icon svg {
+      width: 28px;
+      height: 28px;
+      color: var(--red);
+    }
+
+    .card h3 {
+      font-family: var(--font-body);
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 14px;
+      letter-spacing: -0.3px;
+    }
+
+    .card p {
+      font-size: 16px;
+      line-height: 1.65;
+      color: var(--text-secondary);
+    }
+
+    /* ─── CTA BAND ─── */
+    .cta-band {
+      padding: 120px clamp(24px, 6vw, 80px);
+      text-align: center;
+      background: var(--ink);
+      color: #fff;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cta-band::before {
+      content: '';
+      position: absolute;
+      top: -200px;
+      right: -200px;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(199,70,52,0.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .cta-band h2 {
+      font-family: var(--font-display);
+      font-size: clamp(40px, 5vw, 64px);
+      font-weight: 800;
+      letter-spacing: -2px;
+      margin-bottom: 20px;
+      line-height: 1.1;
+      position: relative;
+    }
+
+    .cta-band p {
+      font-size: 20px;
+      color: rgba(255,255,255,0.6);
+      margin-bottom: 48px;
+      position: relative;
+    }
+
+    .cta-band .btn--primary {
+      font-size: 18px;
+      padding: 18px 44px;
+      position: relative;
+    }
+
+    /* ─── FOOTER ─── */
+    .footer {
+      background: var(--ink);
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding: 80px clamp(24px, 6vw, 80px) 40px;
+      color: #fff;
+    }
+
+    .footer__top {
+      display: flex;
+      justify-content: space-between;
+      max-width: 1200px;
+      margin: 0 auto 60px;
+    }
+
+    .footer__brand {
+      font-family: var(--font-body);
+      font-weight: 700;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .footer__cols {
+      display: flex;
+      gap: 80px;
+    }
+
+    .footer__col h4 {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: rgba(255,255,255,0.35);
+      margin-bottom: 20px;
+    }
+
+    .footer__col a {
+      display: block;
+      color: rgba(255,255,255,0.7);
+      text-decoration: none;
+      font-size: 15px;
+      margin-bottom: 14px;
+      transition: color 0.2s;
+    }
+
+    .footer__col a:hover { color: #fff; }
+
+    .footer__bottom {
+      max-width: 1200px;
+      margin: 0 auto;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding-top: 32px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      color: rgba(255,255,255,0.3);
+    }
+
+    /* ─── ANIMATIONS ─── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(28px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ─── RESPONSIVE ─── */
+    @media (max-width: 900px) {
+      .nav__links { display: none; }
+      .nav__hamburger { display: block; }
+      .hero { min-height: auto; padding: 80px 20px 60px; }
+      .hero__title { letter-spacing: -1.5px; }
+      .hero__actions { flex-direction: column; width: 100%; max-width: 320px; }
+      .btn { justify-content: center; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .stat { padding: 32px 16px; }
+      .stat:nth-child(2) { border-right: none; }
+      .feature__split { flex-direction: column; gap: 40px; }
+      .cards { grid-template-columns: 1fr; }
+      .footer__cols { gap: 40px; }
+      .footer__bottom { flex-direction: column; gap: 8px; }
+      .hero__visual { max-width: 100vw; width: calc(100% + 40px); margin-left: -20px; margin-right: -20px; border-radius: 0; }
+      .hero__visual iframe { border-radius: 0; height: 950px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ─── NAV ─── -->
+  <nav class="nav">
+    <a href="index.html" class="nav__brand">
+      <img src="assets/logo.png" alt="CGC">
+      CodeGraphContext
     </a>
-    <label class="md-header__button md-icon" for="__drawer">
-      
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
-    </label>
-    <div class="md-header__title" data-md-component="header-title">
-      <div class="md-header__ellipsis">
-        <div class="md-header__topic">
-          <span class="md-ellipsis">
-            CodeGraphContext
-          </span>
-        </div>
-        <div class="md-header__topic" data-md-component="header-topic">
-          <span class="md-ellipsis">
-            
-              Introduction
-            
-          </span>
-        </div>
-      </div>
+    <div class="nav__links">
+      <a href="getting-started/installation/index.html">Documentation</a>
+      <a href="reference/cli/index.html">CLI</a>
+      <a href="guides/bundles/index.html">Bundles</a>
+      <a href="https://github.com/CodeGraphContext/CodeGraphContext" target="_blank" class="nav__github" title="GitHub">
+        <svg height="22" width="22" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+      </a>
+      <button class="nav__theme-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle Theme">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <a href="getting-started/quickstart/index.html" class="nav__cta">Get Started →</a>
     </div>
-    
-      
-        <form class="md-header__option" data-md-component="palette">
-  
-    
-    
-    
-    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
-    
-      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
-      </label>
-    
-  
-    
-    
-    
-    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="lime"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
-    
-      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
-      </label>
-    
-  
-</form>
-      
-    
-    
-      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
-    
-    
-    
-      
-      
-        <label class="md-header__button md-icon" for="__search">
-          
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
-        </label>
-        <div class="md-search" data-md-component="search" role="dialog">
-  <label class="md-search__overlay" for="__search"></label>
-  <div class="md-search__inner" role="search">
-    <form class="md-search__form" name="search">
-      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
-      <label class="md-search__icon md-icon" for="__search">
-        
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
-        
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
-      </label>
-      <nav class="md-search__options" aria-label="Search">
-        
-        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
-          
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-        </button>
-      </nav>
-      
-    </form>
-    <div class="md-search__output">
-      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
-        <div class="md-search-result" data-md-component="search-result">
-          <div class="md-search-result__meta">
-            Initializing search
-          </div>
-          <ol class="md-search-result__list" role="presentation"></ol>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-      
-    
-    
-      <div class="md-header__source">
-        <a href="https://github.com/CodeGraphContext/CodeGraphContext" title="Go to repository" class="md-source" data-md-component="source">
-  <div class="md-source__icon md-icon">
-    
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
-  </div>
-  <div class="md-source__repository">
-    CodeGraphContext/CodeGraphContext
-  </div>
-</a>
-      </div>
-    
+    <button class="nav__hamburger" id="navHamburger" onclick="toggleMobileMenu()" title="Open Menu">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
   </nav>
-  
-</header>
-    
-    <div class="md-container" data-md-component="container">
-      
-      
-        
-          
-            
-<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
-  <div class="md-grid">
-    <ul class="md-tabs__list">
-      
-        
-  
-  
-  
-    
-  
-  
-    <li class="md-tabs__item md-tabs__item--active">
-      <a href="." class="md-tabs__link">
-        
-  
-  
-    
-  
-  Introduction
 
+  <div class="nav__mobile-overlay" id="mobileOverlay" onclick="toggleMobileMenu()"></div>
+  <div class="nav__mobile-menu" id="mobileMenu">
+    <div class="nav__mobile-header">
+      <a href="index.html" class="nav__brand">
+        <img src="assets/logo.png" alt="CGC">
+        CodeGraphContext
       </a>
-    </li>
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="getting-started/installation/" class="md-tabs__link">
-          
-  
-  
-  Getting Started
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="concepts/graph-model/" class="md-tabs__link">
-          
-  
-  
-  Core Concepts
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="guides/indexing/" class="md-tabs__link">
-          
-  
-  
-  User Guides
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="reference/cli/" class="md-tabs__link">
-          
-  
-  
-  Reference
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="contributing/" class="md-tabs__link">
-          
-  
-  
-  Community
-
-        </a>
-      </li>
-    
-  
-
-      
-    </ul>
-  </div>
-</nav>
-          
-        
-      
-      <main class="md-main" data-md-component="main">
-        <div class="md-main__inner md-grid">
-          
-            
-              
-              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
-                <div class="md-sidebar__scrollwrap">
-                  <div class="md-sidebar__inner">
-                    
-
-
-  
-
-
-<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
-  <label class="md-nav__title" for="__drawer">
-    <a href="." title="CodeGraphContext" class="md-nav__button md-logo" aria-label="CodeGraphContext" data-md-component="logo">
-      
-  
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
-
-    </a>
-    CodeGraphContext
-  </label>
-  
-    <div class="md-nav__source">
-      <a href="https://github.com/CodeGraphContext/CodeGraphContext" title="Go to repository" class="md-source" data-md-component="source">
-  <div class="md-source__icon md-icon">
-    
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
-  </div>
-  <div class="md-source__repository">
-    CodeGraphContext/CodeGraphContext
-  </div>
-</a>
+      <button class="nav__close" onclick="toggleMobileMenu()">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     </div>
-  
-  <ul class="md-nav__list" data-md-scrollfix>
-    
-      
-      
-  
-  
-    
-  
-  
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Introduction
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="." class="md-nav__link md-nav__link--active">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Introduction
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#key-capabilities" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Key Capabilities
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#getting-started" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Getting Started
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#core-architecture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Core Architecture
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-codegraphcontext" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why CodeGraphContext?
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
-        
-          
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Getting Started
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_2">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Getting Started
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="getting-started/installation/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Installation
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="getting-started/quickstart/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Quickstart
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="getting-started/mcp-setup/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MCP Setup
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Core Concepts
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Core Concepts
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="concepts/graph-model/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The Code Graph
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="concepts/backends/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Database Backends
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="concepts/architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    System Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
-        
-          
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    User Guides
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    User Guides
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="guides/indexing/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Indexing Source Code
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="guides/bundles/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Portable Bundles
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="guides/multi-repo/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Multi-Repo Workflows
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="guides/visualization/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Visualization
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
-        
-          
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Reference
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Reference
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="reference/cli/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    CLI Reference
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="reference/mcp/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MCP Tool Reference
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="reference/config/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Configuration
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
-        
-          
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Community
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Community
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="contributing/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Contributing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="reference/troubleshooting/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Troubleshooting
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="roadmap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Roadmap
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="license/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    License
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-  </ul>
-</nav>
-                  </div>
-                </div>
-              </div>
-            
-            
-              
-              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
-                <div class="md-sidebar__scrollwrap">
-                  <div class="md-sidebar__inner">
-                    
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#key-capabilities" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Key Capabilities
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#getting-started" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Getting Started
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#core-architecture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Core Architecture
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-codegraphcontext" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why CodeGraphContext?
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-                  </div>
-                </div>
-              </div>
-            
-          
-          
-            <div class="md-content" data-md-component="content">
-              
-              <article class="md-content__inner md-typeset">
-                
-                  
-
-
-  
-  
-
-
-<h1 id="codegraphcontext-cgc">CodeGraphContext (CGC)</h1>
-<p>CodeGraphContext is a high-performance <strong>Code Intelligence Engine</strong> that transforms your source code into a queryable property graph. By indexing semantic relationships—such as function calls, class hierarchies, and module dependencies—CGC enables both developers and AI agents to navigate and understand complex codebases with unprecedented depth.</p>
-<h2 id="key-capabilities">Key Capabilities</h2>
-<ul>
-<li><strong>Semantic Indexing</strong>: Goes beyond simple text search by understanding the structural relationships of your code using Tree-sitter and SCIP.</li>
-<li><strong>MCP Integration</strong>: Native Model Context Protocol (MCP) support allows AI assistants (Claude, Cursor, VS Code) to perform deep architectural queries.</li>
-<li><strong>Multi-Backend Support</strong>: Choose between <strong>KùzuDB</strong> (embedded), <strong>FalkorDB</strong> (high-performance), or <strong>Neo4j</strong> (enterprise) depending on your scale and visualization needs.</li>
-<li><strong>Live Monitoring</strong>: Automatically keeps the code graph in sync with your local changes using background watchers.</li>
-<li><strong>Portable Bundles</strong>: Package and share indexed codebases as <code>.cgc</code> bundles for instant loading without re-indexing.</li>
-</ul>
-<hr />
-<h2 id="getting-started">Getting Started</h2>
-<p>Follow these steps to integrate CodeGraphContext into your workflow:</p>
-<ol>
-<li><strong><a href="getting-started/installation/">Installation</a></strong>: Install the CLI and choose your database backend.</li>
-<li><strong><a href="getting-started/quickstart/">Quickstart</a></strong>: Index your first repository in under 5 minutes.</li>
-<li><strong><a href="getting-started/mcp-setup/">MCP Setup</a></strong>: Connect CGC to your favorite AI assistant.</li>
-</ol>
-<hr />
-<h2 id="core-architecture">Core Architecture</h2>
-<p>CGC operates as a bridge between your raw source files and your development tools.</p>
-<pre class="mermaid"><code>graph TD
-    A[Source Code] --&gt; B(Tree-sitter / SCIP Parser)
-    B --&gt; C{Graph Builder}
-    C --&gt; D[KùzuDB / FalkorDB / Neo4j]
-    D --&gt; E((CGC CLI))
-    D --&gt; F((MCP Server))
-    F --&gt; G[AI Agents: Claude, Cursor, etc.]</code></pre>
-<p>For a deeper dive into the system design, see the <strong><a href="concepts/architecture/">Architecture Guide</a></strong>.</p>
-<hr />
-<h2 id="why-codegraphcontext">Why CodeGraphContext?</h2>
-<p>Modern codebases are too large to hold in a single context window. CodeGraphContext solves this by providing:</p>
-<ul>
-<li><strong>Precision</strong>: Find exactly who calls a function across 100+ modules instantly.</li>
-<li><strong>Context</strong>: Provide AI agents with the specific graph slices they need to solve complex bugs.</li>
-<li><strong>Efficiency</strong>: Reduce re-indexing time with incremental updates and pre-built bundles.</li>
-</ul>
-<hr />
-<p><a href="https://github.com/CodeGraphContext/CodeGraphContext">GitHub Repository</a> | <a href="https://github.com/CodeGraphContext/CodeGraphContext/issues">Issues</a> | <a href="license/">License</a></p>
-
-
-
-
-
-
-
-
-
-
-
-
-                
-              </article>
-            </div>
-          
-          
-<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+    <div class="nav__mobile-links">
+      <a href="getting-started/installation/index.html">Documentation</a>
+      <a href="reference/cli/index.html">CLI</a>
+      <a href="guides/bundles/index.html">Bundles</a>
+      <a href="https://github.com/CodeGraphContext/CodeGraphContext" target="_blank">GitHub</a>
+      <a href="getting-started/quickstart/index.html" class="nav__cta">Get Started →</a>
+    </div>
+  </div>
+
+  <!-- ─── HERO ─── -->
+  <header class="hero">
+    <div class="hero__eyebrow">v0.1.0 · Open Source</div>
+    <h1 class="hero__title">Your codebase,<br>as a <em>living graph</em></h1>
+    <p class="hero__subtitle">Index your repository in seconds. Trace call stacks, detect dead code, and understand complex dependencies — all from your terminal or AI assistant.</p>
+    <div class="hero__actions">
+      <a href="getting-started/installation/index.html" class="btn btn--primary">Install the CLI →</a>
+      <a href="getting-started/quickstart/index.html" class="btn btn--ghost">View Quickstart</a>
+    </div>
+    <div class="hero__visual">
+      <iframe src="code_graph_pipeline_animated.html" scrolling="no" loading="lazy" style="overflow:hidden;"></iframe>
+    </div>
+  </header>
+
+  <!-- ─── STATS ─── -->
+  <section class="stats">
+    <div class="stat">
+      <div class="stat__val">100%</div>
+      <div class="stat__label">Open Source</div>
+    </div>
+    <div class="stat">
+      <div class="stat__val">10ms</div>
+      <div class="stat__label">Query Latency</div>
+    </div>
+    <div class="stat">
+      <div class="stat__val">15+</div>
+      <div class="stat__label">Languages</div>
+    </div>
+    <div class="stat">
+      <div class="stat__val">∞</div>
+      <div class="stat__label">Possibilities</div>
+    </div>
+  </section>
+
+  <!-- ─── FEATURE ─── -->
+  <section class="feature">
+    <div class="feature__inner">
+      <div class="feature__split">
+        <div class="feature__content">
+          <div class="feature__label">Interactive Analysis</div>
+          <h2>See every<br>connection.</h2>
+          <p>Don't just read code — navigate it. Our graph engine builds a complete semantic map, linking every function, class, and variable across your entire project.</p>
+          <a href="concepts/graph-model/index.html" class="btn btn--ghost" style="padding:12px 28px; font-size:15px;">Explore the Graph Model →</a>
         </div>
-        
-      </main>
-      
-        <footer class="md-footer">
-  
-  <div class="md-footer-meta md-typeset">
-    <div class="md-footer-meta__inner md-grid">
-      <div class="md-copyright">
-  
-  
-    Made with
-    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
-      Material for MkDocs
-    </a>
-  
-</div>
-      
+        <div class="feature__visual">
+          <iframe src="cgc_graph_flow.html" scrolling="no" loading="lazy" style="overflow:hidden;"></iframe>
+        </div>
+      </div>
+
+      <!-- Cards -->
+      <div class="cards">
+        <div class="card">
+          <div class="card__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          </div>
+          <h3>Semantic Indexing</h3>
+          <p>Beyond regex. Tree-sitter parses your code into high-fidelity Abstract Syntax Trees for precise structural understanding.</p>
+        </div>
+        <div class="card">
+          <div class="card__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          </div>
+          <h3>Call Graph Tracing</h3>
+          <p>Instantly trace where a function is called — even across hundreds of modules and deep package boundaries.</p>
+        </div>
+        <div class="card">
+          <div class="card__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          </div>
+          <h3>AI-Ready via MCP</h3>
+          <p>Native Model Context Protocol support feeds your codebase graph directly into Claude, Cursor, VS Code, or ChatGPT.</p>
+        </div>
+      </div>
     </div>
-  </div>
-</footer>
-      
+  </section>
+
+  <!-- ─── CTA BAND ─── -->
+  <section class="cta-band">
+    <h2>Your code graph is<br>one command away.</h2>
+    <p>Start understanding your codebase at graph speed.</p>
+    <a href="getting-started/installation/index.html" class="btn btn--primary">Install CodeGraphContext →</a>
+  </section>
+
+  <!-- ─── FOOTER ─── -->
+  <footer class="footer">
+    <div class="footer__top">
+      <div class="footer__brand">
+        <img src="assets/logo.png" alt="CGC" style="width:24px; height:24px; border-radius:5px; filter: brightness(2);">
+        CodeGraphContext
+      </div>
+      <div class="footer__cols">
+        <div class="footer__col">
+          <h4>Product</h4>
+          <a href="reference/cli/index.html">CLI Reference</a>
+          <a href="guides/bundles/index.html">Portable Bundles</a>
+          <a href="concepts/backends/index.html">Database Backends</a>
+        </div>
+        <div class="footer__col">
+          <h4>Community</h4>
+          <a href="https://github.com/CodeGraphContext/CodeGraphContext" target="_blank">GitHub</a>
+          <a href="contributing/index.html">Contributing</a>
+          <a href="roadmap/index.html">Roadmap</a>
+        </div>
+        <div class="footer__col">
+          <h4>Resources</h4>
+          <a href="getting-started/quickstart/index.html">Quickstart</a>
+          <a href="concepts/architecture/index.html">Architecture</a>
+          <a href="license/index.html">License</a>
+        </div>
+      </div>
     </div>
-    <div class="md-dialog" data-md-component="dialog">
-      <div class="md-dialog__inner md-typeset"></div>
+    <div class="footer__bottom">
+      <div>&copy; 2024–2025 CodeGraphContext Contributors. MIT License.</div>
+      <div>v0.1.0</div>
     </div>
-    
-    
-    
-      
-      
-      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "content.code.copy", "toc.follow"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
-    
-    
-      <script src="assets/javascripts/bundle.79ae519e.min.js"></script>
-      
-    
-  </body>
+  </footer>
+
+<script>
+function toggleMobileMenu() {
+  var menu = document.getElementById('mobileMenu');
+  var overlay = document.getElementById('mobileOverlay');
+  menu.classList.toggle('active');
+  overlay.classList.toggle('active');
+  document.body.style.overflow = menu.classList.contains('active') ? 'hidden' : '';
+}
+
+function toggleTheme() {
+  var html = document.documentElement;
+  var current = html.getAttribute('data-theme');
+  var next = current === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('rw-theme', next);
+  updateThemeIcon(next);
+}
+function updateThemeIcon(theme) {
+  var btn = document.getElementById('themeBtn');
+  if (!btn) return;
+  if (theme === 'dark') {
+    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>';
+  } else {
+    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  }
+}
+(function() {
+  var saved = localStorage.getItem('rw-theme');
+  if (saved) {
+    document.documentElement.setAttribute('data-theme', saved);
+    updateThemeIcon(saved);
+  }
+})();
+</script>
+
+</body>
 </html>

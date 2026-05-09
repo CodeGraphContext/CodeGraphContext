@@ -12,8 +12,7 @@
 <header class="rw-masthead">
   <div class="rw-masthead__left">
     <button class="rw-masthead__hamburger" onclick="toggleSidebar()">☰</button>
-    <img src="../../assets/logo.png" class="rw-masthead__logo-img" alt="Logo">
-    <a href="../../index.html" style="color:#fff;text-decoration:none;margin-left:6px;">CodeGraphContext</a>
+    <a href="../../index.html" style="color:#fff;text-decoration:none;display:flex;align-items:center;gap:8px;"><img src="../../assets/logo.png" class="rw-masthead__logo-img" alt="Logo">CodeGraphContext</a>
     <span class="rw-masthead__sep">/</span>
     <span class="rw-masthead__label">Documentation</span>
   </div>
@@ -29,6 +28,13 @@
 <div class="rw-shell">
   <div class="rw-sidebar-overlay" onclick="toggleSidebar()"></div>
   <nav class="rw-sidebar">
+    <div class="rw-sidebar__mobile-nav">
+      <a href="../../getting-started/installation/index.html" class="rw-sidebar__mobile-link">Docs</a>
+      <a href="../../reference/cli/index.html" class="rw-sidebar__mobile-link">CLI</a>
+      <a href="../../guides/bundles/index.html" class="rw-sidebar__mobile-link">Bundles</a>
+      <a href="../../getting-started/quickstart/index.html" class="rw-sidebar__mobile-link rw-sidebar__mobile-link--cta">Get Started</a>
+    </div>
+
     <div class="rw-sidebar__group"><div class="rw-sidebar__heading">Getting started</div><a href="../../getting-started/installation/index.html" class="rw-sidebar__link ">Installation</a><a href="../../getting-started/quickstart/index.html" class="rw-sidebar__link ">Quickstart</a><a href="../../getting-started/mcp-setup/index.html" class="rw-sidebar__link ">MCP Setup</a></div>
     <div class="rw-sidebar__group"><div class="rw-sidebar__heading">Core concepts</div><a href="../../concepts/graph-model/index.html" class="rw-sidebar__link ">The Code Graph</a><a href="../../concepts/backends/index.html" class="rw-sidebar__link ">Database Backends</a><a href="../../concepts/architecture/index.html" class="rw-sidebar__link ">Architecture</a></div>
     <div class="rw-sidebar__group"><div class="rw-sidebar__heading">User guides</div><a href="../../guides/indexing/index.html" class="rw-sidebar__link rw-sidebar__link--active">Indexing Source Code</a><a href="../../guides/bundles/index.html" class="rw-sidebar__link ">Portable Bundles</a><a href="../../guides/multi-repo/index.html" class="rw-sidebar__link ">Multi-Repo Workflows</a><a href="../../guides/visualization/index.html" class="rw-sidebar__link ">Visualization</a></div>
@@ -119,6 +125,15 @@ dist/
   </div>
 </footer>
 <script>
+
+function toggleSidebar() {
+  var sb = document.querySelector('.rw-sidebar');
+  var overlay = document.querySelector('.rw-sidebar-overlay');
+  sb.classList.toggle('rw-sidebar--open');
+  overlay.classList.toggle('rw-sidebar-overlay--active');
+  document.body.style.overflow = sb.classList.contains('rw-sidebar--open') ? 'hidden' : '';
+}
+
 function toggleTheme(){
   var c=document.documentElement.getAttribute('data-theme');
   var n=c==='dark'?'light':'dark';

@@ -1,8 +1,11 @@
-
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:transparent;font-family:'Space Mono',monospace}
+body{background:transparent;font-family:'Space Mono',monospace;overflow:hidden}
 .shell{background:#0e0e0e;border-radius:16px;overflow:hidden;position:relative;border:1px solid #1c1c1c}
 .topbar{display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid #161616}
 .tb-dots{display:flex;gap:6px}
@@ -34,7 +37,8 @@ canvas#gc{display:block;width:100%!important}
 .tooltip{position:absolute;background:#111;border:1px solid #222;border-radius:5px;padding:5px 10px;font-size:9px;color:#aaa;pointer-events:none;opacity:0;transition:opacity .15s;z-index:20;white-space:nowrap}
 .tooltip.show{opacity:1}
 </style>
-
+</head>
+<body>
 <div class="shell">
   <div class="topbar">
     <div class="tb-dots"><div class="tb-dot r"></div><div class="tb-dot y"></div><div class="tb-dot g"></div></div>
@@ -44,7 +48,6 @@ canvas#gc{display:block;width:100%!important}
       <div class="tb-badge nodes-badge">18 NODES</div>
     </div>
   </div>
-
   <div style="position:relative">
     <canvas id="gc"></canvas>
     <div class="legend">
@@ -65,90 +68,62 @@ canvas#gc{display:block;width:100%!important}
     </div>
   </div>
 </div>
-
 <script>
-function toggleTheme(){
-  var c=document.documentElement.getAttribute('data-theme');
-  var n=c==='dark'?'light':'dark';
-  document.documentElement.setAttribute('data-theme',n);
-  localStorage.setItem('rw-theme',n);
-  updateThemeBtn(n);
+// Graph data
+var nodes=[
+  {id:0,label:"codegraphcontext",type:"project",x:0,y:0,vx:0,vy:0},
+  {id:1,label:"cli",type:"module",x:0,y:0,vx:0,vy:0},
+  {id:2,label:"indexer",type:"module",x:0,y:0,vx:0,vy:0},
+  {id:3,label:"graph_builder",type:"module",x:0,y:0,vx:0,vy:0},
+  {id:4,label:"backends",type:"module",x:0,y:0,vx:0,vy:0},
+  {id:5,label:"mcp_server",type:"module",x:0,y:0,vx:0,vy:0},
+  {id:6,label:"main()",type:"function",x:0,y:0,vx:0,vy:0},
+  {id:7,label:"index_repo()",type:"function",x:0,y:0,vx:0,vy:0},
+  {id:8,label:"parse_file()",type:"function",x:0,y:0,vx:0,vy:0},
+  {id:9,label:"build_graph()",type:"function",x:0,y:0,vx:0,vy:0},
+  {id:10,label:"query()",type:"function",x:0,y:0,vx:0,vy:0},
+  {id:11,label:"serve()",type:"function",x:0,y:0,vx:0,vy:0},
+  {id:12,label:"KuzuBackend",type:"class",x:0,y:0,vx:0,vy:0},
+  {id:13,label:"FalkorBackend",type:"class",x:0,y:0,vx:0,vy:0},
+  {id:14,label:"Neo4jBackend",type:"class",x:0,y:0,vx:0,vy:0},
+  {id:15,label:"TreeSitterParser",type:"class",x:0,y:0,vx:0,vy:0},
+  {id:16,label:"GraphNode",type:"class",x:0,y:0,vx:0,vy:0},
+  {id:17,label:"MCPHandler",type:"class",x:0,y:0,vx:0,vy:0}
+];
+var edges=[
+  {s:0,t:1},{s:0,t:2},{s:0,t:3},{s:0,t:4},{s:0,t:5},
+  {s:1,t:6},{s:2,t:7},{s:2,t:8},{s:3,t:9},{s:4,t:10},{s:5,t:11},
+  {s:7,t:15},{s:8,t:15},{s:9,t:16},{s:10,t:12},{s:10,t:13},{s:10,t:14},{s:11,t:17},
+  {s:6,t:7},{s:7,t:9},{s:9,t:10}
+];
+var colors={project:"#e8956d",module:"#e8a0c0","function":"#7ecfb0","class":"#7ab8e8"};
+var c=document.getElementById("gc"),ctx=c.getContext("2d");
+var W,H,sel=null,hov=null,drag=null,mx=0,my=0;
+function resize(){var r=c.parentElement.getBoundingClientRect();W=r.width;H=Math.max(400,r.height||400);c.width=W*2;c.height=H*2;c.style.height=H+"px";ctx.scale(2,2);}
+resize();
+// Init positions
+nodes.forEach(function(n,i){n.x=W/2+Math.cos(i*0.9)*150+Math.random()*80;n.y=H/2+Math.sin(i*0.9)*120+Math.random()*60;});
+function tick(){
+  nodes.forEach(function(a){nodes.forEach(function(b){if(a.id>=b.id)return;var dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;if(d<120){var f=(120-d)*0.003;a.vx-=dx/d*f;a.vy-=dy/d*f;b.vx+=dx/d*f;b.vy+=dy/d*f;}});});
+  edges.forEach(function(e){var a=nodes[e.s],b=nodes[e.t],dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1,f=(d-100)*0.002;a.vx+=dx/d*f;a.vy+=dy/d*f;b.vx-=dx/d*f;b.vy-=dy/d*f;});
+  nodes.forEach(function(n){n.vx+=(W/2-n.x)*0.0003;n.vy+=(H/2-n.y)*0.0003;n.vx*=0.92;n.vy*=0.92;if(n!==drag){n.x+=n.vx;n.y+=n.vy;}n.x=Math.max(30,Math.min(W-30,n.x));n.y=Math.max(30,Math.min(H-30,n.y));});
 }
-function updateThemeBtn(t){
-  var btn=document.getElementById('themeBtn');
-  if(!btn) return;
-  if(t==='dark'){
-    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>';
-  } else {
-    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
-  }
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  edges.forEach(function(e){var a=nodes[e.s],b=nodes[e.t];ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);var hl=(sel!==null&&(e.s===sel||e.t===sel));ctx.strokeStyle=hl?"rgba(220,30,30,0.5)":"rgba(255,255,255,0.06)";ctx.lineWidth=hl?1.5:0.5;ctx.stroke();});
+  nodes.forEach(function(n){var r=n.type==="project"?14:n.type==="module"?10:n.type==="class"?9:7;var isH=(hov===n.id),isS=(sel===n.id);ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);ctx.fillStyle=colors[n.type];ctx.globalAlpha=isS?1:isH?0.9:0.7;ctx.fill();ctx.globalAlpha=1;if(isS){ctx.strokeStyle=colors[n.type];ctx.lineWidth=2;ctx.stroke();}
+  if(isH||isS||(sel!==null&&edges.some(function(e){return(e.s===sel&&e.t===n.id)||(e.t===sel&&e.s===n.id);}))){ctx.fillStyle="#aaa";ctx.font="9px 'Space Mono'";ctx.textAlign="center";ctx.fillText(n.label,n.x,n.y-r-6);}});
 }
-(function(){
-  var s=localStorage.getItem('rw-theme');
-  if(s){
-    document.documentElement.setAttribute('data-theme',s);
-    updateThemeBtn(s);
-  }
-})();
-
-document.addEventListener("DOMContentLoaded", function() {
-  document.querySelectorAll('.rw-code-block').forEach(function(block) {
-    if (block.parentNode.classList.contains('rw-code-container')) return;
-    var container = document.createElement('div');
-    container.className = 'rw-code-container';
-    block.parentNode.insertBefore(container, block);
-    container.appendChild(block);
-    
-    var btn = document.createElement('button');
-    btn.className = 'rw-code-copy';
-    btn.innerText = 'Copy';
-    btn.onclick = function() {
-      navigator.clipboard.writeText(block.innerText).then(function() {
-        btn.innerText = 'Copied!';
-        setTimeout(function() { btn.innerText = 'Copy'; }, 2000);
-      });
-    };
-    container.appendChild(btn);
-  });
-  
-  // Dynamic subheadings for sidebar
-  var headings = document.querySelectorAll('.rw-content .rw-heading, .rw-content .rw-subheading');
-  headings.forEach(function(h) {
-    if (!h.id) {
-      var text = h.innerText.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-      h.id = text;
-    }
-  });
-
-  var activeLink = document.querySelector('.rw-sidebar__link--active');
-  if (activeLink && headings.length > 0) {
-    // Only generate if we don't already have hardcoded subgroups
-    if (!activeLink.nextElementSibling || !activeLink.nextElementSibling.classList.contains('rw-sidebar__subgroup')) {
-      var subgroup = document.createElement('div');
-      subgroup.className = 'rw-sidebar__subgroup';
-      headings.forEach(function(h) {
-        // Skip subheadings if desired, or indent them differently
-        var sublink = document.createElement('a');
-        sublink.className = 'rw-sidebar__sublink';
-        sublink.href = '#' + h.id;
-        sublink.innerText = h.innerText;
-        if (h.tagName.toLowerCase() === 'h3') {
-           sublink.classList.add('rw-sidebar__sublink--h3');
-        }
-        
-        sublink.addEventListener('click', function(e) {
-          e.preventDefault();
-          var target = document.getElementById(h.id);
-          if (target) {
-            target.scrollIntoView({behavior: 'smooth', block: 'start'});
-            history.pushState(null, null, '#' + h.id);
-          }
-        });
-        
-        subgroup.appendChild(sublink);
-      });
-      activeLink.parentNode.insertBefore(subgroup, activeLink.nextSibling);
-    }
-  }
-});
+function loop(){tick();draw();requestAnimationFrame(loop);}
+loop();
+// Interaction
+c.addEventListener("mousemove",function(ev){var r=c.getBoundingClientRect();mx=(ev.clientX-r.left);my=(ev.clientY-r.top);hov=null;nodes.forEach(function(n){var dx=n.x-mx,dy=n.y-my;if(Math.sqrt(dx*dx+dy*dy)<14)hov=n.id;});c.style.cursor=hov!==null?"pointer":"default";if(drag){drag.x=mx;drag.y=my;}var tip=document.getElementById("tip");if(hov!==null){var n=nodes[hov];tip.textContent=n.type.toUpperCase()+" : "+n.label;tip.style.left=mx+12+"px";tip.style.top=my-8+"px";tip.classList.add("show");}else{tip.classList.remove("show");}});
+c.addEventListener("mousedown",function(){if(hov!==null){drag=nodes[hov];sel=hov;showSidebar(nodes[hov]);}});
+c.addEventListener("mouseup",function(){drag=null;});
+c.addEventListener("mouseleave",function(){drag=null;document.getElementById("tip").classList.remove("show");});
+function showSidebar(n){var sb=document.getElementById("sb");sb.classList.remove("hidden");document.getElementById("sb-type").textContent=n.type;document.getElementById("sb-name").textContent=n.label;var pp=document.getElementById("sb-props");pp.innerHTML="";var props=["id: "+n.id,"type: "+n.type];props.forEach(function(p){var d=document.createElement("div");d.className="sb-prop";d.textContent=p;pp.appendChild(d);});var cc=document.getElementById("sb-conns");cc.innerHTML="";edges.forEach(function(e){var other=null;if(e.s===n.id)other=nodes[e.t];else if(e.t===n.id)other=nodes[e.s];if(other){var d=document.createElement("div");d.className="sb-conn";d.innerHTML='<div class="sb-cdot" style="background:'+colors[other.type]+'"></div><span class="sb-cname">'+other.label+'</span><span class="sb-carrow">→</span>';d.onclick=function(){sel=other.id;showSidebar(other);};cc.appendChild(d);}});}
+function closeSidebar(){document.getElementById("sb").classList.add("hidden");sel=null;}
+window.addEventListener("resize",function(){resize();ctx.scale(2,2);});
 </script>
+</body>
+</html>
