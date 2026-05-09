@@ -92,7 +92,7 @@ async def run_tree_sitter_index_async(
         None,
         diagnostics=call_resolution_diagnostics,
     )
-    writer.write_function_call_groups(resolved_calls)
+    writer.write_function_call_groups(*resolved_calls)
     t2 = time.time()
     info_logger(f"Function calls created in {t2 - t1:.1f}s. Total post-processing: {t2 - t0:.1f}s")
 

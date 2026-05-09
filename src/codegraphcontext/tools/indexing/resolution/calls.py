@@ -1686,6 +1686,13 @@ def build_function_call_groups(
 
     info_logger(f"[CALLS] Resolving function calls across {len(all_file_data)} files...")
     resolved_calls: List[Dict] = []
+    
+    # Group resolved calls by caller/callee type for batch writing
+    fn_to_fn: List[Dict] = []
+    fn_to_class: List[Dict] = []
+    fn_to_interface: List[Dict] = []
+    file_to_fn: List[Dict] = []
+    file_to_class: List[Dict] = []
 
     # Pre-build per-language-extension filtered imports_map views.
     _lang_imports_cache: Dict[str, dict] = {}
@@ -2373,9 +2380,47 @@ def build_function_call_groups(
             if not resolved:
                 continue
             resolved_calls.append(resolved)
+            
+            # Group by caller/callee type for label-specific batch writing
+            caller_type = resolved.get("type")  # "function" or "file"
+            called_name = resolved.get("called_name")
+            called_path = resolved.get("called_file_path")
+            
+            # Determine if the called target is a class, interface, or function
+            # by checking the indices built from the current file batch
+            called_is_class = False
+            called_is_interface = False
+            if called_name and called_path:
+                # Check if target is a class or other type construct
+                classes_at_path = class_index.get((called_path, called_name), [])
+                if classes_at_path:
+                    # Check if any of these are interfaces, traits, etc.
+                    for cls_info in classes_at_path:
+                        if cls_info.get("node_type") in ("interface", "trait", "struct", "enum", "record", "union"):
+                            called_is_interface = True
+                            break
+                    if not called_is_interface:
+                        called_is_class = True
+            
+            if caller_type == "function":
+                # Route based on callee type
+                if called_is_interface:
+                    fn_to_interface.append(resolved)
+                elif called_is_class:
+                    fn_to_class.append(resolved)
+                else:
+                    # Default to function call
+                    fn_to_fn.append(resolved)
+            elif caller_type == "file":
+                # File-level callers
+                if called_is_class:
+                    file_to_class.append(resolved)
+                else:
+                    # Default to function call
+                    file_to_fn.append(resolved)
 
         if (idx + 1) % 1000 == 0:
             info_logger(f"[CALLS] Resolved {idx + 1}/{len(all_file_data)} files... ({len(resolved_calls)} calls)")
 
     info_logger(f"[CALLS] Resolution complete: {len(resolved_calls)} total CALLS edges identified.")
-    return resolved_calls
+    return fn_to_fn, fn_to_class, fn_to_interface, file_to_fn, file_to_class
