@@ -328,8 +328,8 @@ class GraphWriter:
                             "name": module_name,
                             "full_import_name": full_import_name,
                             "imported_name": imp.get("imported_name") or module_name,
-                            "alias": imp.get("alias"),
-                            "line_number": imp.get("line_number"),
+                            "alias": imp.get("alias") or "",
+                            "line_number": imp.get("line_number") or 0,
                             "lang": imp.get("lang") or lang,
                         }
                     )
@@ -452,51 +452,178 @@ class GraphWriter:
 
             def write_function_call_groups(
         self,
-        resolved_calls: List[Dict],
+        fn_to_fn: List[Dict],
+        fn_to_class: List[Dict],
+        fn_to_interface: List[Dict],
+        file_to_fn: List[Dict],
+        file_to_class: List[Dict],
+        file_to_interface: List[Dict],
     ) -> None:
+        """Write function call relationships grouped by caller/callee type pairs."""
         batch_size = 1000
-        # Generic query matching ANY valid code element label for caller and callee
-        q_generic = """
+
+        def _normalize(batch: List[Dict]) -> List[Dict]:
+            """Normalize and filter call records, preserving all filtering attributes."""
+            normalized = []
+            for row in batch:
+                if not isinstance(row, dict):
+                    continue
+
+                required = {
+                    "caller_name",
+                    "caller_file_path",
+                    "called_name",
+                    "called_file_path",
+                    "line_number",
+                    "args",
+                    "full_call_name",
+                }
+                if not required.issubset(row.keys()):
+                    continue
+
+                normalized.append({
+                    "caller_name": row["caller_name"],
+                    "caller_file_path": row["caller_file_path"],
+                    "caller_line_number": row.get("caller_line_number", 0),
+                    "called_name": row["called_name"],
+                    "called_file_path": row["called_file_path"],
+                    "called_line_number": row.get("called_line_number"),
+                    "called_context": row.get("called_context"),
+                    "line_number": row["line_number"],
+                    "args": row.get("args", []),
+                    "full_call_name": row["full_call_name"],
+                    "confidence": row.get("confidence", 1.0),
+                    "resolution_tier": row.get("resolution_tier", 0),
+                    "confidence_label": row.get("confidence_label", "EXTRACTED"),
+                })
+            return normalized
+
+        fn_to_fn = _normalize(fn_to_fn)
+        fn_to_class = _normalize(fn_to_class)
+        fn_to_interface = _normalize(fn_to_interface)
+        file_to_fn = _normalize(file_to_fn)
+        file_to_class = _normalize(file_to_class)
+        file_to_interface = _normalize(file_to_interface)
+
+        q_fn_to_fn = """
             UNWIND $batch AS row
-            MATCH (caller {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
-            WHERE caller:Function OR caller:Class OR caller:Interface OR caller:Trait OR caller:Struct OR caller:Enum OR caller:Record OR caller:Union
-            MATCH (called {name: row.called_name, path: row.called_file_path})
-            WHERE called:Function OR called:Class OR called:Interface OR called:Trait OR called:Struct OR called:Enum OR called:Record OR caller:Union
-            MERGE (caller)-[c:CALLS {line_number: row.line_number, args: row.args, full_call_name: row.full_call_name}]->(called)
-            SET c.confidence = row.confidence, c.resolution_tier = row.resolution_tier,
-                c.confidence_label = row.confidence_label
+            MATCH (caller:Function {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
+            MATCH (called:Function {name: row.called_name, path: row.called_file_path})
+            WHERE (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
+              AND (row.called_context IS NULL OR coalesce(called.context, '') = row.called_context)
+            MERGE (caller)-[call:CALLS {
+                line_number: row.line_number,
+                args: row.args,
+                full_call_name: row.full_call_name
+            }]->(called)
+            SET call.confidence = row.confidence,
+                call.resolution_tier = row.resolution_tier,
+                call.confidence_label = row.confidence_label
         """
-        q_file_to_any = """
+
+        q_fn_to_class = """
+            UNWIND $batch AS row
+            MATCH (caller:Function {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
+            MATCH (called:Class {name: row.called_name, path: row.called_file_path})
+            WHERE (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
+            MERGE (caller)-[call:CALLS {
+                line_number: row.line_number,
+                args: row.args,
+                full_call_name: row.full_call_name
+            }]->(called)
+            SET call.confidence = row.confidence,
+                call.resolution_tier = row.resolution_tier,
+                call.confidence_label = row.confidence_label
+        """
+
+        q_fn_to_interface = """
+            UNWIND $batch AS row
+            MATCH (caller:Function {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
+            MATCH (called)
+            WHERE (called:Interface OR called:Trait OR called:Struct OR called:Enum OR called:Record OR called:Union)
+              AND called.name = row.called_name
+              AND called.path = row.called_file_path
+              AND (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
+            MERGE (caller)-[call:CALLS {
+                line_number: row.line_number,
+                args: row.args,
+                full_call_name: row.full_call_name
+            }]->(called)
+            SET call.confidence = row.confidence,
+                call.resolution_tier = row.resolution_tier,
+                call.confidence_label = row.confidence_label
+        """
+
+        q_file_to_fn = """
             UNWIND $batch AS row
             MATCH (caller:File {path: row.caller_file_path})
-            MATCH (called {name: row.called_name, path: row.called_file_path})
-            WHERE called:Function OR called:Class OR called:Interface OR called:Trait OR called:Struct OR called:Enum OR called:Record OR called:Union
-            MERGE (caller)-[c:CALLS {line_number: row.line_number, args: row.args, full_call_name: row.full_call_name}]->(called)
-            SET c.confidence = row.confidence, c.resolution_tier = row.resolution_tier,
-                c.confidence_label = row.confidence_label
+            MATCH (called:Function {name: row.called_name, path: row.called_file_path})
+            WHERE (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
+              AND (row.called_context IS NULL OR coalesce(called.context, '') = row.called_context)
+            MERGE (caller)-[call:CALLS {
+                line_number: row.line_number,
+                args: row.args,
+                full_call_name: row.full_call_name
+            }]->(called)
+            SET call.confidence = row.confidence,
+                call.resolution_tier = row.resolution_tier,
+                call.confidence_label = row.confidence_label
         """
 
-        file_calls = [c for c in resolved_calls if c["type"] == "file"]
-        code_calls = [c for c in resolved_calls if c["type"] == "function"]
+        q_file_to_class = """
+            UNWIND $batch AS row
+            MATCH (caller:File {path: row.caller_file_path})
+            MATCH (called:Class {name: row.called_name, path: row.called_file_path})
+            WHERE (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
+            MERGE (caller)-[call:CALLS {
+                line_number: row.line_number,
+                args: row.args,
+                full_call_name: row.full_call_name
+            }]->(called)
+            SET call.confidence = row.confidence,
+                call.resolution_tier = row.resolution_tier,
+                call.confidence_label = row.confidence_label
+        """
+
+        q_file_to_interface = """
+            UNWIND $batch AS row
+            MATCH (caller:File {path: row.caller_file_path})
+            MATCH (called)
+            WHERE (called:Interface OR called:Trait OR called:Struct OR called:Enum OR called:Record OR called:Union)
+              AND called.name = row.called_name
+              AND called.path = row.called_file_path
+              AND (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
+            MERGE (caller)-[call:CALLS {
+                line_number: row.line_number,
+                args: row.args,
+                full_call_name: row.full_call_name
+            }]->(called)
+            SET call.confidence = row.confidence,
+                call.resolution_tier = row.resolution_tier,
+                call.confidence_label = row.confidence_label
+        """
+
+        grouped = [
+            (fn_to_fn, q_fn_to_fn),
+            (fn_to_class, q_fn_to_class),
+            (fn_to_interface, q_fn_to_interface),
+            (file_to_fn, q_file_to_fn),
+            (file_to_class, q_file_to_class),
+            (file_to_interface, q_file_to_interface),
+        ]
 
         with self.driver.session() as session:
-            # Write code-to-code calls
-            if code_calls:
+            for rows, query in grouped:
+                if not rows:
+                    continue
                 t0 = time.time()
-                for i in range(0, len(code_calls), batch_size):
-                    batch = code_calls[i : i + batch_size]
-                    session.run(q_generic, batch=batch)
-                info_logger(f"[CALLS] Code-to-Code: {len(code_calls)} edges written in {time.time()-t0:.1f}s")
+                for i in range(0, len(rows), batch_size):
+                    batch = rows[i : i + batch_size]
+                    session.run(query, batch=batch)
+                info_logger(f"[CALLS] {len(rows)} edges written in {time.time()-t0:.1f}s")
 
-            # Write file-to-code calls
-            if file_calls:
-                t0 = time.time()
-                for i in range(0, len(file_calls), batch_size):
-                    batch = file_calls[i : i + batch_size]
-                    session.run(q_file_to_any, batch=batch)
-                info_logger(f"[CALLS] File-to-Code: {len(file_calls)} edges written in {time.time()-t0:.1f}s")
-
-        info_logger(f"[CALLS] All complete: {len(resolved_calls)} CALLS relationships processed.")
+        total_calls = sum(len(r) for r, _ in grouped)
+        info_logger(f"[CALLS] All complete: {total_calls} CALLS relationships processed.")
 
     def _create_csharp_inheritance_and_interfaces(
         self, session: Any, file_data: Dict[str, Any], imports_map: dict

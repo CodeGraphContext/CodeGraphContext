@@ -146,8 +146,7 @@ class KuzuDBManager:
                 self._conn.execute(f"CREATE NODE TABLE `{table_name}`({schema})")
             except Exception as e:
                 if "already exists" not in str(e).lower():
-                    warning_logger(f"Kuzu Schema Node Error ({table_name}): {e}")
-                    debug_log(f"Kuzu Schema Node Error ({table_name}): {e}")
+                    raise RuntimeError(f"Kuzu Schema Migration Failed: Node table {table_name} creation error: {e}") from e
 
         for table_name, schema, use_group in rel_tables:
             try:
@@ -158,10 +157,14 @@ class KuzuDBManager:
                     self._conn.execute(f"CREATE REL TABLE `{table_name}`({schema})")
             except Exception as e:
                 if "already exists" not in str(e).lower():
-                    warning_logger(f"Kuzu Schema Rel Error ({table_name}): {e}")
-                    debug_log(f"Kuzu Schema Rel Error ({table_name}): {e}")
+                    raise RuntimeError(f"Kuzu Schema Migration Failed: Relationship table {table_name} creation error: {e}") from e
 
-        self._run_schema_migrations()
+        try:
+            self._run_schema_migrations()
+        except Exception as e:
+            if "Schema Migration" not in str(e):
+                raise RuntimeError(f"Kuzu Schema Migration Failed: {e}") from e
+            raise
 
     def _run_schema_migrations(self):
         """Add columns introduced after older local Kùzu databases were created."""
@@ -223,8 +226,8 @@ class KuzuDBManager:
                 # the correct schema; silently skip "does not exist" errors.
                 if "does not exist" in err or "not found" in err:
                     continue
-                warning_logger(f"Kuzu Schema Migration Error ({table_name}.{column_name}): {e}")
-                debug_log(f"Kuzu Schema Migration Error ({table_name}.{column_name}): {e}")
+                # Any other error is a real migration failure
+                raise RuntimeError(f"Kuzu Schema Migration Failed: ALTER TABLE `{table_name}` ADD {column_name}: {e}") from e
 
     def close_driver(self):
         """Closes the connection."""
