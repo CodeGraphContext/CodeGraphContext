@@ -234,7 +234,13 @@ class GraphWriter:
                 session.run(
                     f"""
                     UNWIND $batch AS row
-                    MERGE (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})
+                    MERGE (n:{label})
+                    ON CREATE SET n.name = row.name,
+                                  n.path = $file_path,
+                                  n.line_number = row.line_number
+                    ON MATCH SET n.name = row.name,
+                               n.path = $file_path,
+                               n.line_number = row.line_number
                     SET n += row
                 """,
                     batch=batch,
@@ -243,8 +249,12 @@ class GraphWriter:
                 session.run(
                     f"""
                     UNWIND $batch AS row
-                    MATCH (f:File {{path: $file_path}})
-                    MATCH (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})
+                    MATCH (f:File)
+                    WHERE f.path = $file_path
+                    MATCH (n:{label})
+                    WHERE n.name = row.name
+                      AND n.path = $file_path
+                      AND n.line_number = row.line_number
                     MERGE (f)-[:CONTAINS]->(n)
                 """,
                     batch=batch,
@@ -255,8 +265,17 @@ class GraphWriter:
                 session.run(
                     """
                     UNWIND $batch AS row
-                    MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.line_number})
-                    MERGE (p:Parameter {name: row.arg_name, path: $file_path, function_line_number: row.line_number})
+                    MATCH (fn:Function)
+                    WHERE fn.name = row.func_name
+                      AND fn.path = $file_path
+                      AND fn.line_number = row.line_number
+                    MERGE (p:Parameter)
+                    ON CREATE SET p.name = row.arg_name,
+                                  p.path = $file_path,
+                                  p.function_line_number = row.line_number
+                    ON MATCH SET p.name = row.arg_name,
+                               p.path = $file_path,
+                               p.function_line_number = row.line_number
                     MERGE (fn)-[:HAS_PARAMETER]->(p)
                 """,
                     batch=params_batch,
@@ -267,9 +286,14 @@ class GraphWriter:
                 session.run(
                     """
                     UNWIND $batch AS row
-                    MATCH (c:Class {name: row.class_name, path: $file_path})
-                    MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.func_line})
-                    WHERE row.class_line < 0 OR c.line_number = row.class_line
+                    MATCH (c:Class)
+                    WHERE c.name = row.class_name
+                      AND c.path = $file_path
+                      AND (row.class_line < 0 OR c.line_number = row.class_line)
+                    MATCH (fn:Function)
+                    WHERE fn.name = row.func_name
+                      AND fn.path = $file_path
+                      AND fn.line_number = row.func_line
                     MERGE (c)-[:CONTAINS]->(fn)
                 """,
                     batch=class_fn_batch,
@@ -280,8 +304,13 @@ class GraphWriter:
                 session.run(
                     """
                     UNWIND $batch AS row
-                    MATCH (outer:Function {name: row.outer, path: $file_path})
-                    MATCH (inner:Function {name: row.inner_name, path: $file_path, line_number: row.inner_line})
+                    MATCH (outer:Function)
+                    WHERE outer.name = row.outer
+                      AND outer.path = $file_path
+                    MATCH (inner:Function)
+                    WHERE inner.name = row.inner_name
+                      AND inner.path = $file_path
+                      AND inner.line_number = row.inner_line
                     MERGE (outer)-[:CONTAINS]->(inner)
                 """,
                     batch=nested_fn_batch,
@@ -310,8 +339,8 @@ class GraphWriter:
                             {
                                 "module_name": module_name,
                                 "imported_name": imp.get("name", "*"),
-                                "alias": imp.get("alias") or "",
-                                "line_number": imp.get("line_number") or 0,
+                                "alias": imp.get("alias"),
+                                "line_number": imp.get("line_number"),
                             }
                         )
                 else:
@@ -328,8 +357,8 @@ class GraphWriter:
                             "name": module_name,
                             "full_import_name": full_import_name,
                             "imported_name": imp.get("imported_name") or module_name,
-                            "alias": imp.get("alias") or "",
-                            "line_number": imp.get("line_number") or 0,
+                            "alias": imp.get("alias"),
+                            "line_number": imp.get("line_number"),
                             "lang": imp.get("lang") or lang,
                         }
                     )
@@ -372,8 +401,12 @@ class GraphWriter:
                 session.run(
                     """
                     UNWIND $batch AS row
-                    MATCH (c:Class {name: row.class_name, path: $file_path})
-                    MERGE (m:Module {name: row.module_name})
+                    MATCH (c:Class)
+                    WHERE c.name = row.class_name
+                      AND c.path = $file_path
+                    MERGE (m:Module)
+                    ON CREATE SET m.name = row.module_name
+                    ON MATCH SET m.name = row.module_name
                     MERGE (c)-[:INCLUDES]->(m)
                 """,
                     batch=[
