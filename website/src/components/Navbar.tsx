@@ -1,5 +1,5 @@
-
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 function handleScroll(e: React.MouseEvent<HTMLAnchorElement>) {
   const href = e.currentTarget.getAttribute('href');
@@ -13,27 +13,47 @@ function handleScroll(e: React.MouseEvent<HTMLAnchorElement>) {
   }
 }
 
-
 const Navbar: React.FC = () => {
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleWindowScroll = () => {
+      setScrolled(window.scrollY > 20);
+    };
+    window.addEventListener('scroll', handleWindowScroll);
+    return () => window.removeEventListener('scroll', handleWindowScroll);
+  }, []);
+
   return (
-    <nav className="fixed top-3 md:top-6 left-1/2 transform -translate-x-1/2 z-50 w-[94vw] max-w-6xl">
-      <div
-        className="rounded-lg md:rounded-full backdrop-blur-2xl shadow-2xl border border-white/30 px-4 md:px-8 py-2 md:py-3 flex items-center justify-center"
-        style={{
-          background: 'linear-gradient(to bottom, hsl(var(--card) / 0.6), hsl(var(--graph-node-1) / 0.35))',
-          borderColor: 'rgba(255,255,255,0.18)',
-          boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
-        }}
-      >
-        <ul className="flex flex-wrap justify-center gap-2 md:gap-4 font-semibold text-sm md:text-base text-[hsl(var(--foreground))]">
-          <li><a href="#features" className="px-2 py-1 md:px-4 md:py-2 rounded-full hover:bg-[hsl(var(--primary)/0.15)] hover:text-[hsl(var(--primary))] transition" onClick={handleScroll}>Features</a></li>
-          <li><a href="#bundle-registry" className="px-2 py-1 md:px-4 md:py-2 rounded-full hover:bg-[hsl(var(--primary)/0.15)] hover:text-[hsl(var(--primary))] transition" onClick={handleScroll}>Pre-indexed Repositories</a></li>
-          <li><a href="#bundle-generator" className="px-2 py-1 md:px-4 md:py-2 rounded-full hover:bg-[hsl(var(--primary)/0.15)] hover:text-[hsl(var(--primary))] transition" onClick={handleScroll}>Generate Bundle</a></li>
-          <li><a href="#cookbook" className="px-2 py-1 md:px-4 md:py-2 rounded-full hover:bg-[hsl(var(--primary)/0.15)] hover:text-[hsl(var(--primary))] transition" onClick={handleScroll}>Cookbook</a></li>
-          <li><a href="#demo" className="px-2 py-1 md:px-4 md:py-2 rounded-full hover:bg-[hsl(var(--primary)/0.15)] hover:text-[hsl(var(--primary))] transition" onClick={handleScroll}>Demo</a></li>
-          <li><a href="#installation" className="px-2 py-1 md:px-4 md:py-2 rounded-full hover:bg-[hsl(var(--primary)/0.15)] hover:text-[hsl(var(--primary))] transition" onClick={handleScroll}>Installation</a></li>
-          <li><a href="#testimonials" className="px-2 py-1 md:px-4 md:py-2 rounded-full hover:bg-[hsl(var(--primary)/0.15)] hover:text-[hsl(var(--primary))] transition" onClick={handleScroll}>Testimonials</a></li>
+    <nav className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ${scrolled ? 'py-3 backdrop-blur-xl bg-background/60 border-b border-white/5 shadow-sm' : 'py-5 bg-transparent'}`}>
+      <div className="container mx-auto px-6 max-w-7xl flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {/* A small aesthetic dot for brand feel */}
+          <div className="w-3 h-3 rounded-full bg-primary/80 shadow-[0_0_10px_rgba(139,92,246,0.6)] animate-pulse" />
+          <span className="font-bold text-lg tracking-tight">CodeGraphContext</span>
+        </div>
+
+        <ul className="hidden md:flex items-center gap-8 font-medium text-sm text-foreground/80">
+          <li><a href="#features" className="hover:text-primary transition-colors" onClick={handleScroll}>Features</a></li>
+          <li><a href="#bundleregistry" className="hover:text-primary transition-colors" onClick={handleScroll}>Registry</a></li>
+          <li><a href="#examples" className="hover:text-primary transition-colors" onClick={handleScroll}>Examples</a></li>
+          <li><a href="#cookbook" className="hover:text-primary transition-colors" onClick={handleScroll}>Cookbook</a></li>
         </ul>
+
+        <div className="flex items-center gap-4">
+          <a href="https://github.com/CodeGraphContext/CodeGraphContext" target="_blank" rel="noreferrer" className="hidden sm:block text-sm font-medium text-foreground/80 hover:text-white transition-colors">
+            GitHub
+          </a>
+          <a href="#installation" onClick={handleScroll} className="bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md px-4 py-2 rounded-full text-sm font-medium transition-all duration-300">
+            Install Let's Go
+          </a>
+          {/* Header with Theme Toggle */}
+      
+        <div>
+            <ThemeToggle />
+        </div>
+      
+        </div>
       </div>
     </nav>
   );

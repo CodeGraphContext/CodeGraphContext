@@ -391,7 +391,7 @@ const BundleGeneratorSection = () => {
   };
 
   return (
-    <section id="bundle-generator" className="py-20 px-4 bg-muted/30">
+    <section id="bundle-generator" className="py-20 px-4">
       <div className="container mx-auto max-w-4xl">
         <div className="text-center mb-12" data-aos="fade-up">
           <Badge variant="secondary" className="mb-4">

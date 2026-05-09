@@ -11,9 +11,12 @@ import ComparisonTable from "../components/ComparisonTable";
 import BundleGeneratorSection from "../components/BundleGeneratorSection";
 import BundleRegistrySection from "../components/BundleRegistrySection";
 
+import ParticlesBackground from "../components/ParticlesBackground";
+
 const Index = () => {
   return (
-    <main className="min-h-screen overflow-x-hidden pt-16">
+    <main className="min-h-screen">
+      <ParticlesBackground />
       <div data-aos="fade-in">
         <HeroSection />
       </div>
