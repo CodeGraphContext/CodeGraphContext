@@ -753,8 +753,18 @@ def load_shortcut(
 # REGISTRY COMMAND GROUP - Browse and Download Bundles
 # ============================================================================
 
-registry_app = typer.Typer(help="Browse and download bundles from the registry")
+registry_app = typer.Typer(
+    help="Browse and download bundles from the registry",
+    invoke_without_command=True,
+)
 app.add_typer(registry_app, name="registry")
+
+
+@registry_app.callback()
+def registry_callback(ctx: typer.Context):
+    """Browse and download bundles from the registry."""
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
 
 @registry_app.command("list")
 def registry_list(

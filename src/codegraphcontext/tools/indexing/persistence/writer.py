@@ -450,7 +450,7 @@ class GraphWriter:
                 file_path=file_path_str,
             )
 
-            def write_function_call_groups(
+    def write_function_call_groups(
         self,
         resolved_calls: List[Dict],
     ) -> None:
