@@ -81,7 +81,7 @@ class KuzuDBManager:
                             info_logger("KùzuDB connection established and schema verified")
                             break
                         except ImportError:
-                            error_logger("KùzuDB is not installed. Run 'pip install real_ladybug'")
+                            error_logger("KùzuDB is not installed. Run 'pip install kuzu'")
                             raise ValueError("KùzuDB missing.")
                         except Exception as e:
                             if "lock" in str(e).lower() and attempt < max_retries - 1:
@@ -262,7 +262,7 @@ class KuzuDBManager:
             import kuzu
             return True, None
         except ImportError:
-            return False, "KùzuDB is not installed. Run 'pip install real_ladybug'"
+            return False, "KùzuDB is not installed. Run 'pip install kuzu'"
 
 class KuzuDriverWrapper:
     def __init__(self, conn, query_lock: Optional[threading.RLock] = None):
