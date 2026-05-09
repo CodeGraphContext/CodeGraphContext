@@ -267,13 +267,10 @@ class GraphWriter:
                     WHERE fn.name = row.func_name
                       AND fn.path = $file_path
                       AND fn.line_number = row.line_number
-                    MERGE (p:Parameter)
-                    ON CREATE SET p.name = row.arg_name,
-                                  p.path = $file_path,
-                                  p.function_line_number = row.line_number
-                    ON MATCH SET p.name = row.arg_name,
-                               p.path = $file_path,
-                               p.function_line_number = row.line_number
+                    MERGE (p:Parameter {name: row.arg_name, path: $file_path, function_line_number: row.line_number})
+                    SET p.name = row.arg_name,
+                        p.path = $file_path,
+                        p.function_line_number = row.line_number
                     MERGE (fn)-[:HAS_PARAMETER]->(p)
                 """,
                     batch=params_batch,
@@ -707,8 +704,10 @@ class GraphWriter:
                     if is_interface or (base_index > 0 and type_label == "Class"):
                         session.run(
                             """
-                            MATCH (child {name: $child_name, path: $path})
-                            WHERE child:Class OR child:Struct OR child:Record
+                            MATCH (child)
+                            WHERE label(child) IN ['Class', 'Struct', 'Record']
+                              AND child.name = $child_name
+                              AND child.path = $path
                             MATCH (iface:Interface {name: $interface_name})
                             MERGE (child)-[:IMPLEMENTS]->(iface)
                         """,
@@ -719,10 +718,13 @@ class GraphWriter:
                     else:
                         session.run(
                             """
-                            MATCH (child {name: $child_name, path: $path})
-                            WHERE child:Class OR child:Record OR child:Interface
-                            MATCH (parent {name: $parent_name})
-                            WHERE parent:Class OR parent:Record OR parent:Interface
+                            MATCH (child)
+                            WHERE label(child) IN ['Class', 'Record', 'Interface']
+                              AND child.name = $child_name
+                              AND child.path = $path
+                            MATCH (parent)
+                            WHERE label(parent) IN ['Class', 'Record', 'Interface']
+                              AND parent.name = $parent_name
                             MERGE (child)-[:INHERITS]->(parent)
                         """,
                             child_name=type_item["name"],
@@ -746,10 +748,14 @@ class GraphWriter:
                 session.run(
                     """
                     UNWIND $batch AS row
-                    MATCH (child {name: row.child_name, path: row.path})
-                    WHERE child:Class OR child:Trait OR child:Interface OR child:Struct OR child:Enum OR child:Union OR child:Record
-                    MATCH (parent {name: row.parent_name, path: row.resolved_parent_file_path})
-                    WHERE parent:Class OR parent:Trait OR parent:Interface OR parent:Struct OR parent:Enum OR parent:Union OR parent:Record
+                    MATCH (child)
+                    WHERE label(child) IN ['Class', 'Trait', 'Interface', 'Struct', 'Enum', 'Union', 'Record']
+                      AND child.name = row.child_name
+                      AND child.path = row.path
+                    MATCH (parent)
+                    WHERE label(parent) IN ['Class', 'Trait', 'Interface', 'Struct', 'Enum', 'Union', 'Record']
+                      AND parent.name = row.parent_name
+                      AND parent.path = row.resolved_parent_file_path
                     MERGE (child)-[r:INHERITS]->(parent)
                     SET r.confidence_label = coalesce(row.confidence_label, 'EXTRACTED')
                 """,
@@ -771,10 +777,15 @@ class GraphWriter:
                     try:
                         session.run(
                             """
-                            MATCH (caller {name: $caller_name, path: $caller_file, line_number: $caller_line})
-                            WHERE caller:Function OR caller:Variable OR caller:Class OR caller:Interface OR caller:Trait OR caller:Struct OR caller:Record OR caller:Union
-                            MATCH (callee {name: $callee_name, path: $callee_file})
-                            WHERE callee:Function OR callee:Class OR callee:Interface OR callee:Trait OR callee:Struct OR callee:Enum OR callee:Record OR callee:Union
+                            MATCH (caller)
+                            WHERE label(caller) IN ['Function', 'Variable', 'Class', 'Interface', 'Trait', 'Struct', 'Record', 'Union']
+                              AND caller.name = $caller_name
+                              AND caller.path = $caller_file
+                              AND caller.line_number = $caller_line
+                            MATCH (callee)
+                            WHERE label(callee) IN ['Function', 'Class', 'Interface', 'Trait', 'Struct', 'Enum', 'Record', 'Union']
+                              AND callee.name = $callee_name
+                              AND callee.path = $callee_file
                             MERGE (caller)-[:CALLS {line_number: $ref_line, source: 'scip'}]->(callee)
                         """,
                             caller_name=name_from_symbol(edge["caller_symbol"]),
@@ -793,8 +804,10 @@ class GraphWriter:
                         session.run(
                             """
                             MATCH (caller:File {path: $caller_file})
-                            MATCH (callee {name: $callee_name, path: $callee_file})
-                            WHERE callee:Function OR callee:Class OR callee:Interface OR callee:Trait OR callee:Struct OR callee:Enum OR callee:Record OR callee:Union
+                            MATCH (callee)
+                            WHERE label(callee) IN ['Function', 'Class', 'Interface', 'Trait', 'Struct', 'Enum', 'Record', 'Union']
+                              AND callee.name = $callee_name
+                              AND callee.path = $callee_file
                             MERGE (caller)-[:CALLS {line_number: $ref_line, source: 'scip'}]->(callee)
                         """,
                             caller_file=edge["caller_file"],
