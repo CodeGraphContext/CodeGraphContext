@@ -1693,6 +1693,7 @@ def build_function_call_groups(
     fn_to_interface: List[Dict] = []
     file_to_fn: List[Dict] = []
     file_to_class: List[Dict] = []
+    file_to_interface: List[Dict] = []
 
     # Pre-build per-language-extension filtered imports_map views.
     _lang_imports_cache: Dict[str, dict] = {}
@@ -2413,7 +2414,9 @@ def build_function_call_groups(
                     fn_to_fn.append(resolved)
             elif caller_type == "file":
                 # File-level callers
-                if called_is_class:
+                if called_is_interface:
+                    file_to_interface.append(resolved)
+                elif called_is_class:
                     file_to_class.append(resolved)
                 else:
                     # Default to function call
@@ -2423,4 +2426,4 @@ def build_function_call_groups(
             info_logger(f"[CALLS] Resolved {idx + 1}/{len(all_file_data)} files... ({len(resolved_calls)} calls)")
 
     info_logger(f"[CALLS] Resolution complete: {len(resolved_calls)} total CALLS edges identified.")
-    return fn_to_fn, fn_to_class, fn_to_interface, file_to_fn, file_to_class
+    return fn_to_fn, fn_to_class, fn_to_interface, file_to_fn, file_to_class, file_to_interface
