@@ -50,7 +50,9 @@ class TestUserJourneys:
         # 2. Index
         print(f"Indexing {project_dir}...")
         result = self.run_cgc(["--db", "kuzudb", "index", str(project_dir)])
-        assert result.returncode == 0, f"Indexing failed: {result.stderr}"
+        assert result.returncode == 0, (
+            f"Indexing failed:\nSTDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}"
+        )
         
         # 3. List
         result = self.run_cgc(["--db", "kuzudb", "list"])
