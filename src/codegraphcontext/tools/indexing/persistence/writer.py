@@ -154,6 +154,7 @@ class GraphWriter:
                     row = dict(item)
                     if label == "Function" and "cyclomatic_complexity" not in row:
                         row["cyclomatic_complexity"] = 1
+                    row["path"] = file_path_str  # Ensure path is set for translation layer
                     batch.append(sanitize_props(row))
                     if label == "Function":
                         for arg_name in item.get("args", []):
@@ -238,17 +239,10 @@ class GraphWriter:
                 session.run(
                     f"""
                     UNWIND $batch AS row
-                    MERGE (n:{label})
-                    ON CREATE SET n.name = row.name,
-                                  n.path = $file_path,
-                                  n.line_number = row.line_number
-                    ON MATCH SET n.name = row.name,
-                               n.path = $file_path,
-                               n.line_number = row.line_number
+                    MERGE (n:{label} {{name: row.name, path: row.path, line_number: row.line_number}})
                     SET n += row
                 """,
                     batch=batch,
-                    file_path=file_path_str,
                 )
                 session.run(
                     f"""
@@ -361,7 +355,7 @@ class GraphWriter:
                             "name": module_name,
                             "full_import_name": full_import_name,
                             "imported_name": imp.get("imported_name") or module_name,
-                            "alias": imp.get("alias"),
+                            "alias": imp.get("alias", ""),  # Default to "" only when key absent
                             "line_number": imp.get("line_number"),
                             "lang": imp.get("lang") or lang,
                         }
@@ -532,7 +526,7 @@ class GraphWriter:
                     "called_name": row["called_name"],
                     "called_file_path": row["called_file_path"],
                     "called_line_number": called_line_number,
-                    "called_context": called_context or "",  # Default to "" for broad matching
+                    "called_context": called_context or "",  # Empty string = "match any"
                     "line_number": row["line_number"],
                     "args": row.get("args", []),
                     "full_call_name": row["full_call_name"],
@@ -559,7 +553,7 @@ class GraphWriter:
             WHERE called.name = row.called_name
               AND called.path = row.called_file_path
               AND (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
-              AND (row.called_context IS NULL OR called.context = row.called_context)
+              AND (row.called_context = '' OR called.context = row.called_context)
             MERGE (caller)-[call:CALLS {
                 line_number: row.line_number,
                 args: row.args,
