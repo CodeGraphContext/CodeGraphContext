@@ -97,7 +97,11 @@ class GraphWriter:
 
             file_path_obj = Path(file_path_str)
             repo_path_obj = Path(resolved_repo_str)
-            relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
+            try:
+                relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
+            except ValueError:
+                # Paths are on different drives or can't be made relative; use filename
+                relative_path_to_file = Path(file_path_obj.name)
             parent_path = resolved_repo_str
             parent_label = "Repository"
             for part in relative_path_to_file.parts[:-1]:
@@ -514,14 +518,21 @@ class GraphWriter:
                 if not required.issubset(row.keys()):
                     continue
 
+                # Skip rows with malformed boolean values for filtering attributes
+                # (0 and "" are valid sentinels for "no filter", but bool values are malformed)
+                called_line_number = row.get("called_line_number")
+                called_context = row.get("called_context")
+                if isinstance(called_line_number, bool) or isinstance(called_context, bool):
+                    continue
+
                 normalized.append({
                     "caller_name": row["caller_name"],
                     "caller_file_path": row["caller_file_path"],
                     "caller_line_number": row.get("caller_line_number", 0),
                     "called_name": row["called_name"],
                     "called_file_path": row["called_file_path"],
-                    "called_line_number": row.get("called_line_number"),
-                    "called_context": row.get("called_context"),
+                    "called_line_number": called_line_number,
+                    "called_context": called_context or "",  # Default to "" for broad matching
                     "line_number": row["line_number"],
                     "args": row.get("args", []),
                     "full_call_name": row["full_call_name"],
@@ -540,10 +551,15 @@ class GraphWriter:
 
         q_fn_to_fn = """
             UNWIND $batch AS row
-            MATCH (caller:Function {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
-            MATCH (called:Function {name: row.called_name, path: row.called_file_path})
-            WHERE (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
-              AND (row.called_context IS NULL OR coalesce(called.context, '') = row.called_context)
+            MATCH (caller:Function)
+            WHERE caller.name = row.caller_name
+              AND caller.path = row.caller_file_path
+              AND caller.line_number = row.caller_line_number
+            MATCH (called:Function)
+            WHERE called.name = row.called_name
+              AND called.path = row.called_file_path
+              AND (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
+              AND (row.called_context IS NULL OR called.context = row.called_context)
             MERGE (caller)-[call:CALLS {
                 line_number: row.line_number,
                 args: row.args,
