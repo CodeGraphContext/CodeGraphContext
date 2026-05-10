@@ -1,7 +1,15 @@
 // api/bundle-status.ts
 // Checks the status of a bundle generation request
 
-export default async function handler(req: any, res: any) {
+import type { NextApiRequest, NextApiResponse } from 'next';
+
+type Bundle = {
+    repo: string;
+    download_url: string;
+    [key: string]: unknown;
+};
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { repo, run_id } = req.query;
 
     if (!repo && !run_id) {
@@ -53,7 +61,7 @@ export default async function handler(req: any, res: any) {
             }
 
             const manifest = await manifestResponse.json();
-            const bundle = manifest.bundles?.find((b: any) => b.repo === repo);
+            const bundle = manifest.bundles?.find((b: Bundle) => b.repo === repo);
 
             if (bundle) {
                 return res.status(200).json({
@@ -69,11 +77,11 @@ export default async function handler(req: any, res: any) {
             }
         }
 
-    } catch (err: any) {
+    } catch (err) {
         console.error('Error checking bundle status:', err);
         return res.status(500).json({
             error: 'Failed to check bundle status',
-            details: err.message
+            details: err instanceof Error ? err.message : String(err)
         });
     }
 }

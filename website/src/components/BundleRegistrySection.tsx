@@ -129,11 +129,11 @@ const BundleRegistrySection = () => {
         }
     ];
 
-    const parseWeeklyBundles = (release: any): Bundle[] => {
+    const parseWeeklyBundles = (release: Release): Bundle[] => {
         // Parse bundle files from release assets
         return release.assets
-            .filter((asset: any) => asset.name.endsWith('.cgc'))
-            .map((asset: any) => {
+            .filter((asset: Asset) => asset.name.endsWith('.cgc'))
+            .map((asset: Asset) => {
                 const nameParts = asset.name.replace('.cgc', '').split('-');
                 return {
                     name: nameParts[0],

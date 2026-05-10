@@ -1,4 +1,6 @@
+
 import type { Config } from "tailwindcss";
+import colors from "tailwindcss/colors";
 
 export default {
   darkMode: ["class"],
@@ -12,6 +14,7 @@ export default {
         "2xl": "1400px",
       },
     },
+    // colors import removed from here; imported at top if needed
     extend: {
       colors: {
         border: "hsl(var(--border))",
@@ -105,5 +108,5 @@ export default {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [import("tailwindcss-animate")],
 } satisfies Config;

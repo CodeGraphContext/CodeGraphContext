@@ -22,6 +22,12 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
+interface Bundle {
+  repo: string;
+  download_url: string;
+  [key: string]: unknown;
+}
+
 interface GenerationStatus {
   status:
     | "idle"
@@ -36,7 +42,7 @@ interface GenerationStatus {
   run_id?: string | null;
   run_url?: string | null;
   download_url?: string;
-  bundle?: any;
+  bundle?: Bundle;
   error?: string;
   estimated_time?: string;
   repo_size_mb?: string;
@@ -151,10 +157,10 @@ const BundleGeneratorSection = () => {
           pollBundleStatus(data.run_id, data.repository);
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       setGenerationStatus({
         status: "error",
-        error: err.message || "Network error",
+        error: err instanceof Error ? err.message : "Network error",
       });
       setProgress(0);
     }

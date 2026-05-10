@@ -2,9 +2,9 @@ import { Parser, Language, Query } from "web-tree-sitter";
 // Leverage Vite's asset pipeline to guarantee we receive the exact .wasm file that matches our NPM package version
 import treeSitterWasmUrl from "web-tree-sitter/tree-sitter.wasm?url";
 
-let parser: any = null;
+let parser: Parser | null = null;
 let initPromise: Promise<void> | null = null;
-const wasmLanguageCache = new Map<string, any>();
+const wasmLanguageCache = new Map<string, Language>();
 
 async function initParser() {
   if (parser) return;
@@ -31,7 +31,7 @@ async function getLanguageForFile(path: string) {
   const ext = extMatch[1].toLowerCase();
   
   let wasmName = '';
-  switch(ext) {
+          switch (ext) {
     case 'py': wasmName = 'tree-sitter-python.wasm'; break;
     case 'js':
     case 'jsx': wasmName = 'tree-sitter-javascript.wasm'; break;
@@ -65,7 +65,7 @@ async function getLanguageForFile(path: string) {
     const response = await fetch(`${location.origin}/wasm/${wasmName}`);
     if (!response.ok) {
         console.warn(`Could not load tree-sitter language: ${wasmName}. Proceeding without it.`);
-        return null;
+         return null; // Handle error gracefully
     }
     const buffer = await response.arrayBuffer();
     const lang = await Language.load(new Uint8Array(buffer));
@@ -451,7 +451,7 @@ function valForLabel(label: string): number {
 // Per-language query cache (compiled Query objects are reusable)
 const compiledQueryCache = new Map<string, Record<string, Query | null>>();
 
-function getCompiledQueries(lang: any, queryKey: string): Record<string, Query | null> {
+function getCompiledQueries(lang: Language, queryKey: string): Record<string, Query | null> {
   if (compiledQueryCache.has(queryKey)) return compiledQueryCache.get(queryKey)!;
   const spec = QUERIES[queryKey];
   const compiled: Record<string, Query | null> = {};
@@ -476,6 +476,23 @@ const pendingFileQueue: { path: string, content: string }[] = [];
 let totalFiles = 0;
 let processedCount = 0;
 
+interface Node {
+  id: number;
+  name: string;
+  type: string;
+  file: string;
+  val: number;
+  line_number?: number;
+  [key: string]: unknown;
+}
+interface Link {
+  source: number;
+  target: number;
+  type: string;
+}
+const nodes: Node[] = [];
+const links: Link[] = [];
+const nodeSymbolIndex = new Map<string, number>(); 
 const nodes: any[] = [];
 const links: any[] = [];
 const nodeSymbolIndex = new Map<string, number[]>(); 
@@ -495,7 +512,7 @@ let repoRootPrefix = ''; // common path prefix stripped before building folder h
 function computeCommonPrefix(paths: string[]): string {
   if (paths.length === 0) return '';
   const dirs = paths.map(p => {
-    const norm = p.replace(/\\/g, '/');
+    const norm = p.replace(/\\/g, '/'); // This is correct for Windows path separator
     return norm.substring(0, norm.lastIndexOf('/'));
   });
   const first = dirs[0].split('/');
@@ -520,11 +537,11 @@ function computeCommonPrefix(paths: string[]): string {
  *   and returns the id of "src/lib".
  */
 function getOrCreateFolderChain(filePath: string): number {
-  const norm = filePath.replace(/\\/g, '/');
+  const norm = filePath.replace(/\\/g, '/'); // This is correct for Windows path separator
   // Strip the common prefix to get the repo-relative path
   const relative = repoRootPrefix && norm.startsWith(repoRootPrefix)
-    ? norm.slice(repoRootPrefix.length).replace(/^\//, '')
-    : norm.replace(/^\//, '');
+    ? norm.slice(repoRootPrefix.length).replace(/^\//, '') // This is correct for leading slash
+    : norm.replace(/^\//, ''); // This is correct for leading slash
 
   // Drop the filename, keep only the directory segments
   const dirPart = relative.substring(0, relative.lastIndexOf('/'));
@@ -563,13 +580,13 @@ self.onmessage = async (e) => {
       repoRootPrefix = computeCommonPrefix(pendingFileQueue.map(f => f.path));
       repoId = addNode("Repository", "Repository", "root", 15);
       processNextBatch();
-    } catch (err: any) {
+    } catch (err) {
       self.postMessage({ type: 'ERROR', payload: err.message });
     }
   }
 };
 
-const addNode = (name: string, type: string, file: string, val: number, extraProps: any = {}) => {
+const addNode = (name: string, type: string, file: string, val: number, extraProps: Record<string, unknown> = {}) => {
   const id = nodeIdSequence++;
   nodes.push({ id, name, type, file, val, ...extraProps });
   const symbolKey = `${type}:${name}`;
@@ -625,7 +642,7 @@ async function processNextBatch() {
        }
     }
     
-    const pm = (performance as any).memory;
+    const pm = (performance as { memory?: { usedJSHeapSize: number } }).memory;
     if (pm) {
       console.log(`[Worker RAM Pre-PostMessage] ${(pm.usedJSHeapSize / 1048576).toFixed(1)} MB used.`);
     }
@@ -644,7 +661,7 @@ async function processNextBatch() {
     processedCount++;
     
     if (processedCount % 5 === 0) {
-      const pm = (performance as any).memory;
+      const pm = (performance as { memory?: { usedJSHeapSize: number } }).memory;
       const memStr = pm ? ` [RAM: ${(pm.usedJSHeapSize / 1048576).toFixed(1)}MB]` : "";
       self.postMessage({ 
         type: 'PROGRESS', 
@@ -662,13 +679,13 @@ async function processNextBatch() {
       'packages', 'vendor', 'Pods', '.build', 'DerivedData', '.dart_tool',
       '.vscode'
     ]);
-    const isPathIgnored = f.path.split(/[\/\\]/).some(part => IGNORED_DIRS.has(part));
+    const isPathIgnored = f.path.split(/[\\/]/).some(part => IGNORED_DIRS.has(part)); // Cross-platform
 
     // Skip large files and cache directories; tighter limit now we parse more languages
     if (f.content.length > 200000 || isPathIgnored) continue;
 
     // Memory pressure guard: if heap > 900 MB yield an extra tick to let GC run
-    const pm2 = (performance as any).memory;
+    const pm2 = (performance as { memory?: { usedJSHeapSize: number } }).memory;
     if (pm2 && pm2.usedJSHeapSize > 900 * 1048576) {
       await new Promise(r => setTimeout(r, 0));
     }
@@ -680,7 +697,7 @@ async function processNextBatch() {
     if (!queryKey) continue;
     
     parser!.setLanguage(lang);
-    let tree: any;
+    let tree: Parser.Tree | null = null;
     try {
       const src = f.content;
       f.content = ''; // Free raw file string from closure/batch immediately before AST creates thousands of slices
@@ -693,14 +710,14 @@ async function processNextBatch() {
       const parentFolderId = getOrCreateFolderChain(f.path);
       links.push({ source: parentFolderId, target: fileId, type: 'CONTAINS' });
 
-      // Compile (or retrieve cached) query objects for this language
+      // Compile (or retrieve cached) query objects for this language.
       const queries = getCompiledQueries(lang, queryKey);
 
       // 1. DEFINITIONS
       if (queries.definitions) {
         const defCaptures = queries.definitions.captures(root);
         const nodeToName = new Map<number, string>();
-        const nodeToMeta = new Map<number, any>();
+        const nodeToMeta = new Map<number, { node: Parser.SyntaxNode; nodeType: string }>();
 
         for (const cap of defCaptures) {
           const nodeId = cap.node.id;
@@ -709,7 +726,7 @@ async function processNextBatch() {
               nodeToMeta.set(nodeId, { node: cap.node, nodeType: cap.node.type });
             }
           } else if (cap.name === 'def.name') {
-            let cur: any = cap.node.parent;
+            let cur: Parser.SyntaxNode | null = cap.node.parent;
             while (cur) {
               if (nodeToMeta.has(cur.id)) {
                 nodeToName.set(cur.id, cap.node.text);
@@ -735,10 +752,10 @@ async function processNextBatch() {
         const seen = new Set<string>();
         for (const cap of queries.imports.captures(root)) {
           if (cap.name !== 'import.module') continue;
-          let modName = cap.node.text.replace(/['"]/g, '').trim();
+          const modName = cap.node.text.replace(/['"]/g, '').trim();
           if (!modName || seen.has(modName)) continue;
           seen.add(modName);
-          const shortName = modName.split(/[/\\.]/).filter(Boolean).pop() ?? modName;
+            const shortName = modName.split(/[/.]/).filter(Boolean).pop() ?? modName; // No unnecessary escape
           const modId = addNode(shortName, 'Module', f.path, 5);
           links.push({ source: fileId, target: modId, type: 'IMPORTS' });
         }
@@ -762,11 +779,11 @@ async function processNextBatch() {
           if (cap.name !== 'inherit.base') continue;
           const baseName = cap.node.text;
           if (!baseName) continue;
-          let cur: any = cap.node.parent;
+          let cur: Parser.SyntaxNode | null = cap.node.parent;
           let classNodeId: number | undefined;
           while (cur) {
             if (cur.type.includes('class') || cur.type.includes('interface')) {
-              const nameNode = cur.children?.find((c: any) =>
+              const nameNode = cur.children?.find((c: Parser.SyntaxNode) =>
                 ['identifier', 'type_identifier', 'name', 'constant'].includes(c.type));
               if (nameNode) {
                 classNodeId = resolveSymbol(`Class:${nameNode.text}`, f.path) ??
@@ -787,7 +804,7 @@ async function processNextBatch() {
       console.warn(`[parser.worker] Failed parsing or executing queries on ${f.path}:`, e);
     } finally {
       if (tree) {
-        try { tree.delete(); } catch(e) {}
+        try { tree.delete(); } catch(e) { /* intentionally empty: cleanup */ }
       }
     }
   }

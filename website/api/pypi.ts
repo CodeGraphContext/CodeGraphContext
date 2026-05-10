@@ -1,6 +1,8 @@
 // api/pypi.ts
 
-export default async function handler(req: any, res: any) {
+import type { NextApiRequest, NextApiResponse } from 'next';
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const path = req.url?.replace("/api/pypi", "") || "";
 
   try {

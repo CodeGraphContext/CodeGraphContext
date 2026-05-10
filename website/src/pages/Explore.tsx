@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 const Explore = () => {
   const [searchParams] = useSearchParams();
-  const [graphData, setGraphData] = useState<any>(null);
+  const [graphData, setGraphData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,10 +37,11 @@ const Explore = () => {
 
         const data = await response.json();
         setGraphData(data);
-      } catch (err: any) {
+      } catch (err) {
         console.error("Fetch Error:", err);
-        setError(err.message);
-        toast.error("Failed to connect to local index: " + err.message);
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        toast.error("Failed to connect to local index: " + message);
       } finally {
         setLoading(false);
       }

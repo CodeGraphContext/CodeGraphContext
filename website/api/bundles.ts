@@ -1,12 +1,29 @@
 // api/bundles.ts
 // Fetches all available bundles from GitHub Releases
 
-export default async function handler(req: any, res: any) {
+import type { NextApiRequest, NextApiResponse } from 'next';
+
+type Bundle = {
+    name: string;
+    repo: string;
+    bundle_name?: string;
+    version?: string;
+    commit: string;
+    size: string;
+    download_url: string;
+    generated_at: string;
+    category?: string;
+    description?: string;
+    stars?: number;
+    [key: string]: unknown;
+};
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
         const org = process.env.GITHUB_REPOSITORY?.split('/')[0] || 'CodeGraphContext';
         const repo = process.env.GITHUB_REPOSITORY?.split('/')[1] || 'CodeGraphContext';
 
-        const allBundles: any[] = [];
+        const allBundles: Bundle[] = [];
 
         // 1. Fetch on-demand bundles from manifest
         try {
@@ -18,7 +35,7 @@ export default async function handler(req: any, res: any) {
             if (manifestResponse.ok) {
                 const manifest = await manifestResponse.json();
                 if (manifest.bundles && Array.isArray(manifest.bundles)) {
-                    allBundles.push(...manifest.bundles.map((b: any) => ({
+                    allBundles.push(...manifest.bundles.map((b: Bundle) => ({
                         ...b,
                         category: 'On-Demand',
                         source: 'on-demand'
@@ -47,7 +64,7 @@ export default async function handler(req: any, res: any) {
                 const releases = await releasesResponse.json();
 
                 // Find releases with tag pattern "bundles-YYYYMMDD"
-                const weeklyReleases = releases.filter((r: any) =>
+                const weeklyReleases = releases.filter((r: { tag_name: string }) =>
                     r.tag_name.startsWith('bundles-') && r.tag_name !== 'bundles-latest'
                 );
 
@@ -56,9 +73,15 @@ export default async function handler(req: any, res: any) {
                     const latestWeekly = weeklyReleases[0];
 
                     // Parse bundle files from assets
-                    const weeklyBundles = latestWeekly.assets
-                        .filter((asset: any) => asset.name.endsWith('.cgc'))
-                        .map((asset: any) => {
+                    interface Asset {
+                        name: string;
+                        size: number;
+                        browser_download_url: string;
+                        updated_at: string;
+                    }
+                    const weeklyBundles = (latestWeekly.assets as Asset[])
+                        .filter((asset: Asset) => asset.name.endsWith('.cgc'))
+                        .map((asset: Asset) => {
                             const nameParts = asset.name.replace('.cgc', '').split('-');
                             const name = nameParts[0];
                             const version = nameParts[1] || 'latest';
@@ -96,11 +119,11 @@ export default async function handler(req: any, res: any) {
             updated_at: new Date().toISOString()
         });
 
-    } catch (err: any) {
+    } catch (err) {
         console.error('Error fetching bundles:', err);
         return res.status(500).json({
             error: 'Failed to fetch bundles',
-            details: err.message
+            details: err instanceof Error ? err.message : String(err)
         });
     }
 }

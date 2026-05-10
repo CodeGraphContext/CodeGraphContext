@@ -4,10 +4,20 @@ import JSZip from "jszip";
  * Parses files into a high-fidelity AST graph using a Web Worker.
  * Ensures the main thread stays highly responsive even for 1000+ files.
  */
+export interface GraphNode {
+  id: number | string;
+  type: string;
+  [key: string]: unknown;
+}
+export interface GraphLink {
+  source: number | string;
+  target: number | string;
+  [key: string]: unknown;
+}
 export function parseFilesIntoGraph(
   files: { path: string, content: string }[], 
   onProgressTracker?: (progressMsg: string, percentage: number) => void
-): Promise<{ nodes: any[], links: any[], files: string[] }> {
+): Promise<{ nodes: GraphNode[]; links: GraphLink[]; files: string[] }> {
   return new Promise((resolve, reject) => {
     // Vite built-in worker support
     const worker = new Worker(new URL('./parser.worker.ts', import.meta.url), { type: 'module' });
@@ -43,17 +53,17 @@ export function parseFilesIntoGraph(
 
 
 // UPLOADER UTILITIES
-export async function readDirectoryRecursive(dirHandle: any, prefix = "") {
+export async function readDirectoryRecursive(dirHandle: FileSystemDirectoryHandle, prefix = "") {
   let files: { path: string, content: string }[] = [];
   for await (const entry of dirHandle.values()) {
     if (entry.kind === 'file') {
       if (entry.name.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/)) {
-        const file = await entry.getFile();
+        const file = await (entry as FileSystemFileHandle).getFile();
         files.push({ path: `${prefix}/${entry.name}`, content: await file.text() });
       }
     } else if (entry.kind === 'directory') {
       if (!['node_modules', '.git', 'dist', 'build', '.idea', '__pycache__'].includes(entry.name)) {
-        files = files.concat(await readDirectoryRecursive(entry, `${prefix}/${entry.name}`));
+        files = files.concat(await readDirectoryRecursive(entry as FileSystemDirectoryHandle, `${prefix}/${entry.name}`));
       }
     }
   }
@@ -63,8 +73,8 @@ export async function readDirectoryRecursive(dirHandle: any, prefix = "") {
 export async function unzipFiles(zipBuffer: ArrayBuffer) {
   const jszip = await JSZip.loadAsync(zipBuffer);
   const files: { path: string, content: string }[] = [];
-  const promises: any[] = [];
-  jszip.forEach((relativePath, zipEntry) => {
+  const promises: Promise<void>[] = [];
+  jszip.forEach((relativePath: string, zipEntry: JSZip.JSZipObject) => {
     if (!zipEntry.dir && relativePath.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/) && !relativePath.includes("node_modules") && !relativePath.includes(".git/")) {
       promises.push(zipEntry.async('text').then(content => { files.push({ path: relativePath, content }); }));
     }
@@ -85,9 +95,9 @@ export async function fetchGithubRepoFiles(url: string, onProgress?: (msg: strin
   }
   if (!res.ok) throw new Error("Could not fetch repo.");
   const data = await res.json();
-  const filePaths = data.tree
-    .filter((t: any) => t.type === "blob")
-    .map((t: any) => t.path)
+  const filePaths = (data.tree as { type: string; path: string }[])
+    .filter((t) => t.type === "blob")
+    .map((t) => t.path)
     .filter((p: string) => p.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/) && !p.includes("node_modules") && !p.includes(".git"));
   const files: { path: string, content: string }[] = [];
   for (let i = 0; i < Math.min(filePaths.length, 150); i += 10) {
@@ -97,7 +107,7 @@ export async function fetchGithubRepoFiles(url: string, onProgress?: (msg: strin
         let r = await fetch(`https://raw.githubusercontent.com/${owner}/${repoName}/main/${path}`);
         if (!r.ok) r = await fetch(`https://raw.githubusercontent.com/${owner}/${repoName}/master/${path}`);
         if (r.ok) files.push({ path, content: await r.text() });
-      } catch (err) { }
+      } catch (err) { /* intentionally empty: ignore fetch errors */ }
     }));
   }
   return files;

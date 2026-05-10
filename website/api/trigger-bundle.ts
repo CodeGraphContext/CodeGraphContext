@@ -12,8 +12,9 @@ import {
     normalizeRepoKey,
     setRepoCooldown,
 } from './lib/security.js';
+import type { NextApiRequest, NextApiResponse } from 'next';
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Only allow POST requests
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
@@ -64,7 +65,7 @@ export default async function handler(req: any, res: any) {
 
     // Validate GitHub URL format
     // Allow optional trailing slash and .git extension
-    const githubUrlPattern = /^https?:\/\/(www\.)?github\.com\/([^\/]+)\/([^\/]+)(\.git)?\/?$/;
+    const githubUrlPattern = /^https?:\/\/(www\.)?github\.com\/([^/]+)\/([^/]+)(\.git)?\/?$/;
     const match = repoUrl.match(githubUrlPattern);
 
     if (!match) {
@@ -129,7 +130,7 @@ export default async function handler(req: any, res: any) {
             if (manifestResponse.ok) {
                 const manifest = await manifestResponse.json();
                 const existingBundle = manifest.bundles?.find(
-                    (b: any) => b.repo === `${owner}/${repo}`
+                    (b: { repo: string }) => b.repo === `${owner}/${repo}`
                 );
 
                 if (existingBundle) {
@@ -215,11 +216,11 @@ export default async function handler(req: any, res: any) {
             status_url: `/api/bundle-status?repo=${owner}/${repo}`
         });
 
-    } catch (err: any) {
+    } catch (err) {
         console.error('Error triggering bundle generation:', err);
         return res.status(500).json({
             error: 'Failed to trigger bundle generation',
-            details: err.message
+            details: err instanceof Error ? err.message : String(err)
         });
     }
 }

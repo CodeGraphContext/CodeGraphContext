@@ -338,6 +338,25 @@ function getGraphAwareNodeScale(totalNodes: number): number {
   return clamp(1 + Math.log10(safeNodeCount) * 0.22, 1, 2);
 }
 
+interface GraphNode {
+  id: number | string;
+  type: string;
+  file?: string;
+  [key: string]: unknown;
+}
+interface GraphLink {
+  source: number | string;
+  target: number | string;
+  [key: string]: unknown;
+}
+interface GraphData {
+  nodes: GraphNode[];
+  links: GraphLink[];
+  files?: string[];
+}
+
+export default function CodeGraphViewer({ data, onClose }: { data: GraphData, onClose: () => void }) {
+  const fgRef = useRef<ForceGraph2D | null>(null);
 export default function CodeGraphViewer({ data, onClose }: { data: any, onClose: () => void }) {
   const { theme, setTheme } = useTheme();
   const isDark = theme !== 'light';
@@ -345,10 +364,10 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
 
   const fgRef = useRef<any>();
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
-  const [hoverNode, setHoverNode] = useState<any>(null);
+  const [hoverNode, setHoverNode] = useState<GraphNode | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [focusSet, setFocusSet] = useState<{ nodes: Set<number>, links: Set<any> } | null>(null);
+  const [focusSet, setFocusSet] = useState<{ nodes: Set<number | string>, links: Set<GraphLink> } | null>(null);
 
   // Path traversal states
   const [isPathMode, setIsPathMode] = useState(false);
@@ -444,11 +463,11 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   };
 
   const filteredData = useMemo(() => {
-    const visibleNodes = data.nodes.filter((n: any) => visibleNodeTypes.has(n.type));
-    const nodeIds = new Set(visibleNodes.map((n: any) => n.id));
-    const visibleLinks = data.links.filter((l: any) =>
-      nodeIds.has(typeof l.source === 'object' ? l.source.id : l.source) &&
-      nodeIds.has(typeof l.target === 'object' ? l.target.id : l.target)
+    const visibleNodes = data.nodes.filter((n: GraphNode) => visibleNodeTypes.has(n.type));
+    const nodeIds = new Set(visibleNodes.map((n: GraphNode) => n.id));
+    const visibleLinks = data.links.filter((l: GraphLink) =>
+      nodeIds.has(typeof l.source === 'object' ? (l.source as GraphNode).id : l.source) &&
+      nodeIds.has(typeof l.target === 'object' ? (l.target as GraphNode).id : l.target)
     );
     return { nodes: visibleNodes, links: visibleLinks };
   }, [data, visibleNodeTypes]);
@@ -458,6 +477,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     [filteredData.nodes.length]
   );
 
+  const nodeCanvasObject = useCallback((node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
   const { degreeMap, maxDegree } = useMemo(() => {
     const dm = new Map<number, number>();
     for (const link of filteredData.links) {
@@ -927,6 +947,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       return;
     }
 
+    setSelectedFile(path);
+    const fileNode = data.nodes.find((n: GraphNode) => n.file === path && n.type === 'File');
     setHighlightLine(targetLine || null);
 
     if (path !== selectedFile) {
@@ -947,13 +969,13 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
         fgRef.current.zoom(2.5, 800);
       }
 
-      const nodesInFocus = new Set<number>();
-      const linksInFocus = new Set<any>();
+      const nodesInFocus = new Set<number | string>();
+      const linksInFocus = new Set<GraphLink>();
       nodesInFocus.add(fileNode.id);
 
-      data.links.forEach((l: any) => {
-        const sId = typeof l.source === 'object' ? l.source.id : l.source;
-        const tId = typeof l.target === 'object' ? l.target.id : l.target;
+      data.links.forEach((l: GraphLink) => {
+        const sId = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source;
+        const tId = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target;
         if (sId === fileNode.id || tId === fileNode.id) {
           nodesInFocus.add(sId);
           nodesInFocus.add(tId);
@@ -965,6 +987,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     }
   };
 
+  const getLinkColor = useCallback((link: GraphLink) => {
   const onGraphNodeClick = (node: any) => {
     if (isPathMode) {
       if (!pathSource) {
@@ -1462,6 +1485,27 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
           </AnimatePresence>
         </div>
 
+        <ForceGraph2D
+          ref={fgRef}
+          graphData={filteredData}
+          width={dimensions.width - effectiveSidebarW}
+          height={dimensions.height}
+          nodeLabel="name"
+          linkColor={getLinkColor}
+          linkWidth={lineWidth}
+          linkDirectionalParticles={(l: GraphLink) => (focusSet ? (focusSet.links.has(l) ? 2 : 0) : (filteredData.links.length > 500 ? 0 : 1))}
+          linkDirectionalParticleWidth={lineWidth * 1.5}
+          linkDirectionalParticleSpeed={0.005}
+          nodeCanvasObject={nodeCanvasObject}
+          onNodeClick={(node: GraphNode) => {
+            if (node.type === 'File') onFileClick(node.file as string);
+          }}
+          onBackgroundClick={() => onFileClick(null)}
+          onNodeHover={setHoverNode}
+          d3VelocityDecay={0.4}
+          d3AlphaDecay={0.05}
+          cooldownTicks={50}
+        />
         {graphMode === 'city3d' ? (
           <>
             <ForceGraph3D

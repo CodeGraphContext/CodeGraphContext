@@ -28,6 +28,7 @@ jobs:
           pip install -r requirements.txt
           pip install build
           pip install .[dev]
+          pip install kuzu
 
       - name: Build package
         run: python -m build

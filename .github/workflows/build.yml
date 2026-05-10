@@ -29,16 +29,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
+          python-version: '3.11'
           python-version: '3.12'
           architecture: 'x64'
           cache: 'pip'
 
-      - name: Install dependencies (Windows/Mac)
+
+
+      - name: Ensure extra dependencies and check directories (Windows/Mac)
         if: runner.os != 'Linux'
+        shell: bash
         run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install .[parsing]
+          pip install "pyinstaller>=5.13"
+          # Optionally check for directories (will not fail if missing)
+          if [ ! -d tree_sitter_c_sharp ]; then echo "tree_sitter_c_sharp directory not found, skipping clone"; fi
+          if [ ! -d kuzu ]; then echo "kuzu directory not found, skipping clone"; fi
+
+      - name: Install redislite (Non-Windows only)
+        if: runner.os != 'Windows'
+        run: pip install redislite
+
           python -m pip install --upgrade pip setuptools wheel build
           pip install .
           pip install pyinstaller
@@ -49,8 +64,21 @@ jobs:
         run: |
           pyinstaller cgc.spec --clean
 
+      - name: Ensure extra dependencies and check directories (Linux)
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install . "pyinstaller>=5.13"
+          pip install tree_sitter_yaml tree_sitter_embedded_template
+          # Optionally check for directories (will not fail if missing)
+          if [ ! -d tree_sitter_c_sharp ]; then echo "tree_sitter_c_sharp directory not found, skipping clone"; fi
+          if [ ! -d kuzu ]; then echo "kuzu directory not found, skipping clone"; fi
+
+      - name: Build with PyInstaller (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
         run: |
           python -m pip install --upgrade pip setuptools wheel build
           pip install .

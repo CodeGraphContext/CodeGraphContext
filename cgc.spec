@@ -4,6 +4,7 @@
 
 import sys
 import os
+import importlib.util
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_all
 
@@ -35,6 +36,15 @@ print(f"Searching for dependencies in: {[str(p) for p in search_paths]}")
 # ── 1. Component Lists (Binaries, Datas, Hidden Imports) ───────────────────
 binaries = []
 datas = []
+
+
+def module_available(name):
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+
+
 hidden_imports = [
     'codegraphcontext',
     'codegraphcontext.cli',
@@ -108,7 +118,6 @@ hidden_imports = [
     'codegraphcontext.utils.debug_log',
     'codegraphcontext.utils.tree_sitter_manager',
     'codegraphcontext.utils.visualize_graph',
-
     'kuzu',
     'falkordb',
     'redislite',
@@ -139,12 +148,16 @@ hidden_imports = [
     'httpcore',
     'importlib',
     'asyncio',
+
     'pkg_resources',
     'threading',
     'subprocess',
     'socket',
     'atexit',
 ]
+# Only add falkordblite if not on Windows and Python >= 3.12
+if not is_win and sys.version_info >= (3, 12) and module_available('falkordblite'):
+    hidden_imports.append('falkordblite')
 
 
 # Bin extensions by platform
@@ -180,16 +193,27 @@ add_binary('tree_sitter_language_pack/bindings', ext)
 # other tree-sitter bindings
 add_binary('tree_sitter_yaml', ext)
 add_binary('tree_sitter_embedded_template', ext)
-add_binary('tree_sitter_c_sharp', ext)
+
+# Only add tree_sitter_c_sharp if present (skip on Windows if not needed)
+if not is_win:
+    try:
+        add_binary('tree_sitter_c_sharp', ext)
+    except Exception as e:
+        print(f"WARNING: Could not bundle 'tree_sitter_c_sharp': {e}")
+
 
 # KùzuDB complete collection
-# We use find_pkg_dir to add the entire folder to datas, ensuring we don't miss any .so, .pyd, or .dylib files
-kuzu_dir = find_pkg_dir('kuzu')
-if kuzu_dir:
-    print(f"Force bundling entire Kuzu directory: {kuzu_dir}")
-    datas.append((str(kuzu_dir), 'kuzu'))
-else:
-    print("WARNING: Could not find 'kuzu' directory to bundle!")
+# Only add kuzu if present and not on Windows
+if not is_win:
+    try:
+        kuzu_dir = find_pkg_dir('kuzu')
+        if kuzu_dir:
+            print(f"Force bundling entire Kuzu directory: {kuzu_dir}")
+            datas.append((str(kuzu_dir), 'kuzu'))
+        else:
+            print("WARNING: Could not find 'kuzu' directory to bundle!")
+    except Exception as e:
+        print(f"WARNING: Could not bundle 'kuzu': {e}")
 # ── 2. Bundle Logic (Aggressive FalkorDB Collection) ──────────────────────────
 
 # Native dependencies detection
@@ -218,6 +242,9 @@ binaries.extend(find_all_native_binaries())
 # Tricky packages collection (redislite, falkordb, falkordblite)
 if not is_win:
     for pkg in ['redislite', 'falkordb', 'falkordblite']:
+        if not module_available(pkg):
+            print(f"Warning: optional package not installed, skipping bundle collection: {pkg}")
+            continue
         try:
             t_datas, t_binaries, t_hiddenimports = collect_all(pkg)
             datas += t_datas

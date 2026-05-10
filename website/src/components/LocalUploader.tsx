@@ -14,7 +14,7 @@ const IGNORED_DIRS = new Set([
 ]);
 
 const isPathIgnored = (path: string) => {
-  const parts = path.split(/[\/\\]/);
+  const parts = path.split(/[\\/]/);
   return parts.some(part => IGNORED_DIRS.has(part));
 };
 
@@ -49,18 +49,18 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
         alert("Your browser does not support the File System Access API.");
         return;
       }
-      const dirHandle = await (window as unknown as { showDirectoryPicker: () => Promise<any> }).showDirectoryPicker();
+      const dirHandle = await (window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker();
       setIsParsing(true);
       setProgress({ text: "Reading local directory...", value: 10 });
       
-      const files: any[] = [];
-      async function readDir(handle: any, prefix = "") {
+      const files: { path: string; content: string }[] = [];
+      async function readDir(handle: FileSystemDirectoryHandle, prefix = "") {
         for await (const entry of handle.values()) {
           if (entry.kind === 'file' && entry.name.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/)) {
-            const file = await entry.getFile();
+            const file = await (entry as FileSystemFileHandle).getFile();
             files.push({ path: `${prefix}/${entry.name}`, content: await file.text() });
           } else if (entry.kind === 'directory' && !IGNORED_DIRS.has(entry.name)) {
-            await readDir(entry, `${prefix}/${entry.name}`);
+            await readDir(entry as FileSystemDirectoryHandle, `${prefix}/${entry.name}`);
           }
         }
       }
@@ -82,10 +82,10 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
       const buffer = await file.arrayBuffer();
       const jszip = await JSZip.loadAsync(buffer);
       
-      const files: any[] = [];
+      const files: { path: string; content: string }[] = [];
       const promises: Promise<void>[] = [];
       
-      jszip.forEach((path, entry) => {
+      jszip.forEach((path: string, entry: JSZip.JSZipObject) => {
         if (!entry.dir && path.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/) && !isPathIgnored(path)) {
           promises.push(entry.async("text").then(content => { files.push({ path, content }); }));
         }
@@ -128,14 +128,14 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
       }
       
       const data = await res.json();
-      const filePaths = data.tree
-        .filter((t: any) => t.type === "blob")
-        .map((t: any) => t.path)
+      const filePaths = (data.tree as { type: string; path: string }[])
+        .filter((t) => t.type === "blob")
+        .map((t) => t.path)
         .filter((p: string) => p.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/) && !isPathIgnored(p));
         
       setProgress({ text: `Downloading ${filePaths.length} files...`, value: 30 });
       
-      const files: any[] = [];
+      const files: { path: string; content: string }[] = [];
       // Batch loading to prevent excessive concurrency
       for (let i = 0; i < filePaths.length; i += 10) {
         setProgress({ text: `Downloading ${i}/${filePaths.length}...`, value: 30 + Math.floor((i/filePaths.length) * 20) });
