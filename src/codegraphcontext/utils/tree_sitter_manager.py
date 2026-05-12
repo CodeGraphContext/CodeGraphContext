@@ -217,9 +217,39 @@ class TreeSitterManager:
         """
         _, parser_cls, _ = _load_tree_sitter_dependencies()
         language = self.get_language_safe(lang)
-        # In tree-sitter 0.25+, Parser takes language in constructor
-        parser = parser_cls(language)
-        return parser
+
+        # Tree-sitter bindings differ by version/build:
+        # - some expect Parser(language)
+        # - some require Parser() + set_language(language)
+        # - some expose parser.language = language
+        # Try all compatible paths before failing.
+        parser = None
+        try:
+            parser = parser_cls()
+        except TypeError:
+            parser = None
+
+        if parser is not None:
+            setter = getattr(parser, "set_language", None)
+            if callable(setter):
+                try:
+                    setter(language)
+                    return parser
+                except Exception:
+                    pass
+            try:
+                parser.language = language
+                return parser
+            except Exception:
+                pass
+
+        try:
+            return parser_cls(language)
+        except Exception as e:
+            raise TypeError(
+                f"Failed to create parser for '{lang}'. "
+                f"Language type={type(language)!r}; parser type={parser_cls!r}; error={e}"
+            ) from e
     
     def is_language_available(self, lang: str) -> bool:
         """
