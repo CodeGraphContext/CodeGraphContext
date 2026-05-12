@@ -478,7 +478,7 @@ class GraphWriter:
                 file_path=file_path_str,
             )
 
-            def write_function_call_groups(
+    def write_function_call_groups(
         self,
         fn_to_fn: List[Dict],
         fn_to_class: List[Dict],
