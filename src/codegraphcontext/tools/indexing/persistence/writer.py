@@ -709,33 +709,6 @@ class GraphWriter:
                             path=caller_file_path,
                             parent_name=base_name,
                         )
-                        # Split by label for Kuzu binder
-                        for clab in ("Class", "Struct", "Record", "Mixin", "Extension"):
-                            session.run(
-                                f"""
-                                MATCH (child:`{clab}` {{name: $child_name, path: $path}})
-                                MATCH (iface:Interface {{name: $interface_name}})
-                                MERGE (child)-[:IMPLEMENTS]->(iface)
-                            """,
-                                child_name=type_item["name"],
-                                path=caller_file_path,
-                                interface_name=base_name,
-                            )
-                    else:
-                        child_labels = ("Class", "Record", "Interface", "Mixin", "Extension")
-                        parent_labels = ("Class", "Record", "Interface", "Mixin", "Extension")
-                        for clab in child_labels:
-                            for plab in parent_labels:
-                                session.run(
-                                    f"""
-                                    MATCH (child:`{clab}` {{name: $child_name, path: $path}})
-                                    MATCH (parent:`{plab}` {{name: $parent_name}})
-                                    MERGE (child)-[:INHERITS]->(parent)
-                                """,
-                                    child_name=type_item["name"],
-                                    path=caller_file_path,
-                                    parent_name=base_name,
-                                )
 
     def write_inheritance_links(
         self,
