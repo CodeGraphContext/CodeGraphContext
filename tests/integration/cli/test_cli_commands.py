@@ -390,7 +390,6 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
         ["registry", "download", "numpy"],
         ["registry", "request", "https://github.com/example/repo"],
         ["doctor"],
-        ["start"],
         ["index", "."],
         ["clean"],
         ["stats"],

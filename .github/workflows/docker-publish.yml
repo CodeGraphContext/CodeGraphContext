@@ -55,7 +55,12 @@ jobs:
 
       - name: Test Registry Connectivity
         run: |
-          curl -fsSLI https://${{ env.REGISTRY }}
+          code=$(curl -sS -o /dev/null -w "%{http_code}" https://${{ env.REGISTRY }}/v2/)
+          echo "Registry probe status: ${code}"
+          if [ "${code}" != "200" ] && [ "${code}" != "401" ]; then
+            echo "Unexpected registry status from ${{ env.REGISTRY }}/v2/: ${code}" >&2
+            exit 1
+          fi
 
       - name: Build and push Docker image
         id: build
