@@ -1,5 +1,6 @@
+# src/codegraphcontext/tools/languages/kotlin.py
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import re
 from codegraphcontext.tools.type_utils import strip_type_modifiers
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
@@ -106,7 +107,10 @@ class KotlinTreeSitterParser:
                 results = execute_query(self.language, query, tree.root_node)
 
                 if capture_name == "classes":
-                    parsed_classes.extend(self._parse_classes(results, source_code, path))
+                    all_types = self._parse_classes(results, source_code, path)
+                    parsed_classes = all_types.get("classes", [])
+                    parsed_interfaces = all_types.get("interfaces", [])
+                    parsed_objects = all_types.get("objects", [])
                 elif capture_name == "imports":
                     parsed_imports.extend(self._parse_imports(results, source_code))
                 elif capture_name == "calls":
@@ -116,6 +120,8 @@ class KotlinTreeSitterParser:
                 "path": str(path),
                 "functions": parsed_functions,
                 "classes": parsed_classes,
+                "interfaces": parsed_interfaces,
+                "objects": parsed_objects,
                 "variables": parsed_variables,
                 "typealiases": parsed_typealiases,
                 "imports": parsed_imports,
@@ -1280,6 +1286,19 @@ class KotlinTreeSitterParser:
                                 func_data["return_type"] = self._strip_type_modifiers(raw_return_type)
                                 func_data["return_type_full"] = raw_return_type
                                 break
+
+                        if "return_type" not in func_data:
+                            found_eq = False
+                            for child in node.children:
+                                if child.type == "=":
+                                    found_eq = True
+                                    continue
+                                if found_eq and child.type.endswith("expression"):
+                                    expr_text = self._get_node_text(child).strip()
+                                    inferred = self._extract_initializer_type(expr_text)
+                                    if inferred:
+                                        func_data["return_type"] = inferred
+                                    break
                         
                         if self.index_source:
                             func_data["source"] = source_text
@@ -1292,8 +1311,12 @@ class KotlinTreeSitterParser:
 
         return functions
 
-    def _parse_classes(self, captures: list, source_code: str, path: Path) -> list[Dict[str, Any]]:
-        classes = []
+    def _parse_classes(self, captures: list, source_code: str, path: Path) -> Dict[str, List[Dict[str, Any]]]:
+        results = {
+            "classes": [],
+            "interfaces": [],
+            "objects": [],
+        }
         seen_nodes = set()
 
         for node, capture_name in captures:
@@ -1304,6 +1327,18 @@ class KotlinTreeSitterParser:
                 seen_nodes.add(node_id)
                 
                 try:
+                    if node.type in ("object_declaration", "companion_object"):
+                        category = "objects"
+                        label = "Object"
+                    else:
+                        # For class_declaration, check if it's an interface
+                        is_interface = any(c.type == "interface" for c in node.children)
+                        if is_interface:
+                            category = "interfaces"
+                            label = "Interface"
+                        else:
+                            category = "classes"
+                            label = "Class"
                     start_line = node.start_point[0] + 1
                     end_line = node.end_point[0] + 1
                     
@@ -1370,13 +1405,14 @@ class KotlinTreeSitterParser:
                     if self.index_source:
                         class_data["source"] = source_text
                     
-                    classes.append(class_data)
+                    class_data["node_label"] = label
+                    results[category].append(class_data)
                         
                 except Exception as e:
                     error_logger(f"Error parsing class in {path}: {e}")
                     continue
 
-        return classes
+        return results
 
     def _parse_variables(
         self,

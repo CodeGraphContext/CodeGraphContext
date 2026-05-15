@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/datasources/cassandra_ingester.py
 """Cassandra schema ingester (#843).
 
 Pulls keyspace + table + column metadata from system_schema and writes

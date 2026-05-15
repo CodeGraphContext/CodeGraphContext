@@ -26,12 +26,12 @@ You do not need to manually install every backend—pick one flow during setup. 
 | :----- | :------- | :--------- |
 | **FalkorDB Lite** | **Recommended on Linux and macOS** for local development: embedded use, minimal setup. Requires **Python 3.12+**. | Low |
 | **FalkorDB Remote** | Teams or shared graphs: connect to a **remote** FalkorDB server instead of embedded Lite. | Low–medium |
-| **LadybugDB** | **Recommended on Windows** (and anywhere you want a **portable embedded** graph without FalkorDB Lite). Good **fallback** when FalkorDB is not the right fit. | Low |
+| **KuzuDB** | **Recommended on Windows** (and anywhere you want a **portable embedded** graph without FalkorDB Lite). Good **fallback** when FalkorDB is not the right fit. | Low |
 | **Neo4j** | **Production / enterprise**: operational tooling, clustering, and mature Neo4j ecosystem. | Medium–high |
 
 !!! note "Python version and FalkorDB Lite"
 
-    If you are on Linux or macOS and want the **default** embedded experience, plan for **Python 3.12 or newer** so **FalkorDB Lite** is available. On older Python versions, choose **LadybugDB**, **FalkorDB Remote**, or **Neo4j** according to your environment.
+    If you are on Linux or macOS and want the **default** embedded experience, plan for **Python 3.12 or newer** so **FalkorDB Lite** is available. On older Python versions, choose **KuzuDB**, **FalkorDB Remote**, or **Neo4j** according to your environment.
 
 ## AI assistant (optional)
 

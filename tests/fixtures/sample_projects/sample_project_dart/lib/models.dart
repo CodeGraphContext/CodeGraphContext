@@ -1,70 +1,21 @@
-
-/// Enums for testing
-enum UserRole {
-  admin,
-  editor,
-  viewer,
+abstract class Entity {
+  String get id;
 }
 
-/// Mixin for auditable entities
-mixin Auditable {
-  late DateTime createdAt;
-  late DateTime updatedAt;
-
-  void markUpdated() {
-    updatedAt = DateTime.now();
+mixin Logger {
+  void log(String message) {
+    print('[LOG] $message');
   }
 }
 
-/// Base class for all users
-abstract class BaseUser {
-  final String id;
-  final String email;
-
-  BaseUser(this.id, this.email);
-
-  String getDisplayName();
-}
-
-/// A concrete User class implementing inheritance and mixins
-class User extends BaseUser with Auditable {
-  final String firstName;
-  final String lastName;
-  final UserRole role;
-
-  User({
-    required String id,
-    required String email,
-    required this.firstName,
-    required this.lastName,
-    this.role = UserRole.viewer,
-  }) : super(id, email) {
-    createdAt = DateTime.now();
-    updatedAt = DateTime.now();
-  }
-
+class User extends Entity with Logger {
   @override
-  String getDisplayName() => '$firstName $lastName';
+  final String id;
+  final String name;
 
-  bool isAdmin() => role == UserRole.admin;
-}
+  User(this.id, this.name);
 
-/// Specialized AdminUser using inheritance
-class AdminUser extends User {
-  final List<String> permissions;
-
-  AdminUser({
-    required super.id,
-    required super.email,
-    required super.firstName,
-    required super.lastName,
-    this.permissions = const [],
-  }) : super(role: UserRole.admin);
-
-  void grantPermission(String permission) {
-    if (!permissions.contains(permission)) {
-      permissions.add(permission);
-      markUpdated();
-    }
+  void performAction() {
+    log('User $name performing action');
   }
 }

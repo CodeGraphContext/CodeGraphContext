@@ -1,3 +1,4 @@
+# src/codegraphcontext/tool_definitions.py
 
 TOOLS = {
     "add_code_to_graph": {

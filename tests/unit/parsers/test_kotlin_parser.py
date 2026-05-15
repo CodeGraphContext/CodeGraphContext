@@ -555,7 +555,12 @@ class OtherWriter {
 
 
 def _local_names(parsed: dict) -> set[str]:
-    return {f["name"] for f in parsed["functions"]} | {c["name"] for c in parsed["classes"]}
+    return (
+        {f["name"] for f in parsed["functions"]}
+        | {c["name"] for c in parsed["classes"]}
+        | {c["name"] for c in parsed.get("interfaces", [])}
+        | {c["name"] for c in parsed.get("objects", [])}
+    )
 
 
 def _local_imports(parsed: dict) -> dict:
@@ -3840,7 +3845,7 @@ class TestKotlinSemanticResolution:
         interface_data = parser.parse(interface_path)
         service_data = parser.parse(service_path)
         caller_data = parser.parse(caller_path)
-        assert {c["name"] for c in interface_data["classes"]} == {"ProgressPort"}
+        assert {c["name"] for c in interface_data["classes"] + interface_data["interfaces"]} == {"ProgressPort"}
         assert any(
             f["name"] == "applyEvent" and f["context"] == "ProgressPort"
             for f in interface_data["functions"]

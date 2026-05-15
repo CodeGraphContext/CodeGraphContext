@@ -22,7 +22,7 @@ description: >-
 ## Core workflow
 
 1. **Install**: `pip install codegraphcontext` (or `pipx install codegraphcontext`). With **uv**, `uv tool install codegraphcontext` or `uvx codegraphcontext …` is supported. `tree-sitter-c-sharp` is declared in this project’s `pyproject.toml`, but some **uvx** isolated environments have still failed to install it; if you see `ModuleNotFoundError: tree_sitter_c_sharp`, use e.g. `uvx --with tree-sitter-c-sharp codegraphcontext …`.
-2. **Configure**: Optional `~/.codegraphcontext/.env` for `DEFAULT_DATABASE`, Neo4j URI, or LadybugDB path. Run `cgc doctor` if connections fail.
+2. **Configure**: Optional `~/.codegraphcontext/.env` for `DEFAULT_DATABASE`, Neo4j URI, or KuzuDB path. Run `cgc doctor` if connections fail.
 3. **Index**: From the repo root, `cgc index .` (or `cgc index --force .` to rebuild). Ensure CLI and MCP use the same config so they see the same graph.
 4. **Query**: CLI (`cgc find`, `cgc query`, …) or MCP tools after `cgc mcp setup` / `cgc mcp start` in the client config.
 
@@ -34,7 +34,7 @@ description: >-
 ## Agent behavior
 
 - Prefer **indexing the workspace** before deep graph queries if the user has not indexed yet.
-- For **fuzzy symbol search** on LadybugDB/Falkor backends, matching is typo-tolerant (edit distance); on Neo4j, full-text fuzzy uses Lucene-style terms—preserve **original casing** in queries when fuzziness matters for camelCase symbols.
+- For **fuzzy symbol search** on KuzuDB/Falkor backends, matching is typo-tolerant (edit distance); on Neo4j, full-text fuzzy uses Lucene-style terms—preserve **original casing** in queries when fuzziness matters for camelCase symbols.
 - If **`Repository.path` is missing** in the DB, those rows are skipped for path matching and a **warning is logged** when repositories are listed; clean up stale nodes if needed.
 
 ## References in this repo

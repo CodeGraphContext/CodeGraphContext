@@ -1,3 +1,4 @@
+# src/codegraphcontext/viz/server.py
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware

@@ -1,3 +1,4 @@
+# src/codegraphcontext/cli/config_manager.py
 """
 Configuration management for CodeGraphContext.
 Handles reading, writing, and validating configuration settings.
@@ -634,10 +635,17 @@ def _default_global_db_path(database: str) -> str:
     """Return the canonical DB path for the global context.
 
     New layout: ``~/.codegraphcontext/global/db/<backend>/``
-    For backward-compat, if the legacy flat path exists we keep using it.
+    For backward-compat, we check:
+    1. FALKORDB_PATH in config (if database is falkordb)
+    2. Legacy flat path
+    3. New layout default
     """
-    if database == "falkordb" and _LEGACY_FALKORDB_PATH.exists():
-        return str(_LEGACY_FALKORDB_PATH)
+    if database == "falkordb":
+        custom_path = load_config().get("FALKORDB_PATH")
+        if custom_path:
+            return str(Path(custom_path).resolve())
+        if _LEGACY_FALKORDB_PATH.exists():
+            return str(_LEGACY_FALKORDB_PATH)
     return str(CONFIG_DIR / "global" / "db" / database)
 
 
@@ -859,7 +867,7 @@ def resolve_context(
             )
 
     # --- 4. Global fallback ---
-    db = load_config().get("DEFAULT_DATABASE", "falkordb")
+    db = os.getenv("CGC_RUNTIME_DB_TYPE") or load_config().get("DEFAULT_DATABASE", "falkordb")
     return ResolvedContext(
         mode="global",
         context_name="",

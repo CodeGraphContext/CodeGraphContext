@@ -27,6 +27,9 @@ from .cli.config_manager import (
     discover_child_contexts,
     save_workspace_mapping,
     get_workspace_mapping,
+    _default_global_db_path,
+    CONFIG_DIR,
+    load_config,
 )
 
 # Import Tool Definitions and Handlers
@@ -398,6 +401,48 @@ class MCPServer:
         if not raw_path:
             return {"error": "context_path is required."}
 
+        # --- Special case: switch back to the global context ---
+        if raw_path == "global":
+            try:
+                try:
+                    self.db_manager.close_driver()
+                except Exception:
+                    pass
+
+                # Resolve global DB path directly — do NOT use resolve_context()
+                # because that checks CWD for local .codegraphcontext/ and may
+                # return per-repo instead of global.
+                db = os.getenv("CGC_RUNTIME_DB_TYPE") or load_config().get("DEFAULT_DATABASE", "falkordb")
+                global_db_path = _default_global_db_path(db)
+                new_manager = get_database_manager(db_path=global_db_path)
+                new_manager.get_driver()
+
+                self.db_manager = new_manager
+                self.resolved_context = type(self.resolved_context)(
+                    mode="global",
+                    context_name="",
+                    database=db,
+                    db_path=global_db_path,
+                    cgcignore_path=str(CONFIG_DIR / "global" / ".cgcignore"),
+                    is_local=False,
+                )
+
+                # Rebuild dependent components
+                self.graph_builder = GraphBuilder(self.db_manager, self.job_manager, self.loop)
+                self.code_finder = CodeFinder(self.db_manager)
+                self.code_watcher = CodeWatcher(self.graph_builder, self.job_manager)
+                self._context_note_pending = False
+
+                return {
+                    "status": "ok",
+                    "message": f"Switched back to global context at {global_db_path}.",
+                    "database": db,
+                    "db_path": global_db_path,
+                }
+            except Exception as e:
+                return {"error": f"Failed to switch to global context: {e}"}
+
+        # --- Normal path-based switch ---
         target = Path(raw_path).resolve()
         # Accept either the repo dir or the .codegraphcontext dir directly
         if target.name == ".codegraphcontext":

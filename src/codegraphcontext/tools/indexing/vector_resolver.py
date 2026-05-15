@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/vector_resolver.py
 """Vector-similarity-based call resolution using pre-computed Function embeddings.
 
 This module is used as the final tiebreaker in `resolve_function_call` when

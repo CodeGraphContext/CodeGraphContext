@@ -1,3 +1,4 @@
+# src/codegraphcontext/utils/repo_path.py
 """Helpers for comparing indexed repository records to filesystem paths.
 
 Rows with *no* path are skipped so the CLI never raises on ``Path(None)``. That is

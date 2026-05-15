@@ -4,7 +4,7 @@ Commands to manage the CodeGraphContext engine, contexts, and global settings.
 
 ## `cgc doctor`
 
-Self-diagnostic: validates the installation and default **graph backend** (FalkorDB Lite, FalkorDB Remote, LadybugDB, or Neo4j), Python version, and core dependencies.
+Self-diagnostic: validates the installation and default **graph backend** (FalkorDB Lite, FalkorDB Remote, KuzuDB, or Neo4j), Python version, and core dependencies.
 
 **Usage:**
 

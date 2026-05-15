@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/cpp.py
 
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -43,35 +44,54 @@ CPP_QUERIES = {
     """,
     "enums":"""
         (enum_specifier
-            name: (type_identifier) @name
-            body: (enumerator_list
-                (enumerator
-                    name: (identifier) @value
-                    )*
-                )? @body
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
         ) @enum
+
+        (type_definition
+            (enum_specifier)
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
+        ) @typedef_enum
     """,
     "structs":"""
         (struct_specifier
-            name: (type_identifier) @name
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
             body: (field_declaration_list)? @body
         ) @struct
+
+        (type_definition
+            (struct_specifier)
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
+        ) @typedef_struct
     """,
     "unions": """
-    (union_specifier
-    name: (type_identifier)? @name
-    body: (field_declaration_list
-        (field_declaration
-            declarator: [
-                (field_identifier) @value
-                (pointer_declarator (field_identifier) @value)
-                (array_declarator (field_identifier) @value)
-                ]
-            )*
-        )? @body
-    ) @union
-  
+        (union_specifier
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
+        ) @union
+
+        (type_definition
+            (union_specifier)
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
+        ) @typedef_union
     """,
+
     "macros": """
         (preproc_def
             name: (identifier) @name
@@ -310,52 +330,86 @@ class CppTreeSitterParser:
         enums = []
         query_str = CPP_QUERIES['enums']
         for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name == 'name':
-                name = self._get_node_text(node)
-                enum_node = node.parent
-                enum_data = {
-                    "name": name,
-                    "line_number": node.start_point[0] + 1,
-                    "end_line": enum_node.end_point[0] + 1,
-                }
-                if self.index_source:
-                    enum_data["source"] = self._get_node_text(enum_node)
-                enums.append(enum_data)
+            if capture_name in ('name', 'typedef_enum'):
+                if capture_name == 'typedef_enum':
+                    continue
+                
+                parent = node.parent
+                while parent and parent.type != 'enum_specifier' and parent.type != 'type_definition':
+                    parent = parent.parent
+                
+                if parent:
+                    name = self._get_node_text(node)
+                    enum_node = parent
+                    enum_data = {
+                        "name": name,
+                        "line_number": node.start_point[0] + 1,
+                        "end_line": enum_node.end_point[0] + 1,
+                    }
+                    if self.index_source:
+                        enum_data["source"] = self._get_node_text(enum_node)
+                    enums.append(enum_data)
         return enums
+
+
  
     def _find_structs(self, root_node):
         structs = []
         query_str = CPP_QUERIES['structs']
         for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name == 'name':
-                name = self._get_node_text(node)
-                struct_node = node.parent
-                struct_data = {
-                    "name": name,
-                    "line_number": node.start_point[0] + 1,
-                    "end_line": struct_node.end_point[0] + 1,
-                }
-                if self.index_source:
-                    struct_data["source"] = self._get_node_text(struct_node)
-                structs.append(struct_data)
+            if capture_name in ('name', 'typedef_struct'):
+                if capture_name == 'typedef_struct':
+                    continue
+                
+                # Check if it's actually a struct (not enum/union)
+                # If it's a typedef_struct capture, it's a struct.
+                # If it's a 'name' capture, we need to check the parent.
+                parent = node.parent
+                while parent and parent.type != 'struct_specifier' and parent.type != 'type_definition':
+                    parent = parent.parent
+                
+                if parent and (parent.type == 'struct_specifier' or 
+                               (parent.type == 'type_definition' and parent.child_by_field_name('type') and parent.child_by_field_name('type').type == 'struct_specifier')):
+                    name = self._get_node_text(node)
+                    struct_node = parent
+                    struct_data = {
+                        "name": name,
+                        "line_number": node.start_point[0] + 1,
+                        "end_line": struct_node.end_point[0] + 1,
+                    }
+                    if self.index_source:
+                        struct_data["source"] = self._get_node_text(struct_node)
+                    structs.append(struct_data)
         return structs
+
+
 
     def _find_unions(self, root_node):
         unions = []
         query_str = CPP_QUERIES['unions']
         for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name == 'name':
-                name = self._get_node_text(node)
-                union_node = node.parent
-                union_data = {
-                    "name": name,
-                    "line_number": node.start_point[0] + 1,
-                    "end_line": union_node.end_point[0] + 1,
-                }
-                if self.index_source:
-                    union_data["source"] = self._get_node_text(union_node)
-                unions.append(union_data)
+            if capture_name in ('name', 'typedef_union'):
+                if capture_name == 'typedef_union':
+                    continue
+                
+                parent = node.parent
+                while parent and parent.type != 'union_specifier' and parent.type != 'type_definition':
+                    parent = parent.parent
+                
+                if parent:
+                    name = self._get_node_text(node)
+                    union_node = parent
+                    union_data = {
+                        "name": name,
+                        "line_number": node.start_point[0] + 1,
+                        "end_line": union_node.end_point[0] + 1,
+                    }
+                    if self.index_source:
+                        union_data["source"] = self._get_node_text(union_node)
+                    unions.append(union_data)
         return unions
+
+
 
     def _find_macros(self, root_node):
         macros = []
@@ -581,9 +635,12 @@ def pre_scan_cpp(files: list[Path], parser_wrapper) -> dict:
     query_str = """
         (class_specifier name: (type_identifier) @name)
         (struct_specifier name: (type_identifier) @name)
+        (type_definition (struct_specifier) (type_identifier) @name)
+        (type_definition declarator: (type_identifier) @name)
         (function_definition declarator: (function_declarator declarator: (identifier) @name))
         (function_definition declarator: (function_declarator declarator: (qualified_identifier) @qualified_name))
     """
+
 
 
     for path in files:

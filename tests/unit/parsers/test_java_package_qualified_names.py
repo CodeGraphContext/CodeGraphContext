@@ -165,19 +165,19 @@ class TestClassQualifiedName:
     def test_class_qualified_name_is_package_dot_classname(self, parser):
         """Class qualified_name must be package.ClassName."""
         data = _write_and_parse(parser, BILLING_SERVICE_SRC)
-        classes = {c["name"]: c for c in data["classes"]}
+        all_types = {c["name"]: c for c in data["classes"] + data["interfaces"]}
 
-        assert "BillingService" in classes
-        assert classes["BillingService"]["qualified_name"] == (
+        assert "BillingService" in all_types
+        assert all_types["BillingService"]["qualified_name"] == (
             "com.example.acme.billing.BillingService"
         )
 
     def test_interface_qualified_name(self, parser):
         """Interface nodes must also carry qualified_name."""
         data = _write_and_parse(parser, INTERFACE_SRC)
-        classes = {c["name"]: c for c in data["classes"]}
-        assert "Authenticator" in classes
-        assert classes["Authenticator"]["qualified_name"] == "com.example.acme.auth.Authenticator"
+        all_types = {c["name"]: c for c in data["classes"] + data["interfaces"]}
+        assert "Authenticator" in all_types
+        assert all_types["Authenticator"]["qualified_name"] == "com.example.acme.auth.Authenticator"
 
     def test_no_class_qualified_name_without_package(self, parser):
         """Classes in packageless files must not have qualified_name."""

@@ -830,3 +830,52 @@ class TestWatcherIncrementalHandleModification:
             watcher._handle_modification("/fake/module.py")
 
         mock_gb.link_function_calls.assert_called_once()
+
+
+class TestWriteOrmMappingsDatasourceName:
+    """Regression test for bug: DbTable.datasource_name is null when write_query_links
+    creates the DbTable node before write_orm_mappings runs (ON CREATE SET is a no-op
+    on an existing node). Fix: add ON MATCH SET with COALESCE guard.
+    """
+
+    def _make_writer(self):
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+        mock_driver = MagicMock()
+        mock_session = MagicMock()
+        mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+        writer = GraphWriter.__new__(GraphWriter)
+        writer.driver = mock_driver
+        return writer, mock_session
+
+    def test_on_match_set_present_in_write_orm_mappings(self):
+        """write_orm_mappings Cypher must include ON MATCH SET so datasource_name
+        is back-filled on DbTable nodes created by write_query_links."""
+        import inspect
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+        src = inspect.getsource(GraphWriter.write_orm_mappings)
+        assert "ON MATCH SET" in src, (
+            "write_orm_mappings is missing ON MATCH SET — DbTable.datasource_name will be "
+            "null when the node was created by write_query_links before write_orm_mappings runs"
+        )
+        assert "COALESCE" in src, (
+            "ON MATCH SET must use COALESCE to avoid overwriting a datasource_name already set"
+        )
+
+    def test_orm_batch_sets_datasource_name_on_existing_node(self):
+        """write_orm_mappings must emit an ON MATCH SET clause that populates
+        datasource_name even when the DbTable node pre-exists."""
+        writer, mock_session = self._make_writer()
+        orm_batch = [{
+            "kind": "class_table",
+            "class_name": "WhiteListDB",
+            "class_path": "/repo/WhiteListDB.java",
+            "orm_table": "whitelist",
+            "datastore": "cassandra",
+            "line_number": 9,
+        }]
+        writer.write_orm_mappings(orm_batch)
+        assert mock_session.run.called
+        query = mock_session.run.call_args[0][0]
+        assert "ON MATCH SET" in query
+        assert "COALESCE" in query

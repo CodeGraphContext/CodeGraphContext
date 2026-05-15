@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/scip_pipeline.py
 """SCIP-based indexing orchestration."""
 
 from __future__ import annotations

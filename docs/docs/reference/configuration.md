@@ -1,6 +1,6 @@
 # Configuration & Settings
 
-CodeGraphContext **0.4.7** is configurable through environment variables, `~/.codegraphcontext/.env`, per-project `.codegraphcontext/.env`, and the `cgc config` CLI.
+CodeGraphContext **0.4.9** is configurable through environment variables, `~/.codegraphcontext/.env`, per-project `.codegraphcontext/.env`, and the `cgc config` CLI.
 
 ## `cgc config` Command
 
@@ -59,7 +59,7 @@ cgc config db neo4j
 
 | Key | Default | Description |
 | :--- | :--- | :--- |
-| **`DEFAULT_DATABASE`** | `falkordb` | Active database: `falkordb` (FalkorDB Lite), `falkordb-remote`, `kuzudb`, or `neo4j`. On Unix with Python 3.12+, FalkorDB Lite is the typical default; LadybugDB is the common embedded fallback (including Windows). |
+| **`DEFAULT_DATABASE`** | `falkordb` | Active database: `falkordb` (FalkorDB Lite), `falkordb-remote`, `kuzudb`, or `neo4j`. On Unix with Python 3.12+, FalkorDB Lite is the typical default; KuzuDB is the common embedded fallback (including Windows). |
 | **`ENABLE_AUTO_WATCH`** | `false` | If `true`, `cgc index` can automatically start watching for changes. |
 | **`PARALLEL_WORKERS`** | `4` | Parallel workers during indexing. |
 | **`CACHE_ENABLED`** | `true` | Cache file hashes to speed up re-indexing. |
@@ -114,16 +114,16 @@ Set `DEFAULT_DATABASE=falkordb-remote` **or** rely on auto-detection when **`FAL
 | **`FALKORDB_SSL`** | `true` / `false` for TLS to the remote endpoint. |
 | **`FALKORDB_GRAPH_NAME`** | Logical graph name (default often `codegraph`). |
 
-### Database path — LadybugDB (embedded)
+### Database path — KuzuDB (embedded)
 
-LadybugDB is an embedded database (no separate server process). The on-disk location is controlled by:
+KuzuDB is an embedded database (no separate server process). The on-disk location is controlled by:
 
 | Key / mechanism | Description |
 | :--- | :--- |
-| **`KUZUDB_PATH`** | Filesystem path for the LadybugDB database directory/file. If unset, defaults under `~/.codegraphcontext/global/kuzudb` (or the path resolved for the active **context**). |
+| **`KUZUDB_PATH`** | Filesystem path for the KuzuDB database directory/file. If unset, defaults under `~/.codegraphcontext/global/kuzudb` (or the path resolved for the active **context**). |
 | **Named contexts** | `cgc context create …` stores each context’s database under `~/.codegraphcontext/contexts/<name>/db/…` unless you pass `--db-path`. |
 
-Install the Python package with `pip install real_ladybug` when using `DEFAULT_DATABASE=kuzudb`.
+Install the Python package with `pip install kuzu` when using `DEFAULT_DATABASE=kuzudb`.
 
 ---
 

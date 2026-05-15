@@ -29,10 +29,10 @@ pip install codegraphcontext
 
 CGC requires a graph database to store the indexed code. You can choose the backend that best fits your needs.
 
-### Option A: LadybugDB (Default & Recommended)
-LadybugDB is an embedded, extremely fast graph database. It requires zero configuration and runs directly within the CGC process.
+### Option A: KuzuDB (Default & Recommended)
+KuzuDB is an embedded, extremely fast graph database. It requires zero configuration and runs directly within the CGC process.
 
-*   **Installation**: `pip install real_ladybug`
+*   **Installation**: `pip install kuzu`
 *   **Best for**: Local development, individual projects, and zero-ops setups.
 *   **Pros**: No external services, portable database files.
 
@@ -42,7 +42,7 @@ FalkorDB is a low-latency graph database. CGC supports both local (embedded) and
 *   **Installation**: `pip install falkordblite` (Linux/macOS only)
 *   **Best for**: Large codebases and performance-critical queries.
 *   **Pros**: Industry-leading query performance.
-*   **Note**: We use `falkordblite` for supported devices (Python 3.12+ on Unix), and LadybugDB (kuzudb) for the rest. We have largely shifted to LadybugDB as the primary embedded engine.
+*   **Note**: We use `falkordblite` for supported devices (Python 3.12+ on Unix), and KuzuDB (kuzudb) for the rest. We have largely shifted to KuzuDB as the primary embedded engine.
 
 ### Option C: Neo4j (Enterprise)
 Neo4j is the industry standard for graph databases, offering powerful visualization and management tools.

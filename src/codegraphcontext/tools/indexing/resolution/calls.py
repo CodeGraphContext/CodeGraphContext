@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/resolution/calls.py
 """Heuristic resolution of function calls into CALLS edge payloads (no DB I/O)."""
 
 from pathlib import Path
@@ -33,15 +34,6 @@ def _confidence_label(tier: int, is_unresolved_external: bool) -> str:
     return "INFERRED"
 
 
-def _confidence_label(tier: int, is_unresolved_external: bool) -> str:
-    """Map a resolution tier to EXTRACTED / INFERRED / AMBIGUOUS."""
-    if is_unresolved_external or tier >= 8:
-        return "AMBIGUOUS"
-    if tier in (1, 2, 5, 6):
-        return "EXTRACTED"
-    return "INFERRED"
-
-
 def resolve_function_call(
     call: Dict[str, Any],
     caller_file_path: str,
@@ -68,7 +60,6 @@ def resolve_function_call(
 
     resolved_called_name = called_name
     resolved_path = None
-    resolved_called_name = called_name
     resolution_tier = 9
     full_call = call.get("full_name", called_name)
     base_obj = full_call.split(".")[0] if "." in full_call else None
@@ -1331,18 +1322,40 @@ def build_function_call_groups(
     imports_map: dict,
     file_class_lookup: Optional[Dict[str, set]] = None,
     diagnostics: Optional[List[Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
-    """Resolve all function calls and return a single flat list for label-agnostic writing."""
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Resolve all function calls and return grouped CALLS payloads.
+
+    Return order:
+    (fn_to_fn, fn_to_class, fn_to_interface, fn_to_object, file_to_fn, file_to_class, file_to_interface, file_to_object)
+    """
     skip_external = (get_config_value("SKIP_EXTERNAL_RESOLUTION") or "false").lower() == "true"
 
     if file_class_lookup is None:
         file_class_lookup = {}
+
+    # file_symbol_labels: file_path -> {symbol_name -> neo4j_label}
+    # Covers every non-Function node type so we can emit label-specific MATCH queries.
+    # Symbols absent from this map are assumed to be Function nodes.
+    file_symbol_labels: Dict[str, Dict[str, str]] = {}
     for fd in all_file_data:
         fp = str(Path(fd["path"]).resolve())
-        # Aggregate all possible call targets: Classes, Interfaces, Traits, Structs, Enums, Records, Unions
+        sym_labels: Dict[str, str] = {}
         targets = {c["name"] for c in fd.get("classes", [])}
-        for label in ["interfaces", "traits", "structs", "enums", "records", "unions"]:
-            targets.update({i["name"] for i in fd.get(label, [])})
+        for name in targets:
+            sym_labels[name] = "Class"
+        for label, neo4j_label in [
+            ("interfaces", "Interface"),
+            ("traits", "Trait"),
+            ("structs", "Struct"),
+            ("enums", "Enum"),
+            ("records", "Record"),
+            ("unions", "Union"),
+            ("objects", "Object"),
+        ]:
+            for item in fd.get(label, []):
+                sym_labels[item["name"]] = neo4j_label
+                targets.add(item["name"])
+        file_symbol_labels[fp] = sym_labels
         file_class_lookup[fp] = targets
 
     type_aliases: Dict[str, str] = {}
@@ -1533,7 +1546,7 @@ def build_function_call_groups(
         line_number = func["line_number"]
         companion_objects = [
             class_data
-            for class_data in fd.get("classes", [])
+            for class_data in fd.get("classes", []) + fd.get("interfaces", []) + fd.get("objects", [])
             if (
                 class_data.get("node_type") == "companion_object"
                 or (
@@ -1552,7 +1565,7 @@ def build_function_call_groups(
 
         owners = [
             class_data
-            for class_data in fd.get("classes", [])
+            for class_data in fd.get("classes", []) + fd.get("interfaces", []) + fd.get("objects", [])
             if class_data not in companion_objects
             and class_data.get("line_number") is not None
             and class_data.get("end_line") is not None
@@ -1572,7 +1585,8 @@ def build_function_call_groups(
         func: Dict[str, Any],
         package_name: Optional[str],
     ) -> List[str]:
-        context_names = list(type_keys_for_maps(func.get("context"), package_name=package_name))
+        context = func.get("context") or func.get("class_context")
+        context_names = list(type_keys_for_maps(context, package_name=package_name))
         context_names.extend(companion_owner_context_names(fd, func, package_name))
         return list(dict.fromkeys(context_names))
 
@@ -1580,7 +1594,7 @@ def build_function_call_groups(
         file_path = str(Path(fd["path"]).resolve())
         package_name = file_package(fd)
         fd_local_imports = file_local_imports(fd)
-        for class_data in fd.get("classes", []):
+        for class_data in fd.get("classes", []) + fd.get("interfaces", []) + fd.get("objects", []):
             indexed_class = {**class_data, "path": fd["path"], "package": package_name}
             for class_name in type_keys_for_maps(
                 class_data.get("name"),
@@ -1600,22 +1614,26 @@ def build_function_call_groups(
         for func in fd.get("functions", []):
             indexed_func = {**func, "path": fd["path"], "package": package_name}
             function_index.setdefault((file_path, func["name"]), []).append(indexed_func)
-            if has_kotlin:
-                context_names = function_context_names_for_maps(fd, func, package_name)
-                for context_name in context_names:
-                    class_method_names.setdefault(context_name, set()).add(func["name"])
-                    class_method_index.setdefault((context_name, func["name"]), []).append(
-                        indexed_func
-                    )
-                receiver_types = type_keys_for_maps(
-                    func.get("receiver_type"),
-                    fd_local_imports,
-                    package_name,
+            
+            # Index class methods for all languages
+            context_names = function_context_names_for_maps(fd, func, package_name)
+            for context_name in context_names:
+                class_method_names.setdefault(context_name, set()).add(func["name"])
+                class_method_index.setdefault((context_name, func["name"]), []).append(
+                    indexed_func
                 )
-                for receiver_type in receiver_types:
-                    extension_method_index.setdefault((receiver_type, func["name"]), []).append(
-                        indexed_func
-                    )
+            
+            # Extension methods (mostly Kotlin/C#)
+            receiver_types = type_keys_for_maps(
+                func.get("receiver_type"),
+                fd_local_imports,
+                package_name,
+            )
+            for receiver_type in receiver_types:
+                extension_method_index.setdefault((receiver_type, func["name"]), []).append(
+                    indexed_func
+                )
+
         for variable in fd.get("variables", []):
             if variable.get("context"):
                 continue
@@ -1708,7 +1726,7 @@ def build_function_call_groups(
                 "go":         {".go"},
                 "rust":       {".rs"},
                 "cpp":        {".cpp", ".h", ".hpp", ".hh"},
-                "c":          {".c"},
+                "c":          {".c", ".h"},
                 "c_sharp":    {".cs"},
                 # Kotlin/JVM projects routinely call Java classes directly; keep
                 # Java targets so explicit Java imports can disambiguate receivers.
@@ -2380,6 +2398,25 @@ def build_function_call_groups(
             )
             if not resolved:
                 continue
+
+            # Annotate C++ calls with concrete Neo4j labels so the writer can use
+            # label-specific MATCH queries instead of the slow label-OR scan.
+            # Non-C++ languages (Java, Python, etc.) are intentionally excluded —
+            # they work correctly with the existing generic query and have no
+            # performance issue there.
+            _CPP_EXTS = ('.cpp', '.cc', '.cxx', '.c++', '.C', '.h', '.hpp', '.hxx', '.h++')
+            if resolved["type"] == "function":
+                caller_fp_raw = resolved["caller_file_path"]
+                if caller_fp_raw.endswith(_CPP_EXTS):
+                    caller_fp = str(Path(caller_fp_raw).resolve())
+                    caller_name = resolved["caller_name"]
+                    resolved["caller_label"] = file_symbol_labels.get(caller_fp, {}).get(caller_name, "Function")
+            called_fp_raw = resolved.get("called_file_path") or ""
+            if called_fp_raw.endswith(_CPP_EXTS):
+                called_fp = str(Path(called_fp_raw).resolve())
+                called_name = resolved["called_name"]
+                resolved["called_label"] = file_symbol_labels.get(called_fp, {}).get(called_name, "Function")
+
             resolved_calls.append(resolved)
             
             # Group by caller/callee type for label-specific batch writing
@@ -2422,8 +2459,88 @@ def build_function_call_groups(
                     # Default to function call
                     file_to_fn.append(resolved)
 
+        # Resolve Python decorators as virtual calls
+        if caller_lang == "python":
+            for func in file_data.get("functions", []):
+                for dec_raw in func.get("decorators", []):
+                    # dec_raw is e.g. "@my_decorator" or "@my_decorator(arg)"
+                    dec_name = dec_raw.lstrip("@").split("(")[0].strip()
+                    if not dec_name:
+                        continue
+                    
+                    virtual_call = {
+                        "name": dec_name,
+                        "line_number": func["line_number"],
+                        "context": (func["name"], "function_definition", func["line_number"]),
+                        "class_context": func.get("class_context"),
+                        "full_name": dec_name,
+                        "args": [],
+                        "call_kind": "decorator",
+                    }
+                    
+                    resolved_dec = resolve_function_call(
+                        virtual_call,
+                        caller_file_path,
+                        local_names,
+                        local_imports,
+                        effective_imports_map,
+                        skip_external,
+                        local_class_bases=local_class_bases,
+                        member_return_types=member_return_types,
+                        member_property_types=member_property_types,
+                        type_aliases=type_aliases,
+                        global_class_bases=global_class_bases,
+                        class_method_names=class_method_names,
+                        function_index=function_index,
+                        class_index=class_index,
+                        class_method_index=class_method_index,
+                        extension_method_index=extension_method_index,
+                        diagnostics=diagnostics,
+                    )
+                    if resolved_dec:
+                        resolved_calls.append(resolved_dec)
+
+
         if (idx + 1) % 1000 == 0:
             info_logger(f"[CALLS] Resolved {idx + 1}/{len(all_file_data)} files... ({len(resolved_calls)} calls)")
 
     info_logger(f"[CALLS] Resolution complete: {len(resolved_calls)} total CALLS edges identified.")
     return fn_to_fn, fn_to_class, fn_to_interface, file_to_fn, file_to_class, file_to_interface
+
+    fn_to_fn: List[Dict[str, Any]] = []
+    fn_to_class: List[Dict[str, Any]] = []
+    fn_to_interface: List[Dict[str, Any]] = []
+    fn_to_object: List[Dict[str, Any]] = []
+    file_to_fn: List[Dict[str, Any]] = []
+    file_to_class: List[Dict[str, Any]] = []
+    file_to_interface: List[Dict[str, Any]] = []
+    file_to_object: List[Dict[str, Any]] = []
+
+    for edge in resolved_calls:
+        called_path = str(Path(edge.get("called_file_path", "")).resolve())
+        called_name = edge.get("called_name")
+        target_label = file_symbol_labels.get(called_path, {}).get(called_name)
+
+        if edge.get("type") == "file":
+            if target_label == "Interface":
+                file_to_interface.append(edge)
+            elif target_label == "Object":
+                file_to_object.append(edge)
+            elif target_label == "Class":
+                file_to_class.append(edge)
+            else:
+                file_to_fn.append(edge)
+        else:
+            if target_label == "Interface":
+                fn_to_interface.append(edge)
+            elif target_label == "Object":
+                fn_to_object.append(edge)
+            elif target_label == "Class":
+                fn_to_class.append(edge)
+            else:
+                fn_to_fn.append(edge)
+
+    return (
+        fn_to_fn, fn_to_class, fn_to_interface, fn_to_object,
+        file_to_fn, file_to_class, file_to_interface, file_to_object
+    )

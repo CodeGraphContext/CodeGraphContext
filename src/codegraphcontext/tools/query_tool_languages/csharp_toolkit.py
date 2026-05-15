@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/query_tool_languages/csharp_toolkit.py
 class CSharpToolkit:
     """Template placeholder for future implementation."""
 

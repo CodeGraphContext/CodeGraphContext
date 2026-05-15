@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/resolution/post_resolution.py
 """Post-resolution pass: tighten low-confidence CALLS edges using INHERITS graph.
 
 This module is called AFTER the initial CALLS graph is written.  It looks for

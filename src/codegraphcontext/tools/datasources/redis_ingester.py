@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/datasources/redis_ingester.py
 """Redis schema ingester (#843).
 
 Redis is schema-less, so "schema" here means key-pattern discovery.

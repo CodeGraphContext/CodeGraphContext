@@ -97,7 +97,7 @@
 ---
 
 ## 项目详情
-- **版本:** 0.4.7
+- **版本:** 0.4.9
 - **作者:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **许可证:** MIT License (详见 [LICENSE](LICENSE))
 - **网站:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
@@ -159,7 +159,7 @@ CodeGraphContext 支持多种图数据库后端以适应你的环境：
 | **设置** | 零配置 / 嵌入式 | 零配置 / 进程内 | Docker / 外部 |
 | **平台** | **所有 (Windows 原生, macOS, Linux)** | 仅限 Unix (Linux/macOS/WSL) | 所有平台 |
 | **用例** | 桌面、IDE、本地开发 | 专门的 Unix 开发 | 企业、大规模图调研 |
-| **要求**| `pip install real_ladybug` | `pip install falkordblite` | Neo4j 服务端 / Docker |
+| **要求**| `pip install kuzu` | `pip install falkordblite` | Neo4j 服务端 / Docker |
 | **速度** | ⚡ 极快 | ⚡ 快速 | 🚀 可扩展 |
 | **持久化**| 是 (保存至磁盘) | 是 (保存至磁盘) | 是 (保存至磁盘) |
 
@@ -268,7 +268,7 @@ CodeGraphContext 以 **两种模式** 运行，你可以使用其中一种或同
 
 2.  **数据库设置 (自动)**
     
-    - **KùzuDB (默认):** 在 Windows、macOS 和 Linux 上原生运行，无需任何设置。只需 `pip install real_ladybug` 即可！
+    - **KùzuDB (默认):** 在 Windows、macOS 和 Linux 上原生运行，无需任何设置。只需 `pip install kuzu` 即可！
     - **FalkorDB Lite (替代方案):** 支持 Unix/macOS/WSL 上的 Python 3.12+。
     - **Neo4j (替代方案):** 如果你想使用 Neo4j，或者倾向于基于服务端的方案，请运行：`cgc neo4j setup`
 

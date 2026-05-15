@@ -22,7 +22,7 @@ KùzuDB is the **default recommendation** for most users. It is an extremely lig
 
 **Installation**:
 ```bash
-pip install real_ladybug
+pip install kuzu
 ```
 
 ## 2. FalkorDB (High Performance)

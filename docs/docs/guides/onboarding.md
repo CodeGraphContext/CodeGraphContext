@@ -21,7 +21,7 @@ The root directory contains important configuration files for packaging, testing
 ### `src/codegraphcontext/`
 This is the **Core Engine** containing all the Python logic to index, watch, and query code contexts.
 - **`cli/`**: Directory housing the command-line interface logic using **Typer**. All commands like `cgc index`, `cgc list`, and `cgc clean` live here.
-- **`core/`**: Core engine pieces including **database drivers and connection logic**. **FalkorDB** (Lite and remote) is the primary path on Unix/Python 3.12+; **LadybugDB** supports embedded use (including Windows/fallback); **Neo4j** is available for remote or production deployments.
+- **`core/`**: Core engine pieces including **database drivers and connection logic**. **FalkorDB** (Lite and remote) is the primary path on Unix/Python 3.12+; **KuzuDB** supports embedded use (including Windows/fallback); **Neo4j** is available for remote or production deployments.
 - **`tools/languages/`**: Collection of language-specific Tree-sitter implementations. Each module corresponds to a language (e.g., `python.py`, `javascript.py`) responsible for translating syntax ASTs into standard nodes/edges.
 - **`utils/`**: Shared helpers across the project (logging, environment validation).
 - **`graph_builder.py`**: The heavy-lifter file. Coordinates parsing across files, batches nodes and edges, and commits them to the DB.
@@ -38,7 +38,7 @@ Contains the knowledge base you are currently reading!
 ### `tests/`
 The testing suite. It ensures no PR breaks the engine.
 - **`unit/`**: Isolated testing for small functions (such as specific parsers returning the right class name).
-- **`integration/`**: Ensuring connections to local LadybugDB/Neo4j successfully write and read complex relationships.
+- **`integration/`**: Ensuring connections to local KuzuDB/Neo4j successfully write and read complex relationships.
 - **`fixtures/`**: Mocked codebase folders (small fake python or typescript projects) used to validate parsers.
 
 ### `k8s/`

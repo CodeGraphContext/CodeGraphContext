@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/resolution/inheritance.py
 """Resolve class inheritance into INHERITS row payloads (no DB I/O for non-C# batch)."""
 
 from pathlib import Path
@@ -58,7 +59,14 @@ def resolve_inheritance_link(
             "resolved_parent_file_path": resolved_path,
             "confidence_label": "EXTRACTED",
         }
-    return None
+    return {
+        "child_name": class_item["name"],
+        "path": caller_file_path,
+        "parent_name": target_class_name,
+        "resolved_parent_file_path": "__external__",
+        "confidence_label": "INFERRED",
+    }
+
 
 
 def build_inheritance_and_csharp_files(
@@ -75,7 +83,7 @@ def build_inheritance_and_csharp_files(
 
         caller_file_path = str(Path(file_data["path"]).resolve())
         local_class_names = set()
-        for key in ["classes", "structs", "traits", "interfaces"]:
+        for key in ["classes", "structs", "traits", "interfaces", "mixins", "enums", "extensions"]:
             for item in file_data.get(key, []):
                 local_class_names.add(item["name"])
 
@@ -84,7 +92,7 @@ def build_inheritance_and_csharp_files(
             for imp in file_data.get("imports", [])
         }
 
-        for key in ["classes", "structs", "traits", "interfaces"]:
+        for key in ["classes", "structs", "traits", "interfaces", "mixins", "enums", "extensions"]:
             for class_item in file_data.get(key, []):
                 if not class_item.get("bases"):
                     continue

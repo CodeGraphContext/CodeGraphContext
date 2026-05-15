@@ -1,3 +1,4 @@
+# src/codegraphcontext/core/bundle_registry.py
 import requests
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple

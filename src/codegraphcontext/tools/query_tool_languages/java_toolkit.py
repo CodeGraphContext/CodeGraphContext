@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/query_tool_languages/java_toolkit.py
 """Java-specific analysis toolkit (#889).
 
 Provides Spring-aware query methods used by the ``advanced_language_query_tool``

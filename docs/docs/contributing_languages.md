@@ -1,6 +1,6 @@
 # Contributing New Language Support to CodeGraphContext
 
-This document outlines the steps and best practices for adding support for a new programming language to CodeGraphContext. By following this guide, contributors can efficiently integrate new languages and verify structure and relationships in the **graph database** (regardless of whether the active backend is FalkorDB, LadybugDB, Neo4j, or another supported store).
+This document outlines the steps and best practices for adding support for a new programming language to CodeGraphContext. By following this guide, contributors can efficiently integrate new languages and verify structure and relationships in the **graph database** (regardless of whether the active backend is FalkorDB, KuzuDB, Neo4j, or another supported store).
 
 ## 1. Understanding the Architecture
 

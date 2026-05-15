@@ -1,3 +1,4 @@
+# src/codegraphcontext/cli/setup_wizard.py
 from InquirerPy import prompt
 from rich.console import Console
 import subprocess

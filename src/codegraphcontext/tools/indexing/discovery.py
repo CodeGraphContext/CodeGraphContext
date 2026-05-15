@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/discovery.py
 """Enumerate files to index with ignore rules."""
 
 from pathlib import Path

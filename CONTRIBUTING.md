@@ -17,12 +17,17 @@ We welcome contributions! Please follow these steps:
 
 ## Debugging
 
-To enable debug mode for detailed logging, locate the `debug_mode` variable in `src/codegraphcontext/tools/graph_builder.py` and set its value to `1`.
+To enable detailed logging for debugging, use the CLI config command:
 
-```python
-# src/codegraphcontext/tools/graph_builder.py
-debug_mode = 1
+```bash
+# Enable general application logs
+cgc config set ENABLE_APP_LOGS DEBUG
+
+# Enable low-level debug logs to a file (~/mcp_debug.log by default)
+cgc config set DEBUG_LOGS true
 ```
+
+You can also set these via environment variables: `ENABLE_APP_LOGS=DEBUG` or `DEBUG_LOGS=true`.
 
 ## Running Tests
 
@@ -39,6 +44,3 @@ Quick summary:
 2.  Ensure `fast` tests pass locally (`./tests/run_tests.sh fast`).
 3.  Commit your changes with a descriptive commit message.
 4.  Submit a pull request to the `main` branch.
-
-
-<!-- "Failed to check job status: 'JobManager' object has no attribute 'JobStatus'" -->

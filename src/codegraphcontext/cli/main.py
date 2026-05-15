@@ -77,7 +77,7 @@ from .visualizer import (
 # Initialize the Typer app and Rich console for formatted output.
 app = typer.Typer(
     name="cgc",
-    help="CodeGraphContext: An MCP server for AI-powered code analysis.\n\n[DEPRECATED] 'cgc start' is deprecated. Use 'cgc mcp start' instead.",
+    help="CodeGraphContext: An MCP server for AI-powered code analysis.",
     add_completion=True,
 )
 console = Console(stderr=True)
@@ -753,8 +753,18 @@ def load_shortcut(
 # REGISTRY COMMAND GROUP - Browse and Download Bundles
 # ============================================================================
 
-registry_app = typer.Typer(help="Browse and download bundles from the registry")
+registry_app = typer.Typer(
+    help="Browse and download bundles from the registry",
+    invoke_without_command=True,
+)
 app.add_typer(registry_app, name="registry")
+
+
+@registry_app.callback()
+def registry_callback(ctx: typer.Context):
+    """Browse and download bundles from the registry."""
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
 
 @registry_app.command("list")
 def registry_list(
@@ -1036,13 +1046,6 @@ def doctor():
 
 
 
-@app.command()
-def start():
-    """
-    [DEPRECATED] Use 'cgc mcp start' instead. This command will be removed in a future version.
-    """
-    console.print("[yellow]⚠️  'cgc start' is deprecated. Use 'cgc mcp start' instead.[/yellow]")
-    mcp_start()
 
 
 @app.command()
@@ -2542,12 +2545,22 @@ def main(
         "-h",
         help="[Root-level only] Show help and exit",
         is_eager=True,
-    ), 
+    ),
+    db_path: Optional[str] = typer.Option(
+        None,
+        "--path",
+        "--db-path",
+        help="[Global] Temporarily override database path (for local DBs like KuzuDB)"
+    ),
 ):
     """
     Main entry point for the cgc CLI application.
     If no subcommand is provided, it displays a welcome message with instructions.
     """
+    if db_path:
+        os.environ["CGC_RUNTIME_DB_PATH"] = db_path
+    if database:
+        os.environ["CGC_RUNTIME_DB_TYPE"] = database
     # Initialize context object for sharing state with subcommands
     ctx.ensure_object(dict)
     

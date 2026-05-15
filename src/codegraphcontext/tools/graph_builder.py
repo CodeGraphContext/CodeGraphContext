@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/graph_builder.py
 
 # src/codegraphcontext/tools/graph_builder.py
 """Facade for graph indexing; implementation lives in indexing/."""
@@ -339,6 +340,7 @@ class GraphBuilder:
                                 'class_name': item['class_context'],
                                 'func_name': item['name'],
                                 'func_line': item['line_number'],
+                                'lang': lang or '',
                             })
                         if item.get('context_type') == 'function_definition':
                             nested_fn_batch.append({
@@ -430,12 +432,19 @@ class GraphBuilder:
 
             # ── Batch: Class -[:CONTAINS]-> Function ──────────────────────────
             if class_fn_batch:
-                session.run("""
-                    UNWIND $batch AS row
-                    MATCH (c:Class {name: row.class_name, path: $file_path})
-                    MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.func_line})
-                    MERGE (c)-[:CONTAINS]->(fn)
-                """, batch=class_fn_batch, file_path=file_path_str)
+                # C++ out-of-line methods (.cpp defines what .h declares) are handled
+                # in a dedicated post-pass (write_cpp_class_function_links) after ALL
+                # file nodes exist, so the Class match never fails due to ordering.
+                # Skip the cpp_batch here; only run the same-file pass for other langs.
+                _cpp_exts = ('.cpp', '.cc', '.cxx', '.c++', '.C')
+                other_batch = [] if file_path_str.endswith(_cpp_exts) else class_fn_batch
+                if other_batch:
+                    session.run("""
+                        UNWIND $batch AS row
+                        MATCH (c:Class {name: row.class_name, path: $file_path})
+                        MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.func_line})
+                        MERGE (c)-[:CONTAINS]->(fn)
+                    """, batch=other_batch, file_path=file_path_str)
 
             # ── Batch: Nested Function -[:CONTAINS]-> Function ────────────────
             if nested_fn_batch:
@@ -850,6 +859,10 @@ class GraphBuilder:
             if "error" not in file_data:
                 self.add_file_to_graph(file_data, repo_name, imports_map)
                 return file_data
+            if not file_data.get("unsupported"):
+                # Generic file type (.md, .yml, .json, etc.) — create a bare File node
+                self.add_minimal_file_node(path, repo_path)
+                return file_data
             error_logger(f"Skipping graph add for {file_path_str} due to parsing error: {file_data['error']}")
             return None
         return {"deleted": True, "path": file_path_str}
@@ -955,11 +968,27 @@ class GraphBuilder:
         try:
             scip_enabled = (get_config_value("SCIP_INDEXER") or "false").lower() == "true"
             if scip_enabled:
-                from .scip_indexer import detect_project_lang, is_scip_available
+                from .scip_indexer import ScipIndexer, detect_project_lang, is_scip_available
 
                 scip_langs_str = get_config_value("SCIP_LANGUAGES") or "python,typescript,javascript,go,rust,java,dart,cpp,c,csharp,php,ruby,kotlin,swift,elixir"
                 scip_languages = [l.strip() for l in scip_langs_str.split(",") if l.strip()]
                 detected_lang = detect_project_lang(path, scip_languages)
+
+                if (
+                    detected_lang in ("cpp", "c")
+                    and path.is_dir()
+                    and not ScipIndexer._find_compdb(path)
+                ):
+                    warning_logger(
+                        "[SCIP] C/C++ project detected but no compile_commands.json was found "
+                        f"(searched under {path.resolve()}). scip-clang needs a JSON compilation database "
+                        "listing real compiler invocations (include paths, -D defines, -std, etc.). "
+                        "Typical ways to create it: CMake with "
+                        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON, or run your build under "
+                        "Bear (https://github.com/rizsotto/Bear) (e.g. `bear -- make`). "
+                        "Without it, SCIP cannot index C/C++; CGC will fall back to Tree-sitter if SCIP fails. "
+                        'See README section "SCIP indexing (optional)".'
+                    )
 
                 if detected_lang and is_scip_available(detected_lang):
                     info_logger(f"SCIP_INDEXER=true — using SCIP for language: {detected_lang}")

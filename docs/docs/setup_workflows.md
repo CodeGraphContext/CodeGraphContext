@@ -316,7 +316,7 @@ Next steps:
 
 **For OpenCode:**
 
-OpenCode registers MCP servers through its own config UI or config file. Use the same stdio pattern as other editors: command `cgc`, arguments `mcp` and `start`, plus any environment variables you use for `DEFAULT_DATABASE`, Neo4j, or LadybugDB paths so OpenCode matches your CLI setup.
+OpenCode registers MCP servers through its own config UI or config file. Use the same stdio pattern as other editors: command `cgc`, arguments `mcp` and `start`, plus any environment variables you use for `DEFAULT_DATABASE`, Neo4j, or KuzuDB paths so OpenCode matches your CLI setup.
 
 Step-by-step OpenCode MCP documentation (including server registration): [OpenCode — MCP servers](https://opencode.ai/docs/ko/mcp-servers/#_top).
 

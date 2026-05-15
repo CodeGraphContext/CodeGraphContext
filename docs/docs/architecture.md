@@ -1,6 +1,6 @@
 # System architecture
 
-CodeGraphContext (CGC) **0.4.7** is a **context-aware code intelligence engine** that connects your repository to AI tools through an exact **knowledge graph** (not embeddings-only). It runs primarily as an **MCP server** with a **CLI** for indexing and queries, and optional **visualization**.
+CodeGraphContext (CGC) **0.4.9** is a **context-aware code intelligence engine** that connects your repository to AI tools through an exact **knowledge graph** (not embeddings-only). It runs primarily as an **MCP server** with a **CLI** for indexing and queries, and optional **visualization**.
 
 ## High-level architecture
 
@@ -26,7 +26,7 @@ flowchart LR
     subgraph Backends["Graph backends"]
         FKL[(FalkorDB Lite)]
         FKR[(FalkorDB Remote)]
-        KUZU[(LadybugDB)]
+        KUZU[(KuzuDB)]
         NEO[(Neo4j)]
     end
 
@@ -62,7 +62,7 @@ flowchart LR
 | **Handlers** | Shared entry point for MCP and CLI: validation, routing, and orchestration of indexing, search, and query workflows. |
 | **GraphBuilder** | Indexing pipeline: walks the repo, runs parsers (Tree-sitter by default), resolves symbols and edges, and writes nodes/relationships through the DB abstraction. |
 | **CodeFinder** | Code-aware discovery and relationship traversal over the graph (used by tools that need structured navigation, not raw file grep). |
-| **Database abstraction** | Single query/index API over **FalkorDB Lite** (default on Unix with Python 3.12+), **FalkorDB Remote**, **LadybugDB** (embedded fallback, common on Windows), and **Neo4j** (enterprise/production). |
+| **Database abstraction** | Single query/index API over **FalkorDB Lite** (default on Unix with Python 3.12+), **FalkorDB Remote**, **KuzuDB** (embedded fallback, common on Windows), and **Neo4j** (enterprise/production). |
 | **Bundle / registry** | **Shipped** bundle registry and packaging for sharing or reusing graph context; integrates with indexing and MCP workflows. |
 | **Watchers & jobs** | Long-running or incremental work (full/incremental indexing, file watchers) without blocking the MCP session. |
 
@@ -76,7 +76,7 @@ flowchart LR
 1. **AI IDEs** — Primary UX: chat and agents call MCP tools; the graph grounds answers in real paths, symbols, and relationships.
 2. **CLI (`cgc`)** — Initialize, index, query (`cgc query`), search (`cgc find`), bundles, and maintenance.
 3. **Visualization** — Local **FastAPI** backend plus **React** front-end (not Next.js) for force-directed or similar graph views.
-4. **Native DB tools** — FalkorDB/LadybugDB/Neo4j-specific browsers or CLIs for low-level Cypher or vendor exploration.
+4. **Native DB tools** — FalkorDB/KuzuDB/Neo4j-specific browsers or CLIs for low-level Cypher or vendor exploration.
 
 ## Typical data flow
 
@@ -90,7 +90,7 @@ flowchart LR
 | **Runtime** | Python **3.10+**; **FalkorDB Lite** default path requires **Python 3.12+** on Unix |
 | **Parsing** | Tree-sitter (default); **SCIP** optional |
 | **Protocol** | MCP (Model Context Protocol) |
-| **Graph stores** | **FalkorDB Lite**, **FalkorDB Remote**, **LadybugDB**, **Neo4j** |
+| **Graph stores** | **FalkorDB Lite**, **FalkorDB Remote**, **KuzuDB**, **Neo4j** |
 | **CLI** | **Typer** |
 | **Viz** | **FastAPI** + **React** |
 

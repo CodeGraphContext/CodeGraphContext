@@ -1,3 +1,4 @@
+# src/codegraphcontext/utils/tool_limits.py
 """Per-tool result-count limits.
 
 Reads ``TOOL_RESULT_LIMITS`` from the CGC config, which is a JSON object

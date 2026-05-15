@@ -1,1 +1,17 @@
-[{"directory": "/src", "command": "clang++ -c classes.cpp", "file": "classes.cpp"}]
+[
+  {"directory": ".", "command": "clang++ -std=c++17 -c main.cpp", "file": "main.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c classes.cpp", "file": "classes.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c class_features.cpp", "file": "class_features.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c control_flow.cpp", "file": "control_flow.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c edge_cases.cpp", "file": "edge_cases.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c enum_struct_union.cpp", "file": "enum_struct_union.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c exceptions.cpp", "file": "exceptions.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c file_io.cpp", "file": "file_io.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c function_chain.cpp", "file": "function_chain.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c function_types.cpp", "file": "function_types.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c namespaces.cpp", "file": "namespaces.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c raii_example.cpp", "file": "raii_example.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c stl_usage.cpp", "file": "stl_usage.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c templates.cpp", "file": "templates.cpp"},
+  {"directory": ".", "command": "clang++ -std=c++17 -c types_variable_assignments.cpp", "file": "types_variable_assignments.cpp"}
+]

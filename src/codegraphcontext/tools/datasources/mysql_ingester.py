@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/datasources/mysql_ingester.py
 """Aurora MySQL schema ingester (#843).
 
 Pulls table + column metadata from information_schema and writes

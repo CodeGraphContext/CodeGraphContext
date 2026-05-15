@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/java.py
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import re
@@ -216,7 +217,10 @@ class JavaTreeSitterParser:
                 if capture_name == "functions":
                     parsed_functions = self._parse_functions(results, source_code, path, package_name)
                 elif capture_name == "classes":
-                    parsed_classes = self._parse_classes(results, source_code, path, package_name)
+                    all_types = self._parse_classes(results, source_code, path, package_name)
+                    parsed_classes = all_types.get("classes", [])
+                    parsed_interfaces = all_types.get("interfaces", [])
+                    parsed_enums = all_types.get("enums", [])
                 elif capture_name == "imports":
                     parsed_imports = self._parse_imports(results, source_code)
                 elif capture_name == "variables":
@@ -230,16 +234,18 @@ class JavaTreeSitterParser:
                 elif capture_name == "calls":
                     parsed_calls = self._parse_calls(results, source_code, var_type_map)
 
-            # Spring injection extraction (#887) — needs tree + parsed_classes
-            spring_injections = self._extract_spring_injections(tree, path, parsed_classes)
+            # Spring injection extraction (#887) — needs tree + all types
+            spring_injections = self._extract_spring_injections(tree, path, parsed_classes + parsed_interfaces)
 
             # ORM / datasource mapping extraction (#843)
-            orm_mappings = self._extract_orm_mappings(tree, path, parsed_classes, parsed_functions)
+            orm_mappings = self._extract_orm_mappings(tree, path, parsed_classes + parsed_interfaces, parsed_functions)
 
             return {
                 "path": str(path),
                 "functions": parsed_functions,
                 "classes": parsed_classes,
+                "interfaces": parsed_interfaces,
+                "enums": parsed_enums,
                 "variables": parsed_variables,
                 "imports": parsed_imports,
                 "function_calls": parsed_calls,
@@ -395,8 +401,12 @@ class JavaTreeSitterParser:
 
         return functions
 
-    def _parse_classes(self, captures: list, source_code: str, path: Path, package_name: Optional[str] = None) -> list[Dict[str, Any]]:
-        classes = []
+    def _parse_classes(self, captures: list, source_code: str, path: Path, package_name: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
+        results = {
+            "classes": [],
+            "interfaces": [],
+            "enums": [],
+        }
         seen_nodes = set()
 
         for node, capture_name in captures:
@@ -407,6 +417,16 @@ class JavaTreeSitterParser:
                 seen_nodes.add(node_id)
                 
                 try:
+                    # Map tree-sitter node types to our internal categories
+                    if node.type == "interface_declaration":
+                        category = "interfaces"
+                        label = "Interface"
+                    elif node.type == "enum_declaration":
+                        category = "enums"
+                        label = "Enum"
+                    else:
+                        category = "classes"
+                        label = "Class"
                     start_line = node.start_point[0] + 1
                     end_line = node.end_point[0] + 1
                     
@@ -416,11 +436,13 @@ class JavaTreeSitterParser:
                         source_text = self._get_node_text(node)
                         
                         bases = []
-                        # Look for superclass (extends)
                         superclass_node = node.child_by_field_name('superclass')
                         if superclass_node:
-                            # In Java, superclass field usually points to a type node
-                            bases.append(self._get_node_text(superclass_node))
+                            # Search for the actual type inside the superclass node (skipping 'extends')
+                            for child in superclass_node.children:
+                                if child.type in ('type_identifier', 'generic_type', 'scoped_type_identifier'):
+                                    bases.append(self._get_node_text(child))
+                                    break
 
                         # Look for super_interfaces (implements)
                         interfaces_node = node.child_by_field_name('interfaces')
@@ -437,9 +459,11 @@ class JavaTreeSitterParser:
                                     if child.type in ('type_identifier', 'generic_type', 'scoped_type_identifier'):
                                         bases.append(self._get_node_text(child))
                             else:
+                                # Fallback to manual scan of super_interfaces children
                                 for child in interfaces_node.children:
                                     if child.type in ('type_identifier', 'generic_type', 'scoped_type_identifier'):
                                         bases.append(self._get_node_text(child))
+
 
                         # Look for extends_interfaces (interface extends another interface)
                         # Tree-sitter uses a different field for interface_declaration.
@@ -489,13 +513,14 @@ class JavaTreeSitterParser:
                         if self.index_source:
                             class_data["source"] = source_text
                         
-                        classes.append(class_data)
+                        class_data["node_label"] = label
+                        results[category].append(class_data)
                         
                 except Exception as e:
                     error_logger(f"Error parsing class in {path}: {e}")
                     continue
 
-        return classes
+        return results
 
     def _parse_variables(self, captures: list, source_code: str, path: Path) -> list[Dict[str, Any]]:
         variables = []

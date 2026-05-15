@@ -28,6 +28,8 @@ def _test_env():
     env["HOME"] = str(TEST_HOME)
     env["DEFAULT_DATABASE"] = "falkordb"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # Ensure all current sys.path entries are in PYTHONPATH so dependencies and -m work
+    env["PYTHONPATH"] = os.pathsep.join(sys.path)
     return env
 
 def get_unique_test_dir():
@@ -73,7 +75,7 @@ def delete_repo_from_db(repo_path: Path):
 def index_repo(test_dir: Path):
     """Index the test repository"""
     output = run(f"{CGC_CMD} index {shlex.quote(str(test_dir))}")
-    print(f"INDEX OUTPUT: {output[:500]}")  # Debug
+    print(f"INDEX OUTPUT: {output}")  # Show FULL output
     time.sleep(0.5)  # Wait for indexing to complete
     return output
 

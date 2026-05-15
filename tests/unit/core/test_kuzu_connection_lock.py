@@ -4,7 +4,7 @@ KuzuSessionWrapper correctly serialise all conn.execute() calls through
 KuzuDBManager._query_lock (an RLock).
 
 These tests use MagicMock to stand in for the real kuzu.Connection so the
-suite runs without the optional real_ladybug package installed.
+suite runs without the optional kuzu package installed.
 """
 import threading
 import time
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # ---------------------------------------------------------------------------
-# Import the wrappers directly (no real_ladybug needed for these classes).
+# Import the wrappers directly (no kuzu needed for these classes).
 # ---------------------------------------------------------------------------
 from codegraphcontext.core.database_kuzu import (
     KuzuDriverWrapper,

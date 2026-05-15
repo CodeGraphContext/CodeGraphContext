@@ -8,7 +8,7 @@ This guide provides solutions for common issues encountered while installing or 
 *   **Solution**: Ensure that your Python environment is correctly set up and that the installation directory for `pipx` or `uv` is in your system's `PATH`.
 *   **Verification**: Run `python -m pip install --user pipx` followed by `pipx ensurepath`.
 
-### Failed to install `real_ladybug` (KùzuDB)
+### Failed to install `kuzu` (KùzuDB)
 *   **Cause**: KùzuDB requires C++ build tools on some platforms during installation.
 *   **Solution**:
     *   **Windows**: Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
@@ -21,7 +21,7 @@ This guide provides solutions for common issues encountered while installing or 
 
 ### "No database backend available"
 *   **Cause**: No supported database is installed or configured.
-*   **Solution**: Install KùzuDB (recommended): `pip install real_ladybug`.
+*   **Solution**: Install KùzuDB (recommended): `pip install kuzu`.
 
 ### Neo4j: "Authentication failed"
 *   **Cause**: Incorrect credentials in environment variables or `.env` file.

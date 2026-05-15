@@ -1,6 +1,6 @@
 [project]
 name = "codegraphcontext"
-version = "0.4.7"
+version = "0.4.9"
 description = "An MCP server that indexes local code into a graph database to provide context to AI assistants."
 authors = [{ name = "Shashank Shekhar Singh", email = "shashankshekharsingh1205@gmail.com" }]
 readme = "README.md"
@@ -22,8 +22,8 @@ dependencies = [
     "rich>=13.7.0",
     "inquirerpy>=0.3.4",
     "python-dotenv>=1.0.0",
-    "tree-sitter>=0.21.0; python_version != '3.13'",
-    "tree-sitter-language-pack>=0.6.0,!=1.6.3; python_version != '3.13'",
+    "tree-sitter>=0.21.0,<0.26.0; python_version != '3.13'",
+    "tree-sitter-language-pack>=0.6.0,<1.0.0; python_version != '3.13'",
     "tree-sitter-c-sharp>=0.21.0; python_version != '3.13'",
     "pyyaml",
     "nbformat",
@@ -40,8 +40,8 @@ dependencies = [
 
 [project.optional-dependencies]
 parsing = [
-    "tree-sitter>=0.21.0; python_version != '3.13'",
-    "tree-sitter-language-pack>=0.6.0,!=1.6.3; python_version != '3.13'",
+    "tree-sitter>=0.21.0,<0.26.0; python_version != '3.13'",
+    "tree-sitter-language-pack>=0.6.0,<1.0.0; python_version != '3.13'",
     "tree-sitter-c-sharp>=0.21.0; python_version != '3.13'",
 ]
 dev = [

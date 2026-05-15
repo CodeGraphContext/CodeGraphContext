@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/embeddings.py
 """Batch embedding generation for Function nodes stored in Neo4j.
 
 Usage (after indexing is complete):

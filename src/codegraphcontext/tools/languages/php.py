@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/php.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 import re
@@ -261,6 +262,12 @@ class PhpTreeSitterParser:
                                                     bases.append(self._get_node_text(name_child))
                                         else:
                                             bases.append(self._get_node_text(sub))
+                            elif child.type == 'declaration_list':
+                                for member in child.children:
+                                    if member.type == 'use_declaration':
+                                        for specifier in member.children:
+                                            if specifier.type in ('name', 'qualified_name'):
+                                                bases.append(self._get_node_text(specifier))
 
                         type_data = {
                             "name": type_name,

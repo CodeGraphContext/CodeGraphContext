@@ -1,3 +1,4 @@
+# src/codegraphcontext/utils/git_utils.py
 """Lightweight git helpers used across the indexing pipeline."""
 
 from __future__ import annotations

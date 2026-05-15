@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/type_utils.py
 """Shared type-name normalization helpers for parser and resolver heuristics."""
 
 

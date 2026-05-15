@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/schema_contract.py
 """
 Semantic graph contract: labels, relationship types, and merge keys used by indexing.
 

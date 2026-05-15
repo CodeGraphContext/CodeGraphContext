@@ -824,64 +824,79 @@ class CodeFinder:
                 "note": "These functions might be unused, but could be entry points, callbacks, or called dynamically"
             }
     
-    def find_all_callers(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
-        """Find all direct and indirect callers of a specific function."""
+    def find_all_callers(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, depth: int = 3) -> List[Dict]:
+        """Find all direct and indirect callers of a specific function, returning edges."""
         with self.driver.session() as session:
-            repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
+            repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
+            depth_str = f"1..{depth}" if depth > 1 else "1"
+            
+            # KùzuDB-optimized: matching on the path end node via nodes(p) indexing
+            # ensures we avoid Binder exceptions for multi-labeled property lookups
+            # on the end node of variable-length paths.
             if path:
-                # KùzuDB-compatible: Use anonymous end node and filter with WHERE
                 query = f"""
-                    MATCH p = (f:Function)-[:CALLS*]->()
-                    WITH f as f, p as p, nodes(p) as path_nodes
-                    WITH f as f, path_nodes as path_nodes, path_nodes[size(path_nodes)-1] as target
-                    WHERE target.name = $function_name AND target.path = $path {repo_filter}
-                    RETURN DISTINCT f.name AS caller_name, f.path AS caller_file_path, f.line_number AS caller_line_number, f.is_dependency AS caller_is_dependency
-                    ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
-                    LIMIT 50
+                    MATCH p = (caller:Function)-[:CALLS*{depth_str}]->(target:Function)
+                    WITH p, nodes(p) as path_nodes, relationships(p) as rels
+                    WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
+                    WHERE last_node.name = $function_name AND last_node.path = $path
+                    {repo_filter}
+                    UNWIND rels as r
+                    WITH startNode(r) as s, endNode(r) as e, r
+                    RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
+                                    e.name as callee_name, e.path as callee_path, 
+                                    r.line_number as line
+                    LIMIT 100
                 """
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
-                # KùzuDB-compatible: Use anonymous end node and filter with WHERE
                 query = f"""
-                    MATCH p = (f:Function)-[:CALLS*]->()
-                    WITH f as f, p as p, nodes(p) as path_nodes
-                    WITH f as f, path_nodes as path_nodes, path_nodes[size(path_nodes)-1] as target
-                    WHERE target.name = $function_name {repo_filter}
-                    RETURN DISTINCT f.name AS caller_name, f.path AS caller_file_path, f.line_number AS caller_line_number, f.is_dependency AS caller_is_dependency
-                    ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
-                    LIMIT 50
+                    MATCH p = (caller:Function)-[:CALLS*{depth_str}]->(target:Function)
+                    WITH p, nodes(p) as path_nodes, relationships(p) as rels
+                    WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
+                    WHERE last_node.name = $function_name
+                    {repo_filter}
+                    UNWIND rels as r
+                    WITH startNode(r) as s, endNode(r) as e, r
+                    RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
+                                    e.name as callee_name, e.path as callee_path, 
+                                    r.line_number as line
+                    LIMIT 100
                 """
                 result = session.run(query, function_name=function_name, repo_path=repo_path)
             return result.data()
 
-    def find_all_callees(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
-        """Find all direct and indirect callees of a specific function."""
+    def find_all_callees(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, depth: int = 3) -> List[Dict]:
+        """Find all direct and indirect callees of a specific function, returning edges."""
         with self.driver.session() as session:
-            repo_filter = "WHERE f.path STARTS WITH $repo_path" if repo_path else ""
+            repo_filter = "AND callee.path STARTS WITH $repo_path" if repo_path else ""
+            depth_str = f"1..{depth}" if depth > 1 else "1"
+            
             if path:
-                # KùzuDB-compatible: Use anonymous end node and extract from path
                 query = f"""
-                    MATCH (caller:Function {{name: $function_name, path: $path}})
-                    MATCH p = (caller)-[:CALLS*]->()
-                    WITH p as p, nodes(p) as path_nodes
-                    WITH path_nodes[size(path_nodes)-1] as f
-                    {repo_filter}
-                    RETURN DISTINCT f.name AS callee_name, f.path AS callee_file_path, f.line_number AS callee_line_number, f.is_dependency AS callee_is_dependency
-                    ORDER BY callee_is_dependency ASC, callee_file_path, callee_line_number
-                    LIMIT 50
+                    MATCH p = (caller:Function {{name: $function_name, path: $path}})-[:CALLS*{depth_str}]->(callee:Function)
+                    WITH p, nodes(p) as path_nodes, relationships(p) as rels
+                    WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
+                    WHERE 1=1 {repo_filter}
+                    UNWIND rels as r
+                    WITH startNode(r) as s, endNode(r) as e, r
+                    RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
+                                    e.name as callee_name, e.path as callee_path, 
+                                    r.line_number as line
+                    LIMIT 100
                 """
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
-                # KùzuDB-compatible: Use anonymous end node and extract from path
                 query = f"""
-                    MATCH (caller:Function {{name: $function_name}})
-                    MATCH p = (caller)-[:CALLS*]->()
-                    WITH p as p, nodes(p) as path_nodes
-                    WITH path_nodes[size(path_nodes)-1] as f
-                    {repo_filter}
-                    RETURN DISTINCT f.name AS callee_name, f.path AS callee_file_path, f.line_number AS callee_line_number, f.is_dependency AS callee_is_dependency
-                    ORDER BY callee_is_dependency ASC, callee_file_path, callee_line_number
-                    LIMIT 50
+                    MATCH p = (caller:Function {{name: $function_name}})-[:CALLS*{depth_str}]->(callee:Function)
+                    WITH p, nodes(p) as path_nodes, relationships(p) as rels
+                    WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
+                    WHERE 1=1 {repo_filter}
+                    UNWIND rels as r
+                    WITH startNode(r) as s, endNode(r) as e, r
+                    RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
+                                    e.name as callee_name, e.path as callee_path, 
+                                    r.line_number as line
+                    LIMIT 100
                 """
                 result = session.run(query, function_name=function_name, repo_path=repo_path)
             return result.data()
@@ -1159,10 +1174,13 @@ class CodeFinder:
                 "variable_name": variable_name,
                 "instances": instances,
             }
-    
-    def analyze_code_relationships(self, query_type: str, target: str, context: Optional[str] = None, repo_path: Optional[str] = None) -> Dict[str, Any]:
+
+    def analyze_code_relationships(self, query_type: str, target: str, context: Optional[str] = None, repo_path: Optional[str] = None, depth: Optional[int] = None) -> Dict[str, Any]:
         """Main method to analyze different types of code relationships with fixed return types"""
         query_type = query_type.lower().strip()
+        
+        # Use depth if provided, otherwise default to 3 for 'all' queries
+        effective_depth = depth if depth is not None else 3
         
         try:
             if query_type == "find_callers":
@@ -1237,17 +1255,17 @@ class CodeFinder:
                 }
             
             elif query_type == "find_all_callers":
-                results = self.find_all_callers(target, context, repo_path=repo_path)
+                results = self.find_all_callers(target, context, repo_path=repo_path, depth=effective_depth)
                 return {
-                    "query_type": "find_all_callers", "target": target, "context": context, "results": results,
-                    "summary": f"Found {len(results)} direct and indirect callers of '{target}'"
+                    "query_type": "find_all_callers", "target": target, "context": context, "results": results, "depth": effective_depth,
+                    "summary": f"Found {len(results)} direct and indirect callers of '{target}' (depth: {effective_depth})"
                 }
-
+ 
             elif query_type == "find_all_callees":
-                results = self.find_all_callees(target, context, repo_path=repo_path)
+                results = self.find_all_callees(target, context, repo_path=repo_path, depth=effective_depth)
                 return {
-                    "query_type": "find_all_callees", "target": target, "context": context, "results": results,
-                    "summary": f"Found {len(results)} direct and indirect callees of '{target}'"
+                    "query_type": "find_all_callees", "target": target, "context": context, "results": results, "depth": effective_depth,
+                    "summary": f"Found {len(results)} direct and indirect callees of '{target}' (depth: {effective_depth})"
                 }
                 
             elif query_type in ["call_chain", "path", "chain"]:

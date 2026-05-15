@@ -29,7 +29,7 @@ jobs:
 
 ## CI without Docker
 
-**FalkorDB Lite** and **LadybugDB** work in CI **without Docker** or external graph services—ideal for GitHub Actions and locked-down runners. **LadybugDB** is especially convenient when you want a file-backed embedded store and no extra services; set the backend explicitly with **`cgc config db kuzudb`** in the job so behavior is predictable across environments.
+**FalkorDB Lite** and **KuzuDB** work in CI **without Docker** or external graph services—ideal for GitHub Actions and locked-down runners. **KuzuDB** is especially convenient when you want a file-backed embedded store and no extra services; set the backend explicitly with **`cgc config db kuzudb`** in the job so behavior is predictable across environments.
 
 ## Large Scale Indexing
 

@@ -29,7 +29,7 @@ Nodes and edges are written through the **database abstraction layer** to **one*
 | :------ | :--- |
 | **FalkorDB Lite** | Default on **Unix** with **Python 3.12+**; embedded-friendly, minimal ops. |
 | **FalkorDB Remote** | Connect to a **remote** FalkorDB instance when the graph should live on a shared server. |
-| **LadybugDB** | Embedded **fallback**, especially common on **Windows** when FalkorDB Lite is not the chosen path. |
+| **KuzuDB** | Embedded **fallback**, especially common on **Windows** when FalkorDB Lite is not the chosen path. |
 | **Neo4j** | **Enterprise / production** deployments with Neo4j operations and tooling. |
 
 The same logical schema is targeted for all backends so tools and queries stay portable.
@@ -60,4 +60,4 @@ CGC’s **contexts** system packages graph slices and metadata for AI consumptio
 
 ---
 
-In short: **parse** (Tree-sitter by default, SCIP optional) → **build graph** → **persist** (FalkorDB Lite, FalkorDB Remote, LadybugDB, or Neo4j) → **serve** via MCP tools and the `cgc` CLI.
+In short: **parse** (Tree-sitter by default, SCIP optional) → **build graph** → **persist** (FalkorDB Lite, FalkorDB Remote, KuzuDB, or Neo4j) → **serve** via MCP tools and the `cgc` CLI.

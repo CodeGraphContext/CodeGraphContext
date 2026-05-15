@@ -23,6 +23,9 @@ export function renderDashboardHtml(payload: DashboardPayload): string {
     })
     .join("");
 
+  const repoCount = payload.repos.length;
+  const hotspotCount = payload.hotspots.length;
+
   return `<!DOCTYPE html>
 <html><body>
 <style>
@@ -31,12 +34,16 @@ body{font-family:Inter,var(--vscode-font-family);padding:16px;background:linear-
 .head{display:flex;justify-content:space-between;gap:8px;align-items:center}
 select,input,button,textarea{background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);border-radius:8px;padding:8px}
 button{cursor:pointer}
+button:hover{opacity:0.85}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
 .card{border:1px solid var(--vscode-widget-border);border-radius:12px;padding:12px}
 .risk-row{display:grid;grid-template-columns:1fr 2fr auto;gap:8px;align-items:center;margin:6px 0}
 .bar{height:8px;background:var(--vscode-editor-selectionBackground);border-radius:999px;overflow:hidden}
 .bar>div{height:100%;background:var(--vscode-charts-red)}
 pre{white-space:pre-wrap;max-height:180px;overflow:auto}
+.refresh-btn{background:transparent;border:1px solid var(--vscode-widget-border);border-radius:6px;padding:4px 10px;font-size:12px;display:inline-flex;align-items:center;gap:4px}
+.refresh-btn:hover{background:var(--vscode-list-hoverBackground)}
+.status-bar{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:11px;opacity:0.6}
 </style>
 <div class="shell">
 <div class="head">
@@ -47,6 +54,11 @@ pre{white-space:pre-wrap;max-height:180px;overflow:auto}
 <label>Repo</label>
 <select id="repoSelect" onchange="changeRepo()"><option value="">Merged View</option>${repoOptions}</select>
 <button onclick="openConfig()">Engine Config</button>
+<button class="refresh-btn" onclick="manualRefresh()" title="Refresh data from database">🔃 Refresh</button>
+</div>
+<div class="status-bar">
+  <span id="repoCount">${repoCount} repo(s)</span> · <span id="hotspotCount">${hotspotCount} hotspot(s)</span>
+  <span id="status" style="margin-left:auto"></span>
 </div>
 <div class="grid">
   <div class="card">
@@ -65,7 +77,6 @@ pre{white-space:pre-wrap;max-height:180px;overflow:auto}
 <textarea id="cypher" rows="5" style="width:100%">MATCH (f:Function) RETURN f.name AS name LIMIT 15</textarea>
 <button style="margin-top:8px" onclick="runCypher()">Run in Cypher View</button>
 <pre id="cypherOut">No cypher run yet.</pre>
-<div id="status"></div>
 </div>
 </div>
 <script>
@@ -76,6 +87,10 @@ function changeRepo(){vscode.postMessage({type:'change-repo',value:document.getE
 function runSearch(){vscode.postMessage({type:'run-search',query:document.getElementById('searchInput').value});}
 function openConfig(){vscode.postMessage({type:'save-config'});}
 function runCypher(){vscode.postMessage({type:'run-cypher',query:document.getElementById('cypher').value});}
+function manualRefresh(){
+  document.getElementById('status').textContent = 'Refreshing…';
+  vscode.postMessage({type:'refresh'});
+}
 window.addEventListener('message', (e) => {
   if(e.data.type==='search-results'){document.getElementById('searchOut').textContent=JSON.stringify(e.data.rows,null,2);}
   if(e.data.type==='cypher-results'){document.getElementById('cypherOut').textContent=JSON.stringify(e.data.rows,null,2);}

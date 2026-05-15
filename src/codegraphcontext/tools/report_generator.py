@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/report_generator.py
 """CGC Report Generator (#884).
 
 Generates a CGC_REPORT.md summarising:
