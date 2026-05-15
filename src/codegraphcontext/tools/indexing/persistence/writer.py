@@ -472,81 +472,75 @@ class GraphWriter:
         self,
         *resolved_call_groups: Any,
     ) -> None:
-        resolved_calls: List[Dict[str, Any]] = []
+        fn_to_fn: List[Dict[str, Any]] = []
+        fn_to_class: List[Dict[str, Any]] = []
+        fn_to_interface: List[Dict[str, Any]] = []
+        fn_to_object: List[Dict[str, Any]] = []
+        file_to_fn: List[Dict[str, Any]] = []
+        file_to_class: List[Dict[str, Any]] = []
+        file_to_interface: List[Dict[str, Any]] = []
+        file_to_object: List[Dict[str, Any]] = []
 
-        # Backward-compatibility:
-        # - new callsites may pass a single flat list of resolved call dicts
-        # - older callsites may pass unpacked groups or unpacked dicts
-        if len(resolved_call_groups) == 1 and isinstance(resolved_call_groups[0], list):
-            only_group = resolved_call_groups[0]
-            if not only_group or isinstance(only_group[0], dict):
-                resolved_calls = list(only_group)
-        if not resolved_calls:
+        # Backward compatibility for callers:
+        # - 8 grouped buckets (fn_to_fn, fn_to_class, fn_to_interface, fn_to_object,
+        #   file_to_fn, file_to_class, file_to_interface, file_to_object)
+        # - older 6 grouped buckets (without *_to_object)
+        # - single flat list of resolved edge dicts
+        if len(resolved_call_groups) == 8:
+            (
+                fn_to_fn,
+                fn_to_class,
+                fn_to_interface,
+                fn_to_object,
+                file_to_fn,
+                file_to_class,
+                file_to_interface,
+                file_to_object,
+            ) = [group or [] for group in resolved_call_groups]
+        elif len(resolved_call_groups) == 6:
+            (
+                fn_to_fn,
+                fn_to_class,
+                fn_to_interface,
+                file_to_fn,
+                file_to_class,
+                file_to_interface,
+            ) = [group or [] for group in resolved_call_groups]
+        else:
+            flat_calls: List[Dict[str, Any]] = []
             for group in resolved_call_groups:
-                if group is None:
+                if not group:
                     continue
                 if isinstance(group, dict):
-                    resolved_calls.append(group)
-                    continue
-                if isinstance(group, list):
-                    resolved_calls.extend(item for item in group if isinstance(item, dict))
+                    flat_calls.append(group)
+                elif isinstance(group, list):
+                    flat_calls.extend(item for item in group if isinstance(item, dict))
 
-        if not resolved_calls:
-            return
+            if not flat_calls:
+                return
 
-        batch_size = 1000
-        # Generic query matching ANY valid code element label for caller and callee
-        q_generic = """
-            UNWIND $batch AS row
-            MATCH (caller {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
-            WHERE caller:Function OR caller:Class OR caller:Interface OR caller:Trait OR caller:Struct OR caller:Enum OR caller:Record OR caller:Union
-            MATCH (called {name: row.called_name, path: row.called_file_path})
-            WHERE called:Function OR called:Class OR called:Interface OR called:Trait OR called:Struct OR called:Enum OR called:Record OR caller:Union
-            MERGE (caller)-[c:CALLS {line_number: row.line_number, args: row.args, full_call_name: row.full_call_name}]->(called)
-            SET c.confidence = row.confidence, c.resolution_tier = row.resolution_tier,
-                c.confidence_label = row.confidence_label
-        """
-        q_file_to_any = """
-            UNWIND $batch AS row
-            MATCH (caller:File {path: row.caller_file_path})
-            MATCH (called {name: row.called_name, path: row.called_file_path})
-            WHERE called:Function OR called:Class OR called:Interface OR called:Trait OR called:Struct OR called:Enum OR called:Record OR called:Union
-            MERGE (caller)-[c:CALLS {line_number: row.line_number, args: row.args, full_call_name: row.full_call_name}]->(called)
-            SET c.confidence = row.confidence, c.resolution_tier = row.resolution_tier,
-                c.confidence_label = row.confidence_label
-        """
+            for edge in flat_calls:
+                caller_type = edge.get("type")
+                node_type = str(edge.get("called_node_type", "")).lower()
 
-        file_calls = [c for c in resolved_calls if c.get("type") == "file"]
-        code_calls = [c for c in resolved_calls if c.get("type") != "file"]
-
-        with self.driver.session() as session:
-            # Write code-to-code calls
-            if code_calls:
-                t0 = time.time()
-                for i in range(0, len(code_calls), batch_size):
-                    batch = code_calls[i : i + batch_size]
-                    session.run(q_generic, batch=batch)
-                info_logger(f"[CALLS] Code-to-Code: {len(code_calls)} edges written in {time.time()-t0:.1f}s")
-
-            # Write file-to-code calls
-            if file_calls:
-                t0 = time.time()
-                for i in range(0, len(file_calls), batch_size):
-                    batch = file_calls[i : i + batch_size]
-                    session.run(q_file_to_any, batch=batch)
-                info_logger(f"[CALLS] File-to-Code: {len(file_calls)} edges written in {time.time()-t0:.1f}s")
-
-        info_logger(f"[CALLS] All complete: {len(resolved_calls)} CALLS relationships processed.")
-
-        # Initialize defaults to avoid TypeError on missing args or None values
-        fn_to_fn = fn_to_fn or []
-        fn_to_class = fn_to_class or []
-        fn_to_interface = fn_to_interface or []
-        fn_to_object = fn_to_object or []
-        file_to_fn = file_to_fn or []
-        file_to_class = file_to_class or []
-        file_to_interface = file_to_interface or []
-        file_to_object = file_to_object or []
+                if caller_type == "file":
+                    if node_type == "interface":
+                        file_to_interface.append(edge)
+                    elif node_type == "object":
+                        file_to_object.append(edge)
+                    elif node_type in {"class", "trait", "struct", "enum", "record", "union"}:
+                        file_to_class.append(edge)
+                    else:
+                        file_to_fn.append(edge)
+                else:
+                    if node_type == "interface":
+                        fn_to_interface.append(edge)
+                    elif node_type == "object":
+                        fn_to_object.append(edge)
+                    elif node_type in {"class", "trait", "struct", "enum", "record", "union"}:
+                        fn_to_class.append(edge)
+                    else:
+                        fn_to_fn.append(edge)
 
         # KuzuDB requires deterministic node labels for relationship creation.
         # We use specific queries for each bucket to satisfy the binder.
@@ -560,6 +554,7 @@ class GraphWriter:
             (file_to_interface, "File", "Interface"),
             (file_to_object, "File", "Object"),
         ]
+        batch_size = 1000
 
         with self.driver.session() as session:
             for batch_data, caller_label, called_label in queries:

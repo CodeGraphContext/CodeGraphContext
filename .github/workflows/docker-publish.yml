@@ -53,6 +53,10 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Test Registry Connectivity
+        run: |
+          curl -fsSLI https://${{ env.REGISTRY }}
+
       - name: Build and push Docker image
         id: build
         uses: docker/build-push-action@v5
@@ -63,7 +67,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=max,ignore-error=true
           platforms: linux/amd64
 
       - name: Generate artifact attestation
