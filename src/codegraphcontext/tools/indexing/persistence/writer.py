@@ -98,11 +98,7 @@ class GraphWriter:
 
             file_path_obj = Path(file_path_str)
             repo_path_obj = Path(resolved_repo_str)
-            try:
-                relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
-            except ValueError:
-                # Paths are on different drives or can't be made relative; use filename
-                relative_path_to_file = Path(file_path_obj.name)
+            relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
             parent_path = resolved_repo_str
             parent_label = "Repository"
             for part in relative_path_to_file.parts[:-1]:
@@ -161,7 +157,6 @@ class GraphWriter:
                     row["path"] = file_path_str
                     if label == "Function" and "cyclomatic_complexity" not in row:
                         row["cyclomatic_complexity"] = 1
-                    row["path"] = file_path_str  # Ensure path is set for translation layer
                     batch.append(sanitize_props(row))
                     if label == "Function":
                         for arg_name in item.get("args", []):
@@ -246,20 +241,17 @@ class GraphWriter:
                 session.run(
                     f"""
                     UNWIND $batch AS row
-                    MERGE (n:{label} {{name: row.name, path: row.path, line_number: row.line_number}})
+                    MERGE (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})
                     SET n += row
                 """,
                     batch=batch,
+                    file_path=file_path_str,
                 )
                 session.run(
                     f"""
                     UNWIND $batch AS row
-                    MATCH (f:File)
-                    WHERE f.path = $file_path
-                    MATCH (n:{label})
-                    WHERE n.name = row.name
-                      AND n.path = $file_path
-                      AND n.line_number = row.line_number
+                    MATCH (f:File {{path: $file_path}})
+                    MATCH (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})
                     MERGE (f)-[:CONTAINS]->(n)
                 """,
                     batch=batch,
@@ -270,14 +262,8 @@ class GraphWriter:
                 session.run(
                     """
                     UNWIND $batch AS row
-                    MATCH (fn:Function)
-                    WHERE fn.name = row.func_name
-                      AND fn.path = $file_path
-                      AND fn.line_number = row.line_number
+                    MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.line_number})
                     MERGE (p:Parameter {name: row.arg_name, path: $file_path, function_line_number: row.line_number})
-                    SET p.name = row.arg_name,
-                        p.path = $file_path,
-                        p.function_line_number = row.line_number
                     MERGE (fn)-[:HAS_PARAMETER]->(p)
                 """,
                     batch=params_batch,
@@ -288,14 +274,9 @@ class GraphWriter:
                 session.run(
                     """
                     UNWIND $batch AS row
-                    MATCH (c:Class)
-                    WHERE c.name = row.class_name
-                      AND c.path = $file_path
-                      AND (row.class_line < 0 OR c.line_number = row.class_line)
-                    MATCH (fn:Function)
-                    WHERE fn.name = row.func_name
-                      AND fn.path = $file_path
-                      AND fn.line_number = row.func_line
+                    MATCH (c:Class {name: row.class_name, path: $file_path})
+                    MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.func_line})
+                    WHERE row.class_line < 0 OR c.line_number = row.class_line
                     MERGE (c)-[:CONTAINS]->(fn)
                 """,
                     batch=class_fn_batch,
@@ -326,13 +307,8 @@ class GraphWriter:
                 session.run(
                     """
                     UNWIND $batch AS row
-                    MATCH (outer:Function)
-                    WHERE outer.name = row.outer
-                      AND outer.path = $file_path
-                    MATCH (inner:Function)
-                    WHERE inner.name = row.inner_name
-                      AND inner.path = $file_path
-                      AND inner.line_number = row.inner_line
+                    MATCH (outer:Function {name: row.outer, path: $file_path})
+                    MATCH (inner:Function {name: row.inner_name, path: $file_path, line_number: row.inner_line})
                     MERGE (outer)-[:CONTAINS]->(inner)
                 """,
                     batch=nested_fn_batch,
@@ -350,8 +326,8 @@ class GraphWriter:
                             {
                                 "module_name": module_name,
                                 "imported_name": imp.get("name", "*"),
-                                "alias": imp.get("alias"),
-                                "line_number": imp.get("line_number"),
+                                "alias": imp.get("alias") or "",
+                                "line_number": imp.get("line_number") or 0,
                             }
                         )
                 else:
@@ -368,7 +344,7 @@ class GraphWriter:
                             "name": module_name,
                             "full_import_name": full_import_name,
                             "imported_name": imp.get("imported_name") or module_name,
-                            "alias": imp.get("alias", ""),  # Default to "" only when key absent
+                            "alias": imp.get("alias"),
                             "line_number": imp.get("line_number"),
                             "alias": imp.get("alias"),
                             "line_number": imp.get("line_number") or 0,
@@ -414,12 +390,8 @@ class GraphWriter:
                 session.run(
                     """
                     UNWIND $batch AS row
-                    MATCH (c:Class)
-                    WHERE c.name = row.class_name
-                      AND c.path = $file_path
-                    MERGE (m:Module)
-                    ON CREATE SET m.name = row.module_name
-                    ON MATCH SET m.name = row.module_name
+                    MATCH (c:Class {name: row.class_name, path: $file_path})
+                    MERGE (m:Module {name: row.module_name})
                     MERGE (c)-[:INCLUDES]->(m)
                 """,
                     batch=[
@@ -498,198 +470,73 @@ class GraphWriter:
 
     def write_function_call_groups(
         self,
-        fn_to_fn: List[Dict],
-        fn_to_class: List[Dict],
-        fn_to_interface: List[Dict],
-        file_to_fn: List[Dict],
-        file_to_class: List[Dict],
-        file_to_interface: List[Dict],
-        fn_to_fn: List[Dict] = None,
-        fn_to_class: List[Dict] = None,
-        fn_to_interface: List[Dict] = None,
-        fn_to_object: List[Dict] = None,
-        file_to_fn: List[Dict] = None,
-        file_to_class: List[Dict] = None,
-        file_to_interface: List[Dict] = None,
-        file_to_object: List[Dict] = None,
+        *resolved_call_groups: Any,
     ) -> None:
-        """Write function call relationships grouped by caller/callee type pairs."""
+        resolved_calls: List[Dict[str, Any]] = []
+
+        # Backward-compatibility:
+        # - new callsites may pass a single flat list of resolved call dicts
+        # - older callsites may pass unpacked groups or unpacked dicts
+        if len(resolved_call_groups) == 1 and isinstance(resolved_call_groups[0], list):
+            only_group = resolved_call_groups[0]
+            if not only_group or isinstance(only_group[0], dict):
+                resolved_calls = list(only_group)
+        if not resolved_calls:
+            for group in resolved_call_groups:
+                if group is None:
+                    continue
+                if isinstance(group, dict):
+                    resolved_calls.append(group)
+                    continue
+                if isinstance(group, list):
+                    resolved_calls.extend(item for item in group if isinstance(item, dict))
+
+        if not resolved_calls:
+            return
+
         batch_size = 1000
-
-        def _normalize(batch: List[Dict]) -> List[Dict]:
-            """Normalize and filter call records, preserving all filtering attributes."""
-            normalized = []
-            for row in batch:
-                if not isinstance(row, dict):
-                    continue
-
-                required = {
-                    "caller_name",
-                    "caller_file_path",
-                    "called_name",
-                    "called_file_path",
-                    "line_number",
-                    "args",
-                    "full_call_name",
-                }
-                if not required.issubset(row.keys()):
-                    continue
-
-                # Skip rows with malformed boolean values for filtering attributes
-                # (0 and "" are valid sentinels for "no filter", but bool values are malformed)
-                called_line_number = row.get("called_line_number")
-                called_context = row.get("called_context")
-                if isinstance(called_line_number, bool) or isinstance(called_context, bool):
-                    continue
-
-                normalized.append({
-                    "caller_name": row["caller_name"],
-                    "caller_file_path": row["caller_file_path"],
-                    "caller_line_number": row.get("caller_line_number", 0),
-                    "called_name": row["called_name"],
-                    "called_file_path": row["called_file_path"],
-                    "called_line_number": called_line_number,
-                    "called_context": called_context or "",  # Empty string = "match any"
-                    "line_number": row["line_number"],
-                    "args": row.get("args", []),
-                    "full_call_name": row["full_call_name"],
-                    "confidence": row.get("confidence", 1.0),
-                    "resolution_tier": row.get("resolution_tier", 0),
-                    "confidence_label": row.get("confidence_label", "EXTRACTED"),
-                })
-            return normalized
-
-        fn_to_fn = _normalize(fn_to_fn)
-        fn_to_class = _normalize(fn_to_class)
-        fn_to_interface = _normalize(fn_to_interface)
-        file_to_fn = _normalize(file_to_fn)
-        file_to_class = _normalize(file_to_class)
-        file_to_interface = _normalize(file_to_interface)
-
-        q_fn_to_fn = """
+        # Generic query matching ANY valid code element label for caller and callee
+        q_generic = """
             UNWIND $batch AS row
-            MATCH (caller:Function)
-            WHERE caller.name = row.caller_name
-              AND caller.path = row.caller_file_path
-              AND caller.line_number = row.caller_line_number
-            MATCH (called:Function)
-            WHERE called.name = row.called_name
-              AND called.path = row.called_file_path
-              AND (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
-              AND (row.called_context = '' OR called.context = row.called_context)
-            MERGE (caller)-[call:CALLS {
-                line_number: row.line_number,
-                args: row.args,
-                full_call_name: row.full_call_name
-            }]->(called)
-            SET call.confidence = row.confidence,
-                call.resolution_tier = row.resolution_tier,
-                call.confidence_label = row.confidence_label
+            MATCH (caller {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
+            WHERE caller:Function OR caller:Class OR caller:Interface OR caller:Trait OR caller:Struct OR caller:Enum OR caller:Record OR caller:Union
+            MATCH (called {name: row.called_name, path: row.called_file_path})
+            WHERE called:Function OR called:Class OR called:Interface OR called:Trait OR called:Struct OR called:Enum OR called:Record OR caller:Union
+            MERGE (caller)-[c:CALLS {line_number: row.line_number, args: row.args, full_call_name: row.full_call_name}]->(called)
+            SET c.confidence = row.confidence, c.resolution_tier = row.resolution_tier,
+                c.confidence_label = row.confidence_label
         """
-
-        q_fn_to_class = """
-            UNWIND $batch AS row
-            MATCH (caller:Function {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
-            MATCH (called:Class {name: row.called_name, path: row.called_file_path})
-            WHERE (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
-            MERGE (caller)-[call:CALLS {
-                line_number: row.line_number,
-                args: row.args,
-                full_call_name: row.full_call_name
-            }]->(called)
-            SET call.confidence = row.confidence,
-                call.resolution_tier = row.resolution_tier,
-                call.confidence_label = row.confidence_label
-        """
-
-        q_fn_to_interface = """
-            UNWIND $batch AS row
-            MATCH (caller:Function {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
-            MATCH (called)
-            WHERE (called:Interface OR called:Trait OR called:Struct OR called:Enum OR called:Record OR called:Union)
-              AND called.name = row.called_name
-              AND called.path = row.called_file_path
-              AND (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
-            MERGE (caller)-[call:CALLS {
-                line_number: row.line_number,
-                args: row.args,
-                full_call_name: row.full_call_name
-            }]->(called)
-            SET call.confidence = row.confidence,
-                call.resolution_tier = row.resolution_tier,
-                call.confidence_label = row.confidence_label
-        """
-
-        q_file_to_fn = """
+        q_file_to_any = """
             UNWIND $batch AS row
             MATCH (caller:File {path: row.caller_file_path})
-            MATCH (called:Function {name: row.called_name, path: row.called_file_path})
-            WHERE (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
-              AND (row.called_context IS NULL OR coalesce(called.context, '') = row.called_context)
-            MERGE (caller)-[call:CALLS {
-                line_number: row.line_number,
-                args: row.args,
-                full_call_name: row.full_call_name
-            }]->(called)
-            SET call.confidence = row.confidence,
-                call.resolution_tier = row.resolution_tier,
-                call.confidence_label = row.confidence_label
+            MATCH (called {name: row.called_name, path: row.called_file_path})
+            WHERE called:Function OR called:Class OR called:Interface OR called:Trait OR called:Struct OR called:Enum OR called:Record OR called:Union
+            MERGE (caller)-[c:CALLS {line_number: row.line_number, args: row.args, full_call_name: row.full_call_name}]->(called)
+            SET c.confidence = row.confidence, c.resolution_tier = row.resolution_tier,
+                c.confidence_label = row.confidence_label
         """
 
-        q_file_to_class = """
-            UNWIND $batch AS row
-            MATCH (caller:File {path: row.caller_file_path})
-            MATCH (called:Class {name: row.called_name, path: row.called_file_path})
-            WHERE (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
-            MERGE (caller)-[call:CALLS {
-                line_number: row.line_number,
-                args: row.args,
-                full_call_name: row.full_call_name
-            }]->(called)
-            SET call.confidence = row.confidence,
-                call.resolution_tier = row.resolution_tier,
-                call.confidence_label = row.confidence_label
-        """
-
-        q_file_to_interface = """
-            UNWIND $batch AS row
-            MATCH (caller:File {path: row.caller_file_path})
-            MATCH (called)
-            WHERE (called:Interface OR called:Trait OR called:Struct OR called:Enum OR called:Record OR called:Union)
-              AND called.name = row.called_name
-              AND called.path = row.called_file_path
-              AND (row.called_line_number IS NULL OR called.line_number = row.called_line_number)
-            MERGE (caller)-[call:CALLS {
-                line_number: row.line_number,
-                args: row.args,
-                full_call_name: row.full_call_name
-            }]->(called)
-            SET call.confidence = row.confidence,
-                call.resolution_tier = row.resolution_tier,
-                call.confidence_label = row.confidence_label
-        """
-
-        grouped = [
-            (fn_to_fn, q_fn_to_fn),
-            (fn_to_class, q_fn_to_class),
-            (fn_to_interface, q_fn_to_interface),
-            (file_to_fn, q_file_to_fn),
-            (file_to_class, q_file_to_class),
-            (file_to_interface, q_file_to_interface),
-        ]
+        file_calls = [c for c in resolved_calls if c.get("type") == "file"]
+        code_calls = [c for c in resolved_calls if c.get("type") != "file"]
 
         with self.driver.session() as session:
-            for rows, query in grouped:
-                if not rows:
-                    continue
+            # Write code-to-code calls
+            if code_calls:
                 t0 = time.time()
-                for i in range(0, len(rows), batch_size):
-                    batch = rows[i : i + batch_size]
-                    session.run(query, batch=batch)
-                info_logger(f"[CALLS] {len(rows)} edges written in {time.time()-t0:.1f}s")
+                for i in range(0, len(code_calls), batch_size):
+                    batch = code_calls[i : i + batch_size]
+                    session.run(q_generic, batch=batch)
+                info_logger(f"[CALLS] Code-to-Code: {len(code_calls)} edges written in {time.time()-t0:.1f}s")
 
-        total_calls = sum(len(r) for r, _ in grouped)
-        info_logger(f"[CALLS] All complete: {total_calls} CALLS relationships processed.")
+            # Write file-to-code calls
+            if file_calls:
+                t0 = time.time()
+                for i in range(0, len(file_calls), batch_size):
+                    batch = file_calls[i : i + batch_size]
+                    session.run(q_file_to_any, batch=batch)
+                info_logger(f"[CALLS] File-to-Code: {len(file_calls)} edges written in {time.time()-t0:.1f}s")
+
+        info_logger(f"[CALLS] All complete: {len(resolved_calls)} CALLS relationships processed.")
 
         # Initialize defaults to avoid TypeError on missing args or None values
         fn_to_fn = fn_to_fn or []
@@ -840,10 +687,8 @@ class GraphWriter:
                     if is_interface or (base_index > 0 and type_label == "Class"):
                         session.run(
                             """
-                            MATCH (child)
-                            WHERE label(child) IN ['Class', 'Struct', 'Record']
-                              AND child.name = $child_name
-                              AND child.path = $path
+                            MATCH (child {name: $child_name, path: $path})
+                            WHERE child:Class OR child:Struct OR child:Record
                             MATCH (iface:Interface {name: $interface_name})
                             MERGE (child)-[:IMPLEMENTS]->(iface)
                         """,
@@ -854,13 +699,10 @@ class GraphWriter:
                     else:
                         session.run(
                             """
-                            MATCH (child)
-                            WHERE label(child) IN ['Class', 'Record', 'Interface']
-                              AND child.name = $child_name
-                              AND child.path = $path
-                            MATCH (parent)
-                            WHERE label(parent) IN ['Class', 'Record', 'Interface']
-                              AND parent.name = $parent_name
+                            MATCH (child {name: $child_name, path: $path})
+                            WHERE child:Class OR child:Record OR child:Interface
+                            MATCH (parent {name: $parent_name})
+                            WHERE parent:Class OR parent:Record OR parent:Interface
                             MERGE (child)-[:INHERITS]->(parent)
                         """,
                             child_name=type_item["name"],
@@ -911,14 +753,10 @@ class GraphWriter:
                 session.run(
                     """
                     UNWIND $batch AS row
-                    MATCH (child)
-                    WHERE label(child) IN ['Class', 'Trait', 'Interface', 'Struct', 'Enum', 'Union', 'Record']
-                      AND child.name = row.child_name
-                      AND child.path = row.path
-                    MATCH (parent)
-                    WHERE label(parent) IN ['Class', 'Trait', 'Interface', 'Struct', 'Enum', 'Union', 'Record']
-                      AND parent.name = row.parent_name
-                      AND parent.path = row.resolved_parent_file_path
+                    MATCH (child {name: row.child_name, path: row.path})
+                    WHERE child:Class OR child:Trait OR child:Interface OR child:Struct OR child:Enum OR child:Union OR child:Record
+                    MATCH (parent {name: row.parent_name, path: row.resolved_parent_file_path})
+                    WHERE parent:Class OR parent:Trait OR parent:Interface OR parent:Struct OR parent:Enum OR parent:Union OR parent:Record
                     MERGE (child)-[r:INHERITS]->(parent)
                     SET r.confidence_label = coalesce(row.confidence_label, 'EXTRACTED')
                 """,
@@ -985,15 +823,10 @@ class GraphWriter:
                     try:
                         session.run(
                             """
-                            MATCH (caller)
-                            WHERE label(caller) IN ['Function', 'Variable', 'Class', 'Interface', 'Trait', 'Struct', 'Record', 'Union']
-                              AND caller.name = $caller_name
-                              AND caller.path = $caller_file
-                              AND caller.line_number = $caller_line
-                            MATCH (callee)
-                            WHERE label(callee) IN ['Function', 'Class', 'Interface', 'Trait', 'Struct', 'Enum', 'Record', 'Union']
-                              AND callee.name = $callee_name
-                              AND callee.path = $callee_file
+                            MATCH (caller {name: $caller_name, path: $caller_file, line_number: $caller_line})
+                            WHERE caller:Function OR caller:Variable OR caller:Class OR caller:Interface OR caller:Trait OR caller:Struct OR caller:Record OR caller:Union
+                            MATCH (callee {name: $callee_name, path: $callee_file})
+                            WHERE callee:Function OR callee:Class OR callee:Interface OR callee:Trait OR callee:Struct OR callee:Enum OR callee:Record OR callee:Union
                             MERGE (caller)-[:CALLS {line_number: $ref_line, source: 'scip'}]->(callee)
                         """,
                             caller_name=name_from_symbol(edge["caller_symbol"]),
@@ -1012,10 +845,8 @@ class GraphWriter:
                         session.run(
                             """
                             MATCH (caller:File {path: $caller_file})
-                            MATCH (callee)
-                            WHERE label(callee) IN ['Function', 'Class', 'Interface', 'Trait', 'Struct', 'Enum', 'Record', 'Union']
-                              AND callee.name = $callee_name
-                              AND callee.path = $callee_file
+                            MATCH (callee {name: $callee_name, path: $callee_file})
+                            WHERE callee:Function OR callee:Class OR callee:Interface OR callee:Trait OR callee:Struct OR callee:Enum OR callee:Record OR callee:Union
                             MERGE (caller)-[:CALLS {line_number: $ref_line, source: 'scip'}]->(callee)
                         """,
                             caller_file=edge["caller_file"],
