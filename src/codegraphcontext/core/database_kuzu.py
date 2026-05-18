@@ -320,7 +320,8 @@ class KuzuDriverWrapper:
     def __init__(self, conn, query_lock: Optional[threading.RLock] = None):
         self.conn = conn
         self._query_lock = query_lock or threading.RLock()
-    def session(self):
+    def session(self, **kwargs):
+        """Accepts and ignores Neo4j-specific kwargs (e.g. default_access_mode)."""
         return KuzuSessionWrapper(self.conn, self._query_lock)
     def close(self):
         pass
