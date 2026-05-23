@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable no-console */
-
-// Downloads the platform-matched cgc binary from the latest GitHub release
-// into extensions/vscode/bin/. Wired into vscode:prepublish.
-//
-// Env: CGC_BINARY_REPO, CGC_BINARY_TAG, CGC_BINARY_PLATFORM, CGC_BINARY_ARCH, CGC_BINARY_SKIP.
 
 const fs = require("fs");
 const path = require("path");
