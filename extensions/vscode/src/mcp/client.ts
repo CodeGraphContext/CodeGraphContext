@@ -2,6 +2,11 @@ import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import * as path from "path";
 import * as vscode from "vscode";
 import { CgcMcpToolResponse, CgcTool } from "../types/cgc";
+import {
+  defaultDatabaseMode,
+  ensureExecutable,
+  resolveCgcBinary,
+} from "./binaryResolver";
 
 interface JsonRpcResponse {
   id?: number;
@@ -28,14 +33,25 @@ export class CgcMcpClient {
     }
 
     const cfg = vscode.workspace.getConfiguration("cgc");
-    const executableSetting = cfg.get<string>("executable", "cgc").trim();
     const pythonPackagePath = cfg.get<string>("pythonPackagePath", "").trim();
-    const segments = executableSetting.split(" ").filter(Boolean);
-    const executable = segments[0] || "cgc";
-    const extraArgs = segments.slice(1);
+    const resolved = resolveCgcBinary(this.context, cfg);
+    if (resolved.source === "bundled" && resolved.bundledPath) {
+      ensureExecutable(resolved.bundledPath);
+    }
+    const { command: executable, extraArgs } = resolved;
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const env: NodeJS.ProcessEnv = { ...process.env, CGC_RUNTIME_DB_TYPE: cfg.get<string>("databaseMode", "falkordb") };
-    
+
+    // Pick a sane default DB per platform (KuzuDB on Windows, FalkorDB else)
+    // unless the user has explicitly chosen one. "auto" (the new default) and
+    // any empty value drop through to defaultDatabaseMode().
+    const configuredDb = cfg.get<string>("databaseMode", "auto").trim();
+    const dbMode =
+      configuredDb === "" || configuredDb === "auto"
+        ? defaultDatabaseMode()
+        : configuredDb;
+
+    const env: NodeJS.ProcessEnv = { ...process.env, CGC_RUNTIME_DB_TYPE: dbMode };
+
     if (pythonPackagePath) {
       env.PYTHONPATH = pythonPackagePath;
     }
@@ -45,7 +61,9 @@ export class CgcMcpClient {
     }
 
     try {
-      this.output.appendLine(`Spawning CGC: ${executable} ${extraArgs.join(" ")}`);
+      this.output.appendLine(
+        `Spawning CGC (${resolved.source}): ${executable} ${extraArgs.join(" ")}`.trim()
+      );
       const proc = spawn(executable, [...extraArgs, "mcp", "start"], { cwd, env });
       this.proc = proc;
       
@@ -69,7 +87,11 @@ export class CgcMcpClient {
       await new Promise((resolve) => setTimeout(resolve, 500));
       
       if (!proc || !proc.stdin) {
-        throw new Error("Failed to initialize CGC MCP process (no stdin). Is 'cgc' installed?");
+        const hint =
+          resolved.source === "path"
+            ? "Is 'cgc' on your PATH? Install with `pip install codegraphcontext`, or reinstall the extension to get the bundled binary."
+            : `Tried to launch ${executable}.`;
+        throw new Error(`Failed to initialize CGC MCP process (no stdin). ${hint}`);
       }
 
       // Handshake - Use internal methods to avoid infinite recursion through ensureProcessReady()

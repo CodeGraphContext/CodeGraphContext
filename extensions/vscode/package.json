@@ -149,13 +149,20 @@
         },
         "cgc.databaseMode": {
           "type": "string",
-          "default": "falkordb",
+          "default": "auto",
           "enum": [
+            "auto",
             "neo4j",
             "kuzudb",
             "falkordb"
           ],
-          "description": "Target database mode for CGC runtime."
+          "enumDescriptions": [
+            "Pick per platform: kuzudb on Windows (no extra setup), falkordb elsewhere.",
+            "Neo4j (requires a running Neo4j instance).",
+            "KuzuDB — embedded, no server required. Recommended on Windows.",
+            "FalkorDB via redislite (Linux/macOS only)."
+          ],
+          "description": "Target database backend. 'auto' picks per platform."
         },
         "cgc.maxDeadCodeDiagnostics": {
           "type": "number",
@@ -236,8 +243,9 @@
     "lint": "tsc -p ./ --noEmit",
     "pretest": "npm run compile",
     "test": "node --test out/testing/**/*.test.js",
-    "package:vsix": "npx @vscode/vsce package --allow-star-activation",
-    "vscode:prepublish": "npm run compile"
+    "fetch-binary": "node scripts/fetch-binary.js",
+    "package:vsix": "npm run fetch-binary && npx @vscode/vsce package --allow-star-activation",
+    "vscode:prepublish": "npm run compile && npm run fetch-binary"
   },
   "devDependencies": {
     "@vscode/vsce": "^3.6.1",
