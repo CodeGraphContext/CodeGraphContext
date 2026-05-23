@@ -1,3 +1,1 @@
-# This directory holds the PyInstaller `cgc` binary that the extension
-# ships with. It's populated by `scripts/fetch-binary.js`, which runs from
-# `vscode:prepublish`. The binary itself is gitignored — see ../.gitignore.
+# Holds the cgc binary at package time (populated by scripts/fetch-binary.js).

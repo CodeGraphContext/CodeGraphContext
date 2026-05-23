@@ -1,16 +1,10 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
 
-// Pulls the platform-matched cgc binary from the latest GitHub release
-// and drops it in extensions/vscode/bin/. Runs as part of vscode:prepublish
-// so the VSIX we ship to the marketplace already contains the executable.
+// Downloads the platform-matched cgc binary from the latest GitHub release
+// into extensions/vscode/bin/. Wired into vscode:prepublish.
 //
-// Env knobs:
-//   CGC_BINARY_REPO     owner/repo           (default CodeGraphContext/CodeGraphContext)
-//   CGC_BINARY_TAG      e.g. v0.4.10         (default: latest)
-//   CGC_BINARY_PLATFORM win32|darwin|linux   (override auto-detect, useful in CI)
-//   CGC_BINARY_ARCH     x64|arm64            (override auto-detect)
-//   CGC_BINARY_SKIP=1   bail out early       (for `npm install` without network)
+// Env: CGC_BINARY_REPO, CGC_BINARY_TAG, CGC_BINARY_PLATFORM, CGC_BINARY_ARCH, CGC_BINARY_SKIP.
 
 const fs = require("fs");
 const path = require("path");
@@ -35,10 +29,7 @@ function artifactFor(platform, arch) {
 
 const ARTIFACT = artifactFor(PLATFORM, ARCH);
 if (!ARTIFACT) {
-  console.warn(
-    `[fetch-binary] No prebuilt binary for ${PLATFORM}/${ARCH}. ` +
-      `The extension will fall back to 'cgc' on PATH at runtime.`
-  );
+  console.warn(`[fetch-binary] No prebuilt binary for ${PLATFORM}/${ARCH}; falling back to PATH at runtime.`);
   process.exit(0);
 }
 
@@ -47,8 +38,7 @@ const OUT_PATH = path.join(BIN_DIR, ARTIFACT);
 
 fs.mkdirSync(BIN_DIR, { recursive: true });
 
-// Tiny GET wrapper that follows redirects. The GitHub release asset URL bounces
-// through s3 with a 302, and node's https client won't chase that for us.
+// Follows redirects — release asset URLs 302 to s3.
 function get(url, headers) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers }, (res) => {
@@ -103,14 +93,10 @@ async function main() {
 
   const asset = (release.assets || []).find((a) => a.name === ARTIFACT);
   if (!asset) {
-    throw new Error(
-      `Release ${release.tag_name || TAG} doesn't expose an asset named "${ARTIFACT}".`
-    );
+    throw new Error(`Release ${release.tag_name || TAG} has no asset named "${ARTIFACT}".`);
   }
 
-  console.log(
-    `[fetch-binary] Downloading ${ARTIFACT} from release ${release.tag_name} (${(asset.size / 1e6).toFixed(1)} MB)`
-  );
+  console.log(`[fetch-binary] Downloading ${ARTIFACT} from ${release.tag_name} (${(asset.size / 1e6).toFixed(1)} MB)`);
   await downloadTo(asset.browser_download_url, OUT_PATH);
 
   if (PLATFORM !== "win32") {
@@ -119,9 +105,8 @@ async function main() {
   console.log(`[fetch-binary] Wrote ${OUT_PATH}`);
 }
 
+// Fail soft — runtime resolver falls back to PATH if the binary's missing.
 main().catch((err) => {
-  // Don't abort the whole `npm install` over a flaky network — the runtime
-  // resolver falls back to PATH and tells the user how to recover.
   console.warn(`[fetch-binary] Skipped: ${err.message}`);
   process.exit(0);
 });

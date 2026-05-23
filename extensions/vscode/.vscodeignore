@@ -17,5 +17,5 @@ build-webview.js
 vsc-extension-quickstart.md
 scripts/**
 
-# Keep bin/ in the VSIX — that's where the bundled cgc binary lives.
+# Keep the bundled cgc binary in the VSIX.
 !bin/**

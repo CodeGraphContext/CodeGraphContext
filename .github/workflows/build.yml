@@ -102,7 +102,7 @@ jobs:
         working-directory: extensions/vscode
         run: npm run compile
 
-      - name: Package VSIX (skip remote binary fetch — we placed it manually)
+      - name: Package VSIX (binary already in place, skip fetch)
         working-directory: extensions/vscode
         env:
           CGC_BINARY_SKIP: '1'

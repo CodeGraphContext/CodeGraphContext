@@ -11,13 +11,11 @@ import {
   ensureExecutable,
 } from "../mcp/binaryResolver";
 
-// These tests deliberately only cover the pure helpers — `resolveCgcBinary`
-// touches the real vscode API and is exercised by the manual UX checklist.
+// Covers the pure helpers only; resolveCgcBinary needs the vscode API.
 
 test("bundledBinaryName matches the build.yml artifact names", () => {
   const name = bundledBinaryName();
-  // The function returns undefined on Linux arm64 / Intel macs / weird arches.
-  // Anything it does return must be one of the published artifact names.
+  // undefined on unsupported arches; otherwise must be a published name.
   if (name !== undefined) {
     assert.ok(
       ["cgc-windows.exe", "cgc-linux-x86_64", "cgc-macos-arm64"].includes(name),
@@ -72,6 +70,6 @@ test("ensureExecutable is a no-op for files that are already executable", { skip
 });
 
 test("ensureExecutable swallows errors for missing files", () => {
-  // Shouldn't throw — spawn will produce a much better error message later.
+  // Must not throw; spawn surfaces a clearer error later.
   ensureExecutable(path.join(os.tmpdir(), "definitely-not-here-cgc-xyz"));
 });

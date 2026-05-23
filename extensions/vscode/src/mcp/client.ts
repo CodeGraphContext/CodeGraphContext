@@ -41,9 +41,7 @@ export class CgcMcpClient {
     const { command: executable, extraArgs } = resolved;
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
-    // Pick a sane default DB per platform (KuzuDB on Windows, FalkorDB else)
-    // unless the user has explicitly chosen one. "auto" (the new default) and
-    // any empty value drop through to defaultDatabaseMode().
+    // "auto" or "" picks kuzudb on Windows, falkordb elsewhere.
     const configuredDb = cfg.get<string>("databaseMode", "auto").trim();
     const dbMode =
       configuredDb === "" || configuredDb === "auto"

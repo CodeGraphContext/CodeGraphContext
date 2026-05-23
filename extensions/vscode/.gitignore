@@ -2,8 +2,6 @@ node_modules/
 out/
 *.vsix
 
-# Downloaded PyInstaller binary — populated by scripts/fetch-binary.js at
-# package time. We don't want it in git, but we do want bin/ to exist so
-# the VSIX packager has somewhere to put it.
+# Bundled binary lives here at package time; keep the dir, ignore the file.
 bin/cgc
 bin/cgc-*

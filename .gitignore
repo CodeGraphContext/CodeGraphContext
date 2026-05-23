@@ -95,9 +95,7 @@ venv_indexing/
 scratch/
 scripts/
 
-# Carve-outs for the VS Code extension. `bin/` holds the bundled PyInstaller
-# binary at package time (the binary itself stays ignored — see
-# extensions/vscode/.gitignore), and `scripts/` holds the fetch-binary helper.
+# VS Code extension: keep bin/ and scripts/ (binary stays ignored, see extension .gitignore).
 !extensions/vscode/bin/
 !extensions/vscode/bin/.gitkeep
 !extensions/vscode/scripts/
