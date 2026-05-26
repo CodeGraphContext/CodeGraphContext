@@ -1,9 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-05-26T02:01:25.293037",
-  "format_version": "1.0",
+  "exported_at": "2026-05-26T23:48:40Z",
+  "format_version": "1.0.0",
   "repo": "sample_project_typescript",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "61615f0e"
+  "commit": "7dc69c85",
+  "branch": "feat/issue-710-parallel-indexing",
+  "generator": "PYv0.2.0",
+  "name": "sample_project_typescript.cgc",
+  "graph_metrics": {
+    "total_nodes": 904,
+    "total_edges": 1330
+  }
 }

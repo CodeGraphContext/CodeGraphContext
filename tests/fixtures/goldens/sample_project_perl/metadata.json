@@ -1,9 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-05-26T01:57:14.384887",
-  "format_version": "1.0",
+  "exported_at": "2026-05-26T23:20:45Z",
+  "format_version": "1.0.0",
   "repo": "sample_project_perl",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "61615f0e"
+  "commit": "7dc69c85",
+  "branch": "feat/issue-710-parallel-indexing",
+  "generator": "PYv0.2.0",
+  "name": "sample_project_perl.cgc",
+  "graph_metrics": {
+    "total_nodes": 64,
+    "total_edges": 94
+  }
 }
