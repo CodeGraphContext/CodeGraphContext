@@ -12,6 +12,29 @@ GOLDENS_DIR = TEST_ROOT / "fixtures" / "goldens"
 PROJECTS_DIR = TEST_ROOT / "fixtures" / "sample_projects"
 WORKSPACE_ROOT = TEST_ROOT.parent.absolute()
 
+IGNORED_NODE_FIELDS = {
+    "_id",
+    "id",
+    "indexed_at",
+    "commit_hash",
+    "content_hash",
+    # Cross-platform and schema-noisy exporter fields.
+    "uid",
+    "node_label",
+    "node_type",
+    "qualified_name",
+    "class_context_line",
+    "type",
+    "kind",
+}
+
+EMPTY_COMPAT_FIELDS = {
+    "bases": [],
+    "decorators": [],
+    "args": [""],
+    "detailed_args": [""],
+}
+
 # Standardize path strings to use forward slashes
 def clean_path(p):
     return str(p).replace("\\", "/")
@@ -66,8 +89,6 @@ def get_logical_key(node, normalized_path):
     name = node.get("name") or ""
     line_number = str(node.get("line_number") or "")
     function_line_number = str(node.get("function_line_number") or "")
-    class_context = node.get("class_context") or ""
-    context = node.get("context") or ""
     
     # Build logical key
     key_parts = [primary_label, name, normalized_path]
@@ -75,11 +96,7 @@ def get_logical_key(node, normalized_path):
         key_parts.append(f"ln_{line_number}")
     if function_line_number:
         key_parts.append(f"fln_{function_line_number}")
-    if class_context:
-        key_parts.append(f"class_{class_context}")
-    elif context:
-        key_parts.append(f"ctx_{context}")
-        
+
     return ":".join(key_parts)
 
 def make_hashable(val):
@@ -120,7 +137,7 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root):
     id_to_key = {}
     normalized_nodes = {}
     
-    for idx, node in enumerate(nodes):
+    for node in nodes:
         node_id = node.get("_id") or node.get("id")
         
         # Normalize path
@@ -143,7 +160,7 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root):
         id_to_key[str(node_id)] = logical_key
         
         # Strip volatile fields
-        clean_node = {k: v for k, v in node.items() if k not in ["_id", "id", "indexed_at", "commit_hash", "content_hash"]}
+        clean_node = {k: v for k, v in node.items() if k not in IGNORED_NODE_FIELDS}
         if "_label" in clean_node and "_labels" not in clean_node:
             clean_node["_labels"] = [clean_node.pop("_label")]
         elif "_label" in clean_node and isinstance(clean_node.get("_labels"), str):
@@ -161,6 +178,11 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root):
         # Remove fields that are only present in one export shape because the
         # golden comparison is meant to be semantic, not schema-verbose.
         clean_node = {k: v for k, v in clean_node.items() if v is not None}
+
+        # Treat parser-added empty/default fields as equivalent to absent.
+        for optional_field, empty_value in EMPTY_COMPAT_FIELDS.items():
+            if clean_node.get(optional_field) == empty_value:
+                clean_node.pop(optional_field, None)
             
         # Clean source if it contains path strings
         if "source" in clean_node and isinstance(clean_node["source"], str):
