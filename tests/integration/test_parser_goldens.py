@@ -98,7 +98,7 @@ def stable_node_sort_key(node):
     function_line_number = int(node.get("function_line_number") or 0)
     
     # Extract clean items (excluding volatile keys) to make sorting 100% deterministic
-    clean_items = sorted((k, make_hashable(v)) for k, v in node.items() if k not in ["_id", "id", "indexed_at", "commit_hash"])
+    clean_items = sorted((k, make_hashable(v)) for k, v in node.items() if k not in ["_id", "id", "indexed_at", "commit_hash", "content_hash"])
     return (primary_label, path, name, line_number, function_line_number, tuple(clean_items))
 
 def load_and_normalize(nodes_path, edges_path, current_repo_root):
@@ -143,7 +143,7 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root):
         id_to_key[str(node_id)] = logical_key
         
         # Strip volatile fields
-        clean_node = {k: v for k, v in node.items() if k not in ["_id", "id", "indexed_at", "commit_hash"]}
+        clean_node = {k: v for k, v in node.items() if k not in ["_id", "id", "indexed_at", "commit_hash", "content_hash"]}
         if "_label" in clean_node and "_labels" not in clean_node:
             clean_node["_labels"] = [clean_node.pop("_label")]
         elif "_label" in clean_node and isinstance(clean_node.get("_labels"), str):
