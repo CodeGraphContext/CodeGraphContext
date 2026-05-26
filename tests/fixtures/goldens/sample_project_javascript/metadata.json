@@ -1,10 +1,9 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-05-19T02:33:45.292662",
+  "exported_at": "2026-05-26T01:56:08.144793",
   "format_version": "1.0",
   "repo": "sample_project_javascript",
-  "repo_path": "/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project_javascript",
+  "repo_path": ".",
   "is_dependency": false,
-  "commit": "0c6be239",
-  "languages": []
+  "commit": "61615f0e"
 }

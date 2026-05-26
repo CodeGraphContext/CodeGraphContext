@@ -1,4 +1,3 @@
-
 import ast
 import os
 import sys
@@ -17,7 +16,6 @@ from codegraphcontext.cli.main import app, _load_credentials
 
 runner = CliRunner()
 
-
 def _command_name_from_decorator(decorator: ast.Call, func_name: str) -> str:
     if decorator.args and isinstance(decorator.args[0], ast.Constant) and isinstance(decorator.args[0].value, str):
         return decorator.args[0].value
@@ -27,7 +25,6 @@ def _command_name_from_decorator(decorator: ast.Call, func_name: str) -> str:
             return kw.value.value
 
     return func_name.replace("_", "-")
-
 
 def _inventory_from_main_source() -> dict[str, set[str]]:
     source = Path(cli_main.__file__).read_text(encoding="utf-8")
@@ -90,7 +87,6 @@ def _inventory_from_main_source() -> dict[str, set[str]]:
 
     return inventory
 
-
 class _FakeSession:
     def __enter__(self):
         return self
@@ -103,11 +99,9 @@ class _FakeSession:
             return [{"name": "main.py", "path": "repo/main.py", "is_dependency": False}]
         return [{"type": "Function", "name": "demo", "path": "repo/main.py", "line_number": 1, "is_dependency": False}]
 
-
 class _FakeDriver:
     def session(self):
         return _FakeSession()
-
 
 class _FakeDBManager:
     def get_driver(self):
@@ -116,11 +110,9 @@ class _FakeDBManager:
     def close_driver(self):
         return None
 
-
 class _FakeGraphBuilder:
     def delete_repository_from_graph(self, _):
         return None
-
 
 class _FakeCodeFinder:
     def find_by_function_name(self, *_args, **_kwargs):
@@ -280,6 +272,10 @@ def cli_test_stubs(monkeypatch, tmp_path):
     registry_module.request_bundle = lambda *_args, **_kwargs: None
     monkeypatch.setitem(sys.modules, "codegraphcontext.cli.registry_commands", registry_module)
 
+    uvicorn_module = types.ModuleType("uvicorn")
+    uvicorn_module.run = lambda *_args, **_kwargs: None
+    monkeypatch.setitem(sys.modules, "uvicorn", uvicorn_module)
+
     bundle_module = types.ModuleType("codegraphcontext.core.cgc_bundle")
 
     class _FakeCGCBundle:
@@ -340,7 +336,6 @@ def _matrix_command_set(entries: list[list[str]]) -> set[tuple[str, str]]:
             covered.add(("root", args[0]))
     return covered
 
-
 def test_cli_inventory_grouped_from_source():
     inventory = _inventory_from_main_source()
 
@@ -368,7 +363,6 @@ def test_cli_inventory_grouped_from_source():
     if "context" in inventory:
         assert inventory["context"] == {"list", "create", "delete", "mode", "default"}
 
-
 def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
     bundle_file = str(cli_test_stubs["bundle_file"])
     bundle_export = str(cli_test_stubs["bundle_export"])
@@ -390,7 +384,7 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
         ["registry", "download", "numpy"],
         ["registry", "request", "https://github.com/example/repo"],
         ["doctor"],
-        ["start"],
+        ["api", "start"],
         ["index", "."],
         ["clean"],
         ["stats"],
@@ -432,6 +426,7 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
         ["export", bundle_export],
         ["load", bundle_file],
         ["report"],
+        ["setup-scip"],
     ]
 
     source_inventory = _inventory_from_main_source()
@@ -472,7 +467,6 @@ def test_config_db_rejects_invalid_backend_with_clear_error(kuzudb_env):
     assert "Invalid backend" in result.output
     assert "kuzudb" in result.output
 
-
 def test_config_show_with_empty_config_does_not_crash(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_main.config_manager, "CONFIG_DIR", tmp_path)
     monkeypatch.setattr(cli_main.config_manager, "CONFIG_FILE", tmp_path / "config.json")
@@ -481,7 +475,6 @@ def test_config_show_with_empty_config_does_not_crash(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert "Configuration Settings" in result.output
-
 
 def test_find_content_falkordb_known_limitation_message(monkeypatch):
     class _FakeFalkorDBManager:
@@ -504,7 +497,6 @@ def test_find_content_falkordb_known_limitation_message(monkeypatch):
     assert result.exit_code == 0
     assert "Full-text search is not supported on FalkorDB" in result.output
     assert "cgc find pattern" in result.output
-
 
 def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):
     class _Ctx:
@@ -560,7 +552,6 @@ def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert "Database Connection Error" not in result.output
-
 
 class TestNeo4jDatabaseNameCLI:
     """Integration tests for NEO4J_DATABASE display in CLI commands."""
