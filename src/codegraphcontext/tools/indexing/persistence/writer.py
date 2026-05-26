@@ -479,6 +479,29 @@ class GraphWriter:
                 file_path=file_path_str,
             )
 
+    def set_file_content_hashes(self, updates: List[Dict[str, str]]) -> None:
+        """Bulk-store ``content_hash`` on File nodes after successful indexing.
+
+        *updates* is a list of ``{"path": <abs_str>, "hash": <hex_str>}`` dicts.
+        A single UNWIND round-trip is used regardless of the batch size, so this
+        is safe to call with thousands of entries.
+        """
+        if not updates:
+            return
+        try:
+            with self.driver.session() as session:
+                session.run(
+                    """
+                    UNWIND $batch AS row
+                    MATCH (f:File {path: row.path})
+                    SET f.content_hash = row.hash
+                    """,
+                    batch=updates,
+                )
+        except Exception as exc:
+            # Hash persistence is best-effort; a failure must not abort the run.
+            warning_logger(f"Could not persist content hashes (cache will be warm on next run): {exc}")
+
     def write_function_call_groups(
         self,
         fn_to_fn: List[Dict] = None,

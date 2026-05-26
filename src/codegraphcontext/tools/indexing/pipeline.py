@@ -11,7 +11,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ...core.jobs import JobManager, JobStatus
 from ...utils.debug_log import debug_log, error_logger, info_logger
+from ...cli.config_manager import get_config_value as _gcv_pipeline
 from .discovery import discover_files_to_index
+from .incremental import compute_file_hash, fetch_cached_hashes
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
 from .resolution.calls import build_function_call_groups
@@ -52,9 +54,41 @@ async def run_tree_sitter_index_async(
     resolved_repo_path_str = str(path.resolve()) if path.is_dir() else str(path.parent.resolve())
 
     processed_count = 0
-    concurrency_limit = 10
+
+    # ── PARALLEL_WORKERS ─────────────────────────────────────────────────────
+    # Each "worker slot" maps to one asyncio.to_thread task running concurrently.
+    # The config is validated to be in [1, 32]; default is 4.  We cap at a
+    # practical maximum of 32 to prevent DB connection exhaustion.
+    try:
+        concurrency_limit = int(_gcv_pipeline("PARALLEL_WORKERS") or "4")
+        concurrency_limit = max(1, min(concurrency_limit, 32))
+    except (ValueError, TypeError):
+        concurrency_limit = 4
+    debug_log(f"Using {concurrency_limit} parallel indexing worker(s) (PARALLEL_WORKERS).")
+
     semaphore = asyncio.Semaphore(concurrency_limit)
-    
+
+    # ── CACHE_ENABLED / incremental indexing ─────────────────────────────────
+    # When CACHE_ENABLED=true we persist a SHA-256 digest on every File node.
+    # On subsequent runs we skip files whose digest hasn't changed, making
+    # re-indexing near-instant for large unchanged codebases.
+    cache_enabled = (_gcv_pipeline("CACHE_ENABLED") or "true").strip().lower() == "true"
+    cached_hashes: Dict[str, str] = {}
+    if cache_enabled:
+        info_logger("[CACHE] Fetching cached file hashes for incremental indexing...")
+        cached_hashes = await asyncio.to_thread(
+            fetch_cached_hashes, writer.driver, resolved_repo_path_str
+        )
+        if cached_hashes:
+            info_logger(f"[CACHE] {len(cached_hashes)} file hash(es) found in cache.")
+        else:
+            info_logger("[CACHE] No cached hashes found (first index run).")
+
+    # Collect (path_str, hash) for every file successfully written so we can
+    # flush them to the DB in a single UNWIND at the end.  list.append is
+    # atomic under the GIL so no explicit lock is needed.
+    hash_updates: List[Dict[str, str]] = []
+
     async def process_file(file: Path) -> Optional[Dict[str, Any]]:
         nonlocal processed_count
         async with semaphore:
@@ -65,7 +99,16 @@ async def run_tree_sitter_index_async(
                 job_manager.update_job(job_id, current_file=str(file))
             
             repo_path = path.resolve() if path.is_dir() else file.parent.resolve()
-            
+            file_path_str = str(file.resolve())
+
+            # ── Incremental: skip unchanged files ─────────────────────────
+            current_hash: Optional[str] = None
+            if cache_enabled:
+                current_hash = await asyncio.to_thread(compute_file_hash, file)
+                if current_hash and cached_hashes.get(file_path_str) == current_hash:
+                    debug_log(f"[CACHE] Skipping unchanged file: {file.name}")
+                    return None  # skip; already in graph
+
             try:
                 # 1. Parse file (CPU bound, run in thread)
                 file_data = await asyncio.to_thread(parse_file, repo_path, file, is_dependency)
@@ -77,6 +120,10 @@ async def run_tree_sitter_index_async(
                         file_data, repo_name, imports_map, 
                         repo_path_str=resolved_repo_path_str
                     )
+                    # Only record hash after a successful write so that an
+                    # interrupted/failed file is retried on the next run.
+                    if cache_enabled and current_hash:
+                        hash_updates.append({"path": file_path_str, "hash": current_hash})
                     return file_data
                 elif not file_data.get("unsupported"):
                     await asyncio.to_thread(add_minimal_file_node, file, repo_path, is_dependency)
@@ -104,6 +151,10 @@ async def run_tree_sitter_index_async(
         f"Starting post-processing phase (inheritance + function calls)..."
     )
 
+    # ── Flush content-hash cache ──────────────────────────────────────────────
+    if cache_enabled and hash_updates:
+        info_logger(f"[CACHE] Persisting {len(hash_updates)} file hash(es) to graph...")
+        await asyncio.to_thread(writer.set_file_content_hashes, hash_updates)
     t0 = time.time()
     info_logger(f"[INHERITS] Resolving inheritance links across {len(all_file_data)} files...")
     inheritance_batch, csharp_files = build_inheritance_and_csharp_files(all_file_data, imports_map)
