@@ -40,8 +40,8 @@ IGNORED_NODE_FIELDS = {
 EMPTY_COMPAT_FIELDS = {
     "bases": [],
     "decorators": [],
-    "args": [""],
-    "detailed_args": [""],
+    "args": [],
+    "detailed_args": [],
     # Treat parser-added default flags as equivalent to absent.
     "is_array": False,
     "is_pointer": False,
@@ -193,7 +193,14 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root):
 
         # Treat parser-added empty/default fields as equivalent to absent.
         for optional_field, empty_value in EMPTY_COMPAT_FIELDS.items():
-            if clean_node.get(optional_field) == empty_value:
+            value = clean_node.get(optional_field)
+
+            if optional_field in {"args", "detailed_args"}:
+                if value in (None, [], [""]):
+                    clean_node.pop(optional_field, None)
+                continue
+
+            if value == empty_value:
                 clean_node.pop(optional_field, None)
             
         # Clean source if it contains path strings
