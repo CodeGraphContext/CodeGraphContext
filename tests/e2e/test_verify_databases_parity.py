@@ -8,6 +8,8 @@ import pytest
 from pathlib import Path
 from typing import Tuple, Dict
 
+from codegraphcontext.core.database import DatabaseManager
+
 # We run indexing as a subprocess to keep PyBind11 namespace and database environments isolated
 async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_dir: Path) -> Tuple[float, Dict[str, int]]:
     print(f"\n================= RUNNING {db_type.upper()} INDEXING IN SUBPROCESS =================")
@@ -130,6 +132,11 @@ async def test_database_parity_e2e(temp_test_dir):
     os.environ.setdefault('NEO4J_URI', 'bolt://localhost:7687')
     os.environ.setdefault('NEO4J_USERNAME', 'neo4j')
     os.environ.setdefault('NEO4J_PASSWORD', '12345678')
+    neo4j_uri = os.environ['NEO4J_URI']
+
+    is_reachable, reachability_error = DatabaseManager.check_port_reachable(neo4j_uri)
+    if not is_reachable:
+        pytest.skip(f"Neo4j server is not running/available: {reachability_error}")
     
     project_path = Path("tests/fixtures/sample_projects").resolve()
     

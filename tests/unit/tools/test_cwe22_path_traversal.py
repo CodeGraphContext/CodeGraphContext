@@ -14,6 +14,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from codegraphcontext.tools.handlers.indexing_handlers import add_code_to_graph
 
 
@@ -81,7 +83,15 @@ def test_rejects_symlink_escape(tmp_path):
     cwd = Path.cwd()
     link_path = cwd / "symlink_escape_test_poc"
     try:
-        os.symlink("/etc", str(link_path))
+        outside_target = Path.home() / ".ssh"
+        try:
+            os.symlink(str(outside_target), str(link_path))
+        except OSError as exc:
+            # On Windows, creating symlinks often requires elevated privileges
+            # or developer mode; skip rather than fail the portability suite.
+            if os.name == "nt":
+                pytest.skip(f"Symlink creation not permitted on this Windows environment: {exc}")
+            raise
         graph_builder, job_manager, loop, list_repos_func = _make_mocks()
 
         result = add_code_to_graph(
@@ -155,12 +165,12 @@ def test_allows_path_via_env_allowlist():
 
 
 def test_allows_multiple_env_roots():
-    """Multiple colon-separated paths in CGC_ALLOWED_ROOTS all work."""
+    """Multiple os.pathsep-separated paths in CGC_ALLOWED_ROOTS all work."""
     graph_builder, job_manager, loop, list_repos_func = _make_mocks()
 
     with tempfile.TemporaryDirectory(prefix="cgc_root1_") as dir1, \
          tempfile.TemporaryDirectory(prefix="cgc_root2_") as dir2:
-        env_val = f"{dir1}:{dir2}"
+        env_val = f"{dir1}{os.pathsep}{dir2}"
         with patch.dict(os.environ, {"CGC_ALLOWED_ROOTS": env_val}):
             for d in [dir1, dir2]:
                 gb, jm, lp, lr = _make_mocks()

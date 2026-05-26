@@ -16,8 +16,50 @@ WORKSPACE_ROOT = TEST_ROOT.parent.absolute()
 def clean_path(p):
     return str(p).replace("\\", "/")
 
+
+def _canonicalize_fixture_path(normalized_path: str) -> str:
+    """Normalize fixture project paths to a consistent './...' form.
+
+    Both of these should compare equal in regression keys:
+    - <REPO_ROOT>/tests/fixtures/sample_projects/<project>/src/foo.py
+    - ./src/foo.py
+    """
+    normalized_path = clean_path(normalized_path)
+    while "//" in normalized_path:
+        normalized_path = normalized_path.replace("//", "/")
+
+    if normalized_path in {".", "./"}:
+        return "."
+
+    marker = "<REPO_ROOT>/tests/fixtures/sample_projects/"
+    if marker in normalized_path:
+        remainder = normalized_path.split(marker, 1)[1]
+        parts = remainder.split("/", 1)
+        if len(parts) == 2:
+            return f"./{parts[1]}"
+        return "."
+
+    if normalized_path.startswith("script/"):
+        return f"./{normalized_path[len('script/') :]}"
+
+    if normalized_path.startswith("./script/"):
+        return f"./{normalized_path[len('./script/') :]}"
+
+    if normalized_path.startswith("./"):
+        return "./" + normalized_path[2:].lstrip("/")
+
+    if normalized_path.startswith("."):
+        return "./" + normalized_path.lstrip("./")
+
+    if normalized_path.startswith("/"):
+        return normalized_path
+
+    return f"./{normalized_path.lstrip('./')}"
+
 def get_logical_key(node, normalized_path):
     labels = node.get("_labels", [])
+    if isinstance(labels, str):
+        labels = [labels]
     primary_label = labels[0] if labels else "Unknown"
     
     # Extract unique identifiers
@@ -86,6 +128,7 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root):
         normalized_path = clean_path(path)
         normalized_path = normalized_path.replace(original_repo_root_str, "<REPO_ROOT>")
         normalized_path = normalized_path.replace(current_repo_root_str, "<REPO_ROOT>")
+        normalized_path = _canonicalize_fixture_path(normalized_path)
         
         # Build logical key
         logical_key = get_logical_key(node, normalized_path)
@@ -101,8 +144,20 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root):
         
         # Strip volatile fields
         clean_node = {k: v for k, v in node.items() if k not in ["_id", "id", "indexed_at", "commit_hash"]}
+        if "_label" in clean_node and "_labels" not in clean_node:
+            clean_node["_labels"] = [clean_node.pop("_label")]
+        elif "_label" in clean_node and isinstance(clean_node.get("_labels"), str):
+            clean_node["_labels"] = [clean_node["_labels"]]
+            clean_node.pop("_label", None)
+        elif isinstance(clean_node.get("_labels"), str):
+            clean_node["_labels"] = [clean_node["_labels"]]
+
         if "path" in clean_node:
             clean_node["path"] = normalized_path
+
+        # Remove fields that are only present in one export shape because the
+        # golden comparison is meant to be semantic, not schema-verbose.
+        clean_node = {k: v for k, v in clean_node.items() if v is not None}
             
         # Clean source if it contains path strings
         if "source" in clean_node and isinstance(clean_node["source"], str):
@@ -140,6 +195,9 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root):
             for k, v in props.items():
                 if isinstance(v, str):
                     v = v.replace(original_repo_root_str, "<REPO_ROOT>").replace(current_repo_root_str, "<REPO_ROOT>")
+                    v = _canonicalize_fixture_path(v)
+                if v is None:
+                    continue
                 clean_props[k] = make_hashable(v)
                 
             # Serialize props as a sorted tuple of items to make it hashable
@@ -244,8 +302,10 @@ def test_language_golden(project_name, update_goldens, tmp_path):
             exp_node = expected_nodes[k]
             act_node = actual_nodes[k]
             # Strip source field comparison if there are slight whitespace formatting differences
-            if "source" in exp_node: exp_node["source"] = "".join(exp_node["source"].split())
-            if "source" in act_node: act_node["source"] = "".join(act_node["source"].split())
+            if isinstance(exp_node.get("source"), str):
+                exp_node["source"] = "".join(exp_node["source"].split())
+            if isinstance(act_node.get("source"), str):
+                act_node["source"] = "".join(act_node["source"].split())
             if exp_node != act_node:
                 property_mismatches.append(f"Node property mismatch for key: {k}\n  Expected: {expected_nodes[k]}\n  Actual  : {actual_nodes[k]}")
                 

@@ -439,8 +439,9 @@ class TestAddFileToGraph:
         """Node writes should use UNWIND (not individual per-item MERGE)."""
         session = _RecordingSession(responses=[_FakeResult()])
         gb, _ = _make_graph_builder(session)
+        repo_root = str(Path("/repo").resolve())
         file_data = {
-            "path": "/repo/a.py",
+            "path": str(Path(repo_root) / "a.py"),
             "lang": "python",
             "is_dependency": False,
             "functions": [{"name": "foo", "line_number": 1, "cyclomatic_complexity": 1, "args": []}],
@@ -449,7 +450,7 @@ class TestAddFileToGraph:
             "imports": [],
             "function_calls": [],
         }
-        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str="/repo")
+        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str=repo_root)
         queries = [c["query"] for c in session.calls]
         assert any("UNWIND" in q for q in queries), "Expected UNWIND batch writes"
 
@@ -457,8 +458,9 @@ class TestAddFileToGraph:
         """Same-named nested classes in one file should not all own every method."""
         session = _RecordingSession(responses=[_FakeResult()])
         gb, _ = _make_graph_builder(session)
+        repo_root = str(Path("/repo").resolve())
         file_data = {
-            "path": "/repo/A.kt",
+            "path": str(Path(repo_root) / "A.kt"),
             "lang": "kotlin",
             "is_dependency": False,
             "functions": [
@@ -485,7 +487,7 @@ class TestAddFileToGraph:
             "imports": [],
             "function_calls": [],
         }
-        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str="/repo")
+        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str=repo_root)
 
         class_fn_call = next(
             c
@@ -502,8 +504,9 @@ class TestAddFileToGraph:
         """Imports without full_import_name/source parity should not break Kuzu UNWIND."""
         session = _RecordingSession(responses=[_FakeResult()])
         gb, _ = _make_graph_builder(session)
+        repo_root = str(Path("/repo").resolve())
         file_data = {
-            "path": "/repo/main.go",
+            "path": str(Path(repo_root) / "main.go"),
             "lang": "go",
             "is_dependency": False,
             "functions": [],
@@ -521,7 +524,7 @@ class TestAddFileToGraph:
             "function_calls": [],
         }
 
-        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str="/repo")
+        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str=repo_root)
 
         import_call = next(
             c for c in session.calls

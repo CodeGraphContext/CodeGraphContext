@@ -115,7 +115,7 @@ def _initialize_services(cli_context_flag: Optional[str] = None) -> tuple[Any, A
             db_manager = KuzuDBManager()
             try:
                 db_manager.get_driver()
-                console.print("[green]✓[/green] Successfully switched to KùzuDB fallback")
+                console.print("[green]OK[/green] Successfully switched to KùzuDB fallback")
             except Exception as kuzu_e:
                 console.print(f"[bold red]Critical Error:[/bold red] Both FalkorDB and KùzuDB failed: {kuzu_e}")
                 return None, None, None, ctx
@@ -137,7 +137,7 @@ def _initialize_services(cli_context_flag: Optional[str] = None) -> tuple[Any, A
                         from ..core.database_kuzu import KuzuDBManager
                         db_manager = KuzuDBManager()
                         db_manager.get_driver()
-                        console.print("[green]✓[/green] Successfully switched to KuzuDB fallback")
+                        console.print("[green]OK[/green] Successfully switched to KuzuDB fallback")
                     except Exception as kuzu_e:
                         console.print(f"[bold red]Critical Error:[/bold red] Neo4j failed and KuzuDB fallback failed: {kuzu_e}")
                         return None, None, None, ctx
@@ -564,7 +564,7 @@ def reindex_helper(path: str, context: Optional[str] = None):
         console.print(f"[yellow]Deleting existing index for: {path_obj}[/yellow]")
         try:
             graph_builder.delete_repository_from_graph(str(path_obj))
-            console.print("[green]✓[/green] Deleted old index")
+            console.print("[green]OK[/green] Deleted old index")
         except Exception as e:
             console.print(f"[red]Error deleting old index: {e}[/red]")
             db_manager.close_driver()
@@ -628,11 +628,11 @@ def clean_helper(context: Optional[str] = None):
                 console.print(f"[dim]  Deleted {deleted_count} orphaned nodes (batch)...[/dim]")
             
             if total_deleted > 0:
-                console.print(f"[green]✓[/green] Deleted {total_deleted} orphaned nodes total")
+                console.print(f"[green]OK[/green] Deleted {total_deleted} orphaned nodes total")
             else:
-                console.print("[green]✓[/green] No orphaned nodes found")
+                console.print("[green]OK[/green] No orphaned nodes found")
             
-        console.print("[green]✅ Database cleanup complete![/green]")
+        console.print("[green]OK[/green] Database cleanup complete!")
     except Exception as e:
         console.print(f"[bold red]An error occurred during cleanup:[/bold red] {e}")
     finally:
@@ -804,7 +804,7 @@ def watch_helper(path: str, context: Optional[str] = None):
         
         # Add the directory to watch
         if is_indexed:
-            console.print("[green]✓[/green] Already indexed (no initial scan needed)")
+            console.print("[green]OK[/green] Already indexed (no initial scan needed)")
             watcher.watch_directory(
                 str(path_obj),
                 perform_initial_scan=False,
@@ -822,7 +822,7 @@ def watch_helper(path: str, context: Optional[str] = None):
                 )
             
             asyncio.run(do_index())
-            console.print("[green]✓[/green] Initial scan complete")
+            console.print("[green]OK[/green] Initial scan complete")
             
             # Now start watching (without another scan)
             watcher.watch_directory(
@@ -850,7 +850,7 @@ def watch_helper(path: str, context: Optional[str] = None):
     finally:
         watcher.stop()
         db_manager.close_driver()
-        console.print("[green]✓[/green] Watcher stopped. Graph is up to date.")
+        console.print("[green]OK[/green] Watcher stopped. Graph is up to date.")
 
 
 
@@ -890,7 +890,7 @@ def setup_scip_helper() -> None:
             
     for lang, (binary, hint, docker) in sorted(langs.items()):
         is_installed = shutil.which(binary) is not None
-        status = "[green]✓ Installed[/green]" if is_installed else "[red]✗ Not Found[/red]"
+        status = "[green]Installed[/green]" if is_installed else "[red]Not Found[/red]"
         table.add_row(lang, binary, status, hint)
         
     console.print(table)
@@ -898,7 +898,7 @@ def setup_scip_helper() -> None:
     # Check Docker
     has_docker = shutil.which("docker") is not None
     if has_docker:
-        console.print("\n[green]✓ Docker is available (Auto-fallback enabled)[/green]")
+        console.print("\n[green]OK Docker is available (Auto-fallback enabled)[/green]")
     else:
         console.print("\n[yellow]⚠ Docker not found. Local binaries are required for SCIP.[/yellow]")
 

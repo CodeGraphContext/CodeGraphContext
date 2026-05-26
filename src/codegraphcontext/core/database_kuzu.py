@@ -507,11 +507,18 @@ class KuzuSessionWrapper:
             return "parser exception" in err or "invalid input <call db." in err
         if query_type == "module_deps":
             return "variable file is not in scope" in err or "binder exception" in err
-        # Do NOT fail-fast for calls_resolution or inheritance_resolution.
+        # For inheritance resolution, fail-fast only on the specific
+        # multi-label relationship pattern that Kuzu does not support.
+        if query_type == "inheritance_resolution":
+            return (
+                "binder exception" in err
+                and "create rel" in err
+                and "multiple node labels" in err
+            )
+        # Do NOT fail-fast for calls_resolution in general.
         # The writer iterates over label pairs with its own try/except for
-        # binder exceptions.  Disabling the entire query type here would
-        # silently drop valid edges for label pairs that DO have schema
-        # bindings, causing parity mismatches vs FalkorDB / Neo4j.
+        # binder exceptions. Disabling the whole query type here would
+        # silently drop valid edges for pairs that do have schema bindings.
         return False
 
     def _disable_query_type(self, query_type: str, error: Exception) -> None:
@@ -733,6 +740,7 @@ class KuzuSessionWrapper:
 
                      for item in batch_data:
                          uid_components = []
+                         missing_pk_parts = []
                          for part in pk_parts:
                              row_ref = re.search(
                                  rf'\b{part}\s*:\s*{re.escape(row_var)}\.(\w+)',
@@ -743,25 +751,42 @@ class KuzuSessionWrapper:
                              )
                              if row_ref:
                                  val = item.get(row_ref.group(1))
-                                 if val is not None:
+                                 is_missing_int_sentinel = (
+                                     part in {"line_number", "function_line_number", "end_line"}
+                                     and val == -1
+                                 )
+                                 if val is not None and not is_missing_int_sentinel:
                                      uid_components.append(str(val))
                                  else:
                                      # Missing values are common in parser output for some
-                                     # languages. Use a deterministic placeholder component
-                                     # to keep UID generation stable and unique enough.
+                                     # languages. Mark missing PK parts and add a stable
+                                     # placeholder so we can append a row fingerprint below.
                                      uid_components.append(f"__missing_{part}")
+                                     missing_pk_parts.append(part)
                              elif param_ref:
                                  val = parameters.get(param_ref.group(1))
-                                 if val is not None:
+                                 is_missing_int_sentinel = (
+                                     part in {"line_number", "function_line_number", "end_line"}
+                                     and val == -1
+                                 )
+                                 if val is not None and not is_missing_int_sentinel:
                                      uid_components.append(str(val))
                                  else:
                                      uid_components.append(f"__missing_{part}")
+                                     missing_pk_parts.append(part)
                              else:
                                  all_ok = False
                                  break
 
                          if all_ok:
                              raw_uid = ''.join(uid_components)
+                             if missing_pk_parts:
+                                 # If key fields are missing, differentiate rows by content
+                                 # to prevent collisions in UNWIND MERGE batches.
+                                 fingerprint = hashlib.sha256(
+                                     json.dumps(item, sort_keys=True, default=str).encode("utf-8")
+                                 ).hexdigest()[:12]
+                                 raw_uid = f"{raw_uid}-{fingerprint}"
                              item['uid'] = raw_uid
                          else:
                              all_ok = False

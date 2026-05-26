@@ -8,12 +8,14 @@ from codegraphcontext.cli import setup_wizard
 
 def test_normalize_config_path_expands_home_and_makes_absolute(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     normalized = config_manager.normalize_config_path("~/.codegraphcontext/global/db/falkordb", absolute=True)
     assert normalized == str((tmp_path / ".codegraphcontext" / "global" / "db" / "falkordb").resolve())
 
 
 def test_validate_config_value_accepts_tilde_path_without_relative_tilde_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.chdir(tmp_path)
 
     ok, err = config_manager.validate_config_value("FALKORDB_PATH", "~/.codegraphcontext/global/db/falkordb")
@@ -23,6 +25,7 @@ def test_validate_config_value_accepts_tilde_path_without_relative_tilde_dir(tmp
 
 def test_configure_mcp_client_writes_expanded_paths(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.chdir(tmp_path)
 
     fake_config = {
