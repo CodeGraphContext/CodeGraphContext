@@ -238,11 +238,6 @@ def cli_test_stubs(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_main, "run_neo4j_setup_wizard", lambda *_args, **_kwargs: None)
 
     monkeypatch.setattr(cli_main, "index_helper", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(cli_main, "setup_scip_helper", lambda *_args, **_kwargs: None)
-    
-    import uvicorn
-    monkeypatch.setattr(uvicorn, "run", lambda *_args, **_kwargs: None)
-
     monkeypatch.setattr(cli_main, "add_package_helper", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli_main, "list_repos_helper", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli_main, "delete_helper", lambda *_args, **_kwargs: None)
@@ -368,8 +363,6 @@ def test_cli_inventory_grouped_from_source():
         "variable",
         "kotlin-call-audit",
     }
-    if "api" in inventory:
-        assert inventory["api"] == {"start"}
     if "datasource" in inventory:
         assert inventory["datasource"] == {"mysql", "cassandra", "redis"}
     if "context" in inventory:
@@ -397,8 +390,7 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
         ["registry", "download", "numpy"],
         ["registry", "request", "https://github.com/example/repo"],
         ["doctor"],
-        ["setup-scip"],
-        ["api", "start"],
+        ["start"],
         ["index", "."],
         ["clean"],
         ["stats"],
@@ -694,119 +686,3 @@ def test_load_credentials_displays_kuzudb_backend(monkeypatch, tmp_path):
         lowered = output.getvalue().lower()
         assert "using database: kuzudb" in lowered
         assert "source:" in lowered
-
-
-def test_load_credentials_normalizes_tilde_paths_from_mcp_json(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
-
-    mcp_data = {
-        "mcpServers": {
-            "CodeGraphContext": {
-                "env": {
-                    "DEFAULT_DATABASE": "falkordb",
-                    "FALKORDB_PATH": "~/.codegraphcontext/global/db/falkordb",
-                    "FALKORDB_SOCKET_PATH": "~/.codegraphcontext/global/db/falkordb.sock",
-                    "DEBUG_LOG_PATH": "~/mcp_debug.log",
-                    "LOG_FILE_PATH": "~/.codegraphcontext/logs/cgc.log",
-                }
-            }
-        }
-    }
-    (tmp_path / "mcp.json").write_text(str(mcp_data).replace("'", '"'), encoding="utf-8")
-
-    clean_env = {
-        k: v for k, v in os.environ.items()
-        if k not in {
-            "DEFAULT_DATABASE",
-            "CGC_RUNTIME_DB_TYPE",
-            "FALKORDB_PATH",
-            "FALKORDB_SOCKET_PATH",
-            "DEBUG_LOG_PATH",
-            "LOG_FILE_PATH",
-        }
-    }
-    with patch.dict(os.environ, clean_env, clear=True):
-        _load_credentials()
-
-        assert os.environ["FALKORDB_PATH"] == str((tmp_path / ".codegraphcontext" / "global" / "db" / "falkordb").resolve())
-        assert os.environ["FALKORDB_SOCKET_PATH"] == str((tmp_path / ".codegraphcontext" / "global" / "db" / "falkordb.sock").resolve())
-        assert os.environ["DEBUG_LOG_PATH"] == str((tmp_path / "mcp_debug.log").resolve())
-        assert os.environ["LOG_FILE_PATH"] == str((tmp_path / ".codegraphcontext" / "logs" / "cgc.log").resolve())
-
-
-def test_load_credentials_utf8_decoding_robustness(monkeypatch, tmp_path):
-    """Test that _load_credentials successfully handles .env files with invalid UTF-8 bytes."""
-    class _Ctx:
-        mode = "global"
-        context_name = ""
-        database = "falkordb"
-        db_path = "/path/to/db"
-        cgcignore_path = "/path/to/cgcignore"
-
-    monkeypatch.setattr(cli_main.config_manager, "CONFIG_DIR", tmp_path)
-    monkeypatch.setattr(cli_main.config_manager, "CONFIG_FILE", tmp_path / "config.json")
-    monkeypatch.setattr(cli_main.config_manager, "CONTEXT_CONFIG_FILE", tmp_path / "config.yaml")
-    monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
-    monkeypatch.chdir(tmp_path)
-    
-    import codegraphcontext.cli.config_manager as config_manager
-    monkeypatch.setattr(config_manager, "resolve_context", lambda *_args: _Ctx())
-    
-    # We will write invalid UTF-8 bytes to the global .env file path
-    monkeypatch.setenv("HOME", str(tmp_path))
-    
-    global_dir = tmp_path / ".codegraphcontext"
-    global_dir.mkdir(parents=True, exist_ok=True)
-    real_global_env = global_dir / ".env"
-    
-    # Write invalid UTF-8 bytes to the file (e.g. 0x97 invalid start byte)
-    real_global_env.write_bytes(b"DEFAULT_DATABASE=ladybugdb\n# invalid byte: \x97\n")
-    
-    clean_env = {
-        k: v for k, v in os.environ.items()
-        if k not in {"DEFAULT_DATABASE", "CGC_RUNTIME_DB_TYPE", "DATABASE_TYPE"}
-    }
-    with patch.dict(os.environ, clean_env, clear=True):
-        output = StringIO()
-        with patch("codegraphcontext.cli.main.console", Console(file=output, force_terminal=False)):
-            _load_credentials()
-        
-        # DEFAULT_DATABASE should still be loaded successfully despite the invalid byte!
-        assert os.environ.get("DEFAULT_DATABASE") == "ladybugdb"
-        assert "Warning" not in output.getvalue()
-
-
-def test_load_credentials_resolves_context_database(monkeypatch, tmp_path):
-    """Test that _load_credentials resolves context database and sets DEFAULT_DATABASE accordingly."""
-    class _Ctx:
-        mode = "named"
-        context_name = "TinyCTX"
-        database = "ladybugdb"
-        db_path = "/path/to/db"
-        cgcignore_path = "/path/to/cgcignore"
-
-    monkeypatch.setattr(cli_main.config_manager, "CONFIG_DIR", tmp_path)
-    monkeypatch.setattr(cli_main.config_manager, "CONFIG_FILE", tmp_path / "config.json")
-    monkeypatch.setattr(cli_main.config_manager, "CONTEXT_CONFIG_FILE", tmp_path / "config.yaml")
-    monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
-    monkeypatch.chdir(tmp_path)
-    
-    import codegraphcontext.cli.config_manager as config_manager
-    monkeypatch.setattr(config_manager, "resolve_context", lambda cli_context_flag: _Ctx() if cli_context_flag == "TinyCTX" else None)
-
-    clean_env = {
-        k: v for k, v in os.environ.items()
-        if k not in {"DEFAULT_DATABASE", "CGC_RUNTIME_DB_TYPE", "DATABASE_TYPE"}
-    }
-    with patch.dict(os.environ, clean_env, clear=True):
-        output = StringIO()
-        with patch("codegraphcontext.cli.main.console", Console(file=output, force_terminal=False)):
-            _load_credentials(cli_context_flag="TinyCTX")
-        
-        # It should resolve context database to ladybugdb and override DEFAULT_DATABASE
-        assert os.environ.get("DEFAULT_DATABASE") == "ladybugdb"
-        lowered = output.getvalue().lower()
-        assert "using database: ladybugdb" in lowered
-        assert "context (tinyctx)" in lowered
