@@ -155,6 +155,9 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root):
         if "path" in clean_node:
             clean_node["path"] = normalized_path
 
+        if "relative_path" in clean_node and isinstance(clean_node["relative_path"], str):
+            clean_node["relative_path"] = clean_path(clean_node["relative_path"])
+
         # Remove fields that are only present in one export shape because the
         # golden comparison is meant to be semantic, not schema-verbose.
         clean_node = {k: v for k, v in clean_node.items() if v is not None}
