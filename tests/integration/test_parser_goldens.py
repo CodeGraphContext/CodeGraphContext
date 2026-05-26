@@ -26,6 +26,11 @@ IGNORED_NODE_FIELDS = {
     "class_context_line",
     "type",
     "kind",
+    # New parser/exporter metadata that should not break semantic regressions.
+    "cyclomatic_complexity",
+    "full_name",
+    "class_context",
+    "context_type",
 }
 
 EMPTY_COMPAT_FIELDS = {
@@ -33,6 +38,9 @@ EMPTY_COMPAT_FIELDS = {
     "decorators": [],
     "args": [""],
     "detailed_args": [""],
+    # Treat parser-added default flags as equivalent to absent.
+    "is_array": False,
+    "is_pointer": False,
 }
 
 # Standardize path strings to use forward slashes
