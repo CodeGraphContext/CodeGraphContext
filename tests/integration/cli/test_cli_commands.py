@@ -177,6 +177,9 @@ class _FakeCodeFinder:
     def find_most_complex_functions(self, *_args, **_kwargs):
         return [{"function_name": "complex", "complexity": 12, "path": "repo/main.py", "line_number": 20}]
 
+    def find_most_complex_functions_in_file(self, *_args, **_kwargs):
+        return [{"function_name": "complex", "complexity": 12, "path": "repo/main.py", "line_number": 20}]
+
     def find_dead_code(self, *_args, **_kwargs):
         return {
             "potentially_unused_functions": [{"function_name": "unused", "path": "repo/main.py", "line_number": 30}],

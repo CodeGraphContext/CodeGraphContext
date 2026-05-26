@@ -172,14 +172,25 @@ const BundleRegistrySection = () => {
                 let displayName = 'unknown';
                 
                 if (rawName.includes('__')) {
-                    // New format: cgc__{owner}__{repo}__{branch}__{commit}
+                    // Standardized format: {owner}__{repo}__{branch}__{commit}
+                    // Legacy format: cgc__{owner}__{repo}__{branch}__{commit}
                     const parts = rawName.split('__');
-                    if (parts.length >= 5) {
+                    if (parts[0] === 'cgc' && parts.length >= 5) {
                         owner = parts[1];
                         repoName = parts[2];
                         branchName = parts[3];
                         commitSha = parts[4];
                         displayName = repoName;
+                    } else if (parts.length >= 4) {
+                        owner = parts[0];
+                        repoName = parts[1];
+                        branchName = parts[2];
+                        commitSha = parts[3];
+                        displayName = repoName;
+                    } else {
+                        repoName = rawName;
+                        displayName = rawName;
+                        owner = 'local';
                     }
                 } else if (rawName.includes('-')) {
                     // Legacy format: {repo}-{branch}-{commit} or {name}-{version}

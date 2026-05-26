@@ -2268,10 +2268,10 @@ def analyze_inheritance_tree(
 
 @analyze_app.command("complexity")
 def analyze_complexity(
-    path: Optional[str] = typer.Argument(None, help="Specific function name to analyze"),
+    path: Optional[str] = typer.Argument(None, help="Function name or file path to analyze"),
     threshold: int = typer.Option(10, "--threshold", "-t", help="Complexity threshold for warnings"),
     limit: int = typer.Option(20, "--limit", "-l", help="Maximum results to show"),
-    file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path (only used when function name is provided)"),
+    file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path to scope analysis"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
@@ -2282,16 +2282,55 @@ def analyze_complexity(
         cgc analyze complexity --threshold 15     # Functions over threshold
         cgc analyze complexity my_function        # Specific function
         cgc analyze complexity my_function -f file.py # Specific function in file
+        cgc analyze complexity src/main.py        # Most complex functions in file
+        cgc analyze complexity main.py            # Most complex functions in file
+        cgc analyze complexity --file src/main.py # Alternative file syntax
     """
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
         return
     db_manager, graph_builder, code_finder = services[:3]
-    
+
+    _FILE_EXTENSIONS = ('.py', '.js', '.ts', '.jsx', '.tsx', '.go', '.rs', '.rb',
+                        '.java', '.cpp', '.c', '.cs', '.swift', '.kt', '.scala',
+                        '.php', '.lua', '.zig', '.ex', '.exs', '.r', '.m', '.sh')
+
+    def _is_file_path(value: str) -> bool:
+        if '/' in value or '\\' in value:
+            return True
+        return any(value.endswith(ext) for ext in _FILE_EXTENSIONS)
+
+    def _render_complexity_table(results, title):
+        if not results:
+            console.print("[yellow]No complexity data available for this file[/yellow]")
+            return
+        table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
+        table.add_column("Function", style="cyan")
+        table.add_column("Complexity", style="yellow", justify="right")
+        table.add_column("Location", style="dim", overflow="fold")
+        for func in results:
+            complexity = func.get('complexity', 0)
+            color = "red" if complexity > threshold else "yellow" if complexity > threshold/2 else "green"
+            fpath = func.get('path', '')
+            line_str = str(func.get('line_number', ''))
+            location_str = f"{fpath}:{line_str}" if line_str else fpath
+            table.add_row(
+                func.get('function_name', ''),
+                f"[{color}]{complexity}[/{color}]",
+                location_str
+            )
+        console.print(f"\n[bold cyan]{title}[/bold cyan]")
+        console.print(table)
+        console.print(f"\n[dim]{len([f for f in results if f.get('complexity', 0) > threshold])} function(s) exceed threshold[/dim]")
+
     try:
-        if path:
-            # Specific function
+        if path and _is_file_path(path):
+            # File path provided as positional argument
+            results = code_finder.find_most_complex_functions_in_file(path, limit)
+            _render_complexity_table(results, f"Most Complex Functions in '{path}' (threshold: {threshold}):")
+        elif path:
+            # Specific function name
             result = code_finder.get_cyclomatic_complexity(path, file)
             if result:
                 console.print(f"\n[bold cyan]Complexity for '{path}':[/bold cyan]")
@@ -2300,35 +2339,14 @@ def analyze_complexity(
                 console.print(f"  Line: [dim]{result.get('line_number', '')}[/dim]")
             else:
                 console.print(f"[yellow]Function '{path}' not found or has no complexity data[/yellow]")
+        elif file:
+            # --file option without positional arg
+            results = code_finder.find_most_complex_functions_in_file(file, limit)
+            _render_complexity_table(results, f"Most Complex Functions in '{file}' (threshold: {threshold}):")
         else:
-            # Most complex functions
+            # Global - most complex functions
             results = code_finder.find_most_complex_functions(limit)
-            
-            if not results:
-                console.print("[yellow]No complexity data available[/yellow]")
-                return
-            
-            table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
-            table.add_column("Function", style="cyan")
-            table.add_column("Complexity", style="yellow", justify="right")
-            table.add_column("Location", style="dim", overflow="fold")
-            
-            for func in results:
-                complexity = func.get('complexity', 0)
-                color = "red" if complexity > threshold else "yellow" if complexity > threshold/2 else "green"
-                path = func.get('path', '')
-                line_str = str(func.get('line_number', ''))
-                location_str = f"{path}:{line_str}" if line_str else path
-
-                table.add_row(
-                    func.get('function_name', ''),
-                    f"[{color}]{complexity}[/{color}]",
-                    location_str
-                )
-            
-            console.print(f"\n[bold cyan]Most Complex Functions (threshold: {threshold}):[/bold cyan]")
-            console.print(table)
-            console.print(f"\n[dim]{len([f for f in results if f.get('complexity', 0) > threshold])} function(s) exceed threshold[/dim]")
+            _render_complexity_table(results, f"Most Complex Functions (threshold: {threshold}):")
     finally:
         db_manager.close_driver()
 

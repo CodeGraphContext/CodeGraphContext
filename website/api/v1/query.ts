@@ -1,6 +1,31 @@
 // website/api/v1/query.ts
 import { createClient } from "@supabase/supabase-js";
 
+function extractSessionToken(args: Record<string, unknown> | null | undefined): string {
+  if (!args || typeof args !== "object") return "";
+  const direct = args.session_id ?? args.sessionId ?? args.session ?? args.cgc_session_id;
+  if (direct != null && String(direct).trim()) return String(direct).trim().toLowerCase();
+  const sessionLabel = /\bsession[:\s]+([a-z0-9]{6})\b/i;
+  for (const value of Object.values(args)) {
+    if (typeof value !== "string" || !value.trim()) continue;
+    const labeled = value.match(sessionLabel);
+    if (labeled?.[1]) return labeled[1].toLowerCase();
+  }
+  for (const value of Object.values(args)) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim().toLowerCase();
+    if (/^[a-z0-9]{6}$/.test(trimmed)) return trimmed;
+  }
+  return "";
+}
+
+const MISSING_SESSION_PAYLOAD = {
+  status: "missing_session",
+  message:
+    'Missing required parameter \'session_id\'. Ask the user for their 6-character session token shown at https://cgc.codes/explore. Then retry with session_id set to that token.',
+  dashboard_url: "https://cgc.codes/explore",
+};
+
 /**
  * Builds a tool-specific graceful offline response (HTTP 200).
  *
@@ -8,28 +33,26 @@ import { createClient } from "@supabase/supabase-js";
  * We must ALWAYS return 200 — even when the browser tunnel is unreachable.
  * The offline payload gives ChatGPT enough context to tell the user what to do.
  */
-function offlineResponse(query_type: string, cleanRepo: string) {
-  const openUrl = cleanRepo
-    ? `https://cgc.codes/${cleanRepo}`
-    : "https://cgc.codes/explore";
+function offlineResponse(query_type: string) {
+  const openUrl = "https://cgc.codes/explore";
 
   const base = {
     status: "offline",
-    message: `Browser tunnel is offline. Open ${openUrl} in a browser tab to activate the live code graph, then retry.`,
+    message: `Browser tunnel is offline. Open ${openUrl} in a browser tab, keep that tab active (not in the background), wait a few seconds for the tunnel to connect, then retry in ChatGPT.`,
   };
 
   switch (query_type) {
     case "list_indexed_repositories":
       return { ...base, indexed_repositories: [] };
     case "get_repository_stats":
-      return { ...base, repository: cleanRepo, total_nodes: 0, total_links: 0, files_count: 0, classes_count: 0, functions_count: 0 };
+      return { ...base, total_nodes: 0, total_links: 0, files_count: 0, classes_count: 0, functions_count: 0 };
     case "find_dead_code":
-      return { ...base, repository: cleanRepo, dead_symbols: [], total_dead_symbols: 0 };
+      return { ...base, dead_symbols: [], total_dead_symbols: 0 };
     case "calculate_cyclomatic_complexity":
     case "find_most_complex_functions":
-      return { ...base, repository: cleanRepo, most_complex_functions: [] };
+      return { ...base, most_complex_functions: [] };
     case "analyze_code_relationships":
-      return { ...base, repository: cleanRepo, relationships_count: 0, connected_nodes: [], connected_links: [] };
+      return { ...base, relationships_count: 0, connected_nodes: [], connected_links: [] };
     case "search_registry_bundles":
       return { ...base, results: [] };
     case "definitions":
@@ -46,7 +69,6 @@ function offlineResponse(query_type: string, cleanRepo: string) {
 }
 
 export default async function handler(req: any, res: any) {
-  // Enable CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -55,9 +77,24 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
+  try {
+    return await handleQuery(req, res);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown server error";
+    console.error("[query] unhandled error:", message);
+    return res.status(200).json({
+      status: "error",
+      error: "Signaling gateway failed to execute tunnel query.",
+      details: message,
+      message: "Open https://cgc.codes/explore in a browser tab and retry.",
+    });
+  }
+}
+
+async function handleQuery(req: any, res: any) {
   const method = req.method;
   const params = method === "POST" ? (req.body || {}) : (req.query || {});
-  const { repo, query_type, target, cypher_query } = params;
+  const { repo, query_type, target, cypher_query, branch, commit } = params;
 
   if (!query_type || typeof query_type !== "string") {
     return res.status(400).json({
@@ -87,19 +124,17 @@ export default async function handler(req: any, res: any) {
   const wasmQueries = ["definitions", "callers", "callees", "file_structure", "search", "cypher"];
   const isWasmQuery = wasmQueries.includes(query_type);
 
-  let channelName = "cgc-tunnel-global-mcp";
-  let cleanRepo = "";
+  const sessionToken = extractSessionToken(params);
 
-  if (repo && typeof repo === "string") {
-    cleanRepo = repo.trim().replace(/^(https?:\/\/)?(www\.)?github\.com\//, "").replace(/\/$/, "");
+  if (!sessionToken) {
+    // MUST be 200 — ChatGPT maps non-2xx responses to ClientResponseError and drops the body
+    return res.status(200).json({
+      ...MISSING_SESSION_PAYLOAD,
+      ...offlineResponse(typeof query_type === "string" ? query_type : "unknown"),
+    });
   }
 
-  // Only Kuzu WASM queries are repository-scoped (since they require active visualization rendering).
-  // All MCP Python tools are background-capable and are routed globally!
-  if (isWasmQuery && !isGlobalTool && cleanRepo) {
-    const cleanRepoName = cleanRepo.replace(/\//g, "_").toLowerCase();
-    channelName = `cgc-tunnel-${cleanRepoName}`;
-  }
+  const channelName = `cgc-tunnel-${sessionToken}`;
 
   const channel = supabase.channel(channelName);
   const requestId = Math.random().toString(36).substring(2, 15);
@@ -144,7 +179,7 @@ export default async function handler(req: any, res: any) {
           id: requestId,
           queryType: query_type,
           target: target || cypher_query || "",
-          params: { cypher_query, repo: cleanRepo }
+          params: { cypher_query, repo }
         }
       });
 
@@ -157,18 +192,18 @@ export default async function handler(req: any, res: any) {
         });
       }
 
-      // 3s cap — total fn time ~4.8s when offline, well under Vercel's 10s Hobby limit
-      const safetyTimeout = setTimeout(() => { if (resolveWait) resolveWait(); }, 3000);
+      // 6s cap — background tabs can delay Supabase broadcast delivery; stay under Vercel 10s limit
+      const safetyTimeout = setTimeout(() => { if (resolveWait) resolveWait(); }, 6000);
       await waitPromise;
       clearTimeout(safetyTimeout);
 
       // NEVER return 4xx for offline — ChatGPT maps every non-2xx to ClientResponseError
       if (!hasResponded) {
-        return res.status(200).json(offlineResponse(query_type, cleanRepo));
+        return res.status(200).json(offlineResponse(query_type));
       }
 
       if (wasmResponse?.status === "success") {
-        return res.status(200).json(wasmResponse.result ?? offlineResponse(query_type, cleanRepo));
+        return res.status(200).json(wasmResponse.result ?? offlineResponse(query_type));
       }
 
       // WASM execution error in the browser — still 200 so ChatGPT reads the error text
@@ -204,7 +239,7 @@ export default async function handler(req: any, res: any) {
       // 300ms propagation buffer — balances tab-wake latency vs Vercel's 10s function cap
       await new Promise<void>((resolve) => setTimeout(resolve, 300));
 
-      const toolArgs = { repo: cleanRepo, ...params };
+      const toolArgs = { repo, ...params };
 
       const sendStatus = await channel.send({
         type: "broadcast",
@@ -220,14 +255,14 @@ export default async function handler(req: any, res: any) {
         });
       }
 
-      // 3s cap — total fn time ~4.8s when offline, well under Vercel's 10s Hobby limit
-      const safetyTimeout = setTimeout(() => { if (resolveWait) resolveWait(); }, 3000);
+      // 6s cap — background tabs can delay Supabase broadcast delivery; stay under Vercel 10s limit
+      const safetyTimeout = setTimeout(() => { if (resolveWait) resolveWait(); }, 6000);
       await waitPromise;
       clearTimeout(safetyTimeout);
 
       // NEVER return 4xx for offline — ChatGPT maps every non-2xx to ClientResponseError
       if (!hasResponded) {
-        return res.status(200).json(offlineResponse(query_type, cleanRepo));
+        return res.status(200).json(offlineResponse(query_type));
       }
 
       if (toolResponse?.status === "error") {
@@ -242,7 +277,7 @@ export default async function handler(req: any, res: any) {
       // Guard: res.json(undefined) produces `{}` which ChatGPT misreads as ClientResponseError
       const toolResult = toolResponse?.result;
       if (toolResult === undefined || toolResult === null) {
-        return res.status(200).json(offlineResponse(query_type, cleanRepo));
+        return res.status(200).json(offlineResponse(query_type));
       }
 
       return res.status(200).json(toolResult);

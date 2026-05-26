@@ -28,7 +28,7 @@ from datetime import datetime, date
 import subprocess
 
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
-from codegraphcontext.utils.git_utils import get_repo_commit_hash
+from codegraphcontext.utils.git_utils import get_repo_commit_hash, get_repo_branch_name
 
 
 class _BundleEncoder(json.JSONEncoder):
@@ -106,11 +106,9 @@ class CGCBundle:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 
-                # Step 1: Extract metadata
+                # Step 1: Extract metadata base
                 info_logger("Extracting metadata...")
                 metadata = self._extract_metadata(repo_path)
-                with open(temp_path / "metadata.json", 'w') as f:
-                    json.dump(metadata, f, indent=2, cls=_BundleEncoder)
                 
                 # Step 2: Extract schema
                 info_logger("Extracting schema...")
@@ -126,12 +124,48 @@ class CGCBundle:
                 info_logger("Extracting edges...")
                 edge_count = self._extract_edges(temp_path / "edges.jsonl", repo_path)
                 
-                # Step 5: Generate statistics
+                # Step 5: Generate statistics and assemble standardized metadata
                 if include_stats:
                     info_logger("Generating statistics...")
                     stats = self._generate_stats(repo_path, node_count, edge_count)
                     with open(temp_path / "stats.json", 'w') as f:
                         json.dump(stats, f, indent=2, cls=_BundleEncoder)
+                else:
+                    stats = None
+
+                # Compile dynamic standardized metadata
+                try:
+                    from importlib.metadata import version as get_version
+                    py_version = get_version("codegraphcontext")
+                except Exception:
+                    py_version = "0.4.11"
+
+                metadata["format_version"] = "1.0.0"
+                metadata["generator"] = f"PYv{py_version}"
+                
+                # Timestamp format: YYYY-MM-DDTHH:MM:SSZ (UTC ISO String format)
+                # datetime.utcnow() was deprecated, using timezone-aware or simple UTC strftime
+                from datetime import timezone
+                metadata["exported_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+                # Build name
+                if metadata.get("repo") and "/" in metadata["repo"]:
+                    owner, repo_name = metadata["repo"].split("/", 1)
+                    branch = metadata.get("branch", "main")
+                    commit = metadata.get("commit", "latest")
+                    metadata["name"] = f"{owner}__{repo_name}__{branch}__{commit}.cgc"
+                else:
+                    foldername = metadata.get("repo", "unknown")
+                    metadata["name"] = f"{foldername}.cgc"
+
+                metadata["graph_metrics"] = {
+                    "total_nodes": node_count,
+                    "total_edges": edge_count
+                }
+
+                # Save final metadata.json
+                with open(temp_path / "metadata.json", 'w') as f:
+                    json.dump(metadata, f, indent=2, cls=_BundleEncoder)
                 
                 # Step 6: Create README
                 self._create_readme(temp_path / "README.md", metadata, stats if include_stats else None)
@@ -304,6 +338,9 @@ class CGCBundle:
                 commit = get_repo_commit_hash(repo_path)
                 if commit:
                     metadata["commit"] = commit[:8]
+                branch = get_repo_branch_name(repo_path)
+                if branch:
+                    metadata["branch"] = branch
 
                 try:
                     result = session.run("""

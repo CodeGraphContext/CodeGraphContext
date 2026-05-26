@@ -10,7 +10,8 @@ import {
   ChevronRight, ChevronDown, Folder, FolderOpen,
   PanelLeftClose, PanelLeftOpen,
   Layers, Check, X, Code2, Sun, Moon, ChevronUp, Route,
-  Download, UploadCloud, Menu, MessageSquare, Copy
+  Download, UploadCloud, Menu, MessageSquare, Copy,
+  Flame, AlertTriangle, Ghost, Sparkles, GitPullRequest, ShieldAlert
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
@@ -346,7 +347,7 @@ function getGraphAwareNodeScale(totalNodes: number): number {
   return clamp(2.5 / (1 + Math.log10(safeNodeCount) * 0.95), 0.45, 2.5);
 }
 
-export default function CodeGraphViewer({ data, onClose }: { data: any, onClose: () => void }) {
+export default function PRReviewer({ data, onClose }: { data: any, onClose: () => void }) {
   const { theme, setTheme } = useTheme();
   const isDark = theme !== 'light';
   const pal = isDark ? PALETTE.dark : PALETTE.light;
@@ -356,7 +357,38 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const [hoverNode, setHoverNode] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<any>(null);
   const [focusSet, setFocusSet] = useState<{ nodes: Set<number>, links: Set<any> } | null>(null);
+
+  // PR Reviewer states
+  const [sidebarTab, setSidebarTab] = useState<'pr' | 'tree' | 'path' | 'config'>('pr');
+  const isPathMode = sidebarTab === 'path';
+  const showConfig = sidebarTab === 'config';
+
+  const [prComments, setPrComments] = useState<Record<string, { author: string; time: string; text: string }[]>>({
+    "3": [
+      { author: "sr-reviewer", time: "2 hours ago", text: "This failover logic looks solid, but are we sure we want to hardcode PayPal as the fallback?" }
+    ],
+    "6": [
+      { author: "api-guard", time: "1 hour ago", text: "Signature changed! Ensure we audit all 14 callers to avoid breaking runtime behaviors." }
+    ]
+  });
+  const [newCommentText, setNewCommentText] = useState("");
+
+  const handleAddComment = (nodeId: string) => {
+    if (!newCommentText.trim()) return;
+    const comment = {
+      author: "you",
+      time: "just now",
+      text: newCommentText.trim()
+    };
+    setPrComments(prev => ({
+      ...prev,
+      [nodeId]: [...(prev[nodeId] || []), comment]
+    }));
+    setNewCommentText("");
+    toast.success("PR comment posted and synced successfully!");
+  };
 
   // Publish and Export parameters
   const { owner, repo } = useParams();
@@ -453,8 +485,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     }
   };
 
-  // Path traversal states
-  const [isPathMode, setIsPathMode] = useState(false);
+  // Path traversal states - pathSource, pathTarget, pathError are stateful
   const [pathSource, setPathSource] = useState<any>(null);
   const [pathTarget, setPathTarget] = useState<any>(null);
   const [pathError, setPathError] = useState<string | null>(null);
@@ -463,7 +494,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const [codeContent, setCodeContent] = useState<string | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
   const [codePanelWidth, setCodePanelWidth] = useState(420);
-  const [codePanelTab, setCodePanelTab] = useState<'code' | 'entities'>('code');
+  const [codePanelTab, setCodePanelTab] = useState<'code' | 'entities' | 'review'>('review');
   const [highlightLine, setHighlightLine] = useState<number | null>(null);
   const isCodeResizing = useRef(false);
   const codeResizeStartX = useRef(0);
@@ -484,7 +515,6 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     all.delete('Parameter');
     return all;
   });
-  const [showConfig, setShowConfig] = useState(false);
   const [lineWidth, setLineWidth] = useState(0.24);
   const [nodeSize, setNodeSize] = useState(3.0);
   const [graphMode, setGraphMode] = useState<VisualizationMode>('classic');
@@ -525,6 +555,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+
 
   /* ── Drag-to-resize ── */
   const onDragStart = (e: React.MouseEvent) => {
@@ -583,14 +615,48 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     return { degreeMap: dm, maxDegree: max };
   }, [filteredData]);
 
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (fg) {
+      const chargeForce = fg.d3Force('charge');
+      if (chargeForce) {
+        chargeForce.strength(-350);
+      }
+      const linkForce = fg.d3Force('link');
+      if (linkForce) {
+        linkForce.distance(120);
+      }
+      fg.d3ReheatSimulation();
+    }
+  }, [filteredData]);
+
   const nodeCanvasObject = useCallback((node: any, ctx: any, globalScale: number) => {
     if (!visibleNodeTypes.has(node.type)) return;
     if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
 
     const isHovered = hoverNode && node.id === hoverNode.id;
     const isFocused = focusSet ? focusSet.nodes.has(node.id) : true;
-    const baseColor = nodeColors[node.type] || nodeColors.Other;
-    const radius = node.val * 0.8 * nodeSize * graphAwareNodeScale;
+    
+    // Determine base color based on PR properties
+    let baseColor = nodeColors[node.type] || nodeColors.Other;
+    if (node.isOrphan) {
+      baseColor = '#6b7280'; // grey/muted
+    } else if (node.prZone === 'direct') {
+      baseColor = node.status === 'added' ? '#22c55e' : '#ef4444'; // green or red/orange
+    } else if (node.prZone === 'primary') {
+      baseColor = '#f97316'; // orange
+    } else if (node.prZone === 'secondary') {
+      baseColor = '#eab308'; // yellow
+    } else {
+      // Unchanged node colors: desaturate/slate
+      baseColor = isDark ? '#334155' : '#cbd5e1';
+    }
+
+    // Determine radius (scale with complexity delta if present)
+    let radius = node.val * 0.8 * nodeSize * graphAwareNodeScale;
+    if (node.complexityDelta) {
+      radius = radius * (1 + node.complexityDelta / 12);
+    }
     const opacity = isFocused ? (isHovered ? 1 : 0.9) : 0.05;
     const isMassive = filteredData.nodes.length > 3000;
 
@@ -602,99 +668,143 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       return;
     }
 
-    switch (graphMode) {
-      case 'icon': {
-        if (isHovered || (selectedFile && node.file === selectedFile && node.type === 'File')) {
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, radius * (isHovered ? 2.5 : 2.0), 0, 2 * Math.PI, false);
-          ctx.fillStyle = getRGBA(baseColor, isHovered ? (isFocused ? 0.3 : 0.1) : 0.1);
-          ctx.fill();
-        }
-        ctx.save();
-        const emojiSize = Math.max(14 / globalScale, (node.val || 1) * 2);
-        ctx.font = `${emojiSize}px serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.globalAlpha = isFocused ? 1.0 : 0.3;
-        ctx.fillText(EMOJI_MAP[node.type] || '❓', node.x, node.y);
-        ctx.restore();
-        break;
-      }
+    // High File Churn Glow Effect
+    if (node.fileChurn && node.fileChurn > 50 && isFocused) {
+      ctx.save();
+      ctx.shadowColor = baseColor;
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius * 1.2, 0, 2 * Math.PI, false);
+      ctx.fillStyle = getRGBA(baseColor, 0.25);
+      ctx.fill();
+      ctx.restore();
+    }
 
-      case 'neon': {
-        if (isHovered || (selectedFile && node.file === selectedFile && node.type === 'File')) {
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, radius * 3, 0, 2 * Math.PI, false);
-          ctx.fillStyle = getRGBA(baseColor, 0.06);
-          ctx.fill();
-        }
-        ctx.save();
-        ctx.shadowColor = baseColor;
-        ctx.shadowBlur = isFocused ? 20 : 3;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-        ctx.fillStyle = isFocused ? baseColor : getRGBA(baseColor, opacity);
-        ctx.fill();
-        ctx.shadowBlur = isFocused ? 10 : 0;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, radius * 0.4, 0, 2 * Math.PI, false);
-        ctx.fillStyle = isFocused ? (isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.5)') : getRGBA(isDark ? '#ffffff' : '#000000', opacity * 0.5);
-        ctx.fill();
-        ctx.restore();
-        break;
-      }
+    if (node.isOrphan) {
+      // Draw a desaturated circle as background
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
+      ctx.fillStyle = isDark ? '#1e293b' : '#e2e8f0';
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 1;
+      ctx.fill();
+      ctx.stroke();
 
-      case 'galaxy': {
-        const degree = degreeMap.get(node.id) || 0;
-        const ringCount = clamp(degree, 1, 5);
-
-        if (isFocused) {
-          const haloRadius = radius * 4;
-          const grad = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, haloRadius);
-          grad.addColorStop(0, getRGBA(baseColor, isHovered ? 0.4 : 0.25));
-          grad.addColorStop(0.4, getRGBA(baseColor, 0.08));
-          grad.addColorStop(1, getRGBA(baseColor, 0));
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, haloRadius, 0, 2 * Math.PI, false);
-          ctx.fillStyle = grad;
-          ctx.fill();
-
-          for (let i = 0; i < ringCount; i++) {
-            const ringR = radius * (1 + (i + 1) * 0.8);
-            const ringAlpha = 0.35 - i * 0.06;
+      // Draw ghost emoji
+      ctx.save();
+      const emojiSize = radius * 1.3;
+      ctx.font = `${emojiSize}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('👻', node.x, node.y);
+      ctx.restore();
+    } else {
+      switch (graphMode) {
+        case 'icon': {
+          if (isHovered || (selectedFile && node.file === selectedFile && node.type === 'File')) {
             ctx.beginPath();
-            ctx.arc(node.x, node.y, ringR, 0, 2 * Math.PI, false);
-            ctx.strokeStyle = getRGBA(baseColor, Math.max(ringAlpha, 0.05));
-            ctx.lineWidth = isHovered ? 0.8 : 0.5;
-            ctx.stroke();
+            ctx.arc(node.x, node.y, radius * (isHovered ? 2.5 : 2.0), 0, 2 * Math.PI, false);
+            ctx.fillStyle = getRGBA(baseColor, isHovered ? (isFocused ? 0.3 : 0.1) : 0.1);
+            ctx.fill();
           }
-        } else {
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, radius * 2, 0, 2 * Math.PI, false);
-          ctx.fillStyle = getRGBA(baseColor, 0.02);
-          ctx.fill();
+          ctx.save();
+          const emojiSize = Math.max(14 / globalScale, (node.val || 1) * 2);
+          ctx.font = `${emojiSize}px serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.globalAlpha = isFocused ? 1.0 : 0.3;
+          ctx.fillText(EMOJI_MAP[node.type] || '❓', node.x, node.y);
+          ctx.restore();
+          break;
         }
 
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, isFocused ? radius * 0.5 : radius * 0.3, 0, 2 * Math.PI, false);
-        ctx.fillStyle = isFocused ? (isDark ? '#ffffff' : '#1a1a1a') : getRGBA(isDark ? '#ffffff' : '#000000', opacity * 0.5);
-        ctx.fill();
-        break;
-      }
-
-      default: {
-        if (isHovered || (selectedFile && node.file === selectedFile && node.type === 'File')) {
+        case 'neon': {
+          if (isHovered || (selectedFile && node.file === selectedFile && node.type === 'File')) {
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, radius * 3, 0, 2 * Math.PI, false);
+            ctx.fillStyle = getRGBA(baseColor, 0.06);
+            ctx.fill();
+          }
+          ctx.save();
+          ctx.shadowColor = baseColor;
+          ctx.shadowBlur = isFocused ? 20 : 3;
           ctx.beginPath();
-          ctx.arc(node.x, node.y, radius * (isHovered ? 2.5 : 2.0), 0, 2 * Math.PI, false);
-          ctx.fillStyle = getRGBA(baseColor, isHovered ? (isFocused ? 0.3 : 0.1) : 0.1);
+          ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
+          ctx.fillStyle = isFocused ? baseColor : getRGBA(baseColor, opacity);
           ctx.fill();
+          ctx.shadowBlur = isFocused ? 10 : 0;
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, radius * 0.4, 0, 2 * Math.PI, false);
+          ctx.fillStyle = isFocused ? (isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.5)') : getRGBA(isDark ? '#ffffff' : '#000000', opacity * 0.5);
+          ctx.fill();
+          ctx.restore();
+          break;
         }
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-        ctx.fillStyle = isFocused ? baseColor : getRGBA(baseColor, opacity);
-        ctx.fill();
-        break;
+
+        case 'galaxy': {
+          const degree = degreeMap.get(node.id) || 0;
+          const ringCount = clamp(degree, 1, 5);
+
+          if (isFocused) {
+            const haloRadius = radius * 4;
+            const grad = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, haloRadius);
+            grad.addColorStop(0, getRGBA(baseColor, isHovered ? 0.4 : 0.25));
+            grad.addColorStop(0.4, getRGBA(baseColor, 0.08));
+            grad.addColorStop(1, getRGBA(baseColor, 0));
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, haloRadius, 0, 2 * Math.PI, false);
+            ctx.fillStyle = grad;
+            ctx.fill();
+
+            for (let i = 0; i < ringCount; i++) {
+              const ringR = radius * (1 + (i + 1) * 0.8);
+              const ringAlpha = 0.35 - i * 0.06;
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, ringR, 0, 2 * Math.PI, false);
+              ctx.strokeStyle = getRGBA(baseColor, Math.max(ringAlpha, 0.05));
+              ctx.lineWidth = isHovered ? 0.8 : 0.5;
+              ctx.stroke();
+            }
+          } else {
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, radius * 2, 0, 2 * Math.PI, false);
+            ctx.fillStyle = getRGBA(baseColor, 0.02);
+            ctx.fill();
+          }
+
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, isFocused ? radius * 0.5 : radius * 0.3, 0, 2 * Math.PI, false);
+          ctx.fillStyle = isFocused ? (isDark ? '#ffffff' : '#1a1a1a') : getRGBA(isDark ? '#ffffff' : '#000000', opacity * 0.5);
+          ctx.fill();
+          break;
+        }
+
+        default: {
+          if (isHovered || (selectedFile && node.file === selectedFile && node.type === 'File')) {
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, radius * (isHovered ? 2.5 : 2.0), 0, 2 * Math.PI, false);
+            ctx.fillStyle = getRGBA(baseColor, isHovered ? (isFocused ? 0.3 : 0.1) : 0.1);
+            ctx.fill();
+          }
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
+          ctx.fillStyle = isFocused ? baseColor : getRGBA(baseColor, opacity);
+          ctx.fill();
+          break;
+        }
       }
+    }
+
+    // Dashed border for altered API Signatures
+    if (node.signatureChanged && isFocused) {
+      ctx.save();
+      ctx.strokeStyle = baseColor;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius + 3, 0, 2 * Math.PI, false);
+      ctx.stroke();
+      ctx.restore();
     }
 
     const showLabel = isHovered || (isFocused && globalScale > (isMassive ? 5.0 : 2.0));
@@ -1207,6 +1317,11 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
 
   const getLinkColor = useCallback((link: any) => {
     const isFocused = focusSet ? focusSet.links.has(link) : true;
+
+    if (link.isViolation) {
+      return '#d946ef'; // Flashing purple for architectural layer violations
+    }
+
     const baseColor = edgeColors[link.type] || '#ffffff';
 
     if (graphMode === 'galaxy') {
@@ -1267,55 +1382,221 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
 
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-bold flex items-center gap-2 tracking-tight uppercase" style={{ color: pal.text }}>
-                    <FileCode className="w-4 h-4 text-blue-400" />
-                    Project Tree
+                    <GitPullRequest className="w-4 h-4 text-purple-400" />
+                    PR REVIEWER
                   </h2>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => {
-                        setIsPathMode(!isPathMode);
-                        setShowConfig(false);
-                      }}
-                      title="Path Finder"
-                      className={`p-1.5 rounded-lg transition-colors ${isPathMode ? 'bg-indigo-500/20 text-indigo-400' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
-                    >
-                      <Route className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowConfig(!showConfig);
-                        setIsPathMode(false);
-                      }}
-                      title="Graph Settings"
-                      className={`p-1.5 rounded-lg transition-colors ${showConfig ? 'bg-blue-500/20 text-blue-400' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
-                    >
-                      <Settings2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setCollapsed(true)}
-                      title="Collapse sidebar"
-                      className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-white/5 transition-colors"
-                    >
-                      <PanelLeftClose className="w-4 h-4" />
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => setCollapsed(true)}
+                    title="Collapse sidebar"
+                    className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-white/5 transition-colors"
+                  >
+                    <PanelLeftClose className="w-4 h-4" />
+                  </button>
                 </div>
 
-                <div className="relative mb-2">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-                  <input
-                    type="text"
-                    placeholder="Filter files..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`w-full rounded-lg py-1.5 pl-9 pr-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-all ${isDark ? 'bg-white/5 border border-white/8 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
-                  />
+                {/* Sidebar Tab Switcher */}
+                <div className="grid grid-cols-4 bg-white/5 p-1 rounded-xl mb-3 border border-white/5 gap-1 select-none flex-shrink-0">
+                  <button
+                    onClick={() => setSidebarTab('pr')}
+                    className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg transition-all ${sidebarTab === 'pr' ? 'bg-indigo-500 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    title="PR Review Summary"
+                  >
+                    PR Review
+                  </button>
+                  <button
+                    onClick={() => setSidebarTab('tree')}
+                    className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg transition-all ${sidebarTab === 'tree' ? 'bg-indigo-500 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    title="File Explorer Tree"
+                  >
+                    Files
+                  </button>
+                  <button
+                    onClick={() => setSidebarTab('path')}
+                    className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg transition-all ${sidebarTab === 'path' ? 'bg-indigo-500 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    title="Path Finder Traversal"
+                  >
+                    Paths
+                  </button>
+                  <button
+                    onClick={() => setSidebarTab('config')}
+                    className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg transition-all ${sidebarTab === 'config' ? 'bg-indigo-500 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    title="Settings & Filter Config"
+                  >
+                    Config
+                  </button>
                 </div>
+
+                {sidebarTab === 'tree' && (
+                  <div className="relative mb-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+                    <input
+                      type="text"
+                      placeholder="Filter files..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className={`w-full rounded-lg py-1.5 pl-9 pr-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-all ${isDark ? 'bg-white/5 border border-white/8 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
+                    />
+                  </div>
+                )}
               </div>
 
-              {/* Tree / Config / Path Mode */}
+              {/* Sidebar Content Body */}
               <div className="flex-1 overflow-y-auto px-2 py-1 custom-scrollbar">
-                {isPathMode ? (
+                {sidebarTab === 'pr' && (
+                  <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
+                    {/* PR Info */}
+                    <div className="p-3.5 bg-gradient-to-b from-white/5 to-white/[0.02] border border-white/10 rounded-2xl">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <GitPullRequest className="w-4 h-4 text-purple-400" />
+                        <span className="text-[11px] font-bold text-purple-400 uppercase tracking-wider">Pull Request Review</span>
+                      </div>
+                      <h3 className="text-sm font-bold leading-snug mb-2 text-white">
+                        {data.metadata?.prTitle || "PR Title"}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-2 text-[10px] text-gray-400 font-mono">
+                        <span className="bg-white/5 px-2 py-0.5 rounded border border-white/5">#{data.metadata?.prNumber || 0}</span>
+                        <span>by @{data.metadata?.author || "author"}</span>
+                        <span>&bull;</span>
+                        <span className="text-purple-300">{data.metadata?.sourceBranch}</span>
+                        <span>➔</span>
+                        <span>{data.metadata?.targetBranch}</span>
+                      </div>
+                    </div>
+
+                    {/* Blast Radius Analytics */}
+                    <div>
+                      <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Blast Radius Metrics</h4>
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div className="p-2.5 bg-white/5 border border-white/5 rounded-xl text-center">
+                          <span className="block text-lg font-bold text-red-400">
+                            {data.metadata?.directChanges || 0}
+                          </span>
+                          <span className="text-[9px] text-gray-400 uppercase">Direct Changes</span>
+                        </div>
+                        <div className="p-2.5 bg-white/5 border border-white/5 rounded-xl text-center">
+                          <span className="block text-lg font-bold text-orange-400">
+                            {data.metadata?.impactedCount || 0}
+                          </span>
+                          <span className="text-[9px] text-gray-400 uppercase">Impact Zone</span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-gray-400 leading-normal mt-2">
+                        💡 <strong>Impact Analysis:</strong> This PR directly modifies {data.metadata?.directChanges || 0} symbols, with a downstream blast radius of {data.metadata?.impactedCount || 0} symbols across {data.files?.length || 0} files.
+                      </p>
+                    </div>
+
+                    {/* Warnings & Alerts */}
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">High-Risk Flags</h4>
+                      
+                      {/* Violation warning card */}
+                      {data.links.some((l: any) => l.isViolation) && (
+                        <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex flex-col gap-2">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                            <div className="text-[11px] leading-relaxed">
+                              <span className="font-bold text-white block">Dependency Drift Violation</span>
+                              {data.links.find((l: any) => l.isViolation)?.violationMessage || "Architectural layer violation detected."}
+                            </div>
+                          </div>
+                          <div className="flex gap-2 mt-1">
+                            <Button
+                              size="sm"
+                              className="w-full text-[10px] h-7 py-0 rounded bg-white/5 border border-white/10 text-white hover:bg-white/10"
+                              onClick={() => {
+                                const l = data.links.find((l: any) => l.isViolation);
+                                if (l) handleHighlightPath(l.source, l.target);
+                              }}
+                            >
+                              Highlight Path
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="w-full text-[10px] h-7 py-0 rounded bg-white/5 border border-white/10 text-white hover:bg-white/10"
+                              onClick={() => {
+                                const l = data.links.find((l: any) => l.isViolation);
+                                if (l) handleHighlightNode(l.source);
+                              }}
+                            >
+                              View Code
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Orphan/Dead warning card */}
+                      {data.nodes.some((n: any) => n.isOrphan) && (
+                        <div className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col gap-2">
+                          <div className="flex items-start gap-2">
+                            <Ghost className="w-4 h-4 text-gray-400 shrink-0 mt-0.5 animate-pulse" />
+                            <div className="text-[11px] leading-relaxed">
+                              <span className="font-bold text-white block">Ghost / Orphan Code Detected</span>
+                              Symbol <code>{data.nodes.find((n: any) => n.isOrphan)?.name}</code> has lost all incoming references in this PR.
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            className="w-full text-[10px] h-7 py-0 rounded bg-indigo-600 hover:bg-indigo-700 text-white"
+                            onClick={() => {
+                              const n = data.nodes.find((n: any) => n.isOrphan);
+                              if (n) handleHighlightNode(n.id);
+                            }}
+                          >
+                            Highlight Orphan Node
+                          </Button>
+                        </div>
+                      )}
+
+                      {/* High Complexity Warning Card */}
+                      {data.nodes.some((n: any) => n.complexityDelta && n.complexityDelta >= 10) && (
+                        <div className="p-3 bg-orange-500/10 border border-orange-500/20 rounded-xl flex flex-col gap-2">
+                          <div className="flex items-start gap-2">
+                            <Flame className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
+                            <div className="text-[11px] leading-relaxed">
+                              <span className="font-bold text-white block">High Complexity Delta Risk</span>
+                              Symbol <code>{data.nodes.find((n: any) => n.complexityDelta && n.complexityDelta >= 10)?.name}</code> grew by +{data.nodes.find((n: any) => n.complexityDelta && n.complexityDelta >= 10)?.complexityDelta} in complexity inside a high-churn file.
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            className="w-full text-[10px] h-7 py-0 rounded bg-indigo-600 hover:bg-indigo-700 text-white"
+                            onClick={() => {
+                              const n = data.nodes.find((n: any) => n.complexityDelta && n.complexityDelta >= 10);
+                              if (n) handleHighlightNode(n.id);
+                            }}
+                          >
+                            Review Diff & Risks
+                          </Button>
+                        </div>
+                      )}
+
+                      {/* API Changes Card */}
+                      {data.nodes.some((n: any) => n.signatureChanged) && (
+                        <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex flex-col gap-2">
+                          <div className="flex items-start gap-2">
+                            <Sparkles className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                            <div className="text-[11px] leading-relaxed">
+                              <span className="font-bold text-white block">API Signature Changed</span>
+                              <code>{data.nodes.find((n: any) => n.signatureChanged)?.name}</code>'s public parameter signature was altered.
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            className="w-full text-[10px] h-7 py-0 rounded bg-indigo-600 hover:bg-indigo-700 text-white"
+                            onClick={() => {
+                              const n = data.nodes.find((n: any) => n.signatureChanged);
+                              if (n) handleHighlightNode(n.id);
+                            }}
+                          >
+                            Verify Signature & Callers
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+
+                {isPathMode && (
                   <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
                     <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                       <Route className="w-3 h-3" /> Path Traversal
@@ -1368,7 +1649,9 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                       </Button>
                     </div>
                   </motion.div>
-                ) : showConfig ? (
+                )}
+
+                {sidebarTab === 'config' && (
                   <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-6">
                     <div>
                       <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -1434,7 +1717,9 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                       </div>
                     </div>
                   </motion.div>
-                ) : (
+                )}
+
+                {sidebarTab === 'tree' && (
                   <div className="py-1">
                     {fileTree.map(node => (
                       <TreeItem
@@ -1809,12 +2094,20 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                   : lineWidth
             }
             linkDirectionalParticles={
-              graphMode === 'galaxy'
-                ? 0
-                : (l: any) => (focusSet ? (focusSet.links.has(l) ? 2 : 0) : (filteredData.links.length > 500 ? 0 : 1))
+              (l: any) => {
+                if (l.isViolation) return 4;
+                if (graphMode === 'galaxy') return 0;
+                return focusSet ? (focusSet.links.has(l) ? 2 : 0) : (filteredData.links.length > 500 ? 0 : 1);
+              }
             }
-            linkDirectionalParticleWidth={lineWidth * 1.5}
-            linkDirectionalParticleSpeed={0.005}
+            linkDirectionalParticleWidth={(l: any) => {
+              if (l.isViolation) return 4;
+              return lineWidth * 1.5;
+            }}
+            linkDirectionalParticleSpeed={(l: any) => {
+              if (l.isViolation) return 0.015;
+              return 0.005;
+            }}
             nodeCanvasObject={nodeCanvasObject}
             nodePointerAreaPaint={(node: any, color: string, ctx: any, globalScale: number) => {
               const radius = (node.val || 1) * 0.8 * nodeSize * graphAwareNodeScale;
@@ -1939,6 +2232,12 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                   <span className="text-gray-500 truncate flex-1 py-1.5">{selectedFile}</span>
                   <div className="flex ml-2 flex-shrink-0">
                     <button
+                      onClick={() => setCodePanelTab('review')}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'review' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
+                    >
+                      PR Review
+                    </button>
+                    <button
                       onClick={() => setCodePanelTab('code')}
                       className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'code' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
                     >
@@ -1955,7 +2254,123 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
 
                 {/* body */}
                 <div ref={codeBodyRef} className="flex-1 overflow-auto custom-scrollbar">
-                  {codePanelTab === 'code' ? (
+                  {codePanelTab === 'review' ? (
+                    <div className="p-4 space-y-4">
+                      {/* API Signature changes */}
+                      {selectedNode && selectedNode.signatureChanged && (
+                        <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                          <h4 className="text-xs font-bold text-amber-400 uppercase mb-2 flex items-center gap-1.5">
+                            <ShieldAlert className="w-3.5 h-3.5" /> API Signature Changed
+                          </h4>
+                          <div className="space-y-2 text-xs font-mono">
+                            <div>
+                              <span className="text-gray-500 block">Previous:</span>
+                              <span className="text-red-400 break-all">{selectedNode.prevSignature}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500 block">New:</span>
+                              <span className="text-green-400 break-all">{selectedNode.newSignature}</span>
+                            </div>
+                            <div className="text-[10px] text-amber-300/80 mt-1">
+                              ⚠️ Warning: {selectedNode.affectedCallers} callers in the repo may be affected.
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Complexity Alert */}
+                      {selectedNode && selectedNode.complexityDelta && (
+                        <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+                          <h4 className="text-xs font-bold text-red-400 uppercase mb-2 flex items-center gap-1.5">
+                            <Flame className="w-3.5 h-3.5" /> High Risk Symbol
+                          </h4>
+                          <p className="text-xs text-gray-300">
+                            This symbol cyclomatic complexity grew by <span className="text-red-400 font-bold">+{selectedNode.complexityDelta}</span>.
+                          </p>
+                          {selectedNode.fileChurn && (
+                            <p className="text-[11px] text-gray-400 mt-1">
+                              File churn rating: <span className="text-red-400 font-bold">{selectedNode.fileChurn}%</span> (grows and changes very frequently in git).
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Git Diff */}
+                      <div>
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Git Diff</h4>
+                        {selectedNode && selectedNode.gitDiff ? (
+                          <pre className="p-3 bg-zinc-950 rounded-xl border border-zinc-800 text-[11px] font-mono leading-[1.6] overflow-x-auto">
+                            {selectedNode.gitDiff.split('\n').map((line: string, idx: number) => {
+                              const isAdded = line.startsWith('+');
+                              const isRemoved = line.startsWith('-');
+                              const lineClass = isAdded
+                                ? 'bg-green-500/10 text-green-400 border-l-2 border-green-500 pl-1.5'
+                                : isRemoved
+                                ? 'bg-red-500/10 text-red-400 border-l-2 border-red-500 pl-1.5'
+                                : 'text-gray-400 pl-2';
+                              return (
+                                <div key={idx} className={lineClass}>
+                                  {line}
+                                </div>
+                              );
+                            })}
+                          </pre>
+                        ) : (
+                          <div className="text-center py-6 bg-white/5 border border-dashed border-white/10 rounded-xl text-gray-500 text-xs">
+                            No modifications recorded for this symbol in this PR.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* PR Line Comments */}
+                      {selectedNode && (
+                        <div className="border-t border-white/10 pt-4">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2 flex items-center gap-1.5">
+                            <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
+                            PR Line Comments
+                          </h4>
+                          
+                          <div className="space-y-2 mb-3">
+                            {(prComments[selectedNode.id] || []).length > 0 ? (
+                              (prComments[selectedNode.id] || []).map((c, i) => (
+                                <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                                  <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+                                    <span className="font-bold text-white font-mono">@{c.author}</span>
+                                    <span>{c.time}</span>
+                                  </div>
+                                  <p className="text-xs text-gray-300">{c.text}</p>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-[11px] text-gray-500 italic">No comments posted yet. Start the discussion!</p>
+                            )}
+                          </div>
+
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Add a review comment..."
+                              value={newCommentText}
+                              onChange={(e) => setNewCommentText(e.target.value)}
+                              className="flex-1 bg-black/45 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  handleAddComment(selectedNode.id);
+                                }
+                              }}
+                            />
+                            <Button
+                              size="sm"
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 rounded-lg"
+                              onClick={() => handleAddComment(selectedNode.id)}
+                            >
+                              Post
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : codePanelTab === 'code' ? (
                     codeContent !== null ? (
                       <pre className={`p-4 text-[12px] leading-[1.65] font-mono whitespace-pre overflow-x-auto ${isDark ? 'text-gray-300' : 'text-gray-800'}`}>
                         {codeContent.split('\n').map((line, i) => {
@@ -1984,9 +2399,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                         {fileEntities.map((n: any) => {
                           const lineNum = n.line_number ?? n.properties?.line_number;
                           return (
-                            <>
+                            <div key={n.id}>
                               <div
-                                key={n.id}
                                 onClick={() => { if (lineNum && codeContent) { setHighlightLine(Number(lineNum)); setCodePanelTab('code'); } }}
                                 className={`flex items-center gap-2 py-1.5 px-2 rounded-lg ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${lineNum && codeContent ? 'cursor-pointer' : ''}`}
                               >
@@ -2019,7 +2433,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                                   "{n.docstring}"
                                 </div>
                               )}
-                            </>
+                            </div>
                           );
                         })}
                       </div>

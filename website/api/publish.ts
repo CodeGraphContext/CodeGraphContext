@@ -70,6 +70,14 @@ export default async function handler(req: any, res: any) {
             });
         }
 
+        let bundleMetadata: any = {};
+        try {
+            const metadataText = await metadataFile.async("text");
+            bundleMetadata = JSON.parse(metadataText);
+        } catch (metaErr) {
+            console.warn("[Publish API] Failed to parse metadata.json in bundle:", metaErr);
+        }
+
         // 3. Verify public GitHub repository exists
         try {
             const token = process.env.GITHUB_TOKEN;
@@ -121,13 +129,24 @@ export default async function handler(req: any, res: any) {
         }
 
         // B. Compile metadata record
-        const cleanRepoName = repo.replace(/\//g, '_');
-        const bundleFilename = `bundles/${cleanRepoName}-${version}.cgc.base64`;
+        let finalBundleName = "";
+        if (repo.includes("/")) {
+            const owner = repo.split('/')[0];
+            const repoName = repo.split('/')[1];
+            const branch = bundleMetadata.branch || "main";
+            const commit = bundleMetadata.commit || bundleMetadata.version || version || "latest";
+            const cleanCommit = commit.length === 40 && /^[0-9a-fA-F]+$/.test(commit) ? commit.substring(0, 7) : commit;
+            finalBundleName = `${owner}__${repoName}__${branch}__${cleanCommit}.cgc.base64`;
+        } else {
+            finalBundleName = `${repo}.cgc.base64`;
+        }
+
+        const bundleFilename = `bundles/${finalBundleName}`;
         
         const newEntry = {
-            name: repo.split('/')[1],
+            name: repo.includes("/") ? repo.split('/')[1] : repo,
             repo: repo,
-            bundle_name: `${cleanRepoName}-${version}.cgc.base64`,
+            bundle_name: finalBundleName,
             version: version,
             size: `${(fileBuffer.length / 1024 / 1024).toFixed(2)}MB`,
             download_url: `https://huggingface.co/datasets/${hfRepo}/resolve/main/${bundleFilename}`,

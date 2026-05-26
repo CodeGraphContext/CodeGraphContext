@@ -1357,6 +1357,23 @@ class CodeFinder:
             result = session.run(query, limit=limit, repo_path=repo_path)
             return result.data()
 
+    def find_most_complex_functions_in_file(self, file_path: str, limit: int = 20, repo_path: Optional[str] = None) -> List[Dict]:
+        """Find the most complex functions in a specific file."""
+        with self.driver.session() as session:
+            repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
+            query = f"""
+                MATCH (f:Function)
+                WHERE f.cyclomatic_complexity IS NOT NULL
+                  AND (f.path ENDS WITH $file_path OR f.path = $file_path)
+                  {repo_filter}
+                RETURN f.name as function_name, f.path as path,
+                       f.cyclomatic_complexity as complexity, f.line_number as line_number
+                ORDER BY f.cyclomatic_complexity DESC
+                LIMIT $limit
+            """
+            result = session.run(query, file_path=file_path, limit=limit, repo_path=repo_path)
+            return result.data()
+
     def list_indexed_repositories(self) -> List[Dict]:
         """List all indexed repositories."""
         with self.driver.session() as session:

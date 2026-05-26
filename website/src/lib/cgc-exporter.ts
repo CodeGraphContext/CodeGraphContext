@@ -23,7 +23,8 @@ export async function packageCgcBundle(
   repoName: string,
   nodes: GraphNode[],
   links: GraphLink[],
-  version: string = "1.0.0"
+  version: string = "1.0.0",
+  extraMetadata?: Record<string, any>
 ): Promise<Blob> {
   const zip = new JSZip();
 
@@ -61,13 +62,31 @@ export async function packageCgcBundle(
   zip.file("edges.jsonl", edgesJsonl);
 
   // 3. Format metadata.json
+  let standardisedName = "";
+  if (repoName.includes("/")) {
+    const owner = repoName.split('/')[0];
+    const repo = repoName.split('/')[1];
+    const branch = extraMetadata?.branch || "main";
+    const commit = extraMetadata?.commit || extraMetadata?.version || version || "latest";
+    const cleanCommit = commit.length === 40 && /^[0-9a-fA-F]+$/.test(commit) ? commit.substring(0, 7) : commit;
+    standardisedName = `${owner}__${repo}__${branch}__${cleanCommit}.cgc`;
+  } else {
+    standardisedName = `${repoName}.cgc`;
+  }
+
   const metadata = {
+    format_version: "1.0.0",
+    generator: "WASMv0.0.1",
+    exported_at: new Date().toISOString(),
+    name: standardisedName,
+    graph_metrics: {
+      total_nodes: nodes.length,
+      total_edges: links.length
+    },
+    // UI dynamic context keys
     repo: repoName,
     version: version,
-    timestamp: new Date().toISOString(),
-    total_nodes: nodes.length,
-    total_edges: links.length,
-    generator: "CodeGraphContext-Web-WASM"
+    ...extraMetadata
   };
   zip.file("metadata.json", JSON.stringify(metadata, null, 2));
 

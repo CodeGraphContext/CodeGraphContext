@@ -2,18 +2,15 @@ import { Button } from "@/components/ui/button";
 import { Mail, MapPin, Phone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { createClient } from "@supabase/supabase-js";
+import { getSupabaseClient } from "@/lib/supabase-client";
 import { FaGithub, FaDiscord } from "react-icons/fa";
 import { SiPypi } from "react-icons/si";
 import { FiBookOpen } from "react-icons/fi";
 
-// Only create Supabase client if environment variables are set
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : null;
+  supabaseUrl && supabaseAnonKey ? getSupabaseClient() : null;
 
 const Footer = () => {
   const [email, setEmail] = useState("");
