@@ -31,6 +31,10 @@ IGNORED_NODE_FIELDS = {
     "full_name",
     "class_context",
     "context_type",
+    # Parser-enrichment fields that should not break older goldens.
+    "context",
+    "params",
+    "value",
 }
 
 EMPTY_COMPAT_FIELDS = {
