@@ -35,6 +35,10 @@ IGNORED_NODE_FIELDS = {
     "context",
     "params",
     "value",
+    "bases",
+    "decorators",
+    "args",
+    "detailed_args",
 }
 
 EMPTY_COMPAT_FIELDS = {
