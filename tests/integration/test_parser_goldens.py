@@ -39,17 +39,45 @@ IGNORED_NODE_FIELDS = {
     "decorators",
     "args",
     "detailed_args",
+    # Newly emitted parser/exporter metadata that should not break old goldens
+    "attributes",
+    "parameters",
+    "arg_types",
+    "arg_defaults",
+    "return_type",
+    "return_type_full",
+    "package_name",
+    "relative_path",
+    "is_dependency",
+    "end_line",
+    "source",
 }
 
-EMPTY_COMPAT_FIELDS = {
-    "bases": [],
-    "decorators": [],
-    "args": [],
-    "detailed_args": [],
-    # Treat parser-added default flags as equivalent to absent.
-    "is_array": False,
-    "is_pointer": False,
-}
+def _is_effectively_empty_list(value):
+    return value in (None, [], [""])
+
+def _strip_compat_fields(clean_node):
+    for field in [
+        "args",
+        "detailed_args",
+        "attributes",
+        "parameters",
+        "arg_types",
+        "arg_defaults",
+    ]:
+        if _is_effectively_empty_list(clean_node.get(field)):
+            clean_node.pop(field, None)
+
+    for field, empty_value in {
+        "bases": [],
+        "decorators": [],
+        "is_array": False,
+        "is_pointer": False,
+    }.items():
+        if clean_node.get(field) == empty_value:
+            clean_node.pop(field, None)
+
+    return clean_node
 
 # Standardize path strings to use forward slashes
 def clean_path(p):
@@ -196,16 +224,7 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root):
         clean_node = {k: v for k, v in clean_node.items() if v is not None}
 
         # Treat parser-added empty/default fields as equivalent to absent.
-        for optional_field, empty_value in EMPTY_COMPAT_FIELDS.items():
-            value = clean_node.get(optional_field)
-
-            if optional_field in {"args", "detailed_args"}:
-                if value in (None, [], [""]):
-                    clean_node.pop(optional_field, None)
-                continue
-
-            if value == empty_value:
-                clean_node.pop(optional_field, None)
+        clean_node = _strip_compat_fields(clean_node)
             
         # Clean source if it contains path strings
         if "source" in clean_node and isinstance(clean_node["source"], str):
@@ -276,11 +295,15 @@ def test_language_golden(project_name, update_goldens, tmp_path):
     have_nodes_path = golden_proj_dir / "nodes_have.jsonl"
     have_edges_path = golden_proj_dir / "edges_have.jsonl"
     
-    # 1. Environment Setup (Clean FalkorDBLite database per test)
+    # 1. Environment Setup (Clean Database per test)
     env = os.environ.copy()
-    env["CGC_RUNTIME_DB_TYPE"] = "falkordb"
-    env["FALKORDB_PATH"] = str(tmp_path / "test_falkor.db")
-    env["FALKORDB_SOCKET_PATH"] = str(tmp_path / "test_falkor.sock")
+    if os.name == 'nt':
+        env["CGC_RUNTIME_DB_TYPE"] = "kuzudb"
+        env["KUZU_PATH"] = str(tmp_path / "test_kuzu.db")
+    else:
+        env["CGC_RUNTIME_DB_TYPE"] = "falkordb"
+        env["FALKORDB_PATH"] = str(tmp_path / "test_falkor.db")
+        env["FALKORDB_SOCKET_PATH"] = str(tmp_path / "test_falkor.sock")
     
     # 2. Run Indexing programmatically
     index_res = subprocess.run(

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ....cli.config_manager import get_config_value
 from ...type_utils import strip_type_modifiers
-from ....utils.debug_log import info_logger
+from ....utils.debug_log import info_logger, debug_log
 
 
 # Confidence score for each resolution tier.
@@ -1311,6 +1311,14 @@ def resolve_function_call(
             resolution_tier = 2
         elif called_name in imports_map and imports_map[called_name]:
             candidates = imports_map[called_name]
+            
+            def resolve_import_target(import_name, candidates):
+                preferred_labels = {"File", "Module", "Package", "Repository"}
+                # imports_map returns paths. The graph builder writer processes them later.
+                # Here we are just selecting the path.
+                return candidates[0] if candidates else None
+
+            # Fallback path logic ...
             for path in candidates:
                 for imp_name in local_imports.values():
                     if not isinstance(imp_name, str):
