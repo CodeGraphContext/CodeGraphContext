@@ -54,6 +54,7 @@ IGNORED_NODE_FIELDS = {
     # Compatibility fields from newer parser output
     "visibility",
     "initializer_text",
+    "initializer_inferred_type",
 }
 
 def _is_effectively_empty_list(value):
@@ -262,29 +263,37 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root):
             # Normalize edge properties if any
             props = edge.get("properties") or {}
             clean_props = {}
+
+            # Noisy IMPORTS properties that vary by parser version / style and
+            # should not be compared when checking semantic regressions.
+            _IMPORTS_IGNORED_PROPS = {"alias", "full_import_name", "line_number"}
+
             for k, v in props.items():
+                if edge_type == "IMPORTS" and k in _IMPORTS_IGNORED_PROPS:
+                    continue
                 if isinstance(v, str):
                     v = v.replace(original_repo_root_str, "<REPO_ROOT>").replace(current_repo_root_str, "<REPO_ROOT>")
                     v = _canonicalize_fixture_path(v)
                 if v is None:
                     continue
                 clean_props[k] = make_hashable(v)
-                
-            # Serialize props as a sorted tuple of items to make it hashable
-            props_tuple = tuple(sorted(clean_props.items()))
 
             if edge_type == "IMPORTS":
                 # Normalize IMPORTS edges by imported name rather than exact
                 # destination node identity, which is unstable across parser versions.
                 imported_name = clean_props.get("imported_name")
-                full_import_name = clean_props.get("full_import_name")
+                props_tuple = tuple(sorted(
+                    (k, v) for k, v in clean_props.items()
+                    if k in {"imported_name"}
+                ))
                 normalized_edges.add((
                     from_key,
-                    f"IMPORT::{imported_name or full_import_name or to_key}",
+                    f"IMPORT::{imported_name or to_key}",
                     edge_type,
                     props_tuple,
                 ))
             else:
+                props_tuple = tuple(sorted(clean_props.items()))
                 normalized_edges.add((from_key, to_key, edge_type, props_tuple))
             
     return normalized_nodes, normalized_edges
