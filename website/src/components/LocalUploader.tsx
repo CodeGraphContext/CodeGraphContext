@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { FolderUp, FileArchive, Github, Loader2 } from "lucide-react";
+import { FolderUp, FileArchive, Github, Loader2, Settings, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { parseFilesIntoGraph } from "@/lib/parser";
 
 import JSZip from "jszip";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 
 const IGNORED_DIRS = new Set([
@@ -43,12 +43,17 @@ const sanitizePath = (pathStr: string, repoName?: string): string => {
     }
   }
   
+  // Keep original path if not matched
   return p;
 };
 
-const isPathIgnored = (path: string) => {
+const isPathIgnored = (path: string, skipTests = true) => {
   const parts = path.split(/[\/\\]/);
-  return parts.some(part => IGNORED_DIRS.has(part));
+  return parts.some(part => {
+    if (IGNORED_DIRS.has(part)) return true;
+    if (skipTests && ['test', 'tests', '__tests__', 'spec', 'specs'].includes(part.toLowerCase())) return true;
+    return false;
+  });
 };
 
 const fetchWithFallbackProxies = async (url: string): Promise<Response> => {
@@ -145,8 +150,41 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
   const [activeTab, setActiveTab] = useState<'folder' | 'zip' | 'cgc' | 'github'>('github');
   const [githubUrl, setGithubUrl] = useState("");
   const [githubPat, setGithubPat] = useState(() => localStorage.getItem('github_pat') || "");
-  const [indexVariables, setIndexVariables] = useState(false);
+  
+  const [config, setConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('cgc_indexer_config');
+      if (saved) {
+        return {
+          indexVariables: false,
+          skipTests: true,
+          maxNodes: 100000,
+          maxEdges: 50000,
+          ...JSON.parse(saved)
+        };
+      }
+    } catch (e) {}
+    return {
+      indexVariables: false,
+      skipTests: true,
+      maxNodes: 100000,
+      maxEdges: 50000,
+    };
+  });
+  
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
 
+  const updateConfig = (newConfig: Partial<typeof config>) => {
+    const updated = { ...config, ...newConfig };
+    setConfig(updated);
+    localStorage.setItem('cgc_indexer_config', JSON.stringify(updated));
+  };
+
+  const isDirIgnored = (name: string) => {
+    if (IGNORED_DIRS.has(name)) return true;
+    if (config.skipTests && ['test', 'tests', '__tests__', 'spec', 'specs'].includes(name.toLowerCase())) return true;
+    return false;
+  };
 
   const processFiles = async (files: { path: string, content: string }[], repoName: string = "local-project") => {
     // Build fileContents map before the worker clears content for memory
@@ -162,7 +200,11 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
     const graphData = await parseFilesIntoGraph(
       files, 
       (msg, val) => setProgress({ text: msg, value: val }),
-      { indexVariables }
+      { 
+        indexVariables: config.indexVariables,
+        maxNodes: config.maxNodes,
+        maxEdges: config.maxEdges
+      }
     );
     
     setProgress({ text: "Complete!", value: 100 });
@@ -195,7 +237,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
           if (entry.kind === 'file' && entry.name.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/)) {
             const file = await entry.getFile();
             files.push({ path: `${prefix}/${entry.name}`, content: await file.text() });
-          } else if (entry.kind === 'directory' && !IGNORED_DIRS.has(entry.name)) {
+          } else if (entry.kind === 'directory' && !isDirIgnored(entry.name)) {
             await readDir(entry, `${prefix}/${entry.name}`);
           }
         }
@@ -222,7 +264,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
       const promises: Promise<void>[] = [];
       
       jszip.forEach((path, entry) => {
-        if (!entry.dir && path.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/) && !isPathIgnored(path)) {
+        if (!entry.dir && path.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/) && !isPathIgnored(path, config.skipTests)) {
           promises.push(entry.async("text").then(content => { files.push({ path, content }); }));
         }
       });
@@ -491,15 +533,15 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
             </motion.div>
           )}
           
-          {/* Index Options */}
-          <div className="mt-8 flex items-center gap-2 cursor-pointer group" onClick={() => setIndexVariables(!indexVariables)}>
-            <div className={`w-4 h-4 rounded border transition-all flex items-center justify-center ${indexVariables ? 'bg-purple-500 border-purple-500' : 'border-white/20 bg-white/5'}`}>
-              {indexVariables && <div className="w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_5px_#fff]" />}
-            </div>
-            <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400 group-hover:text-gray-300 transition-colors">
-              Index High-Fidelity Variables (Higher Compute)
-            </span>
-          </div>
+          {/* Configure Indexer Link */}
+          <button 
+            type="button"
+            onClick={() => setIsConfigOpen(true)}
+            className="mt-8 flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-gray-400 hover:text-white transition-all cursor-pointer group"
+          >
+            <Settings className="w-3.5 h-3.5 group-hover:rotate-45 transition-transform duration-300 text-purple-400" />
+            <span>Configure Indexer Settings ⚙️</span>
+          </button>
           
         </div>
       ) : (
@@ -521,6 +563,155 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
       
       {/* Decorative Blob */}
       {!plain && <div className="absolute -bottom-32 -right-32 w-80 h-80 bg-purple-600/15 blur-3xl rounded-full z-0 pointer-events-none"></div>}
+
+      {/* Configuration Modal */}
+      <AnimatePresence>
+        {isConfigOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4"
+            onClick={() => setIsConfigOpen(false)}
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 15 }} 
+              animate={{ scale: 1, y: 0 }} 
+              exit={{ scale: 0.95, y: 15 }}
+              transition={{ type: "spring", duration: 0.4 }}
+              className="bg-zinc-950/95 border border-white/10 dark:border-white/20 p-6 rounded-[2rem] max-w-md w-full shadow-[0_0_50px_rgba(0,0,0,0.8)] relative overflow-hidden text-left"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <Settings className="w-5 h-5 text-purple-400 animate-pulse" />
+                  <h3 className="text-lg font-bold text-white tracking-wide">Indexer Configuration</h3>
+                </div>
+                <button 
+                  onClick={() => setIsConfigOpen(false)} 
+                  className="p-1.5 rounded-full bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="space-y-6">
+                
+                {/* 1. Index High-Fidelity Variables */}
+                <div className="flex items-start gap-3 justify-between">
+                  <div className="flex-1">
+                    <label className="text-sm font-semibold text-white block mb-0.5">
+                      Index High-Fidelity Variables
+                    </label>
+                    <span className="text-[11px] text-gray-400 leading-normal block">
+                      Enables extraction of local variable assignments. Increases graph density but requires higher compute.
+                    </span>
+                  </div>
+                  <div 
+                    onClick={() => updateConfig({ indexVariables: !config.indexVariables })}
+                    className={`w-11 h-6 rounded-full p-1 cursor-pointer transition-all flex items-center shrink-0 ${config.indexVariables ? 'bg-purple-500 justify-end' : 'bg-zinc-800 justify-start'}`}
+                  >
+                    <motion.div layout className="w-4 h-4 rounded-full bg-white shadow-md" />
+                  </div>
+                </div>
+
+                {/* 2. Skip Tests & Configuration folders */}
+                <div className="flex items-start gap-3 justify-between">
+                  <div className="flex-1">
+                    <label className="text-sm font-semibold text-white block mb-0.5">
+                      Exclude Spec & Test Suites
+                    </label>
+                    <span className="text-[11px] text-gray-400 leading-normal block">
+                      Completely skip parsing test suites, mocks, configurations, specs, and complex directories (e.g. <code>tests/</code>, <code>.github/</code>).
+                    </span>
+                  </div>
+                  <div 
+                    onClick={() => updateConfig({ skipTests: !config.skipTests })}
+                    className={`w-11 h-6 rounded-full p-1 cursor-pointer transition-all flex items-center shrink-0 ${config.skipTests ? 'bg-purple-500 justify-end' : 'bg-zinc-800 justify-start'}`}
+                  >
+                    <motion.div layout className="w-4 h-4 rounded-full bg-white shadow-md" />
+                  </div>
+                </div>
+
+                {/* 3. Max Graph Nodes */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="text-sm font-semibold text-white">
+                      Maximum Graph Nodes
+                    </label>
+                    <span className="text-xs font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
+                      {config.maxNodes.toLocaleString()}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-gray-400 leading-normal block mb-2">
+                    The maximum number of AST elements (files, classes, functions, variables) to create in the graph.
+                  </span>
+                  <input 
+                    type="range"
+                    min={10000}
+                    max={500000}
+                    step={10000}
+                    value={config.maxNodes}
+                    onChange={e => updateConfig({ maxNodes: parseInt(e.target.value) })}
+                    className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                  />
+                </div>
+
+                {/* 4. Max Graph Edges */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="text-sm font-semibold text-white">
+                      Maximum Call / Import Edges
+                    </label>
+                    <span className="text-xs font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
+                      {config.maxEdges.toLocaleString()}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-gray-400 leading-normal block mb-2">
+                    Limits relationship lines to safeguard browser rendering performance. High edge density can slow down rendering.
+                  </span>
+                  <input 
+                    type="range"
+                    min={5000}
+                    max={200000}
+                    step={5000}
+                    value={config.maxEdges}
+                    onChange={e => updateConfig({ maxEdges: parseInt(e.target.value) })}
+                    className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                  />
+                </div>
+
+              </div>
+
+              {/* Footer */}
+              <div className="mt-8 flex gap-3">
+                <Button 
+                  onClick={() => {
+                    updateConfig({
+                      indexVariables: false,
+                      skipTests: true,
+                      maxNodes: 100000,
+                      maxEdges: 50000
+                    });
+                  }} 
+                  variant="outline"
+                  className="flex-1 bg-transparent hover:bg-white/5 text-gray-300 hover:text-white border-white/10 rounded-xl py-5 cursor-pointer"
+                >
+                  Reset Defaults
+                </Button>
+                <Button 
+                  onClick={() => setIsConfigOpen(false)} 
+                  className="flex-1 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-xl py-5 shadow-lg cursor-pointer"
+                >
+                  Apply Settings
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -45,6 +45,7 @@ const App: React.FC = () => {
             <Navbar />
             <Routes>
               <Route path="/" element={<Index />} />
+              <Route path="/pre-indexed" element={<Index />} />
               <Route path="/explore" element={<Explore />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/pr-reviewer" element={<PRReviewerPage />} />

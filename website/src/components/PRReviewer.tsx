@@ -11,8 +11,9 @@ import {
   PanelLeftClose, PanelLeftOpen,
   Layers, Check, X, Code2, Sun, Moon, ChevronUp, Route,
   Download, UploadCloud, Menu, MessageSquare, Copy,
-  Flame, AlertTriangle, Ghost, Sparkles, GitPullRequest, ShieldAlert
+  Flame, AlertTriangle, Ghost, Sparkles, GitPullRequest, ShieldAlert, Target, Lightbulb
 } from "lucide-react";
+import { computePRInsights } from "../lib/pr-insights";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
 import FlowchartSVG from "./FlowchartSVG";
@@ -358,21 +359,14 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<any>(null);
-  const [focusSet, setFocusSet] = useState<{ nodes: Set<number>, links: Set<any> } | null>(null);
+  const [focusSet, setFocusSet] = useState<{ nodes: Set<any>, links: Set<any> } | null>(null);
 
   // PR Reviewer states
   const [sidebarTab, setSidebarTab] = useState<'pr' | 'tree' | 'path' | 'config'>('pr');
   const isPathMode = sidebarTab === 'path';
   const showConfig = sidebarTab === 'config';
 
-  const [prComments, setPrComments] = useState<Record<string, { author: string; time: string; text: string }[]>>({
-    "3": [
-      { author: "sr-reviewer", time: "2 hours ago", text: "This failover logic looks solid, but are we sure we want to hardcode PayPal as the fallback?" }
-    ],
-    "6": [
-      { author: "api-guard", time: "1 hour ago", text: "Signature changed! Ensure we audit all 14 callers to avoid breaking runtime behaviors." }
-    ]
-  });
+  const [prComments, setPrComments] = useState<Record<string, { author: string; time: string; text: string }[]>>({});
   const [newCommentText, setNewCommentText] = useState("");
 
   const handleAddComment = (nodeId: string) => {
@@ -387,7 +381,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
       [nodeId]: [...(prev[nodeId] || []), comment]
     }));
     setNewCommentText("");
-    toast.success("PR comment posted and synced successfully!");
+    toast.success("Review note saved locally");
   };
 
   // Publish and Export parameters
@@ -505,6 +499,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
   const [legendCollapsed, setLegendCollapsed] = useState(() => window.innerWidth < 1024);
 
   const fileContents: Record<string, string> = data.fileContents || {};
+  const prInsights = useMemo(() => computePRInsights(data), [data]);
 
   // LEGEND & CONFIG STATE
   const [nodeColors, setNodeColors] = useState(DEFAULT_NODE_COLORS);
@@ -655,7 +650,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
     // Determine radius (scale with complexity delta if present)
     let radius = node.val * 0.8 * nodeSize * graphAwareNodeScale;
     if (node.complexityDelta) {
-      radius = radius * (1 + node.complexityDelta / 12);
+      radius = radius * (1 + Math.log1p(node.complexityDelta) / 2);
     }
     const opacity = isFocused ? (isHovered ? 1 : 0.9) : 0.05;
     const isMassive = filteredData.nodes.length > 3000;
@@ -1139,9 +1134,106 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
     }
   }, [fileContents]);
 
+  const buildNodeFocus = useCallback((nodeId: any) => {
+    const nodesInFocus = new Set<any>();
+    const linksInFocus = new Set<any>();
+    nodesInFocus.add(nodeId);
+
+    data.links.forEach((l: any) => {
+      const sId = typeof l.source === "object" ? l.source.id : l.source;
+      const tId = typeof l.target === "object" ? l.target.id : l.target;
+      if (sId === nodeId || tId === nodeId) {
+        nodesInFocus.add(sId);
+        nodesInFocus.add(tId);
+        linksInFocus.add(l);
+      }
+    });
+
+    return { nodes: nodesInFocus, links: linksInFocus };
+  }, [data.links]);
+
+  const openNodeInPanel = useCallback((node: any) => {
+    if (!node?.file) return;
+    setSelectedNode(node);
+    setSelectedFile(node.file);
+    setCodePanelTab("review");
+    setHighlightLine(node.line_number ? Number(node.line_number) : null);
+    loadFileCode(node.file);
+  }, [loadFileCode]);
+
+  const handleHighlightNode = useCallback((nodeId: string) => {
+    const node = data.nodes.find((n: any) => n.id === nodeId);
+    if (!node) return;
+    openNodeInPanel(node);
+    setFocusSet(buildNodeFocus(nodeId));
+    if (fgRef.current && typeof node.x === "number" && typeof node.y === "number") {
+      fgRef.current.centerAt(node.x, node.y, 800);
+      fgRef.current.zoom(2.5, 800);
+    }
+  }, [data.nodes, buildNodeFocus, openNodeInPanel]);
+
+  const handleHighlightPath = useCallback((sourceId: string, targetId: string) => {
+    const sourceNode = data.nodes.find((n: any) => n.id === sourceId);
+    if (sourceNode) {
+      openNodeInPanel(sourceNode);
+    }
+
+    const adj = new Map<any, Set<any>>();
+    const edgeMap = new Map<string, any>();
+    for (const link of data.links) {
+      const u = typeof link.source === "object" ? link.source.id : link.source;
+      const v = typeof link.target === "object" ? link.target.id : link.target;
+      if (!adj.has(u)) adj.set(u, new Set());
+      if (!adj.has(v)) adj.set(v, new Set());
+      adj.get(u)!.add(v);
+      adj.get(v)!.add(u);
+      edgeMap.set(`${u}-${v}`, link);
+      edgeMap.set(`${v}-${u}`, link);
+    }
+
+    const queue: any[] = [sourceId];
+    const visited = new Set<any>([sourceId]);
+    const parent = new Map<any, any>();
+    let found = false;
+
+    while (queue.length > 0) {
+      const curr = queue.shift()!;
+      if (curr === targetId) {
+        found = true;
+        break;
+      }
+      for (const nxt of adj.get(curr) || []) {
+        if (!visited.has(nxt)) {
+          visited.add(nxt);
+          parent.set(nxt, curr);
+          queue.push(nxt);
+        }
+      }
+    }
+
+    if (!found) {
+      setFocusSet(buildNodeFocus(sourceId));
+      return;
+    }
+
+    const pathNodes = new Set<any>();
+    const pathLinks = new Set<any>();
+    let curr = targetId;
+    pathNodes.add(curr);
+    while (curr !== sourceId) {
+      const p = parent.get(curr);
+      pathNodes.add(p);
+      const link = edgeMap.get(`${p}-${curr}`);
+      if (link) pathLinks.add(link);
+      curr = p;
+    }
+    setFocusSet({ nodes: pathNodes, links: pathLinks });
+  }, [data.links, data.nodes, buildNodeFocus, openNodeInPanel]);
+
   const onFileClick = (path: string | null, targetLine?: number) => {
     if (!path) {
       setSelectedFile(null);
+      setSelectedNode(null);
       setFocusSet(null);
       setCodeContent(null);
       setCodeError(null);
@@ -1169,21 +1261,26 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
         fgRef.current.zoom(2.5, 800);
       }
 
-      const nodesInFocus = new Set<number>();
-      const linksInFocus = new Set<any>();
-      nodesInFocus.add(fileNode.id);
-
-      data.links.forEach((l: any) => {
-        const sId = typeof l.source === 'object' ? l.source.id : l.source;
-        const tId = typeof l.target === 'object' ? l.target.id : l.target;
-        if (sId === fileNode.id || tId === fileNode.id) {
-          nodesInFocus.add(sId);
-          nodesInFocus.add(tId);
-          linksInFocus.add(l);
+      setFocusSet(buildNodeFocus(fileNode.id));
+    } else {
+      const fileNodes = data.nodes.filter((n: any) => n.file === path);
+      if (fileNodes.length > 0) {
+        const focusNodes = new Set<any>();
+        const focusLinks = new Set<any>();
+        for (const fn of fileNodes) {
+          focusNodes.add(fn.id);
+          data.links.forEach((l: any) => {
+            const sId = typeof l.source === "object" ? l.source.id : l.source;
+            const tId = typeof l.target === "object" ? l.target.id : l.target;
+            if (sId === fn.id || tId === fn.id) {
+              focusNodes.add(sId);
+              focusNodes.add(tId);
+              focusLinks.add(l);
+            }
+          });
         }
-      });
-
-      setFocusSet({ nodes: nodesInFocus, links: linksInFocus });
+        setFocusSet({ nodes: focusNodes, links: focusLinks });
+      }
     }
   };
 
@@ -1200,10 +1297,14 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
       }
       return;
     }
+    setSelectedNode(node);
+    setCodePanelTab("review");
     const filePath = node.file || node.properties?.path || node.properties?.file;
     if (!filePath) return;
     const lineNum = node.line_number ?? node.properties?.line_number;
     onFileClick(filePath, lineNum ? Number(lineNum) : undefined);
+    setSelectedNode(node);
+    setFocusSet(buildNodeFocus(node.id));
   };
 
   useEffect(() => {
@@ -1290,7 +1391,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
     }
 
     setPathError(null);
-    const pathNodes = new Set<number>();
+    const pathNodes = new Set<any>();
     const pathLinks = new Set<any>();
 
     let curr = tId;
@@ -1463,6 +1564,79 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                       </div>
                     </div>
 
+                    {/* Review Insights — decision-oriented summary */}
+                    <div className="p-3 rounded-xl border border-indigo-500/20 bg-indigo-500/5">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Lightbulb className="w-4 h-4 text-indigo-400" />
+                        <span className="text-[11px] font-bold text-indigo-300 uppercase tracking-wider">Review Insights</span>
+                        <span className={`ml-auto text-[9px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                          prInsights.riskLevel === "high"
+                            ? "bg-red-500/20 text-red-300"
+                            : prInsights.riskLevel === "medium"
+                              ? "bg-amber-500/20 text-amber-300"
+                              : "bg-green-500/20 text-green-300"
+                        }`}>
+                          {prInsights.riskLevel} risk
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-300 leading-relaxed mb-2">{prInsights.reviewVerdict}</p>
+                      <p className="text-[10px] text-gray-400 mb-3">{prInsights.summary}</p>
+
+                      {prInsights.noiseRatio >= 30 && (
+                        <p className="text-[10px] text-amber-300/90 mb-2">
+                          ⚠️ {prInsights.noiseRatio}% of direct-change nodes are indexing noise — use key symbols below, not raw counts.
+                        </p>
+                      )}
+
+                      {prInsights.keySymbols.length > 0 && (
+                        <div className="mb-3">
+                          <h5 className="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 flex items-center gap-1">
+                            <Target className="w-3 h-3" /> Key Symbols ({prInsights.keySymbols.length})
+                          </h5>
+                          <div className="space-y-1 max-h-28 overflow-y-auto custom-scrollbar">
+                            {prInsights.keySymbols.slice(0, 6).map((sym) => (
+                              <button
+                                key={sym.id}
+                                type="button"
+                                onClick={() => handleHighlightNode(sym.id)}
+                                className="w-full text-left px-2 py-1.5 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 transition-colors"
+                              >
+                                <code className="text-[10px] text-white block truncate">{sym.name}</code>
+                                <span className="text-[9px] text-gray-500 truncate block">{sym.reason}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {prInsights.meaningfulCallPaths.length > 0 && (
+                        <div className="mb-3">
+                          <h5 className="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">Meaningful Call Paths</h5>
+                          <div className="space-y-1">
+                            {prInsights.meaningfulCallPaths.slice(0, 4).map((path) => (
+                              <button
+                                key={`${path.source}-${path.target}`}
+                                type="button"
+                                onClick={() => handleHighlightPath(path.source, path.target)}
+                                className="w-full text-left px-2 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors text-[10px] text-purple-200 font-mono truncate"
+                              >
+                                {path.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <ul className="space-y-1">
+                        {prInsights.recommendations.slice(0, 3).map((rec, i) => (
+                          <li key={i} className="text-[10px] text-gray-400 leading-snug flex gap-1.5">
+                            <span className="text-indigo-400 shrink-0">•</span>
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
                     {/* Blast Radius Analytics */}
                     <div>
                       <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Blast Radius Metrics</h4>
@@ -1481,7 +1655,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                         </div>
                       </div>
                       <p className="text-[10px] text-gray-400 leading-normal mt-2">
-                        💡 <strong>Impact Analysis:</strong> This PR directly modifies {data.metadata?.directChanges || 0} symbols, with a downstream blast radius of {data.metadata?.impactedCount || 0} symbols across {data.files?.length || 0} files.
+                        💡 <strong>Impact Analysis:</strong> {prInsights.signalNodeCount} signal symbol(s) across {prInsights.changedFileCount} file(s), with {prInsights.primaryImpactCount} upstream caller(s) in the impact zone.
                       </p>
                     </div>
 
@@ -1524,26 +1698,32 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                         </div>
                       )}
 
-                      {/* Orphan/Dead warning card */}
-                      {data.nodes.some((n: any) => n.isOrphan) && (
+                      {/* Orphan/Dead warning card — only when meaningful orphans exist */}
+                      {prInsights.meaningfulOrphanCount > 0 && (
                         <div className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col gap-2">
                           <div className="flex items-start gap-2">
                             <Ghost className="w-4 h-4 text-gray-400 shrink-0 mt-0.5 animate-pulse" />
                             <div className="text-[11px] leading-relaxed">
-                              <span className="font-bold text-white block">Ghost / Orphan Code Detected</span>
-                              Symbol <code>{data.nodes.find((n: any) => n.isOrphan)?.name}</code> has lost all incoming references in this PR.
+                              <span className="font-bold text-white block">Potential Dead Code ({prInsights.meaningfulOrphanCount})</span>
+                              {prInsights.meaningfulOrphanCount} symbol(s) may have lost all callers after this change — worth verifying before merge.
                             </div>
                           </div>
                           <Button
                             size="sm"
                             className="w-full text-[10px] h-7 py-0 rounded bg-indigo-600 hover:bg-indigo-700 text-white"
                             onClick={() => {
-                              const n = data.nodes.find((n: any) => n.isOrphan);
+                              const n = data.nodes.find((n: any) => n.isOrphan && !n.name.startsWith("test_") && n.type !== "Variable");
                               if (n) handleHighlightNode(n.id);
                             }}
                           >
                             Highlight Orphan Node
                           </Button>
+                        </div>
+                      )}
+
+                      {prInsights.falsePositiveOrphanCount > 0 && prInsights.meaningfulOrphanCount === 0 && (
+                        <div className="p-3 bg-zinc-900/50 border border-zinc-800/80 rounded-xl text-[10px] text-gray-500 leading-relaxed">
+                          👻 {data.metadata?.orphansCount || prInsights.falsePositiveOrphanCount} orphan flag(s) detected, but they appear to be indexing artifacts (unchanged tests/variables), not dead code.
                         </div>
                       )}
 

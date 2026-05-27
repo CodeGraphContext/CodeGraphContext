@@ -18,6 +18,16 @@ import FlowchartSVG from "./FlowchartSVG";
 import { packageCgcBundle, downloadBlob, publishCgcBundle } from "../lib/cgc-exporter";
 import { toast } from "sonner";
 import { getOrCreateSessionId } from "../lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 
 const PALETTE = {
   dark: {
@@ -366,6 +376,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const [publishRepo, setPublishRepo] = useState("");
   const [publishVersion, setPublishVersion] = useState("1.0.0");
   const [isPublishing, setIsPublishing] = useState(false);
+  const [showWarningAlert, setShowWarningAlert] = useState(false);
+  const [duplicateBundle, setDuplicateBundle] = useState<any | null>(null);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   // Dynamic ChatGPT Connection URL with pre-filled version-scoped query
@@ -429,12 +441,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     }
   };
 
-  const handlePublishSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!publishRepo || !publishRepo.includes("/")) {
-      toast.error("Invalid repository name. Expected 'owner/repo' format.");
-      return;
-    }
+  const executePublishFlow = async () => {
     setIsPublishing(true);
     try {
       const blob = await packageCgcBundle(publishRepo, data.nodes, data.links, publishVersion, data.metadata);
@@ -451,6 +458,58 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     } finally {
       setIsPublishing(false);
     }
+  };
+
+  const handlePublishSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!publishRepo || !publishRepo.includes("/")) {
+      toast.error("Invalid repository name. Expected 'owner/repo' format.");
+      return;
+    }
+    
+    // Check if this repository and commit/branch is already pre-indexed in the manifest
+    const commitSha = data.metadata?.commit || "";
+    if (commitSha) {
+      setIsPublishing(true);
+      try {
+        console.log(`[Publish] Checking if ${publishRepo} at commit ${commitSha} is already pre-indexed...`);
+        const manifestRes = await fetch('/api/bundles');
+        if (manifestRes.ok) {
+          const manifestData = await manifestRes.json();
+          const bundles = manifestData.bundles || [];
+          
+          const match = bundles.find((b: any) => {
+            const sameRepo = b.repo && b.repo.toLowerCase() === publishRepo.toLowerCase();
+            
+            // The commit SHA can be stored in either b.commit or b.version (e.g. Hugging Face manifest)
+            const targetCommit = (b.commit || b.version || "").toLowerCase();
+            const currentCommit = commitSha.toLowerCase();
+            
+            const sameCommit = targetCommit && (
+              currentCommit === targetCommit ||
+              currentCommit.startsWith(targetCommit) ||
+              targetCommit.startsWith(currentCommit)
+            );
+            
+            return sameRepo && sameCommit;
+          });
+
+          if (match) {
+            console.log("[Publish] Matching pre-indexed bundle found, showing custom alert dialog:", match);
+            setDuplicateBundle(match);
+            setIsPublishing(false);
+            setShowWarningAlert(true);
+            return;
+          }
+        }
+      } catch (manifestErr) {
+        console.warn("[Publish] Failed to fetch or check pre-indexed repos manifest:", manifestErr);
+      } finally {
+        setIsPublishing(false);
+      }
+    }
+
+    await executePublishFlow();
   };
 
   // Path traversal states
@@ -2252,6 +2311,39 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
           </div>
         )}
       </AnimatePresence>
+
+      {/* Already Pre-indexed Bundle Warning Dialog */}
+      <AlertDialog open={showWarningAlert} onOpenChange={setShowWarningAlert}>
+        <AlertDialogContent className="bg-zinc-950 border border-zinc-800 text-zinc-100 max-w-md rounded-3xl shadow-2xl p-6 relative overflow-hidden backdrop-blur-2xl">
+          {/* Subtle top glow bar */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500" />
+          
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+              <span className="text-amber-500">⚡</span> Pre-indexed Bundle Exists
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400 text-sm mt-2 leading-relaxed">
+              A pre-indexed bundle for <span className="font-semibold text-purple-400 font-mono">{publishRepo}</span> at this exact commit (<span className="font-mono bg-white/5 px-1 py-0.5 rounded text-xs text-amber-300">{data.metadata?.commit?.substring(0, 7) || "latest"}</span>) already exists in the manifest registry.
+              <br /><br />
+              Publishing again is redundant. Are you sure you want to force overwrite or republish?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-6 flex flex-col sm:flex-row gap-3">
+            <AlertDialogCancel className="w-full sm:w-auto rounded-xl bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                setShowWarningAlert(false);
+                await executePublishFlow();
+              }}
+              className="w-full sm:w-auto rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold shadow-lg shadow-orange-500/20"
+            >
+              Force Publish
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   );
 }

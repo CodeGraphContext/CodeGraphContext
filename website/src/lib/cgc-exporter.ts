@@ -74,7 +74,17 @@ export async function packageCgcBundle(
     standardisedName = `${repoName}.cgc`;
   }
 
+  // Extract and clean extraMetadata to prevent contaminating the strict standardized schema
+  const cleanExtra = { ...extraMetadata };
+  delete cleanExtra.generator;
+  delete cleanExtra.timestamp;
+  delete cleanExtra.format_version;
+  delete cleanExtra.exported_at;
+  delete cleanExtra.graph_metrics;
+  delete cleanExtra.name;
+
   const metadata = {
+    ...cleanExtra,
     format_version: "1.0.0",
     generator: "WASMv0.0.1",
     exported_at: new Date().toISOString(),
@@ -85,8 +95,7 @@ export async function packageCgcBundle(
     },
     // UI dynamic context keys
     repo: repoName,
-    version: version,
-    ...extraMetadata
+    version: version
   };
   zip.file("metadata.json", JSON.stringify(metadata, null, 2));
 
@@ -110,23 +119,85 @@ export async function publishCgcBundle(
   repoName: string,
   version: string
 ): Promise<{ success: boolean; message: string; entry?: any }> {
-  const url = `/api/publish?repo=${encodeURIComponent(repoName)}&version=${encodeURIComponent(version)}`;
-  
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/octet-stream"
-    },
-    body: blob
-  });
+  try {
+    // 1. Base64 encode the ZIP blob on the client-side using FileReader
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(",")[1]);
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
 
-  if (!response.ok) {
-    const errData = await response.json().catch(() => ({}));
-    console.error("[CGC Registry API Error]:", errData);
-    const errMsg = errData.error || `Server returned status ${response.status}`;
-    const details = errData.details ? ` (${errData.details})` : "";
-    throw new Error(`${errMsg}${details}`);
+    // 2. Compute SHA256 and size of the base64 payload natively
+    const base64Buffer = new TextEncoder().encode(base64);
+    const hashBuffer = await window.crypto.subtle.digest('SHA-256', base64Buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const sha256 = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    const size = base64Buffer.length;
+
+    // 3. Stage 1: Handshake
+    const handshakeResponse = await fetch('/api/publish', {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Publish-Stage": "handshake"
+      },
+      body: JSON.stringify({
+        repo: repoName,
+        version: version,
+        sha256,
+        size
+      })
+    });
+
+    if (!handshakeResponse.ok) {
+      const errData = await handshakeResponse.json().catch(() => ({}));
+      throw new Error(errData.error || `Handshake failed with status ${handshakeResponse.status}`);
+    }
+
+    const handshakeData = await handshakeResponse.json();
+
+    // 4. PUT the payload directly to Hugging Face S3 LFS if required (bypasses Vercel completely!)
+    if (handshakeData.uploadRequired) {
+      const uploadRes = await fetch(handshakeData.uploadUrl, {
+        method: "PUT",
+        headers: handshakeData.uploadHeaders || {},
+        body: base64
+      });
+
+      if (!uploadRes.ok) {
+        throw new Error(`Failed to upload bundle to LFS storage: ${uploadRes.statusText}`);
+      }
+    }
+
+    // 5. Stage 2: Commit
+    const commitResponse = await fetch('/api/publish', {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Publish-Stage": "commit"
+      },
+      body: JSON.stringify({
+        repo: repoName,
+        version: version,
+        sha256,
+        size,
+        displaySize: `${(blob.size / 1024 / 1024).toFixed(2)}MB`
+      })
+    });
+
+    if (!commitResponse.ok) {
+      const errData = await commitResponse.json().catch(() => ({}));
+      throw new Error(errData.error || `Commit failed with status ${commitResponse.status}`);
+    }
+
+    return await commitResponse.json();
+
+  } catch (err: any) {
+    console.error("[CGC Registry Publish Error]:", err);
+    throw new Error(err.message || "An unexpected error occurred during publishing.");
   }
-
-  return await response.json();
 }

@@ -661,9 +661,11 @@ function getOrCreateFolderChain(filePath: string): number {
       parentId = folderNodes.get(accumulated)!;
     } else {
       const folderId = addNode(part, 'Directory', accumulated, 12);
-      links.push({ source: parentId, target: folderId, type: 'CONTAINS' });
-      folderNodes.set(accumulated, folderId);
-      parentId = folderId;
+      if (folderId !== -1) {
+        links.push({ source: parentId, target: folderId, type: 'CONTAINS' });
+        folderNodes.set(accumulated, folderId);
+        parentId = folderId;
+      }
     }
   }
 
@@ -714,6 +716,10 @@ self.onmessage = async (e) => {
 };
 
 const addNode = (name: string, type: string, file: string, val: number, extraProps: any = {}) => {
+  const maxNodes = indexOptions.maxNodes || 100000;
+  if (nodes.length >= maxNodes && type !== 'Repository') {
+    return -1;
+  }
   const id = nodeIdSequence++;
   nodes.push({ id, name, type, file, val, ...extraProps });
   const symbolKey = `${type}:${name}`;
@@ -758,7 +764,7 @@ async function processNextBatch() {
     self.postMessage({ type: 'PROGRESS', payload: { msg: "Building high-fidelity relationships...", percent: 95 } });
     await new Promise(r => setTimeout(r, 0));
 
-    const MAX_CALL_EDGES = 50000;
+    const MAX_CALL_EDGES = indexOptions.maxEdges || 50000;
     let callsAdded = 0;
     let callsScanned = 0;
     
@@ -850,9 +856,15 @@ async function processNextBatch() {
 
     const fileName = f.path.split(/[\/\\]/).pop() || f.path;
     const fileId = addNode(fileName, 'File', f.path, 10);
+    if (fileId === -1) {
+      console.warn(`[Diagnostic] Node limit reached, skipping file: ${f.path}`);
+      continue;
+    }
     filePathToNodeId.set(f.path, fileId);
     const parentFolderId = getOrCreateFolderChain(f.path);
-    links.push({ source: parentFolderId, target: fileId, type: 'CONTAINS' });
+    if (parentFolderId !== -1) {
+      links.push({ source: parentFolderId, target: fileId, type: 'CONTAINS' });
+    }
 
     const lang = await getLanguageForFile(f.path);
     if (!lang) continue;
@@ -922,7 +934,9 @@ async function processNextBatch() {
           }
 
           const defId = addNode(name, label, f.path, val, extra);
-          links.push({ source: fileId, target: defId, type: 'CONTAINS' });
+          if (defId !== -1) {
+            links.push({ source: fileId, target: defId, type: 'CONTAINS' });
+          }
         }
       }
 
@@ -933,7 +947,9 @@ async function processNextBatch() {
           const name = cap.node.text;
           if (!name || name.length <= 1) continue;
           const varId = addNode(name, 'Variable', f.path, 4, { line_number: cap.node.startPosition.row + 1 });
-          links.push({ source: fileId, target: varId, type: 'CONTAINS' });
+          if (varId !== -1) {
+            links.push({ source: fileId, target: varId, type: 'CONTAINS' });
+          }
         }
       }
 
@@ -947,7 +963,9 @@ async function processNextBatch() {
           seen.add(modName);
           const shortName = modName.split(/[/\\.]/).filter(Boolean).pop() ?? modName;
           const modId = addNode(shortName, 'Module', f.path, 5);
-          links.push({ source: fileId, target: modId, type: 'IMPORTS' });
+          if (modId !== -1) {
+            links.push({ source: fileId, target: modId, type: 'IMPORTS' });
+          }
         }
       }
 

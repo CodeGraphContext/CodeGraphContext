@@ -7,7 +7,11 @@ import JSZip from "jszip";
 export function parseFilesIntoGraph(
   files: { path: string, content: string }[], 
   onProgressTracker?: (progressMsg: string, percentage: number, diagnosticLog?: string) => void,
-  options: { indexVariables?: boolean } = { indexVariables: true }
+  options: { 
+    indexVariables?: boolean;
+    maxNodes?: number;
+    maxEdges?: number;
+  } = { indexVariables: true }
 ): Promise<{ nodes: any[], links: any[], files: string[] }> {
   return new Promise((resolve, reject) => {
     // Vite built-in worker support

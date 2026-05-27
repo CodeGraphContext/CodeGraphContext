@@ -178,11 +178,11 @@
         <div class="rw-repo-name">
           <span class="rw-repo-name__full">CodeGraphContext/CodeGraphContext</span>
           <div class="rw-repo-stats">
-             <span class="rw-stat"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            <span class="rw-stat"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 stroke-width="2.5">
                 <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
                 <line x1="7" y1="7" x2="7.01" y2="7" />
-              </svg> <span id="git-version">v0.4.11</span></span>
+              </svg> <span id="git-version">v0.4.12</span></span>
             <span class="rw-stat"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
                 <path
                   d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
@@ -293,10 +293,10 @@
   }
   (function () {
     var s = localStorage.getItem('rw-theme');
-    if (s) { 
-      document.documentElement.setAttribute('data-theme', s); 
+    if (s) {
+      document.documentElement.setAttribute('data-theme', s);
       document.body.setAttribute('data-md-color-scheme', s === 'dark' ? 'slate' : 'default');
-      updateThemeBtn(s); 
+      updateThemeBtn(s);
     }
   })();
   function toggleSidebar() { document.querySelector('.rw-sidebar').classList.toggle('hidden'); }
@@ -337,7 +337,7 @@
         const stars = data.stargazers_count;
         const forks = data.forks_count;
         const formatNum = (num) => num >= 1000 ? (num / 1000).toFixed(1) + 'k' : num;
-        
+
         const starsEl = document.getElementById('git-stars');
         const forksEl = document.getElementById('git-forks');
         if (starsEl) starsEl.textContent = formatNum(stars);
@@ -362,7 +362,7 @@
         </svg>
       `;
       pre.appendChild(copyBtn);
-      
+
       copyBtn.addEventListener('click', async () => {
         const codeEl = pre.querySelector('code');
         const cleanText = codeEl ? codeEl.textContent : pre.textContent.replace(copyBtn.textContent, '');

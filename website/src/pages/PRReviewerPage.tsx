@@ -27,6 +27,18 @@ const PRReviewerPage = () => {
       setLoading(true);
       setError(null);
       try {
+        try {
+          const localRes = await fetch(`/pr-data/${owner}__${repo}__${prNumber}.json`);
+          if (localRes.ok) {
+            const localData = await localRes.json();
+            setData(localData);
+            setError(null);
+            return;
+          }
+        } catch (e) {
+          console.log("Local PR data not found, querying GitHub API directly...", e);
+        }
+
         setStatusText("Querying GitHub Pull Request details...");
         const detailsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`);
         if (!detailsRes.ok) {
@@ -75,10 +87,8 @@ const PRReviewerPage = () => {
           let type = "File";
           let layer: any = "DevOps / Configuration";
           if (filename.endsWith(".py")) {
-            type = "Function / Class";
             layer = "Business Logic";
           } else if (/\.(tsx|ts|jsx|js)$/.test(filename)) {
-            type = "Component";
             layer = "UI";
           } else if (filename.includes("db") || filename.includes("sql") || filename.includes("repository") || filename.includes("adapter")) {
             layer = "Data Access";
@@ -196,9 +206,12 @@ const PRReviewerPage = () => {
         
         setError(null);
       } catch (err: any) {
-        console.error("PR load error, falling back to mock data:", err);
-        setData(prMockData);
-        setError(null);
+        console.error("PR load error:", err);
+        setData(null);
+        setError(
+          err?.message ||
+            `No pre-built graph found for ${owner}/${repo}#${prNumber}. Run CGC PR analysis or try a demo PR.`
+        );
       } finally {
         setLoading(false);
       }
@@ -245,8 +258,11 @@ const PRReviewerPage = () => {
               <Button onClick={() => window.location.reload()} variant="outline" className="w-full border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-900">
                 <RefreshCw className="w-4 h-4 mr-2" /> Retry Fetch
               </Button>
-              <Button onClick={() => navigate("/pr-reviewer")} className="w-full bg-violet-600 hover:bg-violet-700 text-white">
-                <ArrowLeft className="w-4 h-4 mr-2" /> Load Demo Dashboard
+              <Button onClick={() => navigate("/pr-reviewer/sktime/sktime-mcp/pull/334")} className="w-full bg-violet-600 hover:bg-violet-700 text-white">
+                <ArrowLeft className="w-4 h-4 mr-2" /> Try PR #334 Demo
+              </Button>
+              <Button onClick={() => navigate("/pr-reviewer")} variant="outline" className="w-full border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-900">
+                Load Default Demo
               </Button>
             </div>
           </div>

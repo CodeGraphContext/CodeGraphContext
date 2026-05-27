@@ -20,7 +20,7 @@ GITHUB_REPO = "CodeGraphContext"
 
 
 def fetch_available_bundles() -> List[Dict[str, Any]]:
-    """Fetch all available bundles from GitHub Releases (delegates to core BundleRegistry)."""
+    """Fetch all available bundles from the Hugging Face registry (delegates to core BundleRegistry)."""
     from ..core.bundle_registry import BundleRegistry
     return BundleRegistry.fetch_available_bundles()
 
