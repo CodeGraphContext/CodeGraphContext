@@ -71,6 +71,7 @@ def _strip_compat_fields(clean_node):
         "parameters",
         "arg_types",
         "arg_defaults",
+        "initializer_candidate_names",
     ]:
         if _is_effectively_empty_list(clean_node.get(field)):
             clean_node.pop(field, None)

@@ -12,11 +12,16 @@ HEAD_REF="${GITHUB_SHA:-HEAD}"
 if command -v git >/dev/null 2>&1; then
   echo "[pr-graph-analyze] Base ref: ${BASE_REF}"
   echo "[pr-graph-analyze] Head ref: ${HEAD_REF}"
+  BASE_GIT_REF="origin/${BASE_REF}"
 
   # Best-effort changed-file list for downstream troubleshooting.
-  if git rev-parse --verify "origin/${BASE_REF}" >/dev/null 2>&1; then
-    echo "[pr-graph-analyze] Changed files (origin/${BASE_REF}...${HEAD_REF}):"
-    git diff --name-only "origin/${BASE_REF}...${HEAD_REF}" || true
+  if git rev-parse --verify "${BASE_GIT_REF}" >/dev/null 2>&1 && \
+     git rev-parse --verify "${HEAD_REF}^{commit}" >/dev/null 2>&1; then
+    echo "[pr-graph-analyze] Changed files (${BASE_GIT_REF}...${HEAD_REF}):"
+    git diff --name-only "${BASE_GIT_REF}...${HEAD_REF}" || true
+  elif git rev-parse --verify "${BASE_GIT_REF}" >/dev/null 2>&1; then
+    echo "[pr-graph-analyze] Head ref ${HEAD_REF} not available locally; using ${BASE_GIT_REF}..HEAD"
+    git diff --name-only "${BASE_GIT_REF}..HEAD" || true
   elif git rev-parse --verify "HEAD~1" >/dev/null 2>&1; then
     echo "[pr-graph-analyze] Changed files (HEAD~1..HEAD):"
     git diff --name-only HEAD~1..HEAD || true
