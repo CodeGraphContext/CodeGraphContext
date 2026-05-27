@@ -1,0 +1,26 @@
+name: PR Code Graph Analysis
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: write
+
+jobs:
+  analyze-pr-graph:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run PR code graph analysis
+        shell: bash
+        run: |
+          test -f scripts/pr-graph-analyze.sh
+          bash scripts/pr-graph-analyze.sh
