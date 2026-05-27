@@ -8,7 +8,7 @@ import {
   Eye, EyeOff, Settings2, Palette, Star,
   ChevronRight, ChevronDown, Folder, FolderOpen,
   PanelLeftClose, PanelLeftOpen,
-  Layers, Check, X, Code2, Sun, Moon, ChevronUp, Route
+  Layers, Check, X, Code2, Sun, Moon, ChevronUp, Route, MessageCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
@@ -358,6 +358,13 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const [pathSource, setPathSource] = useState<any>(null);
   const [pathTarget, setPathTarget] = useState<any>(null);
   const [pathError, setPathError] = useState<string | null>(null);
+
+  // Natural Language Query state
+  const [isNLQMode, setIsNLQMode] = useState(false);
+  const [nlqQuery, setNlqQuery] = useState("");
+  const [nlqResults, setNlqResults] = useState<any[] | null>(null);
+  const [nlqError, setNlqError] = useState<string | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Code viewer state
   const [codeContent, setCodeContent] = useState<string | null>(null);
@@ -1096,6 +1103,250 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     }
   }, [pathSource, pathTarget, filteredData, graphMode]);
 
+  // ─── Natural Language Query Engine ──────────────────────────────────────────
+  const NODE_TYPE_MAP: Record<string, string[]> = {
+    classes: ['Class'],
+    class: ['Class'],
+    functions: ['Function'],
+    function: ['Function'],
+    methods: ['Function'],
+    method: ['Function'],
+    files: ['File'],
+    file: ['File'],
+    directories: ['Directory'],
+    directory: ['Directory', 'Repository'],
+    folders: ['Directory'],
+    folder: ['Directory'],
+    modules: ['Module'],
+    module: ['Module'],
+    interfaces: ['Interface'],
+    interface: ['Interface'],
+    structs: ['Struct'],
+    struct: ['Struct'],
+    enums: ['Enum'],
+    enum: ['Enum'],
+    traits: ['Trait'],
+    trait: ['Trait'],
+    variables: ['Variable'],
+    variable: ['Variable'],
+    macros: ['Macro'],
+    macro: ['Macro'],
+    annotations: ['Annotation'],
+    decorators: ['Annotation'],
+    decorator: ['Annotation'],
+    records: ['Record'],
+    record: ['Record'],
+    unions: ['Union'],
+    union: ['Union'],
+    parameters: ['Parameter'],
+    param: ['Parameter'],
+    properties: ['Property'],
+    property: ['Property'],
+  };
+
+  const executeNaturalLanguageQuery = useCallback((query: string) => {
+    const q = query.trim().toLowerCase();
+    if (!q) { setNlqResults(null); setNlqError(null); return; }
+
+    const allNodes = data.nodes as any[];
+    const allLinks = data.links as any[];
+
+    const findNodeIds = (): number[] => {
+      // Pattern 1: "find/show/list/all [type]s"
+      for (const [keyword, types] of Object.entries(NODE_TYPE_MAP)) {
+        const patterns = [
+          `find all ${keyword}`,
+          `show all ${keyword}`,
+          `list all ${keyword}`,
+          `find ${keyword}`,
+          `show ${keyword}`,
+          `list ${keyword}`,
+          `all ${keyword}`,
+          `where are the ${keyword}`,
+          `where is the ${keyword}`,
+        ];
+        for (const pat of patterns) {
+          if (q === pat || q.startsWith(pat + ' ') || q.startsWith(pat + '?')) {
+            return allNodes
+              .filter((n: any) => types.includes(n.type))
+              .map((n: any) => n.id);
+          }
+        }
+      }
+
+      // Pattern 2: "search for [term]" or "find [term]" (generic name search)
+      const searchTerms = ['search for ', 'search ', 'find ', 'locate ', 'look for ', 'show me '];
+      for (const prefix of searchTerms) {
+        if (q.startsWith(prefix)) {
+          const term = q.slice(prefix.length).trim();
+          if (term) {
+            return allNodes
+              .filter((n: any) => n.name?.toLowerCase().includes(term))
+              .map((n: any) => n.id);
+          }
+        }
+      }
+
+      return [];
+    };
+
+    const findRelatedToTerm = (term: string): { nodes: Set<number>; links: Set<any> } => {
+      const matched = allNodes.filter((n: any) =>
+        n.name?.toLowerCase().includes(term)
+      );
+      const matchedIds = new Set(matched.map((n: any) => n.id));
+      const resultNodes = new Set(matchedIds);
+      const resultLinks = new Set<any>();
+
+      for (const link of allLinks) {
+        const sId = typeof link.source === 'object' ? link.source.id : link.source;
+        const tId = typeof link.target === 'object' ? link.target.id : link.target;
+        if (matchedIds.has(sId) || matchedIds.has(tId)) {
+          resultNodes.add(sId);
+          resultNodes.add(tId);
+          resultLinks.add(link);
+        }
+      }
+      return { nodes: resultNodes, links: resultLinks };
+    };
+
+    // Pattern 3: "what calls [term]" or "who calls [term]" or "callers of [term]"
+    const callPatterns = [
+      { match: 'what calls ', rel: 'CALLS' as const },
+      { match: 'who calls ', rel: 'CALLS' as const },
+      { match: 'callers of ', rel: 'CALLS' as const },
+      { match: 'calls to ', rel: 'CALLS' as const },
+      { match: 'what imports ', rel: 'IMPORTS' as const },
+      { match: 'who imports ', rel: 'IMPORTS' as const },
+      { match: 'importers of ', rel: 'IMPORTS' as const },
+      { match: 'what inherits ', rel: 'INHERITS' as const },
+      { match: 'what extends ', rel: 'INHERITS' as const },
+      { match: 'what implements ', rel: 'IMPLEMENTS' as const },
+    ];
+    for (const { match: m, rel } of callPatterns) {
+      if (q.startsWith(m)) {
+        const term = q.slice(m.length).trim();
+        if (!term) return null;
+        const targetIds = new Set(
+          allNodes
+            .filter((n: any) => n.name?.toLowerCase().includes(term))
+            .map((n: any) => n.id)
+        );
+        const resultNodes = new Set<number>();
+        const resultLinks = new Set<any>();
+        for (const link of allLinks) {
+          const sId = typeof link.source === 'object' ? link.source.id : link.source;
+          const tId = typeof link.target === 'object' ? link.target.id : link.target;
+          if (link.type?.toUpperCase() === rel && (targetIds.has(sId) || targetIds.has(tId))) {
+            resultNodes.add(sId);
+            resultNodes.add(tId);
+            resultLinks.add(link);
+          }
+        }
+        return { nodes: resultNodes, links: resultLinks };
+      }
+    }
+
+    // Pattern 4: "related to [term]" or "connections of [term]"
+    const relatedPatterns = ['related to ', 'connections of ', 'connected to ', 'dependencies of '];
+    for (const prefix of relatedPatterns) {
+      if (q.startsWith(prefix)) {
+        const term = q.slice(prefix.length).trim();
+        if (term) return findRelatedToTerm(term);
+      }
+    }
+
+    // Pattern 5: "path from [src] to [tgt]"
+    const pathFromTo = q.match(/path from (.+) to (.+)/);
+    if (pathFromTo) {
+      const srcTerm = pathFromTo[1].trim();
+      const tgtTerm = pathFromTo[2].trim();
+      const srcNodes = allNodes.filter((n: any) => n.name?.toLowerCase().includes(srcTerm));
+      const tgtNodes = allNodes.filter((n: any) => n.name?.toLowerCase().includes(tgtTerm));
+      if (srcNodes.length > 0 && tgtNodes.length > 0) {
+        setPathSource(srcNodes[0]);
+        setPathTarget(tgtNodes[0]);
+        setIsNLQMode(false);
+        setIsPathMode(true);
+        return { nodes: new Set<number>(), links: new Set<any>() };
+      }
+    }
+
+    // Pattern 6: "what is [term]" / "describe [term]" → show the node and its properties
+    const describePatterns = ['what is ', 'describe ', 'details of ', 'info about '];
+    for (const prefix of describePatterns) {
+      if (q.startsWith(prefix)) {
+        const term = q.slice(prefix.length).trim();
+        if (term) {
+          const matched = allNodes.filter((n: any) =>
+            n.name?.toLowerCase().includes(term)
+          ).map((n: any) => n.id);
+          const related = findRelatedToTerm(term);
+          related.nodes.forEach((id: number) => matched.includes(id) || matched.push(id));
+          return { nodes: new Set(matched), links: related.links };
+        }
+      }
+    }
+
+    // Pattern 7: "help" or "suggestions"
+    if (q === 'help' || q === 'suggestions' || q === 'what can i ask' || q === 'examples') {
+      setShowSuggestions(true);
+      return null;
+    }
+
+    // Fallback: generic name search
+    if (q.length >= 2) {
+      const matched = allNodes.filter((n: any) =>
+        n.name?.toLowerCase().includes(q)
+      ).map((n: any) => n.id);
+      if (matched.length > 0) {
+        return { nodes: new Set(matched), links: new Set<any>() };
+      }
+    }
+
+    return null;
+  }, [data]);
+
+  const runNLQuery = useCallback(() => {
+    setNlqError(null);
+    setNlqResults(null);
+    setShowSuggestions(false);
+
+    const result = executeNaturalLanguageQuery(nlqQuery);
+    if (result === null && !showSuggestions) {
+      setNlqError("Didn't understand that query. Try \"show all classes\", \"find file main.ts\", or type \"help\" for suggestions.");
+      return;
+    }
+    if (result && (result.nodes.size > 0 || result.links.size > 0)) {
+      setNlqResults(Array.from(result.nodes).slice(0, 500).map((id: number) => {
+        const node = data.nodes.find((n: any) => n.id === id);
+        return node;
+      }).filter(Boolean));
+      setFocusSet(result);
+      if (fgRef.current && graphMode !== 'city3d' && graphMode !== 'graph3d') {
+        fgRef.current.zoomToFit(600, 150);
+      }
+    } else if (result) {
+      setNlqError("No results found for this query.");
+    }
+  }, [nlqQuery, executeNaturalLanguageQuery, data, showSuggestions, graphMode]);
+
+  const NLQ_SUGGESTIONS = [
+    "Show all classes",
+    "Find all functions",
+    "List all files",
+    "Show all interfaces",
+    "Find all structs",
+    "What calls main?",
+    "Related to App",
+    "Search for database",
+    "Help",
+  ];
+
+  const getNodeTypeColor = (type: string): string => {
+    return nodeColors[type] || nodeColors.Other || '#78909c';
+  };
+
   const getLinkColor = useCallback((link: any) => {
     const isFocused = focusSet ? focusSet.links.has(link) : true;
     const baseColor = edgeColors[link.type] || '#ffffff';
@@ -1166,6 +1417,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                       onClick={() => {
                         setIsPathMode(!isPathMode);
                         setShowConfig(false);
+                        setIsNLQMode(false);
                       }}
                       title="Path Finder"
                       className={`p-1.5 rounded-lg transition-colors ${isPathMode ? 'bg-indigo-500/20 text-indigo-400' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
@@ -1174,8 +1426,20 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                     </button>
                     <button
                       onClick={() => {
+                        setIsNLQMode(!isNLQMode);
+                        setIsPathMode(false);
+                        setShowConfig(false);
+                      }}
+                      title="Natural Language Query"
+                      className={`p-1.5 rounded-lg transition-colors ${isNLQMode ? 'bg-emerald-500/20 text-emerald-400' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
                         setShowConfig(!showConfig);
                         setIsPathMode(false);
+                        setIsNLQMode(false);
                       }}
                       title="Graph Settings"
                       className={`p-1.5 rounded-lg transition-colors ${showConfig ? 'bg-blue-500/20 text-blue-400' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
@@ -1258,6 +1522,102 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                         Find Path
                       </Button>
                     </div>
+                  </motion.div>
+                ) : isNLQMode ? (
+                  <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
+                    <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <MessageCircle className="w-3 h-3 text-emerald-400" /> Natural Language Query
+                    </h3>
+                    <p className="text-xs text-gray-400">Ask questions about your codebase in plain English.</p>
+
+                    <div className="space-y-3 mt-4">
+                      <div className="flex flex-col gap-1">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="e.g. Show all classes"
+                            value={nlqQuery}
+                            onChange={(e) => { setNlqQuery(e.target.value); setNlqError(null); setShowSuggestions(false); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') runNLQuery(); }}
+                            className={`w-full rounded-lg py-2 pl-3 pr-10 text-[13px] focus:outline-none focus:ring-1 focus:ring-emerald-500/50 transition-all ${isDark ? 'bg-white/5 border border-white/8 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
+                          />
+                          <button
+                            onClick={runNLQuery}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+                          >
+                            <Search className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {showSuggestions && (
+                      <div>
+                        <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-2">Try asking:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {NLQ_SUGGESTIONS.map((suggestion) => (
+                            <button
+                              key={suggestion}
+                              onClick={() => { setNlqQuery(suggestion); setShowSuggestions(false); }}
+                              className={`text-[11px] px-2.5 py-1 rounded-full border transition-all ${isDark ? 'border-white/10 text-gray-300 hover:bg-emerald-500/20 hover:border-emerald-500/30 hover:text-emerald-300' : 'border-black/10 text-gray-600 hover:bg-emerald-500/10 hover:border-emerald-500/30 hover:text-emerald-600'}`}
+                            >
+                              {suggestion}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {nlqError && (
+                      <div className="p-2.5 bg-red-500/20 text-red-400 text-xs rounded-lg border border-red-500/20">
+                        {nlqError}
+                      </div>
+                    )}
+
+                    {nlqResults && nlqResults.length > 0 && (
+                      <div>
+                        <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-2 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          {nlqResults.length} result{nlqResults.length !== 1 ? 's' : ''}
+                        </p>
+                        <div className="space-y-1 max-h-[320px] overflow-y-auto custom-scrollbar">
+                          {nlqResults.slice(0, 100).map((node: any) => (
+                            <div
+                              key={node.id}
+                              onClick={() => {
+                                setSelectedFile(node.file || null);
+                                const filePath = node.file || node.properties?.path || node.properties?.file;
+                                if (filePath) onFileClick(filePath);
+                              }}
+                              className={`flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-pointer transition-colors ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}
+                            >
+                              <div
+                                className="w-2 h-2 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: getNodeTypeColor(node.type) }}
+                              />
+                              <span className={`text-[12px] font-medium truncate flex-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {node.name}
+                              </span>
+                              <span className="text-[9px] uppercase tracking-wider flex-shrink-0" style={{ color: pal.dimText }}>
+                                {node.type}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => setFocusSet(null)}
+                          className={`mt-2 w-full text-[10px] py-1.5 rounded-lg transition-colors ${isDark ? 'text-gray-500 hover:text-white hover:bg-white/5' : 'text-gray-400 hover:text-black hover:bg-black/5'}`}
+                        >
+                          Clear Results
+                        </button>
+                      </div>
+                    )}
+
+                    {nlqResults && nlqResults.length === 0 && !nlqError && (
+                      <div className="p-4 text-center text-gray-500 text-xs">
+                        No matching nodes found.
+                      </div>
+                    )}
                   </motion.div>
                 ) : showConfig ? (
                   <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-6">
