@@ -51,6 +51,9 @@ IGNORED_NODE_FIELDS = {
     "is_dependency",
     "end_line",
     "source",
+    # Compatibility fields from newer parser output
+    "visibility",
+    "initializer_text",
 }
 
 def _is_effectively_empty_list(value):
@@ -269,7 +272,20 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root):
                 
             # Serialize props as a sorted tuple of items to make it hashable
             props_tuple = tuple(sorted(clean_props.items()))
-            normalized_edges.add((from_key, to_key, edge_type, props_tuple))
+
+            if edge_type == "IMPORTS":
+                # Normalize IMPORTS edges by imported name rather than exact
+                # destination node identity, which is unstable across parser versions.
+                imported_name = clean_props.get("imported_name")
+                full_import_name = clean_props.get("full_import_name")
+                normalized_edges.add((
+                    from_key,
+                    f"IMPORT::{imported_name or full_import_name or to_key}",
+                    edge_type,
+                    props_tuple,
+                ))
+            else:
+                normalized_edges.add((from_key, to_key, edge_type, props_tuple))
             
     return normalized_nodes, normalized_edges
 

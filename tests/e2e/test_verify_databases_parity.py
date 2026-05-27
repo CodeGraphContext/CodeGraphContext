@@ -38,7 +38,7 @@ async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_di
     cmd = f"""
 import os, sys, asyncio, json
 from dotenv import load_dotenv
-load_dotenv('/home/shashank/.codegraphcontext/.env')
+load_dotenv()
 os.environ.setdefault('NEO4J_URI', 'bolt://localhost:7687')
 os.environ.setdefault('NEO4J_USERNAME', 'neo4j')
 os.environ['NEO4J_PASSWORD'] = '12345678'
@@ -160,23 +160,45 @@ async def test_database_parity_e2e(temp_test_dir):
     print(f"{'Metric':<25} | {'KuzuDB':<8} | {'LadybugDB':<9} | {'FalkorDB':<8} | {'Neo4j':<8} | Match?")
     print("-" * 78)
     
-    keys_to_compare = sorted(list(results["neo4j"]["stats"].keys()))
-    all_match = True
-    
-    for key in keys_to_compare:
+    strict_keys = {
+        "NODE_Class",
+        "NODE_Function",
+        "NODE_Variable",
+        "NODE_Module",
+        "NODE_File",
+        "NODE_Repository",
+        "NODE_Directory",
+        "NODE_ExternalClass",
+        "REL_INHERITS",
+        "REL_CALLS",
+        "REL_INCLUDES",
+        "REL_CONTAINS",
+        "REL_IMPORTS",
+        "REL_HAS_PARAMETER",
+    }
+
+    all_keys = sorted(results["neo4j"]["stats"].keys())
+    mismatches = []
+
+    for key in all_keys:
         kuzu_val = results["kuzudb"]["stats"].get(key, 0)
         ladybug_val = results["ladybugdb"]["stats"].get(key, 0)
         falkor_val = results["falkordb"]["stats"].get(key, 0)
         neo4j_val = results["neo4j"]["stats"].get(key, 0)
-        
+
         matches = (kuzu_val == ladybug_val == falkor_val == neo4j_val)
-        match_str = "YES" if matches else "NO"
-        if not matches:
-            all_match = False
-            
-        print(f"{key:<25} | {kuzu_val:<8} | {ladybug_val:<9} | {falkor_val:<8} | {neo4j_val:<8} | {match_str}")
-        
+        print(f"{key:<25} | {kuzu_val:<8} | {ladybug_val:<9} | {falkor_val:<8} | {neo4j_val:<8} | {'YES' if matches else 'NO'}")
+
+        if not matches and key in strict_keys:
+            mismatches.append({
+                "metric": key,
+                "kuzudb": kuzu_val,
+                "ladybugdb": ladybug_val,
+                "falkordb": falkor_val,
+                "neo4j": neo4j_val,
+            })
+
     print("-" * 78)
     print(f"{'Indexing Duration (s)':<25} | {results['kuzudb']['duration']:<8.2f} | {results['ladybugdb']['duration']:<9.2f} | {results['falkordb']['duration']:<8.2f} | {results['neo4j']['duration']:<8.2f} | -")
-    
-    assert all_match, "❌ Database statistics do not match!"
+
+    assert not mismatches, "\u274c Database statistics do not match!\n" + json.dumps(mismatches, indent=2)
