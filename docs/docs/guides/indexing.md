@@ -1,82 +1,100 @@
 # Indexing Source Code
 
-Indexing is the process of parsing your source code and materializing it into the code graph. CodeGraphContext (CGC) supports various indexing strategies to suit different workflows.
+Indexing extracts syntactic structures and links semantic relationships within a codebase to populate the graph database. CodeGraphContext (CGC) supports multiple scan strategies.
 
-## 1. Local Repository Indexing
+---
 
-The most common use case is indexing the project you are currently working on.
+## 1. Local Workspace Indexing
+
+To index the repository directory you are currently working in, navigate to the folder and run:
 
 ```bash
 cd /path/to/project
 cgc index
 ```
 
-### Partial Scans
-If you only want to index a specific subdirectory or file:
+### Ingestion Scopes
+By default, the `index` command scans all supported source files in the current working directory. You can narrow the scope by specifying a target subdirectory or file:
 
 ```bash
+# Index only the core module folder
 cgc index ./src/core
+
+# Index a single file
+cgc index ./src/main.py
 ```
 
-### Incremental Updates
-CGC is smart enough to skip files that haven't changed since the last index. Simply run `cgc index` again to sync your changes.
-
----
-
-## 2. Dependency Indexing
-
-To get a complete picture of your application, you may want to index its dependencies.
-
-### Python Packages
-CGC can automatically find and index installed Python packages:
+### Overwriting the Index
+CGC tracks modification timestamps and file hashes to perform incremental scans. To force a full re-index of all files, bypass the cache with the `--force` flag:
 
 ```bash
-cgc index-package requests
-```
-
-### Generic Folders
-You can also index any arbitrary folder and mark it as a dependency:
-
-```bash
-cgc index --path /path/to/lib --dependency
+cgc index --force
 ```
 
 ---
 
-## 3. Real-time Monitoring (`watch`)
+## 2. Ingesting Third-Party Packages
 
-For projects under active development, use the `watch` command. CGC will monitor your filesystem for changes (create, update, delete) and keep the graph in sync in the background.
+To trace references to external dependencies (e.g., standard library classes or package functions), you can manually add installed Python libraries to your active code graph.
+
+Use the `add-package` command:
 
 ```bash
+# Ingest requests library
+cgc add-package requests python
+```
+
+The command resolves the package's installation path on your system, parses its definitions, and appends the nodes to your active context.
+
+---
+
+## 3. Real-Time Directory Watchers
+
+For active development, run a filesystem watcher in the background to capture file writes and incrementally sync the graph.
+
+```bash
+# Start watching the active workspace
 cgc watch
 ```
 
-*   **Background Jobs**: The watch command runs as a background process.
-*   **Status**: Check the status of your watchers with `cgc list-watchers`.
+- **Listing Watchers**: View active file monitors with:
+  ```bash
+  cgc watching
+  ```
+- **Stopping Watchers**: Terminate directory monitoring using:
+  ```bash
+  cgc unwatch /path/to/project
+  ```
 
 ---
 
-## 4. Advanced Indexing Options
+## 4. Ingest Filters (`.cgcignore`)
 
-| Option | Description |
-| :--- | :--- |
-| `--deep` | Performs a deep scan, following imports and resolving external symbols. |
-| `--scip` | (Experimental) Uses SCIP index data if available for higher precision. |
-| `--exclude` | Glob patterns to ignore (e.g., `**/tests/**`). |
+To prevent compiling bloated indices or parsing build artifacts, define ignore rules in a `.cgcignore` file in the root of your repository or context directory.
 
-### The `.cgcignore` File
-Similar to `.gitignore`, you can create a `.cgcignore` file in your repository root to permanently exclude files or directories from the index.
+### Glob Pattern Rules:
+- Lines starting with `#` are treated as comments.
+- Directories should terminate with a trailing slash `/`.
+- Supports wildcards (`*`) and recursive matches (`**/`).
 
+### Typical `.cgcignore` Configuration:
 ```text
-# Example .cgcignore
-node_modules/
+# Exclude build and compiled outputs
+build/
 dist/
+*.egg-info/
+__pycache__/
 *.pyc
+
+# Exclude dependency libraries
+node_modules/
+.venv/
+venv/
+env/
+
+# Exclude IDE configurations
+.git/
+.vscode/
+.idea/
+.project
 ```
-
----
-
-## Performance Tips
-
-*   **Memory**: Large repositories may require significant memory during the initial parse phase.
-*   **Storage**: Ensure you have enough disk space for the graph database (usually 2-5x the size of the source code).

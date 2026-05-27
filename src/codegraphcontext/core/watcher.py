@@ -117,11 +117,13 @@ class RepositoryEventHandler(FileSystemEventHandler):
         return path_obj.is_file() and path_obj.suffix in self.graph_builder.parsers and not self._should_ignore(path_obj)
 
     def _iter_supported_files(self) -> list[Path]:
+        from codegraphcontext.tools.indexing.discovery import discover_files_to_index
         supported_extensions = self.graph_builder.parsers.keys()
-        return [
-            f for f in self.repo_path.rglob("*")
-            if f.is_file() and f.suffix in supported_extensions and not self._should_ignore(f)
-        ]
+        files, _ = discover_files_to_index(
+            self.repo_path,
+            supported_extensions=set(supported_extensions),
+        )
+        return files
 
     def _initial_scan(self):
         """Scans the entire repository, parses all files, and builds the initial graph."""
@@ -252,6 +254,48 @@ class RepositoryEventHandler(FileSystemEventHandler):
         info_logger(f"[INCREMENTAL] Re-linking {len(subset_file_data)} files...")
         self.graph_builder.link_function_calls(subset_file_data, self.imports_map, file_class_lookup, graph_name=self.graph_name)
         self.graph_builder.link_inheritance(subset_file_data, self.imports_map, graph_name=self.graph_name)
+
+        # Step 8+9: Phase 4 (embeddings) and Phase 5 (inheritance re-resolution).
+        # Both are gated by env-var flags.  Each is wrapped in its own try/except
+        # so a failure in one never prevents the other from running.
+        try:
+            from codegraphcontext.cli.config_manager import get_config_value as _gcv
+            _vector_enabled = (_gcv("ENABLE_VECTOR_RESOLVE") or "false").lower() == "true"
+            _inherit_enabled = (_gcv("ENABLE_INHERIT_RESOLVE") or "false").lower() == "true"
+        except Exception as _cfg_e:
+            warning_logger(f"[PHASE4/5] Could not read config flags: {_cfg_e}")
+            _vector_enabled = False
+            _inherit_enabled = False
+
+        if _vector_enabled:
+            try:
+                from codegraphcontext.tools.indexing.embeddings import EmbeddingPipeline
+                embed_pipeline = EmbeddingPipeline(self.graph_builder.driver)
+                embed_pipeline.invalidate_for_file(changed_path_str)
+                embed_pipeline.run(str(self.repo_path))
+                info_logger(f"[EMBED] Incremental embedding complete for {changed_path_str}")
+            except Exception as _e:
+                warning_logger(f"[EMBED] Incremental embedding failed: {_e}")
+
+        if _inherit_enabled:
+            try:
+                from codegraphcontext.tools.indexing.resolution.post_resolution import run_inheritance_reresolve
+                # Build a VectorResolver when embeddings are also enabled so tier-11
+                # edges fire incrementally, not just during full indexing runs.
+                _vector_resolver = None
+                if _vector_enabled:
+                    try:
+                        from codegraphcontext.tools.indexing.vector_resolver import VectorResolver
+                        _vector_resolver = VectorResolver(self.graph_builder.driver)
+                    except Exception as _ve:
+                        warning_logger(f"[VECTOR] Resolver unavailable for watcher: {_ve}")
+                n_improved = run_inheritance_reresolve(
+                    self.graph_builder.driver, str(self.repo_path), _vector_resolver
+                )
+                info_logger(f"[INHERIT-RESOLVE] Incremental: {n_improved} edges improved")
+            except Exception as _e:
+                warning_logger(f"[INHERIT-RESOLVE] Incremental failed: {_e}")
+
         info_logger(f"[INCREMENTAL] Done. Graph refresh for {event_path_str} complete! ✅")
 
     # The following methods are called by the watchdog observer when a file event occurs.

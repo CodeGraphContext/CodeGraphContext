@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/html.py
 from pathlib import Path
 from typing import Any, Dict
 from codegraphcontext.utils.tree_sitter_manager import execute_query
@@ -6,14 +7,14 @@ HTML_QUERIES = {
     "tags": """
         (element
             (start_tag
-                name: (tag_name) @tag_name
-            ) @tag_node
-        )
+                (tag_name) @tag_name
+            )
+        ) @tag_node
     """,
     "attributes": """
         (attribute
-            name: (attribute_name) @attr_name
-            value: (quoted_attribute_value (attribute_value) @attr_value)
+            (attribute_name) @attr_name
+            (quoted_attribute_value (attribute_value) @attr_value)
         ) @attr_node
     """,
     "scripts": """
@@ -54,13 +55,13 @@ class HTMLTreeSitterParser:
         query_str = """
             (element
                 (start_tag
-                    name: (tag_name) @tag_name
+                    (tag_name) @tag_name
                 )
             ) @element
             
             (attribute
-                name: (attribute_name) @attr_name
-                value: (quoted_attribute_value (attribute_value) @attr_value)
+                (attribute_name) @attr_name
+                (quoted_attribute_value (attribute_value) @attr_value)
             ) @attribute
         """
         

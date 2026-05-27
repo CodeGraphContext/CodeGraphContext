@@ -14,25 +14,29 @@ export function ThemeToggle() {
   }
 
   return (
-    <Button variant="outline" size="icon" onClick={toggleTheme} className="relative overflow-hidden">
+    <button 
+      onClick={toggleTheme} 
+      className="p-2 rounded-full hover:bg-white/5 text-muted-foreground hover:text-white transition-colors duration-200 flex items-center justify-center relative w-9 h-9 border-none bg-transparent cursor-pointer shrink-0"
+      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+    >
       <AnimatePresence initial={false} mode="wait">
         <motion.div
           key={theme === 'dark' ? 'sun' : 'moon'}
-          initial={{ y: 20, opacity: 0, rotate: -90 }}
+          initial={{ y: 12, opacity: 0, rotate: -90 }}
           animate={{ y: 0, opacity: 1, rotate: 0 }}
-          exit={{ y: -20, opacity: 0, rotate: 90 }}
-          transition={{ duration: 0.3 }}
-          className="absolute"
+          exit={{ y: -12, opacity: 0, rotate: 90 }}
+          transition={{ duration: 0.25 }}
+          className="absolute flex items-center justify-center"
         >
           {theme === 'dark' ? (
-            <Sun className="h-[1.2rem] w-[1.2rem]" />
+            <Sun className="w-5 h-5 text-yellow-400" />
           ) : (
-            <Moon className="h-[1.2rem] w-[1.2rem]" />
+            <Moon className="w-5 h-5" />
           )}
         </motion.div>
       </AnimatePresence>
       <span className="sr-only">Toggle theme</span>
-    </Button>
+    </button>
   )
 }
 

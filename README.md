@@ -56,7 +56,7 @@
   <a href="http://codegraphcontext.vercel.app/">
     <img src="https://img.shields.io/badge/website-up-brightgreen?style=flat-square" alt="Website">
   </a>
-  <a href="https://CodeGraphContext.github.io/CodeGraphContext/">
+  <a href="https://codegraphcontext.vercel.app/">
     <img src="https://img.shields.io/badge/docs-GitHub%20Pages-blue?style=flat-square" alt="Docs">
   </a>
   <a href="https://youtu.be/KYYSdxhg1xU">
@@ -75,6 +75,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 * [🛠️ CLI Toolkit](#for-cli-toolkit-mode) 
 * [🤖 MCP Server](#-for-mcp-server-mode) 
 * [🗄️ Database Options](#database-options)
+* [🔬 SCIP indexing (optional)](#scip-indexing-optional)
 
 ---
 
@@ -97,7 +98,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 ---
 
 ## Project Details
-- **Version:** 0.4.6
+- **Version:** 0.4.12
 - **Authors:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **License:** MIT License (See [LICENSE](LICENSE) for details)
 - **Website:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
@@ -111,7 +112,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 - 📧 Email: [shashankshekharsingh1205@gmail.com](mailto:shashankshekharsingh1205@gmail.com)
 - 🐙 GitHub: [@Shashankss1205](https://github.com/Shashankss1205)
 - 🔗 LinkedIn: [Shashank Shekhar Singh](https://www.linkedin.com/in/shashank-shekhar-singh-a67282228/)
-- 🌐 Website: [codegraphcontext.vercel.app](http://codegraphcontext.vercel.app/)
+- 🌐 Website: [codegraphcontext.vercel.app](https://codegraphcontext.vercel.app/)
 
 *Contributions and feedback are always welcome! Feel free to reach out for questions, suggestions, or collaboration opportunities.*
 
@@ -129,8 +130,8 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 -   **Live File Watching:** Watch directories for changes and automatically update the graph in real-time (`codegraphcontext watch`).
 -   **Interactive Setup:** A user-friendly command-line wizard for easy setup.
 -   **Dual Mode:** Works as a standalone **CLI toolkit** for developers and as an **MCP server** for AI agents.
--   **Multi-Language Support:** Full support for 15 programming languages.
--   **Flexible Database Backend:** LadybugDB (Default), FalkorDB Lite (Typical Unix default), FalkorDB Remote, Nornic DB, or Neo4j (all platforms via Docker/native).
+-   **Multi-Language Support:** Full support for 20 programming languages.
+-   **Flexible Database Backend:** FalkorDB Lite (Default), KuzuDB, LadybugDB, FalkorDB Remote, Nornic DB, or Neo4j (all platforms via Docker/native).
 
 
 ---
@@ -146,6 +147,8 @@ CodeGraphContext provides comprehensive parsing and analysis for the following l
 | 🐹 | **Go** | 🦀 | **Rust** | 💎 | **Ruby** |
 | 🐘 | **PHP** | 🍎 | **Swift** | 🎨 | **Kotlin** |
 | 🎯 | **Dart** | 🐪 | **Perl** | 🌙 | **Lua** |
+| 🚀 | **Scala** | λ | **Haskell** | 💧 | **Elixir** |
+| ⚛️ | **TSX** | | | | |
 
 Each language parser extracts functions, classes, methods, parameters, inheritance relationships, function calls, and imports to build a comprehensive code graph.
 
@@ -155,15 +158,27 @@ Each language parser extracts functions, classes, methods, parameters, inheritan
 
 CodeGraphContext supports multiple graph database backends to suit your environment:
 
-| Feature | LadybugDB | FalkorDB Lite | Neo4j / Nornic DB |
-| :--- | :--- | :--- | :--- |
-| **Typical default** | **Standard Default** (embedded, when `real_ladybug` is installed) | **Unix** (Python 3.12+, when `falkordblite` works) | When explicitly configured |
-| **Setup** | Zero-config / Embedded | Zero-config / In-process | Docker / External |
-| **Platform** | **All (Windows Native, macOS, Linux)** | Unix-only (Linux/macOS/WSL) | All Platforms |
-| **Use Case** | Desktop, IDE, Local development | Specialized Unix development | Enterprise, Massive graphs |
-| **Requirement**| `pip install real_ladybug` | `pip install falkordblite` | Neo4j Server / Docker / Nornic Cloud |
+| Feature | KuzuDB | LadybugDB | FalkorDB Lite | Neo4j / Nornic DB |
+| :--- | :--- | :--- | :--- | :--- |
+| **Typical default** | **Standard Default** (embedded, powered by KuzuDB) | **Specialized Embedded** (similar to Kuzu) | **Unix** (Python 3.12+, when `falkordblite` works) | When explicitly configured |
+| **Setup** | Zero-config / Embedded | Zero-config / Embedded | Zero-config / In-process | Docker / External |
+| **Platform** | **All (Windows Native, macOS, Linux)** | **All (Windows Native, macOS, Linux)** | Unix-only (Linux/macOS/WSL) | All Platforms |
+| **Use Case** | Desktop, IDE, Local development | Custom research projects | Specialized Unix development | Enterprise, Massive graphs |
+| **Requirement**| `pip install kuzu` | `pip install ladybug` | `pip install falkordblite` | Neo4j Server / Docker / Nornic Cloud |
 | **Speed** | ⚡ Extremely Fast | ⚡ Fast | 🚀 Scalable |
 | **Persistence**| Yes (to disk) | Yes (to disk) | Yes (to disk) |
+
+---
+
+## SCIP indexing (optional)
+
+When `SCIP_INDEXER=true` in your CGC config (`~/.codegraphcontext/.env`), some languages use external **SCIP** indexers for more accurate calls and inheritance than Tree-sitter heuristics alone.
+
+**C and C++** use **scip-clang**, which requires a **`compile_commands.json`** file (a [JSON compilation database](https://clang.llvm.org/docs/JSONCompilationDatabase.html)): one entry per translation unit with the real compiler command (include paths, `-D` defines, `-std`, etc.). Without it, scip-clang cannot run; CGC logs a warning and **falls back to Tree-sitter** for that repo. Typical ways to produce the file: **CMake** with `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`, or wrap your real build with **[Bear](https://github.com/rizsotto/Bear)** (e.g. `bear -- make`). CGC also looks under `build/` and `cmake-build-*/` for that filename.
+
+**C#** uses **scip-dotnet** (Roslyn); you need a normal **`.csproj` / `.sln`** and a successful restore—no `compile_commands.json`.
+
+SCIP is **independent of which graph database** you use (Kuzu, Neo4j, etc.); the same flag applies to all backends.
 
 ---
 
@@ -186,95 +201,42 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
 - `stdlibs>=2023.11.18`
 - `typer>=0.9.0`
 - `rich>=13.7.0`
-- `inquirerpy>=0.3.7`
+- `inquirerpy>=0.3.4`
 - `python-dotenv>=1.0.0`
 - `tree-sitter>=0.21.0` (not installed on Python 3.13)
 - `tree-sitter-language-pack>=0.6.0` (not installed on Python 3.13)
 - `pyyaml`
-- `pytest`
-- `nbformat`
-- `nbconvert>=7.16.6`
 - `pathspec>=0.12.1`
+- `falkordb>=0.1.0`
+- `falkordblite>=0.1.0` (Unix only)
+- `kuzu` (KuzuDB engine)
+- `fastapi>=0.100.0`
+- `uvicorn>=0.22.0`
+- `requests>=2.28.0`
+- `protobuf>=3.20,<3.21`
 
 **Note:** Python 3.10-3.14 is supported.
 
 ---
 
-## Quick Start
-### Install the core toolkit
-```
-pip install codegraphcontext
-```
+### 🚀 Installation & Quick Start
 
-### If 'codegraphcontext' command isn't found, run our one-line fix:
-```
-curl -sSL https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/scripts/post_install_fix.sh | bash
-```
-
----
-
-## Getting Started
-
-### 📋 Understanding CodeGraphContext Modes
-CodeGraphContext operates in **two modes**, and you can use either or both:
-
-#### 🛠️ Mode 1: CLI Toolkit (Standalone)
-Use CodeGraphContext as a **powerful command-line toolkit** for code analysis:
-- Index and analyze codebases directly from your terminal
-- Query code relationships, find dead code, analyze complexity
-- Visualize code graphs and dependencies
-- Perfect for developers who want direct control via CLI commands
-
-#### 🤖 Mode 2: MCP Server (AI-Powered)
-Use CodeGraphContext as an **MCP server** for AI assistants:
-- Connect to AI IDEs (VS Code, Cursor, Windsurf, Claude, Kiro, etc.)
-- Let AI agents query your codebase using natural language
-- Automatic code understanding and relationship analysis
-- Perfect for AI-assisted development workflows
-
-**You can use both modes!** Install once, then use CLI commands directly OR connect to your AI assistant.
-
-### Installation (Both Modes)
-
-1.  **Install:** `pip install codegraphcontext`
-    <details>
-    <summary>⚙️ Troubleshooting: In case, command <code>codegraphcontext</code> not found</summary>
-    <br>
-    If you encounter <i>"codegraphcontext: command not found"</i> after installation, run the PATH fix script:
-    
-    **Linux/Mac:**
+1.  **Install the toolkit:**
     ```bash
-    # Download the fix script
-    curl -O https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/scripts/post_install_fix.sh
-    
-    # Make it executable
-    chmod +x post_install_fix.sh
-    
-    # Run the script
-    ./post_install_fix.sh
-    
-    # Restart your terminal or reload shell config
-    source ~/.bashrc  # or ~/.zshrc for zsh users
+    pip install codegraphcontext
     ```
-    
-    **Windows (PowerShell):**
-    ```powershell
-    # Download the fix script
-    curl -O https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/scripts/post_install_fix.sh
-    
-    # Run with bash (requires Git Bash or WSL)
-    bash post_install_fix.sh
-    
-    # Restart PowerShell or reload profile
-    . $PROFILE
-    ``` 
-    </details>
 
-2.  **Database Setup (Automatic)**
-    
-    - **LadybugDB (Default):** Runs natively on Windows, macOS, and Linux. It is the primary embedded choice; `pip install real_ladybug` if needed.
-    - **FalkorDB Lite (High Performance Unix):** When Python 3.12+ and `falkordblite` are available on Unix/macOS/WSL, the embedded backend prefers FalkorDB Lite for speed; otherwise LadybugDB is used.
-    - **Neo4j (Alternative):** To use Neo4j instead, or if you prefer a server-based approach, run: `codegraphcontext neo4j setup`
+2.  **Troubleshooting (Command not found):**
+    If the `codegraphcontext` command is not found, run this one-line fix:
+    ```bash
+    curl -sSL https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/scripts/post_install_fix.sh | bash
+    ```
+
+3.  **Database Setup (Automatic):**
+    CodeGraphContext uses an embedded graph database by default.
+    - **FalkorDB Lite:** Default backend.
+    - **KuzuDB:** Cross-platform embedded backend.
+    - **Neo4j:** Run `codegraphcontext neo4j setup` to use an external server.
 
 ---
 

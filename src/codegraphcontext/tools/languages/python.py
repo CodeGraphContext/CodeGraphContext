@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/python.py
 import os
 import tempfile
 import nbformat
@@ -252,7 +253,13 @@ class PythonTreeSitterParser:
                 params_node = func_node.child_by_field_name('parameters')
                 body_node = func_node.child_by_field_name('body')
                 
-                decorators = [self._get_node_text(child) for child in func_node.children if child.type == 'decorator']
+                # In tree-sitter-python, decorators are children of decorated_definition, which is the parent of function_definition
+                decorators = []
+                if func_node.parent and func_node.parent.type == 'decorated_definition':
+                    decorators = [self._get_node_text(child) for child in func_node.parent.children if child.type == 'decorator']
+                else:
+                    decorators = [self._get_node_text(child) for child in func_node.children if child.type == 'decorator']
+
 
                 context, context_type, _ = self._get_parent_context(func_node)
                 class_context, _, _ = self._get_parent_context(func_node, types=('class_definition',))

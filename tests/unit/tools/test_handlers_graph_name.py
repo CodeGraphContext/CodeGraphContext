@@ -196,6 +196,7 @@ def test_add_code_to_graph_threads_graph_name(tmp_path, monkeypatch):
     """graph_name must flow to list_repos_func, job creation, and build_graph_from_path_async."""
     # We need a real path so the handler doesn't short-circuit on 'path_not_found'.
     real_path = tmp_path
+    monkeypatch.setenv("CGC_ALLOWED_ROOTS", str(real_path))
     list_calls = []
 
     def fake_list_repos(graph_name=None):

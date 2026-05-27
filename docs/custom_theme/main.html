@@ -1,0 +1,408 @@
+{% extends "base.html" %}
+
+{% block extrahead %}
+<link rel="stylesheet" href="{{ 'stylesheets/redwood.css' | url }}">
+<style>
+  /* Custom Theme Overrides to integrate Redwood with Material */
+  .md-header,
+  .md-sidebar,
+  .md-footer,
+  .md-tabs {
+    display: none !important;
+  }
+
+  /* Hide standard Material elements */
+  .md-container {
+    display: block !important;
+    padding: 0 !important;
+  }
+
+  .md-main__inner {
+    margin: 0 !important;
+    max-width: none !important;
+    display: block !important;
+  }
+
+  /* Ensure the content area matches Redwood */
+  .md-content {
+    background: transparent !important;
+    padding: 0 !important;
+  }
+
+  .md-content__inner {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+
+  /* GitHub Stats & Search Styles */
+  .rw-masthead__middle {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    padding: 0 40px;
+  }
+
+  .rw-search-container {
+    position: relative;
+    width: 100%;
+    max-width: 500px;
+  }
+
+  .rw-search-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 6px 12px 6px 36px;
+    color: #fff;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    outline: none;
+    transition: background 0.2s;
+  }
+
+  .rw-search-input:focus {
+    background: rgba(255, 255, 255, 0.25);
+  }
+
+  .rw-search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: rgba(255, 255, 255, 0.6);
+    pointer-events: none;
+  }
+
+  .rw-search-results {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    background: var(--color-background-primary);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+  }
+
+  .rw-search-results.active {
+    display: block;
+  }
+
+  .rw-search-item {
+    display: block;
+    padding: 12px 16px;
+    text-decoration: none;
+    border-bottom: 1px solid var(--color-border-light);
+  }
+
+  .rw-search-item__title {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--color-accent);
+  }
+
+  .rw-search-item__text {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+  }
+
+  .rw-repo-info {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-right: 16px;
+  }
+
+  .rw-repo-name {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+  }
+
+  .rw-repo-name__full {
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .rw-repo-stats {
+    display: flex;
+    gap: 10px;
+    margin-top: 2px;
+  }
+
+  .rw-stat {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.8);
+  }
+</style>
+{% endblock %}
+
+{% block site_nav %}
+<div class="rw-app-container">
+  <!-- Redwood Masthead -->
+  <header class="rw-masthead">
+    <div class="rw-masthead__left">
+      <button class="rw-masthead__hamburger" onclick="toggleSidebar()">☰</button>
+      <img src="{{ 'assets/logo.png' | url }}" class="rw-masthead__logo-img" alt="Logo">
+      <a href="{{ '' | url }}"
+        style="color:#fff;text-decoration:none;margin-left:6px;font-weight:600;">CodeGraphContext</a>
+      <span class="rw-masthead__sep">/</span>
+      <span class="rw-masthead__label">Documentation</span>
+    </div>
+
+    <div class="rw-masthead__middle">
+      <div class="rw-search-container">
+        <svg class="rw-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input type="text" class="rw-search-input" placeholder="Search documentation..." id="rw-search-input"
+          autocomplete="off">
+        <div id="rw-search-results" class="rw-search-results"></div>
+      </div>
+    </div>
+
+    <div class="rw-masthead__right">
+      <div class="rw-repo-info">
+        <div class="rw-repo-name">
+          <span class="rw-repo-name__full">CodeGraphContext/CodeGraphContext</span>
+          <div class="rw-repo-stats">
+            <span class="rw-stat"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2.5">
+                <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                <line x1="7" y1="7" x2="7.01" y2="7" />
+              </svg> <span id="git-version">v0.4.12</span></span>
+            <span class="rw-stat"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                <path
+                  d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+              </svg> <span id="git-stars">3.2k</span></span>
+            <span class="rw-stat"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2.5">
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg> <span id="git-forks">564</span></span>
+          </div>
+        </div>
+      </div>
+      <a href="https://github.com/CodeGraphContext/CodeGraphContext" class="rw-masthead__github" target="_blank"
+        rel="noopener">
+        <svg height="20" width="20" viewBox="0 0 16 16" fill="currentColor">
+          <path
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z">
+          </path>
+        </svg>
+      </a>
+      <button class="rw-theme-toggle" onclick="toggleTheme()" id="themeBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="rw-shell">
+    <div class="rw-sidebar-overlay" onclick="toggleSidebar()"></div>
+    <nav class="rw-sidebar">
+      {% for nav_item in nav %}
+      <div class="rw-sidebar__group">
+        <div class="rw-sidebar__heading">{{ nav_item.title }}</div>
+        {% if nav_item.children %}
+        {% for sub_item in nav_item.children %}
+        <a href="{{ sub_item.url | url }}"
+          class="rw-sidebar__link {% if sub_item.active %}rw-sidebar__link--active{% endif %}">
+          {{ sub_item.title }}
+        </a>
+        {% endfor %}
+        {% else %}
+        <a href="{{ nav_item.url | url }}"
+          class="rw-sidebar__link {% if nav_item.active %}rw-sidebar__link--active{% endif %}">
+          {{ nav_item.title }}
+        </a>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </nav>
+
+    <main class="rw-content">
+      <div class="rw-breadcrumb">
+        <a href="{{ '' | url }}">Home</a>
+        {% if page.ancestors %}
+        {% for ancestor in page.ancestors %}
+        <span class="rw-breadcrumb__sep">›</span>
+        <a href="{{ ancestor.url | url }}">{{ ancestor.title }}</a>
+        {% endfor %}
+        {% endif %}
+        <span class="rw-breadcrumb__sep">›</span>
+        {{ page.title }}
+      </div>
+
+      <!-- The actual markdown content -->
+      <div class="rw-main-content md-typeset">
+        {{ page.content }}
+      </div>
+    </main>
+  </div>
+
+  <footer class="rw-footer">
+    <div class="rw-footer__left">CodeGraphContext v0.1.0 · Documentation</div>
+    <div class="rw-footer__right">
+      <a href="https://github.com/CodeGraphContext/CodeGraphContext" target="_blank" rel="noopener">
+        <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor">
+          <path
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z">
+          </path>
+        </svg>
+      </a>
+    </div>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  function toggleTheme() {
+    var c = document.documentElement.getAttribute('data-theme');
+    var n = c === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', n);
+    document.body.setAttribute('data-md-color-scheme', n === 'dark' ? 'slate' : 'default');
+    localStorage.setItem('rw-theme', n);
+    updateThemeBtn(n);
+  }
+  function updateThemeBtn(t) {
+    var btn = document.getElementById('themeBtn');
+    if (!btn) return;
+    btn.innerHTML = t === 'dark' ?
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>' :
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  }
+  (function () {
+    var s = localStorage.getItem('rw-theme');
+    if (s) {
+      document.documentElement.setAttribute('data-theme', s);
+      document.body.setAttribute('data-md-color-scheme', s === 'dark' ? 'slate' : 'default');
+      updateThemeBtn(s);
+    }
+  })();
+  function toggleSidebar() { document.querySelector('.rw-sidebar').classList.toggle('hidden'); }
+
+  // Search Logic
+  let searchIndex = null;
+  async function initSearch() {
+    try {
+      const response = await fetch("{{ 'search/search_index.json' | url }}");
+      searchIndex = await response.json();
+    } catch (e) { }
+  }
+  function handleSearch(query) {
+    const resultsContainer = document.getElementById('rw-search-results');
+    if (!query || !searchIndex) { resultsContainer.classList.remove('active'); return; }
+    const results = searchIndex.docs.filter(doc =>
+      doc.title.toLowerCase().includes(query.toLowerCase()) ||
+      doc.text.toLowerCase().includes(query.toLowerCase())
+    ).slice(0, 8);
+    if (results.length > 0) {
+      resultsContainer.innerHTML = results.map(res => `
+          <a href="{{ '' | url }}${res.location}" class="rw-search-item">
+            <div class="rw-search-item__title">${res.title}</div>
+            <div class="rw-search-item__text">${res.text.substring(0, 80)}...</div>
+          </a>
+        `).join('');
+      resultsContainer.classList.add('active');
+    } else {
+      resultsContainer.innerHTML = '<div class="rw-search-item"><div class="rw-search-item__text">No results found</div></div>';
+      resultsContainer.classList.add('active');
+    }
+  }
+  async function updateGitHubStats() {
+    try {
+      const response = await fetch("https://api.github.com/repos/CodeGraphContext/CodeGraphContext");
+      if (response.ok) {
+        const data = await response.json();
+        const stars = data.stargazers_count;
+        const forks = data.forks_count;
+        const formatNum = (num) => num >= 1000 ? (num / 1000).toFixed(1) + 'k' : num;
+
+        const starsEl = document.getElementById('git-stars');
+        const forksEl = document.getElementById('git-forks');
+        if (starsEl) starsEl.textContent = formatNum(stars);
+        if (forksEl) forksEl.textContent = formatNum(forks);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch GitHub stats:", e);
+    }
+  }
+
+  function initCodeCopyButtons() {
+    const codeBlocks = document.querySelectorAll('pre');
+    codeBlocks.forEach(pre => {
+      if (pre.classList.contains('mermaid') || pre.querySelector('code.language-mermaid')) return;
+      pre.style.position = 'relative';
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'rw-code-copy-btn';
+      copyBtn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+      `;
+      pre.appendChild(copyBtn);
+
+      copyBtn.addEventListener('click', async () => {
+        const codeEl = pre.querySelector('code');
+        const cleanText = codeEl ? codeEl.textContent : pre.textContent.replace(copyBtn.textContent, '');
+        try {
+          await navigator.clipboard.writeText(cleanText.trim());
+          copyBtn.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="green" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          `;
+          setTimeout(() => {
+            copyBtn.innerHTML = `
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            `;
+          }, 2000);
+        } catch (err) {
+          console.error('Failed to copy text: ', err);
+        }
+      });
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    initSearch();
+    updateGitHubStats();
+    initCodeCopyButtons();
+    const searchInput = document.getElementById('rw-search-input');
+    if (searchInput) searchInput.addEventListener('input', (e) => handleSearch(e.target.value));
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.rw-search-container')) {
+        const res = document.getElementById('rw-search-results');
+        if (res) res.classList.remove('active');
+      }
+    });
+  });
+</script>
+{% endblock %}
+
+{% block content %}
+{% endblock %}

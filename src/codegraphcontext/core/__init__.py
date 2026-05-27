@@ -22,7 +22,14 @@ import importlib.util
 def _is_kuzudb_available() -> bool:
     """Check if KùzuDB is installed."""
     try:
-        return importlib.util.find_spec("real_ladybug") is not None
+        return importlib.util.find_spec("kuzu") is not None
+    except ImportError:
+        return False
+
+def _is_ladybugdb_available() -> bool:
+    """Check if LadybugDB is installed."""
+    try:
+        return importlib.util.find_spec("ladybug") is not None
     except ImportError:
         return False
 
@@ -60,7 +67,7 @@ def _is_nornic_configured() -> bool:
         os.getenv('NORNIC_PASSWORD')
     ])
 
-def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager', 'NornicDBManager']:
+def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager', 'NornicDBManager', 'LadybugDBManager']:
     """
     Factory function to get the appropriate database manager based on configuration.
 
@@ -78,7 +85,7 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
         db_type = db_type.lower()
         if db_type == 'kuzudb':
             if not _is_kuzudb_available():
-                raise ValueError("Database set to 'kuzudb' but Kùzu is not installed.\nRun 'pip install real_ladybug'")
+                raise ValueError("Database set to 'kuzudb' but Kùzu is not installed.\nRun 'pip install kuzu'")
             from .database_kuzu import KuzuDBManager
             info_logger(f"Using KùzuDB (explicit) at {db_path or 'default path'}")
             return KuzuDBManager(db_path=db_path)
@@ -126,8 +133,14 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
             from .database_nornic import NornicDBManager
             info_logger("Using Nornic DB (explicit)")
             return NornicDBManager()
+        elif db_type == 'ladybugdb':
+            if not _is_ladybugdb_available():
+                raise ValueError("Database set to 'ladybugdb' but LadybugDB is not installed.\nRun 'pip install ladybug'")
+            from .database_ladybug import LadybugDBManager
+            info_logger(f"Using LadybugDB (explicit) at {db_path or 'default path'}")
+            return LadybugDBManager(db_path=db_path)
         else:
-            raise ValueError(f"Unknown database type: '{db_type}'. Use 'kuzudb', 'falkordb', 'falkordb-remote', 'neo4j', or 'nornic'.")
+            raise ValueError(f"Unknown database type: '{db_type}'. Use 'kuzudb', 'ladybugdb', 'falkordb', 'falkordb-remote', 'neo4j', or 'nornic'.")
 
     # Implicit: remote FalkorDB when FALKORDB_HOST is set (explicit infra signal)
     if _is_falkordb_remote_configured():
@@ -168,7 +181,7 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
         return NornicDBManager()
 
     error_msg = "No database backend available.\n"
-    error_msg += "Recommended: Install KùzuDB for zero-config ('pip install real_ladybug')\n"
+    error_msg += "Recommended: Install KùzuDB for zero-config ('pip install kuzu')\n"
 
     if platform.system() != "Windows":
         error_msg += "Alternative: Install FalkorDB Lite ('pip install falkordblite')\n"
@@ -182,6 +195,7 @@ from .database import DatabaseManager
 from .database_falkordb import FalkorDBManager
 from .database_falkordb_remote import FalkorDBRemoteManager
 from .database_kuzu import KuzuDBManager
+from .database_ladybug import LadybugDBManager
 from .database_nornic import NornicDBManager
 
-__all__ = ['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager', 'NornicDBManager', 'get_database_manager']
+__all__ = ['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager', 'LadybugDBManager', 'NornicDBManager', 'get_database_manager']

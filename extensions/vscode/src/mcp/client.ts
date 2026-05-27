@@ -108,6 +108,22 @@ export class CgcMcpClient {
     this.output.dispose();
   }
 
+  /** Kill the current MCP server process and re-start with a fresh DB connection. */
+  public async restart(): Promise<void> {
+    this.output.appendLine("Restarting CGC MCP server (forced refresh)…");
+    if (this.proc) {
+      this.proc.kill();
+      this.proc = undefined;
+    }
+    for (const [, req] of this.pending) {
+      req.reject(new Error("CGC MCP process restarting"));
+    }
+    this.pending.clear();
+    // Give the old process a moment to shut down before re-spawning
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await this.ensureStarted();
+  }
+
   private onStdout(raw: string): void {
     const lines = raw.split("\n").map((x) => x.trim()).filter(Boolean);
     for (const line of lines) {

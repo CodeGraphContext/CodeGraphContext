@@ -1,69 +1,84 @@
-# Troubleshooting
+# Troubleshooting Manual
 
-This guide provides solutions for common issues encountered while installing or using CodeGraphContext.
-
-## 1. Installation Issues
-
-### `uvx` or `pipx` command not found
-*   **Solution**: Ensure that your Python environment is correctly set up and that the installation directory for `pipx` or `uv` is in your system's `PATH`.
-*   **Verification**: Run `python -m pip install --user pipx` followed by `pipx ensurepath`.
-
-### Failed to install `real_ladybug` (KùzuDB)
-*   **Cause**: KùzuDB requires C++ build tools on some platforms during installation.
-*   **Solution**:
-    *   **Windows**: Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
-    *   **macOS**: Run `xcode-select --install`.
-    *   **Linux**: Install `build-essential` and `python3-dev`.
+This guide detail procedures for identifying, diagnosing, and resolving issues when setting up or executing CodeGraphContext.
 
 ---
 
-## 2. Database Connectivity
+## 1. Engine Installation & Compilation Issues
+
+### KuzuDB Installation Errors (C++ Compiler Required)
+KuzuDB relies on a compiled C++ engine core. If `pip install kuzu` fails:
+- **Reason**: The pre-compiled wheel is not available for your system architecture/Python version, forcing a compile from source without build tools.
+- **Resolution**:
+  - **Linux**: Install build essentials: `sudo apt-get install build-essential python3-dev`
+  - **macOS**: Install developer CLI tools: `xcode-select --install`
+  - **Windows**: Install [Visual C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) via Visual Studio Installer.
+
+### FalkorDB Lite Unix Dependencies
+FalkorDB Lite only runs on Linux/macOS and requires **Python 3.12+**.
+- **Reason**: Underlying shared libraries are not compiled for Windows or older Python interpreter versions.
+- **Resolution**: Switch the active database context backend to `kuzudb` which is fully cross-platform.
+
+---
+
+## 2. Database Connection Failures
 
 ### "No database backend available"
-*   **Cause**: No supported database is installed or configured.
-*   **Solution**: Install KùzuDB (recommended): `pip install real_ladybug`.
+- **Reason**: CGC is looking for KuzuDB, FalkorDB, or Neo4j, but the respective Python client packages are missing from the current virtual environment.
+- **Resolution**: Verify package installations:
+  ```bash
+  pip install kuzu neo4j falkordb
+  ```
 
-### Neo4j: "Authentication failed"
-*   **Cause**: Incorrect credentials in environment variables or `.env` file.
-*   **Solution**: Verify `NEO4J_USERNAME` and `NEO4J_PASSWORD`. Run `cgc config list` to check current settings.
-
----
-
-## 3. MCP Integration
-
-### Tools do not appear in Claude/Cursor
-*   **Check 1**: Ensure the MCP server is running correctly. Run `cgc mcp` in your terminal. It should wait for input without exiting immediately.
-*   **Check 2**: Verify the path to the `cgc` executable in your configuration file. Use absolute paths if necessary.
-*   **Check 3**: Look at the logs. CGC logs to `~/.codegraphcontext/logs/mcp.log` by default.
-
-### "Connection refused" in MCP
-*   **Cause**: The database backend is not reachable by the MCP server.
-*   **Solution**: Ensure your database (e.g., Neo4j Docker container) is running before starting the MCP server.
+### Neo4j Connection Refused / Auth Failures
+- **Reason**: Connection parameters in configuration do not match your running Neo4j Instance.
+- **Resolution**: Run `cgc config show` to check host bindings and credentials. Verify that the Neo4j instance is up and accepting TCP connections (e.g., using `telnet localhost 7687` or via Docker logs).
 
 ---
 
-## 4. Indexing Issues
+## 3. MCP Server & Daemon Failures
 
-### Indexing is slow
-*   **Tip**: Use the `watch` command for incremental updates instead of full re-indexes.
-*   **Tip**: Exclude large, irrelevant directories (like `node_modules` or `dist`) using a `.cgcignore` file.
-
-### "Tree-sitter parser not found"
-*   **Cause**: The parser for a specific language failed to load or is not supported.
-*   **Solution**: Ensure you are using a recent version of `codegraphcontext`. Run `pip install --upgrade codegraphcontext`.
+### IDE Assistant Fails to Load Tools
+If Claude Desktop or Cursor does not show CGC tools:
+- **Step 1: Process Check**: Test the server execution by running the launch command directly in your shell:
+  ```bash
+  cgc mcp start
+  ```
+  The server should wait for input on stdin/stdout. If it immediately crashes or exits, inspect the stack trace.
+- **Step 2: Absolute Executable Paths**: IDEs often run in isolated shell contexts that do not inherit your user shell's `PATH`. Replace the `cgc` command with the absolute path in your IDE configuration files:
+  - Find the absolute path using: `which cgc` (Linux/macOS) or `where cgc` (Windows).
+  - Update `command` in JSON (e.g., `/home/username/.local/bin/cgc`).
+- **Step 3: Logs Inspection**: Review the server log files. MCP server logs are written to:
+  `~/.codegraphcontext/logs/mcp.log`
 
 ---
 
-## 5. Diagnostic Command
+## 4. Indexing & Filesystem Watcher Failures
 
-If you are still having trouble, run the built-in diagnostic tool:
+### Indexing is Slow or Out of Memory
+- **Reason**: CGC is attempting to index massive build folders, dependencies, or compiled files (e.g., `.git/`, `node_modules/`, `venv/`).
+- **Resolution**: Ensure a `.cgcignore` file is present in the repository root containing appropriate ignore rules (refer to the [Indexing Guide](../guides/indexing.md)).
+
+### Directory Watcher Fails to Update
+- **Reason**: The watchdog monitor has run out of system file handles (common on Linux with large repositories).
+- **Resolution**: Increase the max user watches value:
+  ```bash
+  echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
+  ```
+
+---
+
+## 5. System Health Check (`doctor`)
+
+To execute a comprehensive diagnostic test of the active environment, run:
 
 ```bash
 cgc doctor
 ```
 
-This command checks for:
-*   Python version compatibility.
-*   Installed database backends.
-*   Active configuration settings.
-*   Write permissions for log and data directories.
+The diagnostics engine performs the following tests:
+1. **Python Version**: Confirms interpreter meets version requirements.
+2. **Configuration Integrity**: Checks for syntax errors in `config.yaml`.
+3. **Database Driver Availability**: Checks imports for Kuzu, FalkorDB, and Neo4j.
+4. **Active Connection Health**: Attempts connection transactions to the configured database.
+5. **Permissions Audit**: Verifies write capability to target log and database storage directories.

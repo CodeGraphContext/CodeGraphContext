@@ -1,53 +1,41 @@
-# CodeGraphContext (CGC)
+# Introduction to CodeGraphContext
 
-CodeGraphContext is a high-performance **Code Intelligence Engine** that transforms your source code into a queryable property graph. By indexing semantic relationships—such as function calls, class hierarchies, and module dependencies—CGC enables both developers and AI agents to navigate and understand complex codebases with unprecedented depth.
-
-## Key Capabilities
-
-*   **Semantic Indexing**: Goes beyond simple text search by understanding the structural relationships of your code using Tree-sitter and SCIP.
-*   **MCP Integration**: Native Model Context Protocol (MCP) support allows AI assistants (Claude, Cursor, VS Code) to perform deep architectural queries.
-*   **Multi-Backend Support**: Choose between **KùzuDB** (embedded), **FalkorDB** (high-performance), or **Neo4j** (enterprise) depending on your scale and visualization needs.
-*   **Live Monitoring**: Automatically keeps the code graph in sync with your local changes using background watchers.
-*   **Portable Bundles**: Package and share indexed codebases as `.cgc` bundles for instant loading without re-indexing.
+CodeGraphContext (CGC) is a high-performance, developer-focused **Code Intelligence Engine** designed to transform complex source code repositories into semantic, queryable property graphs. By parsing source code syntax and resolving symbols, CGC maps relationships—such as function invocations, class inheritances, file structures, and module imports—into a structured graph model. This enables both human developers and Model Context Protocol (MCP) compatible AI agents to navigate and analyze codebases programmatically.
 
 ---
 
-## Getting Started
+## Core Capabilities
 
-Follow these steps to integrate CodeGraphContext into your workflow:
-
-1.  **[Installation](getting-started/installation.md)**: Install the CLI and choose your database backend.
-2.  **[Quickstart](getting-started/quickstart.md)**: Index your first repository in under 5 minutes.
-3.  **[MCP Setup](getting-started/mcp-setup.md)**: Connect CGC to your favorite AI assistant.
+- **Semantic AST Extraction**: Utilizes tree-sitter for syntax analysis and SCIP (Sourcegraph Code Intelligence Protocol) for static symbol resolution across multiple directories.
+- **Model Context Protocol (MCP) Integration**: Built-in MCP server support allows AI models and IDE agents (Cursor, Claude, VS Code, Windsurf) to query the codebase context dynamically.
+- **Pluggable Database Architecture**: Supports KuzuDB as the default cross-platform embedded database engine, LadybugDB, FalkorDB (embedded and remote), and Neo4j for enterprise analytics and visual exploration.
+- **Filesystem Synchronization**: Integrated directory watchers monitor file updates and update the graph incrementally.
+- **Portable Code Graphs**: Supports exporting and importing serialized graph representations as `.cgc` bundles for offline sharing and registry integration.
 
 ---
 
-## Core Architecture
+## Architectural Layout
 
-CGC operates as a bridge between your raw source files and your development tools.
+CGC acts as the translation layer between source code parsing engines, graph datastores, and consumer clients.
 
 ```mermaid
 graph TD
-    A[Source Code] --> B(Tree-sitter / SCIP Parser)
-    B --> C{Graph Builder}
-    C --> D[KùzuDB / FalkorDB / Neo4j]
-    D --> E((CGC CLI))
-    D --> F((MCP Server))
-    F --> G[AI Agents: Claude, Cursor, etc.]
+    src[Source Code] --> parse[Tree-sitter & SCIP Ingestion]
+    parse --> builder[Graph Builder & Linker]
+    builder --> db[Graph Storage: KuzuDB, FalkorDB, Neo4j]
+    db --> cli[CGC CLI Client]
+    db --> mcp[MCP Server Gateway]
+    mcp --> ai[AI Assistant Interfaces]
 ```
 
-For a deeper dive into the system design, see the **[Architecture Guide](concepts/architecture.md)**.
-
 ---
 
-## Why CodeGraphContext?
+## Documentation Roadmap
 
-Modern codebases are too large to hold in a single context window. CodeGraphContext solves this by providing:
+To get started with CodeGraphContext, follow the structured sections below:
 
-*   **Precision**: Find exactly who calls a function across 100+ modules instantly.
-*   **Context**: Provide AI agents with the specific graph slices they need to solve complex bugs.
-*   **Efficiency**: Reduce re-indexing time with incremental updates and pre-built bundles.
-
----
-
-[GitHub Repository](https://github.com/CodeGraphContext/CodeGraphContext) | [Issues](https://github.com/CodeGraphContext/CodeGraphContext/issues) | [License](license.md)
+1. **[Getting Started](getting-started/prerequisites.md)**: Explore prerequisites, installation steps, quickstart tutorials, and MCP setup.
+2. **[Core Concepts](concepts/architecture.md)**: Deep dive into the architecture, graph model schemas, database backends, and parser designs.
+3. **[User Guides](guides/indexing.md)**: Learn indexing strategies, workspaces contexts, bundles distribution, custom visualizers, and database schema mappings.
+4. **[Reference Manual](reference/cli.md)**: Complete CLI command listings, MCP tool schemas, and configuration variables.
+5. **[Community Portal](contributing.md)**: Guidelines for contributing code, extending languages support, and the project roadmap.

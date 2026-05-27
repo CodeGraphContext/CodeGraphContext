@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/handlers/query_handlers.py
 import re
 import urllib.parse
 from typing import Any, Dict
@@ -19,8 +20,11 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
 
     # Safety Check: Prevent any write operations to the database.
     # This check first removes all string literals and then checks for forbidden keywords.
-    forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
-
+    # Includes LOAD (CSV), FOREACH, DETACH, and CALL { subquery } / CALL apoc patterns
+    # in addition to the basic write keywords. The Neo4j session is also opened with
+    # default_access_mode="READ" so the server enforces read-only at the protocol layer.
+    forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'DETACH', 'SET', 'REMOVE', 'DROP', 'LOAD', 'FOREACH']
+    forbidden_patterns = [r'CALL\s+apoc\b', r'CALL\s*\{']
     # Regex to match single or double quoted strings, handling escaped quotes.
     string_literal_pattern = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
 
@@ -33,10 +37,15 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
             return {
                 "error": "This tool only supports read-only queries. Prohibited keywords like CREATE, MERGE, DELETE, SET, etc., are not allowed."
             }
+    for pattern in forbidden_patterns:
+        if re.search(pattern, query_without_strings, re.IGNORECASE):
+            return {
+                "error": "This tool only supports read-only queries. Prohibited keywords like CREATE, MERGE, DELETE, SET, etc., are not allowed."
+            }
 
     try:
         debug_log(f"Executing Cypher query: {cypher_query}")
-        with db_manager.get_driver(graph_name=graph_name).session() as session:
+        with db_manager.get_driver(graph_name=graph_name).session(default_access_mode="READ") as session:
             result = session.run(cypher_query)
             records = [record.data() for record in result]
 

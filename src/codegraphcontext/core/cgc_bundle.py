@@ -28,7 +28,7 @@ from datetime import datetime, date
 import subprocess
 
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
-from codegraphcontext.utils.git_utils import get_repo_commit_hash
+from codegraphcontext.utils.git_utils import get_repo_commit_hash, get_repo_branch_name
 
 
 class _BundleEncoder(json.JSONEncoder):
@@ -109,11 +109,9 @@ class CGCBundle:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 
-                # Step 1: Extract metadata
+                # Step 1: Extract metadata base
                 info_logger("Extracting metadata...")
                 metadata = self._extract_metadata(repo_path)
-                with open(temp_path / "metadata.json", 'w') as f:
-                    json.dump(metadata, f, indent=2, cls=_BundleEncoder)
                 
                 # Step 2: Extract schema
                 info_logger("Extracting schema...")
@@ -129,12 +127,48 @@ class CGCBundle:
                 info_logger("Extracting edges...")
                 edge_count = self._extract_edges(temp_path / "edges.jsonl", repo_path)
                 
-                # Step 5: Generate statistics
+                # Step 5: Generate statistics and assemble standardized metadata
                 if include_stats:
                     info_logger("Generating statistics...")
                     stats = self._generate_stats(repo_path, node_count, edge_count)
                     with open(temp_path / "stats.json", 'w') as f:
                         json.dump(stats, f, indent=2, cls=_BundleEncoder)
+                else:
+                    stats = None
+
+                # Compile dynamic standardized metadata
+                try:
+                    from importlib.metadata import version as get_version
+                    py_version = get_version("codegraphcontext")
+                except Exception:
+                    py_version = "0.4.12"
+
+                metadata["format_version"] = "1.0.0"
+                metadata["generator"] = f"PYv{py_version}"
+                
+                # Timestamp format: YYYY-MM-DDTHH:MM:SSZ (UTC ISO String format)
+                # datetime.utcnow() was deprecated, using timezone-aware or simple UTC strftime
+                from datetime import timezone
+                metadata["exported_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+                # Build name
+                if metadata.get("repo") and "/" in metadata["repo"]:
+                    owner, repo_name = metadata["repo"].split("/", 1)
+                    branch = metadata.get("branch", "main")
+                    commit = metadata.get("commit", "latest")
+                    metadata["name"] = f"{owner}__{repo_name}__{branch}__{commit}.cgc"
+                else:
+                    foldername = metadata.get("repo", "unknown")
+                    metadata["name"] = f"{foldername}.cgc"
+
+                metadata["graph_metrics"] = {
+                    "total_nodes": node_count,
+                    "total_edges": edge_count
+                }
+
+                # Save final metadata.json
+                with open(temp_path / "metadata.json", 'w') as f:
+                    json.dump(metadata, f, indent=2, cls=_BundleEncoder)
                 
                 # Step 6: Create README
                 self._create_readme(temp_path / "README.md", metadata, stats if include_stats else None)
@@ -283,8 +317,15 @@ class CGCBundle:
                                 if hasattr(node, attr):
                                     repo[attr] = getattr(node, attr)
                     
-                    metadata["repo"] = repo.get('name', str(repo_path))
-                    metadata["repo_path"] = repo.get('path')
+                    metadata["repo"] = repo.get('name', str(repo_path.name if repo_path else 'unknown'))
+                    # Clean up absolute path prefix to keep it relative
+                    meta_path = repo.get('path', '')
+                    if repo_path and meta_path.startswith(str(repo_path.resolve())):
+                        repo_str = str(repo_path.resolve())
+                        rel = meta_path[len(repo_str):].lstrip('/')
+                        metadata["repo_path"] = "./" + rel if rel else "."
+                    else:
+                        metadata["repo_path"] = meta_path
                     metadata["is_dependency"] = repo.get('is_dependency', False)
             else:
                 # All repositories
@@ -300,6 +341,9 @@ class CGCBundle:
                 commit = get_repo_commit_hash(repo_path)
                 if commit:
                     metadata["commit"] = commit[:8]
+                branch = get_repo_branch_name(repo_path)
+                if branch:
+                    metadata["branch"] = branch
 
                 try:
                     result = session.run("""
@@ -413,6 +457,14 @@ class CGCBundle:
                         elif hasattr(node, 'properties'):
                             node_dict = dict(node.properties)
                     
+                    # Clean up absolute path prefix to keep it relative
+                    if repo_path:
+                        repo_str = str(repo_path.resolve())
+                        for key, val in list(node_dict.items()):
+                            if isinstance(val, str) and val.startswith(repo_str):
+                                rel = val[len(repo_str):].lstrip('/')
+                                node_dict[key] = "./" + rel if rel else "."
+                    
                     node_dict['_labels'] = labels
                     
                     # Store internal ID for reference
@@ -482,6 +534,14 @@ class CGCBundle:
                             rel_props = dict(rel._properties)
                         elif hasattr(rel, 'properties'):
                             rel_props = dict(rel.properties)
+                    
+                    # Clean up absolute path prefix inside edge properties
+                    if repo_path:
+                        repo_str = str(repo_path.resolve())
+                        for key, val in list(rel_props.items()):
+                            if isinstance(val, str) and val.startswith(repo_str):
+                                rel = val[len(repo_str):].lstrip('/')
+                                rel_props[key] = "./" + rel if rel else "."
                     
                     # Create edge representation
                     edge_dict = {

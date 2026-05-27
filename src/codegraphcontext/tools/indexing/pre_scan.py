@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/pre_scan.py
 """Build global imports_map via language-specific pre-scan (registry dispatch)."""
 
 from pathlib import Path

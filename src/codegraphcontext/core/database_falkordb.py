@@ -88,6 +88,7 @@ class FalkorDBManager:
             'FALKORDB_PATH',
             config_db_path or str(Path.home() / '.codegraphcontext' / 'global' / 'falkordb.db')
         )
+        self.db_path = os.path.abspath(self.db_path)
         
         # Socket path with fallback chain
         if socket_path:
@@ -102,6 +103,7 @@ class FalkorDBManager:
                 'FALKORDB_SOCKET_PATH',
                 config_socket_path or str(Path.home() / '.codegraphcontext' / 'global' / 'falkordb.sock')
             )
+        self.socket_path = os.path.abspath(self.socket_path)
         
         self.graph_name = os.getenv('FALKORDB_GRAPH_NAME', 'codegraph')
         self._initialized = True
@@ -350,7 +352,7 @@ class FalkorDBDriverWrapper:
     def __init__(self, graph):
         self.graph = graph
     
-    def session(self):
+    def session(self, **kwargs):
         """Returns a session-like object for FalkorDB."""
         return FalkorDBSessionWrapper(self.graph)
     
@@ -392,7 +394,7 @@ class FalkorDBSessionWrapper:
         except Exception as e:
             # Ignore errors about existing constraints/indexes
             error_msg = str(e).lower()
-            if "already exists" in error_msg or "already created" in error_msg:
+            if "already exists" in error_msg or "already created" in error_msg or "already indexed" in error_msg:
                 return FalkorDBResultWrapper(None)
                 
             error_logger(f"FalkorDB query failed: {query[:100]}... Error: {e}")
@@ -478,10 +480,19 @@ class FalkorDBSessionWrapper:
 
 class FalkorDBRecord(dict):
     """
-    Dict wrapper that provides a .data() method for compatibility with Neo4j records.
+    Dict wrapper that provides a .data() method and integer/key index access
+    for compatibility with Neo4j and Kuzu records.
     """
     def data(self):
         return self
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            keys = list(self.keys())
+            if 0 <= key < len(keys):
+                return super().__getitem__(keys[key])
+            raise IndexError(f"Index {key} out of range")
+        return super().__getitem__(key)
 
 class FalkorDBResultWrapper:
     """

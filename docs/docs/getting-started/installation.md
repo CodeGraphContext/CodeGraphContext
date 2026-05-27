@@ -1,78 +1,96 @@
-# Installation
+# Ingesting & Installing CodeGraphContext
 
-CodeGraphContext (CGC) is distributed as a Python package. You can install it using several methods depending on your workflow.
+CodeGraphContext (CGC) is packaged as a standard Python utility. The CLI and server components are installed using Python package managers.
 
-## 1. Install the CLI
+---
 
-### Recommended: Using `uvx` (Fastest)
-If you use [uv](https://github.com/astral-sh/uv), you can run CGC instantly without manual installation:
+## 1. CLI Installation
+
+### Method A: Execution via `uvx` (Recommended)
+If you use [uv](https://github.com/astral-sh/uv), you can run the CGC CLI on demand without installing it globally:
 
 ```bash
 uvx codegraphcontext --help
 ```
 
-### Using `pipx` (Isolated)
-For a persistent global installation in an isolated environment:
+### Method B: Isolated Global Installation via `pipx`
+To install the CLI in an isolated Python environment and make it globally available:
 
 ```bash
 pipx install codegraphcontext
 ```
 
-### Using `pip`
+### Method C: Standard Package Installation via `pip`
+To install CGC in your active Python or virtual environment:
+
 ```bash
 pip install codegraphcontext
 ```
 
 ---
 
-## 2. Database Backend Selection
+## 2. Database Driver Setup
 
-CGC requires a graph database to store the indexed code. You can choose the backend that best fits your needs.
+CGC requires Python driver bindings for your selected database backend. FalkorDB Lite is configured by default.
 
-### Option A: LadybugDB (Default & Recommended)
-LadybugDB is an embedded, extremely fast graph database. It requires zero configuration and runs directly within the CGC process.
-
-*   **Installation**: `pip install real_ladybug`
-*   **Best for**: Local development, individual projects, and zero-ops setups.
-*   **Pros**: No external services, portable database files.
-
-### Option B: FalkorDB (High Performance)
-FalkorDB is a low-latency graph database. CGC supports both local (embedded) and remote instances.
-
-*   **Installation**: `pip install falkordblite` (Linux/macOS only)
-*   **Best for**: Large codebases and performance-critical queries.
-*   **Pros**: Industry-leading query performance.
-*   **Note**: We use `falkordblite` for supported devices (Python 3.12+ on Unix), and LadybugDB (kuzudb) for the rest. We have largely shifted to LadybugDB as the primary embedded engine.
-
-### Option C: Neo4j (Enterprise)
-Neo4j is the industry standard for graph databases, offering powerful visualization and management tools.
-
-*   **Best for**: Teams, massive repositories, and deep visual analysis via the Neo4j Browser.
-*   **Setup**: Requires a running Neo4j instance (Docker or Cloud).
-    ```bash
-    codegraphcontext config set-db neo4j
-    ```
-
----
-
-## 3. Verify Installation
-
-To ensure everything is configured correctly, run the version check:
-
+### Installing KuzuDB Drivers
+KuzuDB is embedded and runs directly inside the Python process.
 ```bash
-codegraphcontext --version
+pip install kuzu
 ```
 
-You can also run the diagnostic command to check backend connectivity:
+### Installing FalkorDB Drivers (Optional)
+If using the FalkorDB backend:
+- **Embedded Lite** (Unix and Python 3.12+ only):
+  ```bash
+  pip install falkordblite
+  ```
+- **Remote Server Client**:
+  ```bash
+  pip install falkordb
+  ```
 
+### Installing Neo4j Drivers (Optional)
+If connecting to a standalone Neo4j instance:
 ```bash
-codegraphcontext doctor
+pip install neo4j
 ```
 
 ---
 
-## 4. Next Steps
+## 3. Configuring the Default Backend
 
-Now that CGC is installed, you are ready to index your first repository.
+Set your preferred default database backend in the global configuration:
+
+```bash
+cgc config db falkordb     # Configure FalkorDB Lite / Remote (Default)
+cgc config db kuzudb       # Configure KuzuDB
+cgc config db ladybugdb    # Configure LadybugDB
+cgc config db neo4j        # Configure Neo4j
+```
+
+For remote databases (FalkorDB Remote, Neo4j), refer to the database connection properties in the [Configuration Reference](../reference/config.md).
+
+---
+
+## 4. Validating the Installation
+
+Verify that the CLI and its database bindings are correctly loaded using the diagnostics tool:
+
+```bash
+# Verify the installed CLI version
+cgc version
+
+# Run the system diagnostics check
+cgc doctor
+```
+
+The `doctor` command executes self-tests on the configuration, tests database drivers, and confirms directory permissions.
+
+---
+
+## 5. Next Steps
+
+Once the CLI is verified, continue to index your project workspace.
 
 **[Proceed to Quickstart →](quickstart.md)**

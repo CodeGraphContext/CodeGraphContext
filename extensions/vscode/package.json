@@ -11,6 +11,8 @@
     "Other",
     "Programming Languages"
   ],
+  "keywords": ["code graph", "MCP", "call graph", "complexity", "code analysis", "dead code", "graph intelligence"],
+  "galleryBanner": { "color": "#1e1e2e", "theme": "dark" },
   "activationEvents": [
     "onCommand:cgc.openDashboard",
     "onCommand:cgc.showCallGraph",
@@ -18,7 +20,9 @@
     "onCommand:cgc.refreshIndex",
     "onCommand:cgc.openEngineConfig",
     "onCommand:cgc.showVariableImpact",
-    "onView:cgc-repos",
+    "onCommand:cgc.showClassHierarchy",
+    "onCommand:cgc.generateReport",
+    "onCommand:cgc.discoverContexts",
     "onView:cgc-bundles",
     "onView:cgc-control"
   ],
@@ -58,8 +62,16 @@
         "title": "CGC: Show Variable Impact Radius"
       },
       {
-        "command": "cgc.refreshExtension",
-        "title": "CGC: Refresh / Restart Extension"
+        "command": "cgc.showClassHierarchy",
+        "title": "CGC: Show Class Hierarchy"
+      },
+      {
+        "command": "cgc.generateReport",
+        "title": "CGC: Generate Code Health Report"
+      },
+      {
+        "command": "cgc.discoverContexts",
+        "title": "CGC: Discover Sub-Project Contexts"
       },
       {
         "command": "cgc.visualizeRepo",
@@ -70,15 +82,28 @@
       "editor/context": [
         {
           "command": "cgc.showCallGraph",
-          "when": "editorTextFocus"
+          "when": "editorTextFocus && cgc:isFunction",
+          "group": "cgc@1"
         },
         {
           "command": "cgc.analyzeRelationships",
-          "when": "editorTextFocus"
+          "when": "editorTextFocus && cgc:isFunction",
+          "group": "cgc@2"
         },
         {
           "command": "cgc.showVariableImpact",
-          "when": "editorTextFocus"
+          "when": "editorTextFocus",
+          "group": "cgc@3"
+        },
+        {
+          "command": "cgc.showClassHierarchy",
+          "when": "editorTextFocus && cgc:isClass",
+          "group": "cgc@4"
+        },
+        {
+          "command": "cgc.generateReport",
+          "when": "editorTextFocus",
+          "group": "cgc@5"
         }
       ]
     },
@@ -97,10 +122,6 @@
           "id": "cgc-control",
           "name": "CGC Control Panel",
           "type": "webview"
-        },
-        {
-          "id": "cgc-repos",
-          "name": "Repositories"
         },
         {
           "id": "cgc-bundles",
@@ -131,7 +152,7 @@
           "default": "falkordb",
           "enum": [
             "neo4j",
-            "ladybugdb",
+            "kuzudb",
             "falkordb"
           ],
           "description": "Target database mode for CGC runtime."
@@ -159,8 +180,12 @@
         "cgc.contextMode": {
           "type": "string",
           "default": "global",
-          "enum": ["global", "per-repo", "named"],
-          "description": "CGC context mode: global, per-repo, or named workspace."
+          "enum": [
+            "global",
+            "per-repo",
+            "shared"
+          ],
+          "description": "CGC context mode: global, per-repo, or shared workspace."
         },
         "cgc.indexVariables": {
           "type": "boolean",

@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import HeroSection from "../components/HeroSection";
 import FeaturesSection from "../components/FeaturesSection";
 import InstallationSection from "../components/InstallationSection";
@@ -8,10 +10,23 @@ import Footer from "../components/Footer";
 import TestimonialSection from "../components/TestimonialSection";
 import SocialMentionsTimeline from "../components/SocialMentionsTimeline";
 import ComparisonTable from "../components/ComparisonTable";
-import BundleGeneratorSection from "../components/BundleGeneratorSection";
 import BundleRegistrySection from "../components/BundleRegistrySection";
 
 const Index = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.pathname === "/pre-indexed" || location.hash === "#bundle-registry") {
+      const timer = setTimeout(() => {
+        const el = document.getElementById("bundle-registry");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [location.pathname, location.hash]);
+
   return (
     <main className="min-h-screen overflow-x-hidden pt-16">
       <div data-aos="fade-in">
@@ -32,9 +47,7 @@ const Index = () => {
       <div data-aos="fade-up" id="bundle-registry">
         <BundleRegistrySection />
       </div>
-      <div data-aos="fade-up" id="bundle-generator">
-        <BundleGeneratorSection />
-      </div>
+
       <div data-aos="fade-up" id="examples">
         <ExamplesSection />
       </div>

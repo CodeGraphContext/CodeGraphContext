@@ -1,11 +1,14 @@
+# src/codegraphcontext/cli/cli_helpers.py
 import asyncio
 import json
 import uuid
 import urllib.parse
+from collections import Counter
 from pathlib import Path
 import time
 import os
 from typing import Optional, List, Dict, Any
+import typer
 from rich.console import Console
 from rich.table import Table
 from rich.progress import (
@@ -24,10 +27,36 @@ from ..tools.code_finder import CodeFinder
 from ..tools.graph_builder import GraphBuilder
 from ..tools.package_resolver import get_local_package_path
 from ..utils.debug_log import info_logger, warning_logger
+from ..core.database import Neo4jConnectionError
 from ..utils.repo_path import any_repo_matches_path
 from .config_manager import resolve_context, ResolvedContext, register_repo_in_context, ensure_first_run_bootstrap
 
 console = Console()
+
+
+def _print_call_resolution_diagnostics(graph_builder: GraphBuilder, limit: int = 5) -> None:
+    diagnostics = getattr(graph_builder, "last_call_resolution_diagnostics", [])
+    if not diagnostics:
+        return
+
+    reason_counts = Counter(d.get("reason", "unknown") for d in diagnostics)
+    summary = ", ".join(
+        f"{reason}={count}" for reason, count in reason_counts.most_common()
+    )
+    console.print(
+        f"[yellow]Skipped {len(diagnostics)} unresolved call relationship(s): {summary}[/yellow]"
+    )
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Call", style="cyan", overflow="fold")
+    table.add_column("Reason", style="yellow")
+    table.add_column("Location", style="dim", overflow="fold")
+    for diagnostic in diagnostics[:limit]:
+        table.add_row(
+            str(diagnostic.get("full_call_name") or ""),
+            str(diagnostic.get("reason") or ""),
+            f"{diagnostic.get('caller_file_path')}:{diagnostic.get('line_number')}",
+        )
+    console.print(table)
 
 
 def _initialize_services(cli_context_flag: Optional[str] = None) -> tuple[Any, Any, Any, ResolvedContext]:
@@ -50,12 +79,18 @@ def _initialize_services(cli_context_flag: Optional[str] = None) -> tuple[Any, A
 
     console.print("[dim]Initializing services and database connection...[/dim]")
     try:
-        # Override the database backend with the context's specific choice
-        if ctx.database:
-            os.environ['CGC_RUNTIME_DB_TYPE'] = ctx.database
+        # Respect runtime/backend overrides. Context DB is only a default when
+        # neither runtime override nor DEFAULT_DATABASE is already set.
+        if (
+            ctx.database
+            and not os.getenv("CGC_RUNTIME_DB_TYPE")
+            and not os.getenv("DEFAULT_DATABASE")
+        ):
+            os.environ["DEFAULT_DATABASE"] = ctx.database
         
-        # Pass the exact DB path resolved from the context
-        db_manager = get_database_manager(db_path=ctx.db_path)
+        # Pass the exact DB path resolved from the context, or the runtime override
+        runtime_path = os.getenv("CGC_RUNTIME_DB_PATH")
+        db_manager = get_database_manager(db_path=runtime_path or ctx.db_path)
     except ValueError as e:
         console.print(f"[bold red]Database Configuration Error:[/bold red] {e}")
         return None, None, None, ctx
@@ -85,9 +120,35 @@ def _initialize_services(cli_context_flag: Optional[str] = None) -> tuple[Any, A
                 console.print(f"[bold red]Critical Error:[/bold red] Both FalkorDB and KùzuDB failed: {kuzu_e}")
                 return None, None, None, ctx
         else:
-            console.print(f"[bold red]Database Connection Error:[/bold red] {e}")
-            console.print("Please ensure your database is configured correctly or run 'cgc doctor'.")
-            return None, None, None, ctx
+            selected_db = (
+                os.environ.get("CGC_RUNTIME_DB_TYPE")
+                or os.environ.get("DATABASE_TYPE")
+                or os.environ.get("DEFAULT_DATABASE")
+                or ""
+            ).lower()
+
+            if isinstance(e, Neo4jConnectionError):
+                console.print(f"[bold red]{e}[/bold red]")
+                allow_fallback = os.environ.get("CGC_ALLOW_NEO4J_FALLBACK", "false").lower() in {"1", "true", "yes", "on"}
+
+                if selected_db == "neo4j" and allow_fallback:
+                    console.print("[cyan]Neo4j failed and CGC_ALLOW_NEO4J_FALLBACK=true. Falling back to KuzuDB...[/cyan]")
+                    try:
+                        from ..core.database_kuzu import KuzuDBManager
+                        db_manager = KuzuDBManager()
+                        db_manager.get_driver()
+                        console.print("[green]✓[/green] Successfully switched to KuzuDB fallback")
+                    except Exception as kuzu_e:
+                        console.print(f"[bold red]Critical Error:[/bold red] Neo4j failed and KuzuDB fallback failed: {kuzu_e}")
+                        return None, None, None, ctx
+                else:
+                    if selected_db == "neo4j":
+                        console.print("[yellow]Tip:[/yellow] To continue without Neo4j, rerun with --db kuzudb")
+                    return None, None, None, ctx
+            else:
+                console.print(f"[bold red]Database Connection Error:[/bold red] {e}")
+                console.print("Please ensure your database is configured correctly or run 'cgc doctor'.")
+                return None, None, None, ctx
     
     # The GraphBuilder requires an event loop, even for synchronous-style execution
     try:
@@ -211,6 +272,7 @@ def index_helper(path: str, context: Optional[str] = None):
         asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
         time_end = time.time()
         elapsed = time_end - time_start
+        _print_call_resolution_diagnostics(graph_builder)
         console.print(f"[green]Successfully finished indexing: {path} in {elapsed:.2f} seconds[/green]")
         
         # Check if auto-watch is enabled
@@ -227,6 +289,7 @@ def index_helper(path: str, context: Optional[str] = None):
             
     except Exception as e:
         console.print(f"[bold red]An error occurred during indexing:[/bold red] {e}")
+        raise typer.Exit(code=1)
     finally:
         db_manager.close_driver()
 
@@ -257,6 +320,7 @@ def add_package_helper(package_name: str, language: str, context: Optional[str] 
 
     try:
         asyncio.run(_run_index_with_progress(graph_builder, package_path, is_dependency=True, cgcignore_path=ctx.cgcignore_path))
+        _print_call_resolution_diagnostics(graph_builder)
         console.print(f"[green]Successfully finished indexing package: {package_name}[/green]")
     except Exception as e:
         console.print(f"[bold red]An error occurred during package indexing:[/bold red] {e}")
@@ -322,9 +386,11 @@ def cypher_helper(query: str, context: Optional[str] = None):
 
     db_manager, _, _, ctx = services
     
-    # Replicating safety checks from MCPServer
+    # Replicating safety checks from MCPServer (using word boundaries to avoid false positives like 'createEmail')
+    import re
     forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
-    if any(keyword in query.upper() for keyword in forbidden_keywords):
+    pattern = r'\b(' + '|'.join(forbidden_keywords) + r')\b'
+    if re.search(pattern, query, re.IGNORECASE):
         console.print("[bold red]Error: This command only supports read-only queries.[/bold red]")
         db_manager.close_driver()
         return
@@ -350,9 +416,11 @@ def cypher_helper_visual(query: str, context: Optional[str] = None):
 
     db_manager, _, _, ctx = services
     
-    # Replicating safety checks from MCPServer
+    # Replicating safety checks from MCPServer (using word boundaries to avoid false positives like 'createEmail')
+    import re
     forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
-    if any(keyword in query.upper() for keyword in forbidden_keywords):
+    pattern = r'\b(' + '|'.join(forbidden_keywords) + r')\b'
+    if re.search(pattern, query, re.IGNORECASE):
         console.print("[bold red]Error: This command only supports read-only queries.[/bold red]")
         db_manager.close_driver()
         return
@@ -508,9 +576,11 @@ def reindex_helper(path: str, context: Optional[str] = None):
         asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
         time_end = time.time()
         elapsed = time_end - time_start
+        _print_call_resolution_diagnostics(graph_builder)
         console.print(f"[green]Successfully re-indexed: {path} in {elapsed:.2f} seconds[/green]")
     except Exception as e:
         console.print(f"[bold red]An error occurred during re-indexing:[/bold red] {e}")
+        raise typer.Exit(code=1)
     finally:
         db_manager.close_driver()
 
@@ -637,6 +707,12 @@ def stats_helper(path: str = None, context: Optional[str] = None):
                     class_count = session.run("MATCH (c:Class) RETURN count(c) as c").single()["c"]
                     module_count = session.run("MATCH (m:Module) RETURN count(m) as c").single()["c"]
                     
+                    # Extended node types (PHP, Rust, Go, etc.)
+                    interface_count = session.run("MATCH (i:Interface) RETURN count(i) as c").single()["c"]
+                    trait_count = session.run("MATCH (t:Trait) RETURN count(t) as c").single()["c"]
+                    struct_count = session.run("MATCH (s:Struct) RETURN count(s) as c").single()["c"]
+                    enum_count = session.run("MATCH (e:Enum) RETURN count(e) as c").single()["c"]
+                    
                     table = Table(show_header=True, header_style="bold magenta")
                     table.add_column("Metric", style="cyan")
                     table.add_column("Count", style="green", justify="right")
@@ -645,6 +721,14 @@ def stats_helper(path: str = None, context: Optional[str] = None):
                     table.add_row("Files", str(file_count))
                     table.add_row("Functions", str(func_count))
                     table.add_row("Classes", str(class_count))
+                    if interface_count > 0:
+                        table.add_row("Interfaces", str(interface_count))
+                    if trait_count > 0:
+                        table.add_row("Traits", str(trait_count))
+                    if struct_count > 0:
+                        table.add_row("Structs", str(struct_count))
+                    if enum_count > 0:
+                        table.add_row("Enums", str(enum_count))
                     table.add_row("Modules", str(module_count))
                     
                     console.print(table)
@@ -784,3 +868,39 @@ def list_watching_helper():
     console.print(f"\n[cyan]To see watched directories in MCP mode:[/cyan]")
     console.print(f"  1. Start the MCP server: cgc mcp start")
     console.print(f"  2. Use the 'list_watched_paths' MCP tool from your IDE")
+
+
+def setup_scip_helper() -> None:
+    """Diagnostic and setup helper for SCIP indexers."""
+    from ..tools.scip_indexer import EXTENSION_TO_SCIP
+    import shutil
+    
+    console.print("[bold cyan]🔍 Checking SCIP Indexer Availability...[/bold cyan]\n")
+    
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Language", style="cyan")
+    table.add_column("Binary", style="yellow")
+    table.add_column("Status", style="green")
+    table.add_column("Install Hint", style="dim")
+    
+    langs = {}
+    for ext, (lang, binary, hint, docker) in EXTENSION_TO_SCIP.items():
+        if lang not in langs:
+            langs[lang] = (binary, hint, docker)
+            
+    for lang, (binary, hint, docker) in sorted(langs.items()):
+        is_installed = shutil.which(binary) is not None
+        status = "[green]✓ Installed[/green]" if is_installed else "[red]✗ Not Found[/red]"
+        table.add_row(lang, binary, status, hint)
+        
+    console.print(table)
+    
+    # Check Docker
+    has_docker = shutil.which("docker") is not None
+    if has_docker:
+        console.print("\n[green]✓ Docker is available (Auto-fallback enabled)[/green]")
+    else:
+        console.print("\n[yellow]⚠ Docker not found. Local binaries are required for SCIP.[/yellow]")
+
+    console.print("\n[dim]To enable SCIP indexing, run:[/dim]")
+    console.print("[bold white]cgc config set SCIP_INDEXER true[/bold white]")

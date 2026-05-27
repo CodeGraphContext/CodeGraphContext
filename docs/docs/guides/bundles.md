@@ -1,67 +1,67 @@
-# Portable Code Bundles
+# Portable CGC Bundles & Registries
 
-CodeGraphContext (CGC) introduces the concept of **Bundles** (`.cgc` files)—portable snapshots of an indexed codebase. Bundles allow you to share or load pre-indexed graphs instantly without the overhead of parsing source code.
-
-## 1. Creating a Bundle
-
-Once you have indexed a repository, you can export it as a bundle:
-
-```bash
-cgc bundle create --name "my-project-v1"
-```
-
-This generates a `.cgc` file containing the entire graph structure and metadata.
-
-## 2. Loading a Bundle
-
-To load a bundle into your current session:
-
-```bash
-cgc bundle load ./my-project-v1.cgc
-```
-
-The graph is now immediately queryable via the CLI and MCP tools.
+CodeGraphContext (CGC) supports **Portable Graph Bundles** (`.cgc` files)—serialized snapshots of an indexed codebase. Bundles allow teams to distribute pre-parsed code structures so that other developers or CI runners can load them without re-parsing the original source code.
 
 ---
 
-## 3. The CGC Bundle Registry
+## 1. Exporting a Graph Bundle
 
-CGC maintains a registry of pre-indexed bundles for popular open-source libraries. This allows AI agents to understand your dependencies without you needing to have their source code locally.
-
-### Search the Registry
-Find available bundles for your tech stack:
+To package your current database graph into a single `.cgc` file, use the `bundle export` command:
 
 ```bash
-cgc bundle search "flask"
+# Export the entire active database graph
+cgc bundle export my-app-v1.cgc
+
+# Export only a specific repository path from the database
+cgc bundle export my-app-v1.cgc --repo /path/to/project
 ```
 
-### Download and Load
-Fetch a bundle directly from the registry:
+The exported file contains compressed serialization of all nodes, relationships, and ingestion metadata.
+
+---
+
+## 2. Importing a Graph Bundle
+
+To import a local `.cgc` bundle file into your active database context:
+
+```bash
+# Append bundle contents into the current database
+cgc bundle import ./my-app-v1.cgc
+
+# Clear existing data in the active context before importing
+cgc bundle import ./my-app-v1.cgc --clear
+```
+
+The database is populated immediately and is ready for CLI query operations or MCP server sessions.
+
+---
+
+## 3. The Public Bundle Registry
+
+CGC hosts a remote repository of pre-indexed graph bundles for popular libraries and frameworks, allowing developers to query third-party code structures.
+
+### Searching the Registry
+Search for public graph packages matching a specific keyword (e.g., `flask`):
+
+```bash
+cgc registry search flask
+```
+
+### Loading Registry Bundles
+To download and load a package from the registry directly into your local database:
 
 ```bash
 cgc bundle load flask
 ```
 
----
+If the package is not found locally, the engine contacts the remote registry API, downloads the matching version, and runs the import process automatically.
 
-## 4. Use Cases for Bundles
-
-*   **CI/CD**: Build a code graph as part of your CI pipeline and attach it to releases.
-*   **Onboarding**: Provide new team members with a pre-indexed bundle of the entire microservices architecture.
-*   **AI Context**: Attach bundles of common libraries (e.g., `requests`, `numpy`, `react`) to your AI assistant for better library-specific suggestions.
-
----
-
-## Managing Local Bundles
-
-You can list all bundles currently stored in your local registry:
-
-```bash
-cgc bundle list
-```
-
-To remove a bundle and free up space:
-
-```bash
-cgc bundle remove <bundle_id>
-```
+### Registry Command Suite
+- **List All Available Registry Packages**:
+  ```bash
+  cgc registry list
+  ```
+- **Request On-Demand Generation**: If a specific library is missing, submit a request for the registry build server to generate a bundle from a public GitHub repository URL:
+  ```bash
+  cgc registry request https://github.com/pallets/click --wait
+  ```

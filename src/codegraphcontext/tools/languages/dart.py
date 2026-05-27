@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/dart.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, List
 import logging
@@ -15,26 +16,23 @@ DART_QUERIES = {
             (formal_parameter_list) @params
         ) @function_node
     """,
-    "classes": """
-        [
-            (class_definition name: (identifier) @name)
-            (mixin_declaration name: (identifier) @name)
-            (extension_declaration name: (identifier) @name)
-            (enum_declaration name: (identifier) @name)
-        ] @class
-    """,
+    "classes": "(class_definition) @type_node",
+    "mixins": "(mixin_declaration) @type_node",
+    "extensions": "(extension_declaration) @type_node",
+    "enums": "(enum_declaration) @type_node",
+
+
     "imports": """
         (library_import) @import
         (library_export) @import
     """,
     "calls": """
-        (expression_statement
-            (identifier) @name
-        ) @call
         (selector
             (argument_part (arguments))
-        ) @call
+        ) @call_selector
     """,
+
+
     "variables": """
         (local_variable_declaration
             (initialized_variable_definition
@@ -211,7 +209,25 @@ class DartTreeSitterParser:
             root_node = tree.root_node
 
             functions = self._find_functions(root_node)
-            classes = self._find_classes(root_node)
+            
+            # Find classes, mixins, extensions, enums
+            classes = []
+            mixins = []
+            extensions = []
+            enums = []
+            
+            for label, query_key in [
+                ("Class", "classes"),
+                ("Mixin", "mixins"),
+                ("Extension", "extensions"),
+                ("Enum", "enums")
+            ]:
+                found = self._find_types(root_node, query_key, label)
+                if label == "Class": classes = found
+                elif label == "Mixin": mixins = found
+                elif label == "Extension": extensions = found
+                elif label == "Enum": enums = found
+
             imports = self._find_imports(root_node, source_code)
             function_calls = self._find_calls(root_node)
             variables = self._find_variables(root_node)
@@ -220,6 +236,9 @@ class DartTreeSitterParser:
                 "path": str(path),
                 "functions": functions,
                 "classes": classes,
+                "mixins": mixins,
+                "extensions": extensions,
+                "enums": enums,
                 "variables": variables,
                 "imports": imports,
                 "function_calls": function_calls,
@@ -229,6 +248,55 @@ class DartTreeSitterParser:
         except Exception as e:
             error_logger(f"Failed to parse Dart file {path}: {e}")
             return {"path": str(path), "error": str(e)}
+
+    def _find_types(self, root_node, query_key, label):
+        found_types = []
+        query_str = DART_QUERIES.get(query_key)
+        if not query_str: return []
+        
+        for node, capture_name in execute_query(self.language, query_str, root_node):
+            if capture_name != "type_node": continue
+            
+            name_node = node.child_by_field_name('name')
+            if not name_node:
+                # Fallback to children search for identifier/type_identifier
+                for child in node.children:
+                    if child.type in ('identifier', 'type_identifier'):
+                        name_node = child
+                        break
+            
+            if not name_node: continue
+            
+            name = self._get_node_text(name_node)
+            
+            # Bases (implements, extends, with)
+            bases = []
+            for child in node.children:
+                if child.type in ('superclass', 'interfaces', 'mixins', 'mixin_application_clause'):
+                    # Recursively find all type_identifiers in these subtrees
+                    def collect_bases(n):
+                        if n.type in ('type_identifier', 'type_not_void'):
+                            bases.append(self._get_node_text(n))
+                        for c in n.children:
+                            collect_bases(c)
+                    collect_bases(child)
+
+            type_data = {
+                "name": name,
+                "line_number": node.start_point[0] + 1,
+                "end_line": node.end_point[0] + 1,
+                "bases": list(dict.fromkeys(bases)), # Deduplicate
+                "lang": self.language_name,
+                "is_dependency": False,
+                "node_label": label, # Used by writer
+            }
+            if self.index_source:
+                type_data["source"] = self._get_node_text(node)
+            
+            found_types.append(type_data)
+        return found_types
+
+
 
     def _find_functions(self, root_node):
         functions = []
@@ -316,39 +384,6 @@ class DartTreeSitterParser:
             return None
         return find_id(param_node)
 
-    def _find_classes(self, root_node):
-        classes = []
-        query_str = DART_QUERIES['classes']
-        for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name == "class":
-                name_node = node.child_by_field_name('name')
-                if not name_node: continue
-                
-                name = self._get_node_text(name_node)
-                
-                # Bases (implements, extends, with)
-                bases = []
-                # This is simplified, can be improved by navigating children
-                for child in node.children:
-                    if child.type in ('superclass', 'interfaces', 'mixins'):
-                        for sub in child.children:
-                            if sub.type in ('type_identifier', 'type_not_void'):
-                                bases.append(self._get_node_text(sub))
-
-                class_data = {
-                    "name": name,
-                    "line_number": node.start_point[0] + 1,
-                    "end_line": node.end_point[0] + 1,
-                    "bases": bases,
-                    "lang": self.language_name,
-                    "is_dependency": False,
-                }
-                if self.index_source:
-                    class_data["source"] = self._get_node_text(node)
-                
-                classes.append(class_data)
-        return classes
-
     def _find_imports(self, root_node, source_code):
         imports = []
         query_str = DART_QUERIES['imports']
@@ -395,39 +430,57 @@ class DartTreeSitterParser:
         query_str = DART_QUERIES['calls']
         
         for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name in ("name", "call"):
-                if capture_name == "call":
-                    target_node = self._name_node_for_call_selector(node)
-                    if target_node is None:
-                        continue
-                else:
-                    if self._has_call_selector_sibling(node):
-                        continue
+            target_node = None
+            if capture_name == "call_selector":
+                target_node = self._name_node_for_call_selector(node)
+            elif capture_name == "name":
+                if self._has_call_selector_sibling(node):
                     target_node = node
+                else:
+                    # Check if parent is a constructor invocation or similar
+                    parent = node.parent
+                    if parent and parent.type in ("constructor_invocation", "static_method_invocation"):
+                        target_node = node
 
-                # Deduplicate by start byte
-                node_id = target_node.start_byte
-                if node_id in seen_calls: continue
-                seen_calls.add(node_id)
+            if not target_node:
+                continue
 
-                name = self._get_node_text(target_node)
-                
-                # Find arguments
-                args = []
-                # Logic to find arguments node from selector or expression_statement
-                
-                context, context_type, context_line = self._get_parent_context(target_node)
-                
-                calls.append({
-                    "name": name,
-                    "full_name": name, # Simplified for now
-                    "line_number": target_node.start_point[0] + 1,
-                    "args": args,
-                    "context": (context, context_type, context_line),
-                    "lang": self.language_name,
-                    "is_dependency": False,
-                })
+            # Deduplicate by start byte
+            node_id = target_node.start_byte
+            if node_id in seen_calls: continue
+            seen_calls.add(node_id)
+
+            name = self._get_node_text(target_node)
+            full_name = name
+            
+            # Try to get full name for member access
+            parent = target_node.parent
+            if parent:
+                # If it's a member access, parent might be assignable_expression or similar
+                # We'll just use the target_node text for now as it's the safest.
+                pass
+
+            # Find arguments
+            args = []
+            
+            context, context_type, context_line = self._get_parent_context(target_node)
+            
+            calls.append({
+                "name": name,
+                "full_name": full_name,
+                "line_number": target_node.start_point[0] + 1,
+                "start_byte": target_node.start_byte, # For sorting
+                "args": args,
+                "context": (context, context_type, context_line),
+                "lang": self.language_name,
+                "is_dependency": False,
+            })
+        
+        # Sort by document position
+        calls.sort(key=lambda x: x["start_byte"])
         return calls
+
+
 
     def _find_variables(self, root_node):
         variables = []
@@ -451,10 +504,9 @@ def pre_scan_dart(files: List[Path], parser_wrapper) -> Dict[str, List[str]]:
     name_to_files = {}
     query_str = """
         [
-            (class_definition name: (identifier) @name)
-            (mixin_declaration name: (identifier) @name)
-            (extension_declaration name: (identifier) @name)
-            (function_signature name: (identifier) @name)
+            (class_definition) @class
+            (mixin_declaration) @mixin
+            (extension_declaration) @extension
         ]
     """
     for path in files:
@@ -463,7 +515,14 @@ def pre_scan_dart(files: List[Path], parser_wrapper) -> Dict[str, List[str]]:
                 content = f.read()
             tree = parser_wrapper.parser.parse(bytes(content, "utf8"))
             for node, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
-                name = node.text.decode('utf-8')
+                name_node = node.child_by_field_name('name')
+                if not name_node:
+                    for child in node.children:
+                        if child.type in ('identifier', 'type_identifier'):
+                            name_node = child
+                            break
+                if not name_node: continue
+                name = name_node.text.decode('utf-8')
                 if name not in name_to_files:
                     name_to_files[name] = []
                 name_to_files[name].append(str(path.resolve()))

@@ -1,3 +1,4 @@
+# src/codegraphcontext/utils/tree_sitter_manager.py
 """
 Tree-sitter language and parser management module.
 
@@ -51,7 +52,20 @@ def _load_tree_sitter_dependencies():
 
     try:
         from tree_sitter import Language as ImportedLanguage, Parser as ImportedParser
-        from tree_sitter_language_pack import get_language as imported_get_language
+        try:
+            from tree_sitter_language_pack import get_language as imported_get_language
+            # Test it immediately using a version-agnostic pattern
+            test_lang = imported_get_language('python')
+            try:
+                # 0.22+ style
+                test_parser = ImportedParser(test_lang)
+            except (TypeError, ValueError):
+                # < 0.22 style
+                test_parser = ImportedParser()
+                test_parser.set_language(test_lang)
+        except (ImportError, Exception):
+            # Fallback to tree_sitter_languages
+            from tree_sitter_languages import get_language as imported_get_language
     except ImportError as e:
         _tree_sitter_import_error = e
         raise _missing_tree_sitter_error(e) from e
@@ -217,8 +231,20 @@ class TreeSitterManager:
         """
         _, parser_cls, _ = _load_tree_sitter_dependencies()
         language = self.get_language_safe(lang)
-        # In tree-sitter 0.25+, Parser takes language in constructor
-        parser = parser_cls(language)
+        
+        # Determine if we need to use set_language (older tree-sitter)
+        # In tree-sitter 0.22+, Parser takes language in constructor
+        # In older versions, it must be set via set_language()
+        try:
+            parser = parser_cls(language)
+            # Check if it actually worked by attempting a tiny parse
+            # If language wasn't set, this usually returns None or fails
+            if parser.parse(b"") is None:
+                raise TypeError("Language not set")
+        except (TypeError, ValueError, AttributeError):
+            parser = parser_cls()
+            parser.set_language(language)
+        
         return parser
     
     def is_language_available(self, lang: str) -> bool:
@@ -286,7 +312,7 @@ def execute_query(language: Language, query_string: str, node):
     Execute a tree-sitter query and return captures in backward-compatible format.
     
     This function provides compatibility with the old tree-sitter 0.20.x API where
-    you could call query.captures(node). The new 0.25+ API uses QueryCursor.
+    you could call query.captures(node). The new 0.22+ API uses QueryCursor.
     
     Args:
         language: Tree-sitter Language object
@@ -295,42 +321,68 @@ def execute_query(language: Language, query_string: str, node):
         
     Returns:
         List of (node, capture_name) tuples, compatible with old API
-        
-    Example:
-        >>> from tree_sitter_language_pack import get_language
-        >>> lang = get_language('python')
-        >>> parser = Parser(lang)
-        >>> tree = parser.parse(b'def hello(): pass')
-        >>> captures = execute_query(lang, '(function_definition) @func', tree.root_node)
-        >>> for node, name in captures:
-        ...     print(f'{name}: {node.type}')
     """
     try:
-        from tree_sitter import Query, QueryCursor
+        from tree_sitter import Query
     except ImportError as e:
         raise _missing_tree_sitter_error(e) from e
     
+    # 1. Create the Query object
     try:
-        # Create query and cursor
+        # New API (0.22+)
         query = Query(language, query_string)
-        cursor = QueryCursor(query)
+    except (TypeError, ValueError, AttributeError):
+        # Old API (< 0.22)
+        try:
+            query = language.query(query_string)
+        except Exception as e:
+            raise Exception(f"Failed to create query: {e}")
+
+    # 2. Execute the query
+    try:
+        from tree_sitter import QueryCursor
+        # Modern API (0.22+)
+        try:
+            # 0.25.2 style: QueryCursor(query).captures(node) 
+            # returns dict {name: [nodes]} in some versions or list of tuples in others
+            cursor = QueryCursor(query)
+            res = cursor.captures(node)
+            
+            if isinstance(res, dict):
+                captures = []
+                for name, nodes in res.items():
+                    for n in nodes:
+                        captures.append((n, name))
+                return captures
+            
+            # Fallback for list of (node, capture_index) or (node, name)
+            # Try to map indices back to names if they are integers
+            if res and len(res) > 0 and isinstance(res[0][1], int):
+                return [(n, query.capture_names[idx]) for n, idx in res]
+            return res
+            
+        except (TypeError, ValueError):
+            # 0.22 style: QueryCursor().captures(query, node)
+            cursor = QueryCursor()
+            res = cursor.captures(query, node)
+            if isinstance(res, dict):
+                captures = []
+                for name, nodes in res.items():
+                    for n in nodes:
+                        captures.append((n, name))
+                return captures
+            if res and len(res) > 0 and isinstance(res[0][1], int):
+                return [(n, query.capture_names[idx]) for n, idx in res]
+            return res
         
-        # Execute query and convert to old format
-        captures = []
-        
-        # Use matches() which returns (pattern_index, captures_dict) tuples
-        for pattern_index, captures_dict in cursor.matches(node):
-            # captures_dict is {capture_name: [nodes]}
-            for capture_name, nodes in captures_dict.items():
-                for captured_node in nodes:
-                    # Old format: (node, capture_name)
-                    captures.append((captured_node, capture_name))
-        
-        return captures
-        
-    except Exception as e:
-        # Provide helpful error message
-        raise Exception(
-            f"Failed to execute query: {e}\n"
-            f"Query string: {query_string[:100]}..."
-        )
+    except (ImportError, AttributeError, NameError, TypeError):
+        # Fallback to old API (< 0.22) or if QueryCursor failed
+        try:
+            return query.captures(node)
+        except Exception as e:
+            # Final failure if all paths fail
+            raise Exception(
+                f"Failed to execute query: {e}\n"
+                f"Query string: {query_string[:100]}..."
+            )
+

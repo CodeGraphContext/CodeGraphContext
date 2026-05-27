@@ -1,54 +1,73 @@
 # Quickstart Guide
 
-Get up and running with CodeGraphContext in under 5 minutes. This guide covers indexing a repository and performing your first semantic query.
+This guide describes how to index a local repository and run your first code structure analysis queries.
 
-## 1. Index a Repository
+---
 
-Navigate to any local codebase and run the `index` command. This will scan your files and build the initial code graph.
+## 1. Index the Repository
+
+Navigate to the root directory of the codebase you want to index. Run the `index` command to scan the codebase and populate the code graph.
 
 ```bash
-cd /path/to/your/project
+cd /path/to/your/repository
 cgc index
 ```
 
-CGC will automatically detect the programming languages in your project and use the appropriate Tree-sitter parsers.
+CGC scans your files, respects your `.gitignore` and `.cgcignore` configurations, runs Tree-sitter parsers to extract code elements, and links relationships.
 
-## 2. Verify the Index
+---
 
-Once indexing is complete, you can check the statistics of your code graph:
+## 2. Inspect Ingestion Statistics
+
+Verify the indexed code structure by viewing database statistics:
 
 ```bash
 cgc stats
 ```
 
-You should see counts for files, functions, classes, and relationships that were successfully extracted.
+The command returns metrics showing:
+- Total number of files parsed
+- Count of code nodes (functions, classes, modules)
+- Count of resolved relationships (Containment, Invocations, Imports, Variables)
 
-## 3. Perform Your First Query
+---
 
-Now you can query the graph directly from your terminal. For example, to find all callers of a specific function:
+## 3. Query Symbol Relationships
+
+Query the ingested graph relationships from the terminal. For example, to identify all callers of a function named `handle_request`:
 
 ```bash
-cgc query callers "your_function_name"
+cgc analyze callers handle_request
 ```
 
-To see a visual representation of your code structure:
+To see what other functions `handle_request` calls:
 
 ```bash
-cgc visualize
+cgc analyze calls handle_request
 ```
 
-## 4. Live Updates
+To find a call chain/path between two functions (e.g., from `main` to `save_record`):
 
-If you are actively developing, use the `watch` command. CGC will monitor your file system and incrementally update the graph as you save changes.
+```bash
+cgc analyze chain main save_record
+```
+
+---
+
+## 4. Enable Real-Time Watchers
+
+To keep your code graph updated as you write code, start a directory watcher in the background. The watcher monitors file writes and incrementally updates the graph database.
 
 ```bash
 cgc watch
 ```
 
+To stop a watcher, use `cgc unwatch <path>`.
+
 ---
 
-## What's Next?
+## Next Steps
 
-*   **[MCP Setup](mcp-setup.md)**: Connect this graph to Claude or Cursor.
-*   **[Indexing Guide](../guides/indexing.md)**: Learn about deep scans and dependency indexing.
-*   **[CLI Reference](../reference/cli.md)**: Explore all available commands.
+- **[MCP Server Setup](mcp-setup.md)**: Connect CodeGraphContext to your AI assistant.
+- **[Indexing Guide](../guides/indexing.md)**: Learn about ignore files and deep scans.
+- **[CLI Reference](../reference/cli.md)**: Full command reference manual.

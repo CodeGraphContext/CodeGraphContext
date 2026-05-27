@@ -1,0 +1,54 @@
+{"from": "2369", "to": "2376", "type": "CONTAINS", "properties": {}}
+{"from": "2369", "to": "2408", "type": "CONTAINS", "properties": {}}
+{"from": "2376", "to": "1677", "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "imported_name": "Utils", "full_import_name": "Utils"}}
+{"from": "2376", "to": "2374", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "Types", "full_import_name": "Types"}}
+{"from": "2376", "to": "2410", "type": "CONTAINS", "properties": {}}
+{"from": "2376", "to": "2411", "type": "CONTAINS", "properties": {}}
+{"from": "2376", "to": "2412", "type": "CONTAINS", "properties": {}}
+{"from": "2379", "to": "2371", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "2379", "to": "2372", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "2380", "to": "2403", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "2385", "to": "2377", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "2385", "to": "2382", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "2386", "to": "2389", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "2386", "to": "2390", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "2387", "to": "2370", "type": "CONTAINS", "properties": {}}
+{"from": "2387", "to": "2375", "type": "CONTAINS", "properties": {}}
+{"from": "2387", "to": "2380", "type": "CONTAINS", "properties": {}}
+{"from": "2387", "to": "2381", "type": "CONTAINS", "properties": {}}
+{"from": "2387", "to": "2388", "type": "CONTAINS", "properties": {}}
+{"from": "2388", "to": "2380", "type": "CONTAINS", "properties": {}}
+{"from": "2397", "to": "2379", "type": "CONTAINS", "properties": {}}
+{"from": "2397", "to": "2385", "type": "CONTAINS", "properties": {}}
+{"from": "2399", "to": "2391", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "2400", "to": "2392", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "2400", "to": "2393", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "2401", "to": "2386", "type": "CALLS", "properties": {"line_number": 23, "args": [], "full_call_name": "add", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "2402", "to": "2373", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2378", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2379", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2383", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2384", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2385", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2386", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2394", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2395", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2396", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2397", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2398", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2399", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2400", "type": "CONTAINS", "properties": {}}
+{"from": "2402", "to": "2401", "type": "CONTAINS", "properties": {}}
+{"from": "2407", "to": "2404", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "2408", "to": "2387", "type": "CONTAINS", "properties": {}}
+{"from": "2408", "to": "2402", "type": "CONTAINS", "properties": {}}
+{"from": "2408", "to": "2409", "type": "CONTAINS", "properties": {}}
+{"from": "2409", "to": "2374", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "Types", "full_import_name": "Types"}}
+{"from": "2409", "to": "2405", "type": "CONTAINS", "properties": {}}
+{"from": "2409", "to": "2406", "type": "CONTAINS", "properties": {}}
+{"from": "2409", "to": "2407", "type": "CONTAINS", "properties": {}}
+{"from": "2411", "to": "2407", "type": "CALLS", "properties": {"line_number": 9, "args": [], "full_call_name": "formatGreeting", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "2410", "to": "2381", "type": "CALLS", "properties": {"line_number": 8}}
+{"from": "2410", "to": "2405", "type": "CALLS", "properties": {"line_number": 9}}
+{"from": "2398", "to": "2397", "type": "IMPLEMENTS", "properties": {}}
+{"from": "2373", "to": "2397", "type": "IMPLEMENTS", "properties": {}}

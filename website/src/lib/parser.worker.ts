@@ -2,6 +2,34 @@ import { Parser, Language, Query } from "web-tree-sitter";
 // Leverage Vite's asset pipeline to guarantee we receive the exact .wasm file that matches our NPM package version
 import treeSitterWasmUrl from "web-tree-sitter/tree-sitter.wasm?url";
 
+// Stream worker console logs to the main thread for the live system diagnostics HUD
+const originalLog = console.log;
+const originalWarn = console.warn;
+
+console.log = (...args: any[]) => {
+  originalLog.apply(console, args);
+  const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(" ");
+  if (msg.includes("[Diagnostic]") || msg.includes("[Worker")) {
+    self.postMessage({ type: 'DIAGNOSTIC_LOG', payload: msg });
+  }
+};
+
+console.warn = (...args: any[]) => {
+  originalWarn.apply(console, args);
+  const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(" ");
+  if (msg.includes("[Diagnostic]") || msg.includes("[Worker")) {
+    self.postMessage({ type: 'DIAGNOSTIC_LOG', payload: msg });
+  }
+};
+
+const IGNORED_DIRS = new Set([
+  'node_modules', '.git', '.github', 'dist', 'build', 'out', 'coverage',
+  '.next', '.nuxt', '__pycache__', 'venv', '.venv', 'env', '.env', '.tox',
+  'eggs', 'target', '.gradle', '.idea', 'cmake-build-debug', 'bin', 'obj',
+  'packages', 'vendor', 'Pods', '.build', 'DerivedData', '.dart_tool',
+  '.vscode', 'test', 'tests', '__tests__', 'spec', 'specs'
+]);
+
 let parser: any = null;
 let initPromise: Promise<void> | null = null;
 const wasmLanguageCache = new Map<string, any>();
@@ -29,14 +57,14 @@ async function getLanguageForFile(path: string) {
   const extMatch = path.match(/\.([a-zA-Z0-9]+)$/);
   if (!extMatch) return null;
   const ext = extMatch[1].toLowerCase();
-  
+
   let wasmName = '';
-  switch(ext) {
+  switch (ext) {
     case 'py': wasmName = 'tree-sitter-python.wasm'; break;
     case 'js':
     case 'jsx': wasmName = 'tree-sitter-javascript.wasm'; break;
-    case 'ts': wasmName = 'tree-sitter-typescript.wasm'; break; 
-    case 'tsx': wasmName = 'tree-sitter-tsx.wasm'; break; 
+    case 'ts': wasmName = 'tree-sitter-typescript.wasm'; break;
+    case 'tsx': wasmName = 'tree-sitter-tsx.wasm'; break;
     case 'java': wasmName = 'tree-sitter-java.wasm'; break;
     case 'c':
     case 'h': wasmName = 'tree-sitter-c.wasm'; break;
@@ -58,14 +86,32 @@ async function getLanguageForFile(path: string) {
   }
 
   if (wasmLanguageCache.has(wasmName)) {
-    return wasmLanguageCache.get(wasmName);
+    const lang = wasmLanguageCache.get(wasmName);
+    wasmLanguageCache.delete(wasmName);
+    wasmLanguageCache.set(wasmName, lang);
+    return lang;
+  }
+
+  // Set CACHE_LIMIT to accommodate all supported languages (we support 16 languages).
+  // CRITICAL MEMORY NOTE: Keeping this limit high (e.g., 20) prevents fatal WebAssembly compilation memory leaks.
+  // In V8/Chromium, deleting a JS reference to a compiled WASM Language does not free the native WASM machine code.
+  // If this limit is low (e.g., 3) and we index a multi-language repo (like the tests folder), the LRU cache will
+  // constantly evict and re-compile the same WASM files, leaking memory infinitely and crashing the worker.
+  // Keeping them in cache ensures each language is compiled EXACTLY ONCE.
+  const CACHE_LIMIT = 20;
+  if (wasmLanguageCache.size >= CACHE_LIMIT) {
+    const oldestKey = wasmLanguageCache.keys().next().value;
+    if (oldestKey) {
+      wasmLanguageCache.delete(oldestKey);
+      console.log(`[Worker LRU Cache] Evicted parser to free WASM heap: ${oldestKey}`);
+    }
   }
 
   try {
     const response = await fetch(`${location.origin}/wasm/${wasmName}`);
     if (!response.ok) {
-        console.warn(`Could not load tree-sitter language: ${wasmName}. Proceeding without it.`);
-        return null;
+      console.warn(`Could not load tree-sitter language: ${wasmName}. Proceeding without it.`);
+      return null;
     }
     const buffer = await response.arrayBuffer();
     const lang = await Language.load(new Uint8Array(buffer));
@@ -92,6 +138,8 @@ interface LangQueries {
   calls: string;
   /** Captures @inherit.base for each base/parent class name */
   inherits: string;
+  /** Captures @var.name for each variable assignment */
+  variables?: string;
 }
 const QUERIES: Record<string, LangQueries> = {
   python: {
@@ -114,6 +162,10 @@ const QUERIES: Record<string, LangQueries> = {
         superclasses: (argument_list
           [ (identifier) @inherit.base
             (attribute attribute: (identifier) @inherit.base) ]))
+    `,
+    variables: `
+      (assignment
+        left: [(identifier) @var.name (attribute attribute: (identifier) @var.name)]) @var.node
     `,
   },
 
@@ -139,6 +191,10 @@ const QUERIES: Record<string, LangQueries> = {
       (new_expression  constructor: (identifier)        @call.name)
     `,
     inherits: ``,
+    variables: `
+      (lexical_declaration (variable_declarator name: (identifier) @var.name))
+      (variable_declaration (variable_declarator name: (identifier) @var.name))
+    `,
   },
 
   typescript: {
@@ -167,6 +223,10 @@ const QUERIES: Record<string, LangQueries> = {
                          property: (property_identifier)       @call.name))
     `,
     inherits: ``,
+    variables: `
+      (lexical_declaration (variable_declarator name: (identifier) @var.name))
+      (variable_declaration (variable_declarator name: (identifier) @var.name))
+    `,
   },
 
   java: {
@@ -191,6 +251,9 @@ const QUERIES: Record<string, LangQueries> = {
       (interface_declaration
         (extends_interfaces (type_list (type_identifier) @inherit.base)))
     `,
+    variables: `
+      (field_declaration declarator: (variable_declarator name: (identifier) @var.name))
+    `,
   },
 
 
@@ -208,6 +271,9 @@ const QUERIES: Record<string, LangQueries> = {
       (call_expression function: (identifier) @call.name)
     `,
     inherits: ``,
+    variables: `
+      (declaration declarator: (identifier) @var.name)
+    `,
   },
 
   cpp: {
@@ -234,6 +300,9 @@ const QUERIES: Record<string, LangQueries> = {
         (base_class_clause
           (type_identifier) @inherit.base))
     `,
+    variables: `
+      (declaration declarator: [(identifier) @var.name (field_identifier) @var.name])
+    `,
   },
 
   go: {
@@ -251,6 +320,10 @@ const QUERIES: Record<string, LangQueries> = {
                          field: (field_identifier)   @call.name))
     `,
     inherits: ``,
+    variables: `
+      (var_spec name: (identifier) @var.name)
+      (short_var_declaration left: (expression_list (identifier) @var.name))
+    `,
   },
 
   rust: {
@@ -273,6 +346,10 @@ const QUERIES: Record<string, LangQueries> = {
         ])
     `,
     inherits: ``,
+    variables: `
+      (let_declaration pattern: (identifier) @var.name)
+      (const_item name: (identifier) @var.name)
+    `,
   },
 
   ruby: {
@@ -292,6 +369,9 @@ const QUERIES: Record<string, LangQueries> = {
     `,
     inherits: `
       (class (superclass (constant) @inherit.base))
+    `,
+    variables: `
+      (assignment left: (identifier) @var.name)
     `,
   },
 
@@ -314,6 +394,9 @@ const QUERIES: Record<string, LangQueries> = {
     `,
     inherits: `
       (class_declaration (base_clause (name) @inherit.base))
+    `,
+    variables: `
+      (variable_name (name) @var.name)
     `,
   },
 
@@ -408,42 +491,79 @@ const QUERIES: Record<string, LangQueries> = {
 function getLanguageQueryKey(path: string): string | null {
   const ext = path.match(/\.([a-zA-Z0-9]+)$/)?.[1]?.toLowerCase();
   switch (ext) {
-    case 'py':                          return 'python';
-    case 'js': case 'jsx':              return 'javascript';
-    case 'ts': case 'tsx':              return 'typescript';
-    case 'java':                        return 'java';
-    case 'c':  case 'h':               return 'c';
+    case 'py': return 'python';
+    case 'js': case 'jsx': return 'javascript';
+    case 'ts': case 'tsx': return 'typescript';
+    case 'java': return 'java';
+    case 'c': case 'h': return 'c';
     case 'cpp': case 'hpp': case 'cc': return 'cpp';
-    case 'go':                          return 'go';
-    case 'rs':                          return 'rust';
-    case 'rb':                          return 'ruby';
-    case 'php':                         return 'php';
-    case 'kt': case 'kts':             return 'kotlin';
-    case 'dart':                        return 'dart';
-    case 'cs':                          return 'csharp';
-    case 'swift':                       return 'swift';
-    case 'pl': case 'pm':              return 'perl';
+    case 'go': return 'go';
+    case 'rs': return 'rust';
+    case 'rb': return 'ruby';
+    case 'php': return 'php';
+    case 'kt': case 'kts': return 'kotlin';
+    case 'dart': return 'dart';
+    case 'cs': return 'csharp';
+    case 'swift': return 'swift';
+    case 'pl': case 'pm': return 'perl';
     default: return null;
   }
 }
 
 // Label a definition node type as Class / Function / Interface / etc.
 function getNodeDisplayLabel(nodeType: string): string {
-  if (nodeType.includes('class')) return 'Class';
-  if (nodeType.includes('interface')) return 'Interface';
-  if (nodeType.includes('trait')) return 'Trait';
-  if (nodeType.includes('enum')) return 'Enum';
-  if (nodeType.includes('module')) return 'Module';
-  if (nodeType.includes('struct')) return 'Class'; // treat struct as class-like
-  if (nodeType.includes('impl')) return 'Class';
+  const lower = nodeType.toLowerCase();
+  if (lower.includes('class')) return 'Class';
+  if (lower.includes('interface')) return 'Interface';
+  if (lower.includes('trait')) return 'Trait';
+  if (lower.includes('enum')) return 'Enum';
+  if (lower.includes('module')) return 'Module';
+  if (lower.includes('struct')) return 'Struct';
+  if (lower.includes('variable')) return 'Variable';
+  if (lower.includes('impl')) return 'Class';
+  if (lower.includes('function') || lower.includes('method') || lower.includes('subroutine')) return 'Function';
   return 'Function';
+}
+
+function calculateComplexity(node: any): number {
+  const complexityNodes = new Set([
+    "if_statement", "for_statement", "while_statement", "except_clause",
+    "with_statement", "boolean_operator", "list_comprehension",
+    "generator_expression", "case_clause", "conditional_expression",
+    "binary_expression" // for logical ops in some langs
+  ]);
+
+  let count = 1;
+  function traverse(n: any) {
+    if (complexityNodes.has(n.type)) count++;
+    for (let i = 0; i < n.childCount; i++) {
+      traverse(n.child(i));
+    }
+  }
+  traverse(node);
+  return count;
+}
+
+function getPythonDocstring(node: any): string | null {
+  // Python docstring is the first expression statement if it's a string
+  const body = node.childForFieldName('body');
+  if (!body || body.childCount === 0) return null;
+  const first = body.child(0);
+  if (first?.type === 'expression_statement') {
+    const strNode = first.child(0);
+    if (strNode?.type === 'string') {
+      return strNode.text.replace(/['"]+/g, '').trim();
+    }
+  }
+  return null;
 }
 
 function valForLabel(label: string): number {
   switch (label) {
-    case 'Class': case 'Interface': case 'Trait': return 8;
+    case 'Class': case 'Interface': case 'Trait': case 'Struct': return 8;
     case 'Enum': return 7;
     case 'Module': return 9;
+    case 'Variable': return 4;
     default: return 6;
   }
 }
@@ -478,7 +598,7 @@ let processedCount = 0;
 
 const nodes: any[] = [];
 const links: any[] = [];
-const nodeSymbolIndex = new Map<string, number[]>(); 
+const nodeSymbolIndex = new Map<string, number[]>();
 const filePathToNodeId = new Map<string, number>();
 const folderNodes = new Map<string, number>(); // relative folder path → node id
 const fileCalls = new Map<number, Set<string>>();
@@ -486,6 +606,7 @@ const inheritances = new Map<number, string[]>();
 let nodeIdSequence = 1;
 let repoId = -1;
 let repoRootPrefix = ''; // common path prefix stripped before building folder hierarchy
+let indexOptions: { indexVariables?: boolean } = { indexVariables: true };
 
 /**
  * Compute the longest common directory prefix of all queued file paths.
@@ -539,10 +660,12 @@ function getOrCreateFolderChain(filePath: string): number {
     if (folderNodes.has(accumulated)) {
       parentId = folderNodes.get(accumulated)!;
     } else {
-      const folderId = addNode(part, 'Folder', accumulated, 12);
-      links.push({ source: parentId, target: folderId, type: 'CONTAINS' });
-      folderNodes.set(accumulated, folderId);
-      parentId = folderId;
+      const folderId = addNode(part, 'Directory', accumulated, 12);
+      if (folderId !== -1) {
+        links.push({ source: parentId, target: folderId, type: 'CONTAINS' });
+        folderNodes.set(accumulated, folderId);
+        parentId = folderId;
+      }
     }
   }
 
@@ -551,25 +674,52 @@ function getOrCreateFolderChain(filePath: string): number {
 
 self.onmessage = async (e) => {
   const { type, files } = e.data;
-  
+
   if (type === 'ADD_FILES') {
     pendingFileQueue.push(...files);
     totalFiles += files.length;
   } else if (type === 'START') {
+    if (e.data.options) {
+      indexOptions = { ...indexOptions, ...e.data.options };
+    }
     try {
+      const pmStart = (performance as any).memory;
+      const initialMem = pmStart ? `${(pmStart.usedJSHeapSize / 1048576).toFixed(1)} MB` : "N/A";
+      let totalRawBytes = 0;
+      for (const f of pendingFileQueue) {
+        totalRawBytes += f.content.length;
+      }
+      console.log(`[Diagnostic] ==========================================`);
+      console.log(`[Diagnostic] STARTING BROWSER INDEXING PIPELINE`);
+      console.log(`[Diagnostic] Total Files Queued: ${totalFiles}`);
+      console.log(`[Diagnostic] Total Raw Code Size: ${(totalRawBytes / 1048576).toFixed(2)} MB`);
+      console.log(`[Diagnostic] Initial JS Heap Memory: ${initialMem}`);
+      console.log(`[Diagnostic] Options: ${JSON.stringify(indexOptions)}`);
+      console.log(`[Diagnostic] ==========================================`);
+
       await initParser();
-      // Compute common path prefix BEFORE building any nodes, so folder
-      // nodes only represent repo-relative segments (e.g. "src", "lib").
       repoRootPrefix = computeCommonPrefix(pendingFileQueue.map(f => f.path));
       repoId = addNode("Repository", "Repository", "root", 15);
+      
+      pendingFileQueue.sort((a, b) => {
+        const extA = a.path.match(/\.([a-zA-Z0-9]+)$/)?.[1]?.toLowerCase() || '';
+        const extB = b.path.match(/\.([a-zA-Z0-9]+)$/)?.[1]?.toLowerCase() || '';
+        return extA.localeCompare(extB);
+      });
+
       processNextBatch();
     } catch (err: any) {
+      console.error(`[Diagnostic] Fatal Error during startup:`, err);
       self.postMessage({ type: 'ERROR', payload: err.message });
     }
   }
 };
 
 const addNode = (name: string, type: string, file: string, val: number, extraProps: any = {}) => {
+  const maxNodes = indexOptions.maxNodes || 100000;
+  if (nodes.length >= maxNodes && type !== 'Repository') {
+    return -1;
+  }
   const id = nodeIdSequence++;
   nodes.push({ id, name, type, file, val, ...extraProps });
   const symbolKey = `${type}:${name}`;
@@ -598,33 +748,64 @@ function resolveSymbol(key: string, callerFile?: string): number | undefined {
 async function processNextBatch() {
   if (pendingFileQueue.length === 0) {
     // Cross-linking phase
+    console.log(`[Diagnostic] ==========================================`);
+    console.log(`[Diagnostic] ENTERING HIGH-FIDELITY SEMANTIC LINKING PHASE`);
+    console.log(`[Diagnostic] Total Nodes Created: ${nodes.length}`);
+    console.log(`[Diagnostic] Total Containment Links: ${links.length}`);
+    console.log(`[Diagnostic] Symbol Index Size: ${nodeSymbolIndex.size} entries`);
+    console.log(`[Diagnostic] File Call Sites Map Size: ${fileCalls.size} callers`);
+    console.log(`[Diagnostic] Class Inheritance Map Size: ${inheritances.size} classes`);
+    const pmLinkStart = (performance as any).memory;
+    if (pmLinkStart) {
+      console.log(`[Diagnostic] Heap Memory Pre-Linking: ${(pmLinkStart.usedJSHeapSize / 1048576).toFixed(1)} MB`);
+    }
+
+    const tStart = performance.now();
     self.postMessage({ type: 'PROGRESS', payload: { msg: "Building high-fidelity relationships...", percent: 95 } });
     await new Promise(r => setTimeout(r, 0));
-    
-    const MAX_CALL_EDGES = 50000;
+
+    const MAX_CALL_EDGES = indexOptions.maxEdges || 50000;
     let callsAdded = 0;
+    let callsScanned = 0;
+    
     for (const [callerId, calls] of fileCalls.entries()) {
-       if (callsAdded >= MAX_CALL_EDGES) break;
-       const callerFile = nodes[callerId - 1]?.file;
-       for (const calledName of calls) {
-          const targetId = resolveSymbol(`Function:${calledName}`, callerFile) || 
-                           resolveSymbol(`Class:${calledName}`, callerFile) || 
-                           resolveSymbol(calledName, callerFile);
-          if (targetId && targetId !== callerId) {
-             links.push({ source: callerId, target: targetId, type: 'CALLS' });
-             callsAdded++;
-             if (callsAdded >= MAX_CALL_EDGES) break;
-          }
-       }
-    }
-    for (const [classId, bases] of inheritances.entries()) {
-       const classFile = nodes[classId - 1]?.file;
-       for (const baseName of bases) {
-          const targetId = resolveSymbol(`Class:${baseName}`, classFile) || resolveSymbol(baseName, classFile);
-          if (targetId) links.push({ source: classId, target: targetId, type: 'INHERITS' });
-       }
+      if (callsAdded >= MAX_CALL_EDGES) {
+        console.warn(`[Diagnostic] [Warning] Reached MAX_CALL_EDGES (${MAX_CALL_EDGES}) limit! Truncating call relationships.`);
+        break;
+      }
+      const callerFile = nodes[callerId - 1]?.file;
+      for (const calledName of calls) {
+        callsScanned++;
+        const targetId = resolveSymbol(`Function:${calledName}`, callerFile) ||
+          resolveSymbol(`Class:${calledName}`, callerFile) ||
+          resolveSymbol(calledName, callerFile);
+        if (targetId && targetId !== callerId) {
+          links.push({ source: callerId, target: targetId, type: 'CALLS' });
+          callsAdded++;
+          if (callsAdded >= MAX_CALL_EDGES) break;
+        }
+      }
     }
     
+    let inheritsAdded = 0;
+    for (const [classId, bases] of inheritances.entries()) {
+      const classFile = nodes[classId - 1]?.file;
+      for (const baseName of bases) {
+        const targetId = resolveSymbol(`Class:${baseName}`, classFile) || resolveSymbol(baseName, classFile);
+        if (targetId) {
+          links.push({ source: classId, target: targetId, type: 'INHERITS' });
+          inheritsAdded++;
+        }
+      }
+    }
+
+    const tEnd = performance.now();
+    console.log(`[Diagnostic] Semantic Linking Complete in ${(tEnd - tStart).toFixed(1)} ms`);
+    console.log(`[Diagnostic] Calls Scanned: ${callsScanned}, Calls Added: ${callsAdded}`);
+    console.log(`[Diagnostic] Inherits Added: ${inheritsAdded}`);
+    console.log(`[Diagnostic] Final Links Array Length: ${links.length}`);
+    console.log(`[Diagnostic] ==========================================`);
+
     const pm = (performance as any).memory;
     if (pm) {
       console.log(`[Worker RAM Pre-PostMessage] ${(pm.usedJSHeapSize / 1048576).toFixed(1)} MB used.`);
@@ -635,50 +816,62 @@ async function processNextBatch() {
     self.postMessage({ type: 'DONE', payload: { nodes, links, files: filePaths } });
     return;
   }
-  
+
   // Smaller batch = less peak memory per tick; GC gets more breathing room
-  const batch = pendingFileQueue.splice(0, 10);
-  
+  const tBatchStart = performance.now();
+  const batchSize = 80;
+  const batch = pendingFileQueue.splice(0, batchSize);
+  const currentBatchNum = Math.ceil(processedCount / batchSize) + 1;
+
   for (let i = 0; i < batch.length; i++) {
     const f = batch[i];
     processedCount++;
-    
-    if (processedCount % 5 === 0) {
+
+    if (processedCount % 25 === 0) {
       const pm = (performance as any).memory;
       const memStr = pm ? ` [RAM: ${(pm.usedJSHeapSize / 1048576).toFixed(1)}MB]` : "";
-      self.postMessage({ 
-        type: 'PROGRESS', 
-        payload: { 
-          msg: `Indexing: ${f.path.split('/').pop()}${memStr}...`, 
-          percent: 50 + Math.floor((processedCount / totalFiles) * 40) 
-        } 
+      self.postMessage({
+        type: 'PROGRESS',
+        payload: {
+          msg: `Indexing: ${f.path.split('/').pop()}${memStr}...`,
+          percent: 50 + Math.floor((processedCount / totalFiles) * 40)
+        }
       });
     }
 
-    const IGNORED_DIRS = new Set([
-      'node_modules', '.git', '.github', 'dist', 'build', 'out', 'coverage', 
-      '.next', '.nuxt', '__pycache__', 'venv', '.venv', 'env', '.env', '.tox',
-      'eggs', 'target', '.gradle', '.idea', 'cmake-build-debug', 'bin', 'obj',
-      'packages', 'vendor', 'Pods', '.build', 'DerivedData', '.dart_tool',
-      '.vscode'
-    ]);
     const isPathIgnored = f.path.split(/[\/\\]/).some(part => IGNORED_DIRS.has(part));
 
-    // Skip large files and cache directories; tighter limit now we parse more languages
-    if (f.content.length > 200000 || isPathIgnored) continue;
+    if (f.content.length > 200000 || isPathIgnored) {
+      if (f.content.length > 200000) {
+        console.warn(`[Diagnostic] Skipping very large file (${(f.content.length / 1024).toFixed(1)} KB): ${f.path}`);
+      }
+      continue;
+    }
 
-    // Memory pressure guard: if heap > 900 MB yield an extra tick to let GC run
     const pm2 = (performance as any).memory;
     if (pm2 && pm2.usedJSHeapSize > 900 * 1048576) {
+      console.warn(`[Diagnostic] High memory pressure detected (${(pm2.usedJSHeapSize / 1048576).toFixed(1)} MB). Yielding worker execution to allow GC.`);
       await new Promise(r => setTimeout(r, 0));
     }
-    
+
+    const fileName = f.path.split(/[\/\\]/).pop() || f.path;
+    const fileId = addNode(fileName, 'File', f.path, 10);
+    if (fileId === -1) {
+      console.warn(`[Diagnostic] Node limit reached, skipping file: ${f.path}`);
+      continue;
+    }
+    filePathToNodeId.set(f.path, fileId);
+    const parentFolderId = getOrCreateFolderChain(f.path);
+    if (parentFolderId !== -1) {
+      links.push({ source: parentFolderId, target: fileId, type: 'CONTAINS' });
+    }
+
     const lang = await getLanguageForFile(f.path);
     if (!lang) continue;
 
     const queryKey = getLanguageQueryKey(f.path);
     if (!queryKey) continue;
-    
+
     parser!.setLanguage(lang);
     let tree: any;
     try {
@@ -687,13 +880,6 @@ async function processNextBatch() {
       tree = parser!.parse(src);
 
       const root = tree.rootNode;
-      const fileName = f.path.split('/').pop() || f.path;
-      const fileId = addNode(fileName, 'File', f.path, 10);
-      filePathToNodeId.set(f.path, fileId);
-      const parentFolderId = getOrCreateFolderChain(f.path);
-      links.push({ source: parentFolderId, target: fileId, type: 'CONTAINS' });
-
-      // Compile (or retrieve cached) query objects for this language
       const queries = getCompiledQueries(lang, queryKey);
 
       // 1. DEFINITIONS
@@ -724,9 +910,46 @@ async function processNextBatch() {
           const name = nodeToName.get(nodeId);
           if (!name || name.length <= 1) continue;
           const label = getNodeDisplayLabel(meta.nodeType);
-          const val   = valForLabel(label);
-          const defId = addNode(name, label, f.path, val, { line_number: meta.node.startPosition.row + 1 });
-          links.push({ source: fileId, target: defId, type: 'CONTAINS' });
+          const val = valForLabel(label);
+
+          const extra: any = { line_number: meta.node.startPosition.row + 1 };
+
+          // Python-specific extractions
+          if (queryKey === 'python') {
+            const complexity = calculateComplexity(meta.node);
+            extra.complexity = complexity;
+            const docstring = getPythonDocstring(meta.node);
+            if (docstring) extra.docstring = docstring;
+
+            // Decorators
+            const decorators: string[] = [];
+            let parent = meta.node.parent;
+            if (parent?.type === 'decorated_definition') {
+              for (let i = 0; i < parent.childCount; i++) {
+                const c = parent.child(i);
+                if (c.type === 'decorator') decorators.push(c.text.trim());
+              }
+            }
+            if (decorators.length) extra.decorators = decorators;
+          }
+
+          const defId = addNode(name, label, f.path, val, extra);
+          if (defId !== -1) {
+            links.push({ source: fileId, target: defId, type: 'CONTAINS' });
+          }
+        }
+      }
+
+      // 1.5 VARIABLES (New)
+      if (indexOptions.indexVariables && queries.variables) {
+        for (const cap of queries.variables.captures(root)) {
+          if (cap.name !== 'var.name') continue;
+          const name = cap.node.text;
+          if (!name || name.length <= 1) continue;
+          const varId = addNode(name, 'Variable', f.path, 4, { line_number: cap.node.startPosition.row + 1 });
+          if (varId !== -1) {
+            links.push({ source: fileId, target: varId, type: 'CONTAINS' });
+          }
         }
       }
 
@@ -740,7 +963,9 @@ async function processNextBatch() {
           seen.add(modName);
           const shortName = modName.split(/[/\\.]/).filter(Boolean).pop() ?? modName;
           const modId = addNode(shortName, 'Module', f.path, 5);
-          links.push({ source: fileId, target: modId, type: 'IMPORTS' });
+          if (modId !== -1) {
+            links.push({ source: fileId, target: modId, type: 'IMPORTS' });
+          }
         }
       }
 
@@ -770,7 +995,7 @@ async function processNextBatch() {
                 ['identifier', 'type_identifier', 'name', 'constant'].includes(c.type));
               if (nameNode) {
                 classNodeId = resolveSymbol(`Class:${nameNode.text}`, f.path) ??
-                              resolveSymbol(`Interface:${nameNode.text}`, f.path);
+                  resolveSymbol(`Interface:${nameNode.text}`, f.path);
               }
               break;
             }
@@ -784,14 +1009,19 @@ async function processNextBatch() {
         }
       }
     } catch (e) {
-      console.warn(`[parser.worker] Failed parsing or executing queries on ${f.path}:`, e);
+      console.warn(`[Diagnostic] Failed parsing or executing queries on ${f.path}:`, e);
     } finally {
       if (tree) {
-        try { tree.delete(); } catch(e) {}
+        try { tree.delete(); } catch (e) { }
       }
     }
   }
-  
+
+  const pmBatchEnd = (performance as any).memory;
+  const batchMem = pmBatchEnd ? `${(pmBatchEnd.usedJSHeapSize / 1048576).toFixed(1)} MB` : "N/A";
+  const duration = performance.now() - tBatchStart;
+  console.log(`[Diagnostic] Batch ${currentBatchNum} processed in ${duration.toFixed(1)}ms. Heap: ${batchMem}. Active nodes: ${nodes.length}, links: ${links.length}. Queue remaining: ${pendingFileQueue.length}`);
+
   // Yield to worker event loop
   setTimeout(processNextBatch, 0);
 }

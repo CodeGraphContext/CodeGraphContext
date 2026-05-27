@@ -1,0 +1,98 @@
+{"from": "3077", "to": "3088", "type": "CONTAINS", "properties": {}}
+{"from": "3077", "to": "3101", "type": "CONTAINS", "properties": {}}
+{"from": "3077", "to": "3123", "type": "CONTAINS", "properties": {}}
+{"from": "3082", "to": "3098", "type": "CONTAINS", "properties": {}}
+{"from": "3082", "to": "3099", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3078", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3084", "type": "IMPORTS", "properties": {"line_number": 48, "alias": "", "imported_name": "strict", "full_import_name": "strict"}}
+{"from": "3088", "to": "3085", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "warnings", "full_import_name": "warnings"}}
+{"from": "3088", "to": "3103", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3104", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3105", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3106", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3107", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3108", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3109", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3110", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3111", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3112", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3113", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3114", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3115", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3116", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3117", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3118", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3119", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3120", "type": "IMPORTS", "properties": {"line_number": 54, "alias": "", "imported_name": "Exporter", "full_import_name": "Exporter"}}
+{"from": "3088", "to": "3127", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3128", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3129", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3133", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3134", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3140", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3141", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3142", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3143", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3144", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3145", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3146", "type": "CALLS", "properties": {"line_number": 38, "args": [], "full_call_name": "execute_callback", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3088", "to": "3146", "type": "CONTAINS", "properties": {}}
+{"from": "3088", "to": "3147", "type": "CONTAINS", "properties": {}}
+{"from": "3095", "to": "3084", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "strict", "full_import_name": "strict"}}
+{"from": "3095", "to": "3085", "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "imported_name": "warnings", "full_import_name": "warnings"}}
+{"from": "3095", "to": "3089", "type": "CONTAINS", "properties": {}}
+{"from": "3095", "to": "3090", "type": "CONTAINS", "properties": {}}
+{"from": "3095", "to": "3091", "type": "CONTAINS", "properties": {}}
+{"from": "3095", "to": "3092", "type": "CONTAINS", "properties": {}}
+{"from": "3095", "to": "3093", "type": "CONTAINS", "properties": {}}
+{"from": "3095", "to": "3094", "type": "CONTAINS", "properties": {}}
+{"from": "3095", "to": "3124", "type": "CONTAINS", "properties": {}}
+{"from": "3095", "to": "3125", "type": "CONTAINS", "properties": {}}
+{"from": "3095", "to": "3131", "type": "CONTAINS", "properties": {}}
+{"from": "3095", "to": "3137", "type": "CONTAINS", "properties": {}}
+{"from": "3095", "to": "3138", "type": "CONTAINS", "properties": {}}
+{"from": "3100", "to": "3095", "type": "CONTAINS", "properties": {}}
+{"from": "3100", "to": "3102", "type": "CONTAINS", "properties": {}}
+{"from": "3100", "to": "3139", "type": "CONTAINS", "properties": {}}
+{"from": "3101", "to": "3100", "type": "CONTAINS", "properties": {}}
+{"from": "3102", "to": "3079", "type": "CONTAINS", "properties": {}}
+{"from": "3102", "to": "3080", "type": "CONTAINS", "properties": {}}
+{"from": "3102", "to": "3081", "type": "CONTAINS", "properties": {}}
+{"from": "3102", "to": "3082", "type": "CONTAINS", "properties": {}}
+{"from": "3102", "to": "3084", "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "imported_name": "strict", "full_import_name": "strict"}}
+{"from": "3102", "to": "3085", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "warnings", "full_import_name": "warnings"}}
+{"from": "3102", "to": "3098", "type": "CONTAINS", "properties": {}}
+{"from": "3102", "to": "3099", "type": "CONTAINS", "properties": {}}
+{"from": "3123", "to": "3126", "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "imported_name": "MyModule::Circle", "full_import_name": "MyModule::Circle"}}
+{"from": "3123", "to": "3084", "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "strict", "full_import_name": "strict"}}
+{"from": "3123", "to": "3085", "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "imported_name": "warnings", "full_import_name": "warnings"}}
+{"from": "3123", "to": "3131", "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "imported_name": "MyModule::Greeter", "full_import_name": "MyModule::Greeter"}}
+{"from": "3123", "to": "3101", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "lib", "full_import_name": "lib"}}
+{"from": "3123", "to": "3098", "type": "CALLS", "properties": {"line_number": 10, "args": [], "full_call_name": "new", "confidence": 0.7, "resolution_tier": 7, "confidence_label": "INFERRED"}}
+{"from": "3123", "to": "3098", "type": "CALLS", "properties": {"line_number": 7, "args": [], "full_call_name": "new", "confidence": 0.7, "resolution_tier": 7, "confidence_label": "INFERRED"}}
+{"from": "3123", "to": "3099", "type": "CALLS", "properties": {"line_number": 11, "args": [], "full_call_name": "area", "confidence": 0.7, "resolution_tier": 7, "confidence_label": "INFERRED"}}
+{"from": "3123", "to": "3121", "type": "CONTAINS", "properties": {}}
+{"from": "3123", "to": "3122", "type": "CONTAINS", "properties": {}}
+{"from": "3123", "to": "3130", "type": "CONTAINS", "properties": {}}
+{"from": "3123", "to": "3136", "type": "CONTAINS", "properties": {}}
+{"from": "3123", "to": "3138", "type": "CALLS", "properties": {"line_number": 8, "args": [], "full_call_name": "greet", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "3126", "to": "3132", "type": "CONTAINS", "properties": {}}
+{"from": "3131", "to": "3137", "type": "CONTAINS", "properties": {}}
+{"from": "3131", "to": "3138", "type": "CONTAINS", "properties": {}}
+{"from": "3139", "to": "3084", "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "imported_name": "strict", "full_import_name": "strict"}}
+{"from": "3139", "to": "3085", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "warnings", "full_import_name": "warnings"}}
+{"from": "3139", "to": "3096", "type": "CONTAINS", "properties": {}}
+{"from": "3139", "to": "3097", "type": "CONTAINS", "properties": {}}
+{"from": "3139", "to": "3126", "type": "CONTAINS", "properties": {}}
+{"from": "3139", "to": "3132", "type": "CONTAINS", "properties": {}}
+{"from": "3139", "to": "3135", "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "imported_name": "parent", "full_import_name": "parent"}}
+{"from": "3140", "to": "3143", "type": "CONTAINS", "properties": {}}
+{"from": "3140", "to": "3145", "type": "CONTAINS", "properties": {}}
+{"from": "3141", "to": "3144", "type": "CONTAINS", "properties": {}}
+{"from": "3141", "to": "3146", "type": "CONTAINS", "properties": {}}
+{"from": "3141", "to": "3147", "type": "CONTAINS", "properties": {}}
+{"from": "3142", "to": "3078", "type": "CONTAINS", "properties": {}}
+{"from": "3123", "to": "3137", "type": "CALLS", "properties": {"line_number": 7}}
+{"from": "3123", "to": "3132", "type": "CALLS", "properties": {"line_number": 11}}
+{"from": "3141", "to": "3140", "type": "INHERITS", "properties": {}}
+{"from": "3147", "to": "3145", "type": "CALLS", "properties": {"line_number": 24}}

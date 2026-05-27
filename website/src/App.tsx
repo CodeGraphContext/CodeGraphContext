@@ -8,6 +8,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Explore from "./pages/Explore";
+import Privacy from "./pages/Privacy";
+import PRReviewerPage from "./pages/PRReviewerPage";
 import MoveToTop from "./components/MoveToTop";
 import Navbar from "./components/Navbar";
 
@@ -34,7 +36,7 @@ const App: React.FC = () => {
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
-          enableSystem
+          enableSystem={false}
           disableTransitionOnChange
         >
           <TooltipProvider>
@@ -43,7 +45,13 @@ const App: React.FC = () => {
             <Navbar />
             <Routes>
               <Route path="/" element={<Index />} />
+              <Route path="/pre-indexed" element={<Index />} />
               <Route path="/explore" element={<Explore />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/pr-reviewer" element={<PRReviewerPage />} />
+              <Route path="/pr-reviewer/:owner/:repo/pull/:prNumber" element={<PRReviewerPage />} />
+              <Route path="/github/:owner/:repo" element={<Explore />} />
+              <Route path="/:owner/:repo" element={<Explore />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

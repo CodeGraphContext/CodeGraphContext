@@ -36,7 +36,7 @@ export function renderSetupHtml(
             <h1>CodeGraphContext Setup</h1>
             <p>Configure and verify your CGC environment to enable editor intelligence.</p>
             <div class="field"><label>CGC Executable Path</label><input type="text" id="executable" value="${executable}"></div>
-            <div class="field"><label>Database Mode</label><select id="dbMode"><option value="ladybugdb" ${dbMode === "ladybugdb" ? "selected" : ""}>LadybugDB (Embedded)</option><option value="falkordb" ${dbMode === "falkordb" ? "selected" : ""}>FalkorDB (Redis-based)</option><option value="neo4j" ${dbMode === "neo4j" ? "selected" : ""}>Neo4j</option></select></div>
+            <div class="field"><label>Database Mode</label><select id="dbMode"><option value="kuzudb" ${dbMode === "kuzudb" ? "selected" : ""}>KuzuDB (Embedded)</option><option value="falkordb" ${dbMode === "falkordb" ? "selected" : ""}>FalkorDB (Redis-based)</option><option value="neo4j" ${dbMode === "neo4j" ? "selected" : ""}>Neo4j</option></select></div>
             <div class="field"><label>Python Package Path / uvx Path</label><input type="text" id="pythonPackagePath" value="${pythonPackagePath}"></div>
             <div class="field"><label>Neo4j URI</label><input type="text" id="neo4jUri" value="${neo4jUri}"></div>
             <div class="field"><label>Max Tool Response Tokens</label><input type="number" id="maxToolResponseTokens" value="${maxToolResponseTokens}" min="0"></div>

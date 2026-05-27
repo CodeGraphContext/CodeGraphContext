@@ -1,60 +1,109 @@
 # System Architecture
 
-CodeGraphContext (CGC) is designed as a modular system that bridges the gap between static code analysis and dynamic AI assistance. This page details the core components and data flow within the CGC ecosystem.
-
-## High-Level Overview
-
-CGC consists of three primary layers: the **Ingestion Layer**, the **Persistence Layer**, and the **Interface Layer**.
-
-```mermaid
-graph LR
-    subgraph Ingestion
-        A[Parsers] --> B[Graph Builder]
-    end
-    subgraph Persistence
-        B --> C[(Graph Database)]
-    end
-    subgraph Interface
-        C --> D[CLI]
-        C --> E[MCP Server]
-    end
-```
-
-### 1. Ingestion Layer
-This layer is responsible for translating raw source code into semantic graph entities.
-
-*   **Parsers**: Uses Tree-sitter for high-fidelity AST extraction and SCIP for precise symbol resolution across files.
-
-*   **Graph Builder**: Orchestrates the parsing process, resolves imports, and establishes relationships (edges) between nodes.
-
-*   **Background Jobs**: Long-running indexing tasks are managed via an internal job queue to ensure the UI remains responsive.
-
-### 2. Persistence Layer
-CGC supports multiple database backends to store the code graph.
-*   **Embedded Databases (KùzuDB/FalkorDB Lite)**: Provide zero-latency access for local development without external dependencies.
-*   **Networked Databases (Neo4j/Remote FalkorDB)**: Allow for shared indexes across teams and advanced visualization.
-
-### 3. Interface Layer
-CGC exposes its capabilities through two main interfaces:
-*   **CLI**: A comprehensive command-line tool for developers to manage indexes, run queries, and visualize relationships.
-*   **MCP Server**: An implementation of the Model Context Protocol, enabling AI agents to interact with the code graph via structured tool calls.
+CodeGraphContext (CGC) is structured as a multi-tier code intelligence pipeline. It acts as the bridge between source code parsers, local/remote graph databases, and client developer tools or AI agents.
 
 ---
 
-## Data Flow: Indexing
+## High-Level Architectural Layout
 
-When you run `cgc index`, the following sequence occurs:
+CGC consists of three primary layers: **Ingestion**, **Persistence**, and **Interface**.
 
-1.  **File Discovery**: The system scans the target directory, respecting `.gitignore` and `.cgcignore` rules.
-2.  **Parsing**: Individual files are parsed in parallel using multi-threading.
-3.  **Entity Resolution**: The builder identifies cross-file references (e.g., a function call in File A to a definition in File B).
-4.  **Transaction Commit**: The resulting nodes and edges are committed to the active database backend in optimized batches.
+```mermaid
+graph TD
+    subgraph Ingestion Layer
+        src[Raw Source Files] --> parsers[Tree-sitter / SCIP Parsers]
+        parsers --> builder[Graph Builder & Entity Resolver]
+    end
 
-## Data Flow: MCP Querying
+    subgraph Persistence Layer
+        builder --> db_api[Database Abstraction API]
+        db_api --> embedded[Embedded: KuzuDB / LadybugDB / FalkorDB Lite]
+        db_api --> server[Server: Neo4j / FalkorDB Remote]
+    end
 
-When an AI agent (e.g., Claude) requests code context:
+    subgraph Interface Layer
+        embedded --> cli[CGC CLI Client]
+        server --> cli
+        embedded --> mcp[MCP Server Gateway]
+        server --> mcp
+        mcp --> agents[AI Assistant Clients: Cursor, Claude, VS Code]
+    end
+```
 
-1.  **Tool Call**: The agent issues a tool call (e.g., `analyze_code_relationships`).
-2.  **Query Translation**: The MCP server translates the tool call into an optimized Cypher or backend-specific query.
-3.  **Graph Traversal**: The database engine traverses relationships to find the requested information.
-4.  **Response Formatting**: The server cleans and formats the results (often including source code snippets) for the AI to consume.
+---
+
+## 1. The Ingestion Layer
+
+The Ingestion Layer is responsible for reading raw codebase directories, parsing code tokens, and constructing the structural property graph.
+
+- **File Discovery & Filtering**: Scans the directory tree. Respects standard `.gitignore` settings and custom `.cgcignore` configurations.
+- **Polyglot Parsers**: Utilizes Tree-sitter libraries to generate Concrete Syntax Trees (CSTs) for supported programming languages (Python, Java, JavaScript, TypeScript, Go, C++, etc.).
+- **Symbol Linker (SCIP)**: Optionally processes SCIP index data to resolve cross-file references and imported dependency symbols.
+- **Reference Resolution**: Resolves target call signatures. If `Function A` in `file_1.py` calls `Function B` in `file_2.py`, this linker creates a directed `CALLS` edge between their respective function nodes.
+- **Asynchronous Ingestion Workers**: Processes large codebases concurrently via multi-threaded background workers managed by a internal job controller queue.
+
+---
+
+## 2. The Persistence Layer
+
+The Persistence Layer abstracts database operations so that the engine can interface with multiple graph database systems using a single unified API.
+
+- **Database Abstraction API**: A client layer exposing methods to write batch transactions (`write_nodes`, `write_edges`) and query graph relationships via Cypher or native bindings.
+- **Embedded Engines**:
+  - **FalkorDB Lite (Default)**: Embedded in-memory graph engine (Unix only).
+  - **KuzuDB**: In-process C++ graph engine offering zero-dependency persistence on all platforms.
+  - **LadybugDB**: SQL-based embedded graph engine designed for concurrent read/write transactions.
+- **Networked Server Engines**:
+  - **FalkorDB Remote**: Remote client linking to FalkorDB instances.
+  - **Neo4j**: Enterprise-scale storage supporting distributed clustering and the Neo4j web browser console.
+
+---
+
+## 3. The Interface Layer
+
+The Interface Layer exposes the query engine to developer workflows and automated pipelines.
+
+- **CLI (`cgc`)**: Compiled Python script offering utilities to index directories, show statistics (`cgc stats`), execute analysis commands (`cgc analyze`), export/import context bundles, and verify backend readiness (`cgc doctor`).
+- **FastAPI HTTP Gateway**: Exposes a REST API (`cgc api start`) to query the code graph over standard HTTP and serve the interactive React visualizer.
+- **Model Context Protocol (MCP) Server**: Exposes 21 standard JSON-RPC tools for tool-calling agents.
+
+---
+
+## Core Data Flows
+
+### A. Repository Ingest and Index Pipeline
+
+```mermaid
+sequenceDiagram
+    participant User as Developer / Watcher
+    participant CLI as CGC CLI / Watcher
+    participant Ingest as Ingestion Pipeline
+    participant DB as Graph Database
+
+    User->>CLI: cgc index [path]
+    CLI->>Ingest: Discover and Filter Files (.cgcignore)
+    Ingest->>Ingest: Parse Code Syntax Trees (Tree-sitter)
+    Ingest->>Ingest: Resolve Call Chains & Inheritances
+    Ingest->>DB: Open Transaction
+    Ingest->>DB: Ingest Nodes (Files, Classes, Functions)
+    Ingest->>DB: Ingest Edges (CONTAINS, CALLS, IMPORTS)
+    Ingest->>DB: Commit Transaction
+    DB-->>CLI: Return Ingestion Stats
+    CLI-->>User: Display Success Summary
+```
+
+### B. MCP Query Pipeline
+
+```mermaid
+sequenceDiagram
+    participant LLM as AI Assistant (e.g., Claude)
+    participant MCP as CGC MCP Server
+    participant DB as Graph Database
+
+    LLM->>MCP: Call Tool: analyze_code_relationships(caller_chain)
+    MCP->>MCP: Translate parameters to Cypher Query
+    MCP->>DB: Execute Cypher Statement
+    DB-->>MCP: Return Node & Edge Data
+    MCP->>MCP: Format Result Snippets and Code Locations
+    MCP-->>LLM: Return Tool Output payload
+```

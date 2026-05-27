@@ -2,7 +2,7 @@ import { OrbitingCircles } from "./ui/orbiting-circles";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const avatars = [
@@ -25,6 +25,15 @@ export default function TestimonialSection() {
   ], []);
 
   const [index, setIndex] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    setIsMobile(window.innerWidth < 640);
+    const handleResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const next = () => setIndex((i) => (i + 1) % reviews.length);
   const prev = () => setIndex((i) => (i - 1 + reviews.length) % reviews.length);
 
@@ -40,18 +49,30 @@ export default function TestimonialSection() {
           </p>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-          <div className="relative mx-auto h-[400px] lg:h-[500px] w-full flex items-center justify-center overflow-hidden" data-aos="zoom-in">
-            <OrbitingCircles iconSize={56} radius={180} speed={1.4}>
+          <div 
+            className="relative mx-auto w-full flex items-center justify-center overflow-hidden transition-all duration-300"
+            style={{ height: isMobile ? "290px" : "480px" }}
+            data-aos="zoom-in"
+          >
+            <OrbitingCircles iconSize={isMobile ? 36 : 56} radius={isMobile ? 100 : 185} speed={1.4}>
               {avatars.map((avatar, i) => (
                 <a key={i} href={avatar.profileUrl} target="_blank" rel="noopener noreferrer">
-                  <img src={avatar.imageUrl} alt={`avatar-${i}`} className="w-14 h-14 rounded-full border-2 border-white shadow-md dark:border-neutral-800" />
+                  <img 
+                    src={avatar.imageUrl} 
+                    alt={`avatar-${i}`} 
+                    className={`${isMobile ? 'w-9 h-9' : 'w-14 h-14'} rounded-full border-2 border-white shadow-md dark:border-neutral-800`} 
+                  />
                 </a>
               ))}
             </OrbitingCircles>
-            <OrbitingCircles iconSize={44} radius={100} reverse speed={2}>
+            <OrbitingCircles iconSize={isMobile ? 28 : 44} radius={isMobile ? 60 : 105} reverse speed={2}>
               {avatars.slice(1, 5).map((avatar, i) => (
                  <a key={i} href={avatar.profileUrl} target="_blank" rel="noopener noreferrer">
-                    <img src={avatar.imageUrl} alt={`avatar-inner-${i}`} className="w-11 h-11 rounded-full border-2 border-white shadow-md dark:border-neutral-800" />
+                    <img 
+                      src={avatar.imageUrl} 
+                      alt={`avatar-inner-${i}`} 
+                      className={`${isMobile ? 'w-7 h-7' : 'w-11 h-11'} rounded-full border-2 border-white shadow-md dark:border-neutral-800`} 
+                    />
                  </a>
               ))}
             </OrbitingCircles>

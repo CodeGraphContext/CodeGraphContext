@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/php.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 import re
@@ -243,20 +244,30 @@ class PhpTreeSitterParser:
                         source_text = self._get_node_text(node)
                         
                         bases = []
-                        # Look for extends/implements
-                        base_clause_node = node.child_by_field_name('base_clause') # extends
-                        interfaces_clause_node = node.child_by_field_name('interfaces_clause') # implements
-                        
-                        if base_clause_node:
-                            # Children of base_clause contain identifiers
-                            for child in base_clause_node.children:
-                                if child.type in ('name', 'qualified_name'):
-                                    bases.append(self._get_node_text(child))
-
-                        if interfaces_clause_node:
-                            for child in interfaces_clause_node.children:
-                                if child.type in ('name', 'qualified_name'):
-                                    bases.append(self._get_node_text(child))
+                        # base_clause and class_interface_clause are NOT
+                        # field-named children in tree-sitter-php, so
+                        # child_by_field_name() returns None. We must
+                        # iterate node.children and match by .type.
+                        for child in node.children:
+                            if child.type == 'base_clause':  # extends
+                                for sub in child.children:
+                                    if sub.type in ('name', 'qualified_name'):
+                                        bases.append(self._get_node_text(sub))
+                            elif child.type == 'class_interface_clause':  # implements
+                                for sub in child.children:
+                                    if sub.type in ('name', 'qualified_name', 'name_list'):
+                                        if sub.type == 'name_list':
+                                            for name_child in sub.children:
+                                                if name_child.type in ('name', 'qualified_name'):
+                                                    bases.append(self._get_node_text(name_child))
+                                        else:
+                                            bases.append(self._get_node_text(sub))
+                            elif child.type == 'declaration_list':
+                                for member in child.children:
+                                    if member.type == 'use_declaration':
+                                        for specifier in member.children:
+                                            if specifier.type in ('name', 'qualified_name'):
+                                                bases.append(self._get_node_text(specifier))
 
                         type_data = {
                             "name": type_name,

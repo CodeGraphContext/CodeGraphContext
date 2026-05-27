@@ -1,61 +1,121 @@
-# Configuration
+# Configuration Reference
 
-CodeGraphContext (CGC) can be configured via environment variables, a global config file, or project-specific `.cgcignore` files.
-
-## Environment Variables
-
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `DEFAULT_DATABASE` | Sets the default backend (`kuzudb`, `falkordb`, `neo4j`). | `kuzudb` |
-| `FALKORDB_HOST` | Hostname for remote FalkorDB instance. | `localhost` |
-| `NEO4J_URI` | URI for Neo4j connection. | `bolt://localhost:7687` |
-| `NEO4J_USERNAME` | Username for Neo4j authentication. | `neo4j` |
-| `NEO4J_PASSWORD` | Password for Neo4j authentication. | - |
-| `CGC_LOG_LEVEL` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). | `INFO` |
+CodeGraphContext (CGC) is configured using environment variables, local configuration files, and the CLI.
 
 ---
 
-## The `cgc config` Command
+## The `cgc config` CLI Utility
 
-You can manage persistent settings using the CLI:
+Use the `config` command group to inspect and modify settings from your terminal.
+
+### 1. Inspect Effective Settings
+Prints the merged configuration values (resolving defaults, global `.env`, and local workspaces):
 
 ```bash
-# Set the default database
-cgc config set-db neo4j
+cgc config show
+```
 
-# View all current settings
-cgc config list
+### 2. Set Configuration Values
+Persists key-value settings to the global environment configuration file:
+
+```bash
+# Set default database engine
+cgc config set DEFAULT_DATABASE falkordb
+
+# Change file size threshold (in MB)
+cgc config set MAX_FILE_SIZE_MB 25
+```
+
+`DEFAULT_DATABASE` is the supported configuration key for selecting the database backend. `DEFAULT_BACKEND` is not a valid `cgc config` key.
+
+### 3. Database Selection Shortcut
+Quickly updates the `DEFAULT_DATABASE` key:
+
+```bash
+cgc config db falkordb
+```
+
+Valid database backend identifiers: `kuzudb`, `ladybugdb`, `falkordb` (Lite/embedded), `falkordb-remote`, and `neo4j`.
+
+### 4. Reset to Defaults
+Restores all keys to factory configurations:
+
+```bash
+cgc config reset
 ```
 
 ---
 
-## Ignoring Files (`.cgcignore`)
+## Configuration Variable Reference
 
-To prevent specific files or directories from being indexed, create a `.cgcignore` file in your repository root. CGC follows standard glob patterns similar to `.gitignore`.
+### Core Engine Settings
 
-### Common Patterns
-```text
-# Exclude build artifacts
-dist/
-build/
-*.egg-info
+| Config Key | Default | Description |
+| :--- | :--- | :--- |
+| **`DEFAULT_DATABASE`** | `falkordb` | Active database engine. Options: `kuzudb`, `ladybugdb`, `falkordb`, `falkordb-remote`, `neo4j`. |
+| **`ENABLE_AUTO_WATCH`** | `false` | When `true`, indexing a project automatically initializes a directory watcher. |
+| **`PARALLEL_WORKERS`** | `4` | Max thread pool size for parsing code files concurrently. |
+| **`CACHE_ENABLED`** | `true` | Caches file hashes to support fast incremental scans. |
 
-# Exclude dependencies (if you don't want them in the graph)
-node_modules/
-venv/
-.venv/
+### Indexing Scope Configurations
 
-# Exclude large data files
-*.json
-*.csv
-```
+| Config Key | Default | Description |
+| :--- | :--- | :--- |
+| **`MAX_FILE_SIZE_MB`** | `10` | Skips source files exceeding this size limit (in Megabytes). |
+| **`IGNORE_TEST_FILES`** | `false` | When `true`, skips files containing test keywords or directories like `tests/`. |
+| **`IGNORE_HIDDEN_FILES`** | `true` | When `true`, skips dotfiles and hidden folders (e.g., `.github/`). |
+| **`INDEX_VARIABLES`** | `true` | Extracts variable assignments into the graph. Set to `false` for smaller graph database sizes. |
+| **`INDEX_SOURCE`** | `true` | Stores raw source snippets in node attributes. Set to `false` for a lighter graph. |
+| **`SKIP_EXTERNAL_RESOLUTION`** | `false` | Skips looking up external Java dependencies. |
+
+### Optional SCIP Indexer Configurations
+
+| Config Key | Default | Description |
+| :--- | :--- | :--- |
+| **`SCIP_INDEXER`** | `false` | When `true`, enables SCIP-based symbol resolution. |
+| **`SCIP_LANGUAGES`** | `python,typescript,go,rust,java` | List of target languages to process via SCIP. |
 
 ---
 
-## Advanced: Performance Tuning
+## Database Connection Configurations
 
-For large-scale indexing, you can adjust the following internal parameters (via env vars):
+### Neo4j Connection Properties
+Required when `DEFAULT_DATABASE` is set to `neo4j`.
 
-*   **`CGC_MAX_THREADS`**: Number of concurrent workers for parsing files.
-*   **`CGC_CHUNK_SIZE`**: Number of nodes to batch before committing to the database.
-*   **`CGC_PARSER_TIMEOUT`**: Timeout in seconds for individual file parsing.
+| Config Key | Default | Description |
+| :--- | :--- | :--- |
+| **`NEO4J_URI`** | `bolt://localhost:7687` | Server connection URI. |
+| **`NEO4J_USERNAME`** | `neo4j` | Database user name. |
+| **`NEO4J_PASSWORD`** | None | Database connection password. |
+| **`NEO4J_DATABASE`** | `neo4j` | Logical database partition name. |
+
+### FalkorDB Remote Connection Properties
+Required when `DEFAULT_DATABASE` is set to `falkordb-remote`.
+
+| Config Key | Default | Description |
+| :--- | :--- | :--- |
+| **`FALKORDB_HOST`** | `127.0.0.1` | Remote host address. |
+| **`FALKORDB_PORT`** | `6379` | TCP Port. |
+| **`FALKORDB_PASSWORD`** | None | Authentication password. |
+| **`FALKORDB_SSL`** | `false` | Enables SSL/TLS connection socket. |
+| **`FALKORDB_GRAPH_NAME`** | `codegraph` | Target graph namespace. |
+
+### Embedded Database Directories (KuzuDB / LadybugDB / FalkorDB Lite)
+Local embedded database instances are stored on disk. Use the settings below to redirect them:
+
+| Config Key | Default | Description |
+| :--- | :--- | :--- |
+| **`KUZUDB_PATH`** | `~/.codegraphcontext/global/db/kuzudb/` | Root storage directory for KuzuDB files. |
+| **`FALKORDB_PATH`** | `~/.codegraphcontext/global/db/falkordb/` | Storage path for FalkorDB Lite database. |
+
+---
+
+## Settings Precedence Levels
+
+CGC resolves configuration keys in the following hierarchical priority (highest level overrides lower levels):
+
+1. **CLI Flag Parameters**: Overrides passed during execution (e.g., `cgc index --db falkordb`).
+2. **Local Repository Variables**: Values defined in `<workspace_root>/.codegraphcontext/.env`.
+3. **User Global Settings**: Configurations stored in `~/.codegraphcontext/.env`.
+4. **Environment Shell Exports**: System environment variables (e.g., `export DEFAULT_DATABASE=neo4j`).
+5. **System Defaults**: Hardcoded fallback values defined within the Python package.

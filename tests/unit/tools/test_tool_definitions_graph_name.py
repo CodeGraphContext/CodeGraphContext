@@ -23,6 +23,10 @@ _QUERY_EXECUTING = {
     "delete_repository",
     "load_bundle",
     "get_repository_stats",
+    "generate_report",
+    "find_java_spring_endpoints",
+    "find_java_spring_beans",
+    "find_datasource_nodes",
 }
 
 # Tools that do NOT hit the graph and therefore MUST NOT advertise graph_name.

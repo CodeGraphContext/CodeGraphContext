@@ -202,8 +202,17 @@ class TestTC04_KuzuSetupBlock:
 # ---------------------------------------------------------------------------
 
 class TestTC05_ReadmeDocumentation:
-
-    README_PATH = Path(__file__).parent.parent.parent / "README.md"
+    # Resolve repository root robustly across local runs and CI workspace layouts.
+    # In GitHub Actions, checkout paths may be nested (e.g. /work/repo/repo).
+    README_PATH = next(
+        (
+            candidate
+            for parent in Path(__file__).resolve().parents
+            for candidate in [parent / "README.md"]
+            if candidate.exists()
+        ),
+        Path(__file__).resolve().parent.parent.parent.parent / "README.md",
+    )
 
     def test_readme_exists(self):
         assert self.README_PATH.exists(), \

@@ -83,7 +83,7 @@ Most query and indexing tools accept an optional `graph_name` parameter that tar
     * `is_dependency` (boolean)
 * **`Function`**
     * `name` (string)
-    * `path` (string, absolute path) **<-- NOTE: Use `path`, NOT `path`**
+    * `path` (string, absolute path) **<-- NOTE: Use `path`, NOT `relative_path`**
     * `line_number` (int)
     * `end_line` (int)
     * `args` (list)
@@ -94,7 +94,7 @@ Most query and indexing tools accept an optional `graph_name` parameter that tar
     * `is_dependency` (boolean)
 * **`Class`**
     * `name` (string)
-    * `path` (string, absolute path) **<-- NOTE: Use `path`, NOT `path`**
+    * `path` (string, absolute path) **<-- NOTE: Use `path`, NOT `relative_path`**
     * `line_number` (int)
     * `end_line` (int)
     * `bases` (list)

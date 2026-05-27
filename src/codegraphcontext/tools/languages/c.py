@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/c.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
@@ -21,24 +22,66 @@ C_QUERIES = {
     """,
     "structs": """
         (struct_specifier
-            name: (type_identifier) @name
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
         ) @struct
     """,
+    "typedef_structs": """
+        (type_definition
+            (struct_specifier)
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
+        ) @typedef_struct
+    """,
+    "typedef_enums": """
+        (type_definition
+            (enum_specifier)
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
+        ) @typedef_enum
+    """,
+    "typedef_unions": """
+        (type_definition
+            (union_specifier)
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
+        ) @typedef_union
+    """,
+
     "unions": """
         (union_specifier
-            name: (type_identifier) @name
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
         ) @union
     """,
     "enums": """
         (enum_specifier
-            name: (type_identifier) @name
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
         ) @enum
     """,
     "typedefs": """
         (type_definition
-            declarator: (type_identifier) @name
+            [
+                (type_identifier) @name
+                (identifier) @name
+            ]
         ) @typedef
     """,
+
+
     "imports": """
         (preproc_include
             path: [
@@ -292,6 +335,46 @@ class CTreeSitterParser:
                     struct_data["source"] = self._get_node_text(struct_node)
                 
                 classes.append(struct_data)
+        
+        # Find typedefs (structs, enums, unions)
+        typedef_patterns = [
+            ("typedef_structs", "struct"),
+            ("typedef_enums", "enum"),
+            ("typedef_unions", "union")
+        ]
+        
+        for query_key, item_type in typedef_patterns:
+            query_str = C_QUERIES.get(query_key, "")
+            if not query_str: continue
+            
+            for match in execute_query(self.language, query_str, root_node):
+                capture_name = match[1]
+                node = match[0]
+                if capture_name == 'name':
+                    type_def_node = node.parent
+                    
+                    name = self._get_node_text(node)
+                    context, context_type, _ = self._get_parent_context(type_def_node)
+                    
+                    data = {
+                        "name": name,
+                        "line_number": node.start_point[0] + 1,
+                        "end_line": type_def_node.end_point[0] + 1,
+                        "bases": [],
+                        "docstring": self._get_docstring(type_def_node),
+                        "context": context,
+                        "decorators": [],
+                        "lang": self.language_name,
+                        "is_dependency": False,
+                        "type": item_type,
+                    }
+
+                    if self.index_source:
+                        data["source"] = self._get_node_text(type_def_node)
+                    
+                    classes.append(data)
+
+
 
         # Find unions
         query_str = C_QUERIES["unions"]

@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/typescriptjsx.py
 from pathlib import Path
 
 def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:

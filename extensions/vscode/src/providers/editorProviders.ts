@@ -2,29 +2,35 @@ import * as vscode from "vscode";
 import { CgcService } from "../mcp/service";
 import { DeadCodeEntry } from "../types/cgc";
 
+// ─── Multi-language definition detector ───────────────────────────────────────
+// Covers Python, JS/TS, Java, Go, Rust, C/C++, Kotlin, Swift, Ruby, PHP, C#
+const DEF_PATTERN =
+  /^\s*(?:(?:pub(?:\s+(?:async|unsafe))?|private|protected|public|static|async|export\s+(?:default\s+)?|override|abstract|inline|virtual|extern\s+"C"\s+)?(?:fun|fn|func|def|function|sub|method)\s+([A-Za-z_$][A-Za-z0-9_$]*)|(?:class|interface|struct|enum|trait|protocol|abstract\s+class|sealed\s+class|data\s+class)\s+([A-Za-z_$][A-Za-z0-9_$]*))/;
+
 function symbolAtPosition(document: vscode.TextDocument, position: vscode.Position): string | undefined {
-  const range = document.getWordRangeAtPosition(position, /[A-Za-z_][A-Za-z0-9_]*/);
+  const range = document.getWordRangeAtPosition(position, /[A-Za-z_$][A-Za-z0-9_$]*/);
   return range ? document.getText(range) : undefined;
 }
 
-function collectDefinitionLines(document: vscode.TextDocument): Array<{ line: number; symbol: string }> {
-  const out: Array<{ line: number; symbol: string }> = [];
-  for (let i = 0; i < document.lineCount; i += 1) {
-    const text = document.lineAt(i).text.trim();
-    const match = /^(def|class|function|async def)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(text);
-    if (match) {
-      out.push({ line: i, symbol: match[2] });
+function collectDefinitionLines(document: vscode.TextDocument): Array<{ line: number; symbol: string; type: "function" | "class" }> {
+  const out: Array<{ line: number; symbol: string; type: "function" | "class" }> = [];
+  for (let i = 0; i < document.lineCount; i++) {
+    const text = document.lineAt(i).text;
+    const m = DEF_PATTERN.exec(text);
+    if (m) {
+      out.push({
+        line: i,
+        symbol: m[1] ?? m[2],
+        type: m[1] ? "function" : "class"
+      });
     }
   }
   return out;
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// CodeLens: simple two-lens-per-definition approach.
-// Each definition gets a "Complexity | N callers" line fetched lazily.
-// Complexity/callers are resolved once per document via onDidChangeCodeLenses.
-// ──────────────────────────────────────────────────────────────────────────
-const lensCache = new Map<string, { complexity?: number; callers: number }>();
+// ─── CodeLens ─────────────────────────────────────────────────────────────────
+
+const lensCache = new Map<string, { complexity?: number; callers: number; callees: number }>();
 
 export class CgcCodeLensProvider implements vscode.CodeLensProvider {
   private readonly _onDidChange = new vscode.EventEmitter<void>();
@@ -41,30 +47,36 @@ export class CgcCodeLensProvider implements vscode.CodeLensProvider {
       const cacheKey = `${document.uri.toString()}::${def.symbol}`;
       const cached = lensCache.get(cacheKey);
 
-      const threshold = vscode.workspace.getConfiguration("cgc").get<number>("complexityWarningThreshold", 10);
-      const cc = cached?.complexity;
-      const callers = cached?.callers ?? 0;
+      if (def.type === "class") {
+        const title = `🏛️ Class Hierarchy`;
+        lenses.push(
+          new vscode.CodeLens(range, {
+            title,
+            command: "cgc.showClassHierarchy",
+            arguments: [def.symbol],
+            tooltip: `Show Class Hierarchy for ${def.symbol}`
+          })
+        );
+      } else {
+        const threshold = vscode.workspace.getConfiguration("cgc").get<number>("complexityWarningThreshold", 10);
+        const cc = cached?.complexity;
+        const callers = cached?.callers ?? 0;
+        const callees = cached?.callees ?? 0;
 
-      const complexTitle = cc !== undefined
-        ? `CGC: Complexity ${cc}${cc > threshold ? " ⚠️" : ""}`
-        : "CGC: Complexity";
-      const callersTitle = `CGC: Callers (${callers})`;
+        const ccLabel = cc !== undefined ? `cc:${cc}${cc > threshold ? " ⚠️" : ""}` : "cc:…";
+        const title = `⚡ ${ccLabel}  ←${callers} callers  →${callees} callees`;
 
-      lenses.push(
-        new vscode.CodeLens(range, {
-          title: complexTitle,
-          command: "cgc.showComplexityAtSymbol",
-          arguments: [document.uri, def.symbol]
-        }),
-        new vscode.CodeLens(range, {
-          title: callersTitle,
-          command: "cgc.showCallersAtSymbol",
-          arguments: [document.uri, def.symbol]
-        })
-      );
+        lenses.push(
+          new vscode.CodeLens(range, {
+            title,
+            command: "cgc.showCallGraph",
+            arguments: [document.uri, def.symbol],
+            tooltip: `Open Call Graph for ${def.symbol}`
+          })
+        );
+      }
     }
 
-    // Kick off async resolution — fires onDidChangeCodeLenses when done
     this._fetchAll(document).catch(() => {});
     return lenses;
   }
@@ -83,13 +95,14 @@ export class CgcCodeLensProvider implements vscode.CodeLensProvider {
       await Promise.all(missing.map(async def => {
         const cacheKey = `${docKey}::${def.symbol}`;
         try {
-          const [complexity, callers] = await Promise.all([
+          const [complexity, callers, callees] = await Promise.all([
             this.service.getComplexity(def.symbol, document.uri.fsPath),
-            this.service.findCallers(def.symbol, document.uri.fsPath)
+            this.service.findCallers(def.symbol, document.uri.fsPath),
+            this.service.findCallees(def.symbol, document.uri.fsPath),
           ]);
-          lensCache.set(cacheKey, { complexity, callers: callers.length });
+          lensCache.set(cacheKey, { complexity, callers: callers.length, callees: callees.length });
         } catch {
-          lensCache.set(cacheKey, { complexity: undefined, callers: 0 });
+          lensCache.set(cacheKey, { complexity: undefined, callers: 0, callees: 0 });
         }
       }));
       this._onDidChange.fire();
@@ -105,6 +118,8 @@ export class CgcCodeLensProvider implements vscode.CodeLensProvider {
   }
 }
 
+// ─── Hover Provider ───────────────────────────────────────────────────────────
+
 export class CgcHoverProvider implements vscode.HoverProvider {
   constructor(private readonly service: CgcService) {}
 
@@ -115,29 +130,74 @@ export class CgcHoverProvider implements vscode.HoverProvider {
     const [complexity, callers, callees] = await Promise.all([
       this.service.getComplexity(symbol, document.uri.fsPath),
       this.service.findCallers(symbol, document.uri.fsPath),
-      this.service.findCallees(symbol, document.uri.fsPath)
-    ]);
+      this.service.findCallees(symbol, document.uri.fsPath),
+    ]).catch(() => [undefined, [], []] as const);
 
     const threshold = vscode.workspace.getConfiguration("cgc").get<number>("complexityWarningThreshold", 10);
     const md = new vscode.MarkdownString(undefined, true);
-    md.appendMarkdown(`**${symbol}**  \n`);
-    if (typeof complexity === "number") {
-      md.appendMarkdown(`Complexity: \`${complexity}\`${complexity > threshold ? " ⚠️ high complexity" : ""}  \n`);
+    md.isTrusted = true;
+    md.supportHtml = true;
+
+    // Header
+    md.appendMarkdown(`**\`${symbol}\`**`);
+    if (typeof complexity === "number" && complexity > threshold) {
+      md.appendMarkdown(` — ⚠️ High complexity`);
     }
-    md.appendMarkdown(`Incoming callers: \`${callers.length}\`  \n`);
-    md.appendMarkdown(`Outgoing callees: \`${callees.length}\`  \n`);
-    md.appendMarkdown("\nMini-map: ");
-    md.appendMarkdown(renderMiniMapSvg(symbol, callers.length, callees.length));
-    md.appendMarkdown(" Powered by CodeGraphContext MCP.");
+    md.appendMarkdown(`\n\n`);
+
+    // Metrics row
+    const ccStr = typeof complexity === "number" ? `\`${complexity}\`` : "_unknown_";
+    md.appendMarkdown(`| | |\n|---|---|\n`);
+    md.appendMarkdown(`| **Complexity** | ${ccStr}${typeof complexity === "number" && complexity > threshold ? " ⚠️" : ""} |\n`);
+    md.appendMarkdown(`| **←&nbsp;Callers** | \`${callers.length}\` |\n`);
+    md.appendMarkdown(`| **→&nbsp;Callees** | \`${callees.length}\` |\n\n`);
+
+    // Top callers
+    const topCallers = callers.slice(0, 3);
+    if (topCallers.length > 0) {
+      md.appendMarkdown(`**Called by:** `);
+      const callerLinks = topCallers.map(c => {
+        const name = c.caller_name ?? "caller";
+        const file = c.caller_file_path;
+        const line = c.call_line_number ?? c.caller_line_number ?? 1;
+        if (file) {
+          const args = encodeURIComponent(JSON.stringify([vscode.Uri.file(file).toString(), line]));
+          return `[${name}](command:cgc._jumpToLocation?${args})`;
+        }
+        return `\`${name}\``;
+      });
+      md.appendMarkdown(callerLinks.join(" · "));
+      if (callers.length > 3) md.appendMarkdown(` +${callers.length - 3} more`);
+      md.appendMarkdown(`\n\n`);
+    }
+
+    // Top callees
+    const topCallees = callees.slice(0, 3);
+    if (topCallees.length > 0) {
+      md.appendMarkdown(`**Calls:** `);
+      const calleeNames = topCallees.map(c => `\`${c.called_name ?? "?"}\``);
+      md.appendMarkdown(calleeNames.join(" · "));
+      if (callees.length > 3) md.appendMarkdown(` +${callees.length - 3} more`);
+      md.appendMarkdown(`\n\n`);
+    }
+
+    // Actions
+    const cgArgs = encodeURIComponent(JSON.stringify([symbol]));
+    md.appendMarkdown(`[→ Open Call Graph](command:cgc.showCallGraph?${cgArgs})&nbsp;&nbsp;`);
+    md.appendMarkdown(`[↗ Analyze Callers](command:cgc.analyzeRelationships)`);
+    md.appendMarkdown(`\n\n_Powered by CodeGraphContext_`);
+
     return new vscode.Hover(md);
   }
 }
 
+// ─── Dead Code Diagnostics ────────────────────────────────────────────────────
+
 export class CgcDeadCodeDiagnostics {
   private readonly collection = vscode.languages.createDiagnosticCollection("cgc-dead-code");
   private readonly strikeDecoration = vscode.window.createTextEditorDecorationType({
-    textDecoration: "line-through 1px",
-    opacity: "0.75"
+    textDecoration: "line-through 1px rgba(255,255,255,0.35)",
+    opacity: "0.70",
   });
   private readonly index = new Map<string, DeadCodeEntry>();
 
@@ -166,40 +226,66 @@ export class CgcDeadCodeDiagnostics {
       const text = document.lineAt(line).text;
       const range = new vscode.Range(line, 0, line, Math.max(1, text.length));
       const targetName = entry.function_name ?? entry.class_name ?? "symbol";
-      const diagnostic = new vscode.Diagnostic(range, `Potentially unused: ${targetName}`, vscode.DiagnosticSeverity.Hint);
-      diagnostic.code = "cgc.deadCode";
+      const diagnostic = new vscode.Diagnostic(
+        range,
+        `CGC: Potentially unused — \`${targetName}\``,
+        vscode.DiagnosticSeverity.Hint
+      );
+      diagnostic.code = { value: "cgc.deadCode", target: vscode.Uri.parse("https://github.com/Shashank-KanakapuraSrinivas/CodeGraphContext") };
+      diagnostic.tags = [vscode.DiagnosticTag.Unnecessary];
       diagnostics.push(diagnostic);
     }
     this.collection.set(document.uri, diagnostics);
-    const active = vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === document.uri.toString());
+    const active = vscode.window.visibleTextEditors.find(
+      e => e.document.uri.toString() === document.uri.toString()
+    );
     if (active) {
       active.setDecorations(this.strikeDecoration, diagnostics.map(d => d.range));
     }
   }
 }
 
+// ─── Dead Code Quick Fix ──────────────────────────────────────────────────────
+
 export class CgcDeadCodeCodeActionProvider implements vscode.CodeActionProvider {
   public static readonly providedCodeActionKinds = [vscode.CodeActionKind.QuickFix];
 
   provideCodeActions(document: vscode.TextDocument, range: vscode.Range): vscode.CodeAction[] {
+    const actions: vscode.CodeAction[] = [];
     const line = document.lineAt(range.start.line);
-    const commentAction = new vscode.CodeAction("CGC: Comment out dead code", vscode.CodeActionKind.QuickFix);
-    commentAction.edit = new vscode.WorkspaceEdit();
-    commentAction.edit.replace(document.uri, line.range, `# ${line.text}`);
-    return [commentAction];
-  }
-}
+    const lineText = line.text;
 
-function renderMiniMapSvg(symbol: string, callerCount: number, calleeCount: number): string {
-  const escaped = symbol.replace(/"/g, "").slice(0, 12);
-  return new vscode.MarkdownString(
-    `<svg width="220" height="90" viewBox="0 0 220 90" xmlns="http://www.w3.org/2000/svg">
-      <rect x="85" y="30" width="50" height="24" rx="6" fill="#4b8bbe"/>
-      <text x="110" y="46" font-size="10" text-anchor="middle" fill="#fff">${escaped}</text>
-      <circle cx="25" cy="42" r="12" fill="#6dbf73"/><text x="25" y="46" font-size="9" text-anchor="middle" fill="#111">${callerCount}</text>
-      <circle cx="195" cy="42" r="12" fill="#f4b860"/><text x="195" y="46" font-size="9" text-anchor="middle" fill="#111">${calleeCount}</text>
-      <path d="M37 42 L85 42" stroke="#9fb0c5" stroke-width="2"/><path d="M135 42 L183 42" stroke="#9fb0c5" stroke-width="2"/>
-    </svg>`,
-    true
-  ).value;
+    // Detect language-specific comment prefix
+    const langId = document.languageId;
+    let commentChar = "#";
+    if (["javascript", "typescript", "java", "go", "rust", "c", "cpp", "csharp", "swift", "kotlin", "dart"].includes(langId)) {
+      commentChar = "//";
+    } else if (["html", "xml"].includes(langId)) {
+      commentChar = "<!--";
+    }
+
+    // Comment-out action
+    const commentAction = new vscode.CodeAction(
+      `CGC: Comment out dead code (${commentChar})`,
+      vscode.CodeActionKind.QuickFix
+    );
+    commentAction.edit = new vscode.WorkspaceEdit();
+    const prefix = commentChar === "<!--" ? "<!-- " : `${commentChar} `;
+    commentAction.edit.replace(document.uri, line.range, `${" ".repeat(lineText.match(/^\s*/)?.[0].length ?? 0)}${prefix}${lineText.trimStart()}`);
+    actions.push(commentAction);
+
+    // Suppress this diagnostic action
+    const suppressAction = new vscode.CodeAction(
+      "CGC: Suppress dead code warning for this line",
+      vscode.CodeActionKind.QuickFix
+    );
+    suppressAction.command = {
+      command: "cgc.suppressDeadCode",
+      title: "Suppress",
+      arguments: [document.uri, range.start.line]
+    };
+    actions.push(suppressAction);
+
+    return actions;
+  }
 }

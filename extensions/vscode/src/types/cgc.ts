@@ -46,3 +46,45 @@ export interface ComplexityEntry {
   complexity?: number;            // alias: Python returns 'as complexity'
   line_number?: number;
 }
+
+export interface RepoStats {
+  repo_path?: string;
+  file_count?: number;
+  function_count?: number;
+  class_count?: number;
+  module_count?: number;
+  // overall DB stats shape
+  total_files?: number;
+  total_functions?: number;
+  total_classes?: number;
+  total_modules?: number;
+}
+
+export interface JobStatus {
+  job_id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  progress?: number;
+  message?: string;
+  error?: string;
+}
+
+export interface DiscoveredContext {
+  path: string;
+  name?: string;
+}
+
+export type CgcEventType =
+  | "index:started"
+  | "index:progress"
+  | "index:done"
+  | "index:failed"
+  | "graph:changed"
+  | "repo:changed"
+  | "context:changed"
+  | "mcp:online"
+  | "mcp:offline";
+
+export interface CgcEvent {
+  type: CgcEventType;
+  payload?: unknown;
+}

@@ -3,54 +3,55 @@ repo_url: https://github.com/CodeGraphContext/CodeGraphContext
 repo_name: CodeGraphContext/CodeGraphContext
 theme:
   name: material
-  logo: images/cgcIcon.png
-  favicon: images/cgcIcon.png
+  custom_dir: custom_theme
+  logo: assets/logo.png
+  favicon: assets/logo.png
   features:
     - navigation.tabs
     - navigation.sections
     - navigation.expand
     - content.code.copy
     - toc.follow
-  palette: 
-    - scheme: default
-      primary: teal
-      accent: purple
-      toggle:
-        icon: material/weather-night
-        name: Switch to dark mode
-    - scheme: slate
-      primary: teal
-      accent: lime
-      toggle:
-        icon: material/weather-sunny
-        name: Switch to light mode
+
+extra_css:
+  - stylesheets/redwood.css
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
+  - javascripts/mermaid-init.js
 
 nav:
   - Introduction: index.md
   - Getting Started:
+    - Prerequisites: getting-started/prerequisites.md
     - Installation: getting-started/installation.md
     - Quickstart: getting-started/quickstart.md
     - MCP Setup: getting-started/mcp-setup.md
   - Core Concepts:
-    - The Code Graph: concepts/graph-model.md
-    - Database Backends: concepts/backends.md
     - System Architecture: concepts/architecture.md
+    - The Code Graph Model: concepts/graph-model.md
+    - Database Backends: concepts/backends.md
+    - How Ingestion Works: concepts/how-it-works.md
   - User Guides:
-    - Indexing Source Code: guides/indexing.md
-    - Portable Bundles: guides/bundles.md
-    - Multi-Repo Workflows: guides/multi-repo.md
-    - Visualization: guides/visualization.md
+    - Indexing Codebases: guides/indexing.md
+    - Configuration Contexts: guides/contexts.md
+    - Portable CGC Bundles: guides/bundles.md
+    - Interactive Visualization: guides/visualization.md
+    - Datasource Indexing: guides/datasource-indexing.md
+    - Developer Onboarding: guides/onboarding-codebase.md
   - Reference:
     - CLI Reference: reference/cli.md
     - MCP Tool Reference: reference/mcp.md
     - Configuration: reference/config.md
+    - Troubleshooting: reference/troubleshooting.md
   - Community:
     - Contributing: contributing.md
-    - Troubleshooting: reference/troubleshooting.md
+    - Contributing Languages: contributing_languages.md
     - Roadmap: roadmap.md
     - License: license.md
 
 markdown_extensions:
+  - tables
   - admonition
   - pymdownx.details
   - pymdownx.superfences:

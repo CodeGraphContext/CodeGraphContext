@@ -1,3 +1,4 @@
+# src/codegraphcontext/cli/config_manager.py
 """
 Configuration management for CodeGraphContext.
 Handles reading, writing, and validating configuration settings.
@@ -29,6 +30,7 @@ DEFAULT_CONFIG = {
     "DEFAULT_DATABASE": "falkordb",
     "FALKORDB_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb"),
     "FALKORDB_SOCKET_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb.sock"),
+    "LADYBUGDB_PATH": str(CONFIG_DIR / "global" / "db" / "ladybugdb"),
     "INDEX_VARIABLES": "true",
     "ALLOW_DB_DELETION": "false",
     "DEBUG_LOGS": "false",
@@ -48,20 +50,28 @@ DEFAULT_CONFIG = {
     "INDEX_SOURCE": "true",
     # SCIP indexer feature flag (default off — existing Tree-sitter behaviour unchanged)
     "SCIP_INDEXER": "false",
-    "SCIP_LANGUAGES": "python,typescript,go,rust,java",
+    "SCIP_LANGUAGES": "python,typescript,javascript,go,rust,java,dart,cpp,c,csharp",
     "SKIP_EXTERNAL_RESOLUTION": "false",
     # 0 = unlimited; any positive integer caps MCP tool response size.
     "MAX_TOOL_RESPONSE_TOKENS": "0",
     # JSON object mapping tool names to integer result-count limits.
     # Example: {"find_code": 20, "analyze_code_relationships": 10, "find_dead_code": 30}
     "TOOL_RESULT_LIMITS": "{}",
+    # Post-indexing resolution phases (default off)
+    "ENABLE_INHERIT_RESOLVE": "false",
+    "ENABLE_VECTOR_RESOLVE": "false",
+    "CGC_EMBEDDING_MODEL": "local",
+    "CGC_EMBEDDING_BATCH_SIZE": "256",
+    # Default fuzzy matching behavior for `cgc find name` (overridable per-command with --fuzzy/--no-fuzzy)
+    "FUZZY_SEARCH": "true",
 }
 
 # Configuration key descriptions
 CONFIG_DESCRIPTIONS = {
-    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|kuzudb|nornic)",
+    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|falkordb-remote|kuzudb|nornic|ladybugdb)",
     "FALKORDB_PATH": "Path to FalkorDB database file",
     "FALKORDB_SOCKET_PATH": "Path to FalkorDB Unix socket",
+    "LADYBUGDB_PATH": "Path to LadybugDB database directory",
     "INDEX_VARIABLES": "Index variable nodes in the graph (lighter graph if false)",
     "ALLOW_DB_DELETION": "Allow full database deletion commands",
     "DEBUG_LOGS": "Enable debug logging (for development/troubleshooting)",
@@ -80,15 +90,50 @@ CONFIG_DESCRIPTIONS = {
     "IGNORE_DIRS": "Comma-separated list of directory names to ignore during indexing",
     "INDEX_SOURCE": "Store full source code in graph database (for faster indexing use false, for better performance use true)",
     "SCIP_INDEXER": "Use SCIP-based indexing for higher accuracy call/inheritance resolution (requires scip-<lang> tools installed)",
-    "SCIP_LANGUAGES": "Comma-separated languages to index via SCIP when SCIP_INDEXER=true (python,typescript,go,rust,java)",
+    "SCIP_LANGUAGES": "Comma-separated languages to index via SCIP when SCIP_INDEXER=true (python,typescript,javascript,go,rust,java,dart,cpp,c,csharp)",
     "SKIP_EXTERNAL_RESOLUTION": "Skip resolution attempts for external library method calls (recommended for enterprise large Java/Spring codebases)",
     "MAX_TOOL_RESPONSE_TOKENS": "Maximum tokens per MCP tool response (0 = unlimited). Truncates oversized payloads and appends a notice.",
     "TOOL_RESULT_LIMITS": "JSON object mapping tool names to max result counts, e.g. {\"find_code\": 20, \"analyze_code_relationships\": 10}. Missing keys use built-in defaults.",
+    # Post-indexing resolution phases
+    "ENABLE_INHERIT_RESOLVE": (
+        "[Phase 5] Re-resolve ambiguous same-file CALLS edges using the inheritance graph (INHERITS relationships). "
+        "When enabled, methods called on an interface or abstract class are re-pointed to the correct concrete "
+        "implementation based on the class hierarchy, reducing tier-7 fallback edges. "
+        "WHEN TO ENABLE: any Java/Kotlin/C# codebase that uses inheritance or interface-based DI (e.g. Spring, OSGi). "
+        "PREREQUISITES: run 'cgc index' first so INHERITS edges exist in the graph. No extra tools needed. "
+        "COST: adds ~1-5 min per 50K functions at the end of each 'cgc index' run. Safe to toggle on/off — only adds new edges, never removes existing ones."
+    ),
+    "ENABLE_VECTOR_RESOLVE": (
+        "[Phase 4 + Phase 5 tiebreaker] Generate semantic embeddings for all Function nodes and use vector "
+        "similarity as a tiebreaker when inheritance resolution alone cannot distinguish between multiple candidates. "
+        "Phase 4 writes a 384-dim embedding to every Function node; Phase 5 queries those embeddings during re-resolution. "
+        "WHEN TO ENABLE: large codebases (>10K functions) where inheritance alone leaves many ambiguous calls "
+        "(tier-7 fallbacks still high after ENABLE_INHERIT_RESOLVE). Also useful for cross-language repos. "
+        "PREREQUISITES: (1) fastembed must be installed — run 'pip install fastembed'. "
+        "(2) Neo4j must be the active database (vector index not supported on FalkorDB/KuzuDB). "
+        "(3) ENABLE_INHERIT_RESOLVE should also be true — vector is a tiebreaker for Phase 5, not a replacement. "
+        "COST: Phase 4 takes ~15 min per 50K functions on CPU (first run only; incremental updates are fast). "
+        "Embedding model (~40 MB) is downloaded automatically on first use from HuggingFace."
+    ),
+    "CGC_EMBEDDING_MODEL": (
+        "Embedding backend for ENABLE_VECTOR_RESOLVE. "
+        "'local' uses fastembed (BAAI/bge-small-en-v1.5, 384-dim, runs on CPU, no GPU or API key needed). "
+        "'openai' uses OpenAI text-embedding-3-small (requires OPENAI_API_KEY env var, costs money per token). "
+        "Default: local"
+    ),
+    "CGC_EMBEDDING_BATCH_SIZE": (
+        "Number of function texts to embed per batch when ENABLE_VECTOR_RESOLVE=true. "
+        "Larger values are faster but use more RAM. Default: 256. Reduce to 64 if you hit memory errors."
+    ),
+    "FUZZY_SEARCH": (
+        "Enable fuzzy matching by default for `cgc find name` (true|false). "
+        "Per-invocation overrides are available via --fuzzy / --no-fuzzy."
+    ),
 }
 
 # Valid values for each config key
 CONFIG_VALIDATORS = {
-    "DEFAULT_DATABASE": ["neo4j", "falkordb", "falkordb-remote", "kuzudb", "nornic"],
+    "DEFAULT_DATABASE": ["neo4j", "falkordb", "falkordb-remote", "kuzudb", "nornic", "ladybugdb"],
     "INDEX_VARIABLES": ["true", "false"],
     "ALLOW_DB_DELETION": ["true", "false"],
     "DEBUG_LOGS": ["true", "false"],
@@ -101,6 +146,10 @@ CONFIG_VALIDATORS = {
     "INDEX_SOURCE": ["true", "false"],
     "SCIP_INDEXER": ["true", "false"],
     "SKIP_EXTERNAL_RESOLUTION": ["true", "false"],
+    "ENABLE_INHERIT_RESOLVE": ["true", "false"],
+    "ENABLE_VECTOR_RESOLVE": ["true", "false"],
+    "CGC_EMBEDDING_MODEL": ["local", "openai"],
+    "FUZZY_SEARCH": ["true", "false"],
 }
 DEFAULT_CGCIGNORE_PATTERNS = """\
 # Default .cgcignore patterns
@@ -129,6 +178,21 @@ __pycache__/
 coverage/
 .next/
 """
+
+
+def normalize_config_path(value: str, *, absolute: bool = False, base_dir: Optional[Path] = None) -> str:
+    """Normalize config path values.
+
+    - Expands ``~`` and environment variables.
+    - Optionally resolves to an absolute path.
+    """
+    expanded = os.path.expandvars(os.path.expanduser(str(value)))
+    path_obj = Path(expanded)
+    if absolute and not path_obj.is_absolute():
+        path_obj = (base_dir or Path.cwd()) / path_obj
+    if absolute:
+        return str(path_obj.resolve())
+    return str(path_obj)
 
 
 def ensure_config_dir(path: Path = CONFIG_DIR):
@@ -384,15 +448,15 @@ def validate_config_value(key: str, value: str) -> tuple[bool, Optional[str]]:
     
     if key in ("LOG_FILE_PATH", "DEBUG_LOG_PATH"):
         # Validate path is writable
-        log_path = Path(value)
+        log_path = Path(normalize_config_path(value, absolute=True))
         try:
             log_path.parent.mkdir(parents=True, exist_ok=True)
         except Exception as e:
             return False, f"Cannot create log directory: {e}"
     
-    if key in ("FALKORDB_PATH", "FALKORDB_SOCKET_PATH"):
+    if key in ("FALKORDB_PATH", "FALKORDB_SOCKET_PATH", "LADYBUGDB_PATH"):
         # Validate path is writable
-        db_path = Path(value)
+        db_path = Path(normalize_config_path(value, absolute=True))
         try:
             db_path.parent.mkdir(parents=True, exist_ok=True)
         except Exception as e:
@@ -595,10 +659,17 @@ def _default_global_db_path(database: str) -> str:
     """Return the canonical DB path for the global context.
 
     New layout: ``~/.codegraphcontext/global/db/<backend>/``
-    For backward-compat, if the legacy flat path exists we keep using it.
+    For backward-compat, we check:
+    1. FALKORDB_PATH in config (if database is falkordb)
+    2. Legacy flat path
+    3. New layout default
     """
-    if database == "falkordb" and _LEGACY_FALKORDB_PATH.exists():
-        return str(_LEGACY_FALKORDB_PATH)
+    if database == "falkordb":
+        custom_path = load_config().get("FALKORDB_PATH")
+        if custom_path:
+            return str(Path(custom_path).resolve())
+        if _LEGACY_FALKORDB_PATH.exists():
+            return str(_LEGACY_FALKORDB_PATH)
     return str(CONFIG_DIR / "global" / "db" / database)
 
 
@@ -820,7 +891,7 @@ def resolve_context(
             )
 
     # --- 4. Global fallback ---
-    db = load_config().get("DEFAULT_DATABASE", "falkordb")
+    db = os.getenv("CGC_RUNTIME_DB_TYPE") or load_config().get("DEFAULT_DATABASE", "falkordb")
     return ResolvedContext(
         mode="global",
         context_name="",

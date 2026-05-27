@@ -12,6 +12,7 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 import codegraphcontext.cli.main as cli_main
+import codegraphcontext.cli.cli_helpers as cli_helpers
 from codegraphcontext.cli.main import app, _load_credentials
 
 runner = CliRunner()
@@ -184,6 +185,9 @@ class _FakeCodeFinder:
     def find_most_complex_functions(self, *_args, **_kwargs):
         return [{"function_name": "complex", "complexity": 12, "path": "repo/main.py", "line_number": 20}]
 
+    def find_most_complex_functions_in_file(self, *_args, **_kwargs):
+        return [{"function_name": "complex", "complexity": 12, "path": "repo/main.py", "line_number": 20}]
+
     def find_dead_code(self, *_args, **_kwargs):
         return {
             "potentially_unused_functions": [{"function_name": "unused", "path": "repo/main.py", "line_number": 30}],
@@ -202,6 +206,15 @@ class _FakeCodeFinder:
                 "line_number": 2,
                 "variable_value": "1",
             }]
+        }
+
+    def audit_kotlin_call_ambiguity(self, *_args, **_kwargs):
+        return {
+            "kotlin_fn_to_fn_edges": 0,
+            "ambiguous_groups": 0,
+            "ambiguous_edges": 0,
+            "top_names": [],
+            "examples": [],
         }
 
     def list_indexed_repositories(self):
@@ -228,6 +241,11 @@ def cli_test_stubs(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_main, "run_neo4j_setup_wizard", lambda *_args, **_kwargs: None)
 
     monkeypatch.setattr(cli_main, "index_helper", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_main, "setup_scip_helper", lambda *_args, **_kwargs: None)
+    
+    import uvicorn
+    monkeypatch.setattr(uvicorn, "run", lambda *_args, **_kwargs: None)
+
     monkeypatch.setattr(cli_main, "add_package_helper", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli_main, "list_repos_helper", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli_main, "delete_helper", lambda *_args, **_kwargs: None)
@@ -242,7 +260,7 @@ def cli_test_stubs(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_main, "list_watching_helper", lambda *_args, **_kwargs: None)
 
     fake_db = _FakeDBManager()
-    monkeypatch.setattr(cli_main, "_initialize_services", lambda *_args, **_kwargs: (fake_db, _FakeGraphBuilder(), _FakeCodeFinder()))
+    monkeypatch.setattr(cli_main, "_initialize_services", lambda *_args, **_kwargs: (fake_db, _FakeGraphBuilder(), _FakeCodeFinder(), MagicMock()))
     monkeypatch.setattr(cli_main.DatabaseManager, "test_connection", staticmethod(lambda *_args, **_kwargs: (True, None)))
     monkeypatch.setattr(cli_main.typer, "confirm", lambda *_args, **_kwargs: True)
 
@@ -285,6 +303,35 @@ def cli_test_stubs(monkeypatch, tmp_path):
     bundle_module.CGCBundle = _FakeCGCBundle
     monkeypatch.setitem(sys.modules, "codegraphcontext.core.cgc_bundle", bundle_module)
 
+    monkeypatch.setattr(cli_main, "_write_datasource_graph", lambda *_args, **_kwargs: None)
+
+    datasource_pkg = types.ModuleType("codegraphcontext.tools.datasources")
+    monkeypatch.setitem(sys.modules, "codegraphcontext.tools.datasources", datasource_pkg)
+
+    mysql_module = types.ModuleType("codegraphcontext.tools.datasources.mysql_ingester")
+    mysql_module.ingest = lambda **_kwargs: {
+        "datasource": {"name": "mysql-test"},
+        "tables": [{"name": "users"}],
+        "columns": [{"name": "id"}],
+    }
+    monkeypatch.setitem(sys.modules, "codegraphcontext.tools.datasources.mysql_ingester", mysql_module)
+
+    cassandra_module = types.ModuleType("codegraphcontext.tools.datasources.cassandra_ingester")
+    cassandra_module.ingest = lambda **_kwargs: {
+        "datasource": {"name": "cassandra-test"},
+        "tables": [{"name": "users"}],
+        "columns": [{"name": "id"}],
+    }
+    monkeypatch.setitem(sys.modules, "codegraphcontext.tools.datasources.cassandra_ingester", cassandra_module)
+
+    redis_module = types.ModuleType("codegraphcontext.tools.datasources.redis_ingester")
+    redis_module.ingest = lambda **_kwargs: {
+        "datasource": {"name": "redis-test"},
+        "tables": [{"name": "pattern:user:*"}],
+        "columns": [{"name": "key"}],
+    }
+    monkeypatch.setitem(sys.modules, "codegraphcontext.tools.datasources.redis_ingester", redis_module)
+
     return {
         "bundle_file": downloaded_bundle,
         "bundle_export": tmp_path / "exported.cgc",
@@ -312,7 +359,22 @@ def test_cli_inventory_grouped_from_source():
     assert inventory["bundle"] == {"export", "import", "load"}
     assert inventory["registry"] == {"list", "search", "download", "request"}
     assert inventory["find"] == {"name", "pattern", "type", "variable", "content", "decorator", "argument"}
-    assert inventory["analyze"] == {"calls", "callers", "chain", "deps", "tree", "complexity", "dead-code", "overrides", "variable"}
+    assert inventory["analyze"] == {
+        "calls",
+        "callers",
+        "chain",
+        "deps",
+        "tree",
+        "complexity",
+        "dead-code",
+        "overrides",
+        "variable",
+        "kotlin-call-audit",
+    }
+    if "api" in inventory:
+        assert inventory["api"] == {"start"}
+    if "datasource" in inventory:
+        assert inventory["datasource"] == {"mysql", "cassandra", "redis"}
     if "context" in inventory:
         assert inventory["context"] == {"list", "create", "delete", "mode", "default"}
 
@@ -338,7 +400,8 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
         ["registry", "download", "numpy"],
         ["registry", "request", "https://github.com/example/repo"],
         ["doctor"],
-        ["start"],
+        ["setup-scip"],
+        ["api", "start"],
         ["index", "."],
         ["clean"],
         ["stats"],
@@ -365,6 +428,7 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
         ["analyze", "dead-code"],
         ["analyze", "overrides", "run"],
         ["analyze", "variable", "value"],
+        ["analyze", "kotlin-call-audit"],
         ["query", "MATCH (n) RETURN n LIMIT 1"],
         ["cypher", "MATCH (n) RETURN n LIMIT 1"],
         ["i", "."],
@@ -378,6 +442,7 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
         ["n"],
         ["export", bundle_export],
         ["load", bundle_file],
+        ["report"],
     ]
 
     source_inventory = _inventory_from_main_source()
@@ -389,6 +454,14 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
                 ["context", "delete", "ci-context"],
                 ["context", "mode", "single"],
                 ["context", "default", "ci-context"],
+            ]
+        )
+    if "datasource" in source_inventory:
+        command_matrix.extend(
+            [
+                ["datasource", "mysql", "--host", "localhost", "--user", "root", "--password", "pw", "--database", "demo"],
+                ["datasource", "cassandra", "--host", "localhost", "--keyspace", "demo"],
+                ["datasource", "redis", "--host", "localhost"],
             ]
         )
 
@@ -442,6 +515,62 @@ def test_find_content_falkordb_known_limitation_message(monkeypatch):
     assert result.exit_code == 0
     assert "Full-text search is not supported on FalkorDB" in result.output
     assert "cgc find pattern" in result.output
+
+
+def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):
+    class _Ctx:
+        mode = "named"
+        context_name = "test"
+        database = "neo4j"
+        db_path = None
+        cgcignore_path = None
+
+    class _FakeResult:
+        def single(self):
+            return {"repo_count": 0, "dep_count": 0}
+
+        def __iter__(self):
+            return iter([])
+
+    class _FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def run(self, *_args, **_kwargs):
+            return _FakeResult()
+
+    class _FakeDriver:
+        def session(self):
+            return _FakeSession()
+
+    class _FakeManager:
+        def get_driver(self):
+            return _FakeDriver()
+
+        def close_driver(self):
+            return None
+
+    monkeypatch.setattr(cli_main, "_load_credentials", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_helpers, "resolve_context", lambda *_args, **_kwargs: _Ctx())
+    monkeypatch.setattr(cli_helpers, "ensure_first_run_bootstrap", lambda *_args, **_kwargs: None)
+
+    def _fake_get_database_manager(*_args, **_kwargs):
+        # --db kuzudb must remain effective, even when context prefers neo4j.
+        assert os.environ.get("CGC_RUNTIME_DB_TYPE") == "kuzudb"
+        return _FakeManager()
+
+    monkeypatch.setattr(cli_helpers, "get_database_manager", _fake_get_database_manager)
+
+    # Use a clean environment so the command path is deterministic.
+    clean_env = {k: v for k, v in os.environ.items() if k not in {"CGC_RUNTIME_DB_TYPE", "DEFAULT_DATABASE", "DATABASE_TYPE"}}
+    with patch.dict(os.environ, clean_env, clear=True):
+        result = runner.invoke(app, ["--db", "kuzudb", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "Database Connection Error" not in result.output
 
 
 class TestNeo4jDatabaseNameCLI:
@@ -503,7 +632,10 @@ class TestNeo4jDatabaseNameCLI:
                 _load_credentials()
 
             printed = output.getvalue()
-            assert "Using database: Neo4j (database: mydb)" in printed
+            lowered = printed.lower()
+            assert "using database: neo4j" in lowered
+            assert "database: mydb" in lowered
+            assert "source:" in lowered
 
     @patch("codegraphcontext.cli.main.config_manager")
     def test_load_credentials_no_database_name(self, mock_config_mgr, monkeypatch, tmp_path):
@@ -535,8 +667,10 @@ class TestNeo4jDatabaseNameCLI:
                 _load_credentials()
 
             printed = output.getvalue()
-            assert "Using database: Neo4j" in printed
-            assert "(database:" not in printed
+            lowered = printed.lower()
+            assert "using database: neo4j" in lowered
+            assert "source:" in lowered
+            assert "(database:" not in lowered
 
 
 def test_load_credentials_displays_kuzudb_backend(monkeypatch, tmp_path):
@@ -560,5 +694,122 @@ def test_load_credentials_displays_kuzudb_backend(monkeypatch, tmp_path):
         with patch("codegraphcontext.cli.main.console", Console(file=output, force_terminal=False)):
             _load_credentials()
 
-        assert "Using database: KùzuDB" in output.getvalue()
+        lowered = output.getvalue().lower()
+        assert "using database: kuzudb" in lowered
+        assert "source:" in lowered
 
+
+def test_load_credentials_normalizes_tilde_paths_from_mcp_json(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
+
+    mcp_data = {
+        "mcpServers": {
+            "CodeGraphContext": {
+                "env": {
+                    "DEFAULT_DATABASE": "falkordb",
+                    "FALKORDB_PATH": "~/.codegraphcontext/global/db/falkordb",
+                    "FALKORDB_SOCKET_PATH": "~/.codegraphcontext/global/db/falkordb.sock",
+                    "DEBUG_LOG_PATH": "~/mcp_debug.log",
+                    "LOG_FILE_PATH": "~/.codegraphcontext/logs/cgc.log",
+                }
+            }
+        }
+    }
+    (tmp_path / "mcp.json").write_text(str(mcp_data).replace("'", '"'), encoding="utf-8")
+
+    clean_env = {
+        k: v for k, v in os.environ.items()
+        if k not in {
+            "DEFAULT_DATABASE",
+            "CGC_RUNTIME_DB_TYPE",
+            "FALKORDB_PATH",
+            "FALKORDB_SOCKET_PATH",
+            "DEBUG_LOG_PATH",
+            "LOG_FILE_PATH",
+        }
+    }
+    with patch.dict(os.environ, clean_env, clear=True):
+        _load_credentials()
+
+        assert os.environ["FALKORDB_PATH"] == str((tmp_path / ".codegraphcontext" / "global" / "db" / "falkordb").resolve())
+        assert os.environ["FALKORDB_SOCKET_PATH"] == str((tmp_path / ".codegraphcontext" / "global" / "db" / "falkordb.sock").resolve())
+        assert os.environ["DEBUG_LOG_PATH"] == str((tmp_path / "mcp_debug.log").resolve())
+        assert os.environ["LOG_FILE_PATH"] == str((tmp_path / ".codegraphcontext" / "logs" / "cgc.log").resolve())
+
+
+def test_load_credentials_utf8_decoding_robustness(monkeypatch, tmp_path):
+    """Test that _load_credentials successfully handles .env files with invalid UTF-8 bytes."""
+    class _Ctx:
+        mode = "global"
+        context_name = ""
+        database = "falkordb"
+        db_path = "/path/to/db"
+        cgcignore_path = "/path/to/cgcignore"
+
+    monkeypatch.setattr(cli_main.config_manager, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(cli_main.config_manager, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(cli_main.config_manager, "CONTEXT_CONFIG_FILE", tmp_path / "config.yaml")
+    monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
+    monkeypatch.chdir(tmp_path)
+    
+    import codegraphcontext.cli.config_manager as config_manager
+    monkeypatch.setattr(config_manager, "resolve_context", lambda *_args: _Ctx())
+    
+    # We will write invalid UTF-8 bytes to the global .env file path
+    monkeypatch.setenv("HOME", str(tmp_path))
+    
+    global_dir = tmp_path / ".codegraphcontext"
+    global_dir.mkdir(parents=True, exist_ok=True)
+    real_global_env = global_dir / ".env"
+    
+    # Write invalid UTF-8 bytes to the file (e.g. 0x97 invalid start byte)
+    real_global_env.write_bytes(b"DEFAULT_DATABASE=ladybugdb\n# invalid byte: \x97\n")
+    
+    clean_env = {
+        k: v for k, v in os.environ.items()
+        if k not in {"DEFAULT_DATABASE", "CGC_RUNTIME_DB_TYPE", "DATABASE_TYPE"}
+    }
+    with patch.dict(os.environ, clean_env, clear=True):
+        output = StringIO()
+        with patch("codegraphcontext.cli.main.console", Console(file=output, force_terminal=False)):
+            _load_credentials()
+        
+        # DEFAULT_DATABASE should still be loaded successfully despite the invalid byte!
+        assert os.environ.get("DEFAULT_DATABASE") == "ladybugdb"
+        assert "Warning" not in output.getvalue()
+
+
+def test_load_credentials_resolves_context_database(monkeypatch, tmp_path):
+    """Test that _load_credentials resolves context database and sets DEFAULT_DATABASE accordingly."""
+    class _Ctx:
+        mode = "named"
+        context_name = "TinyCTX"
+        database = "ladybugdb"
+        db_path = "/path/to/db"
+        cgcignore_path = "/path/to/cgcignore"
+
+    monkeypatch.setattr(cli_main.config_manager, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(cli_main.config_manager, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(cli_main.config_manager, "CONTEXT_CONFIG_FILE", tmp_path / "config.yaml")
+    monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
+    monkeypatch.chdir(tmp_path)
+    
+    import codegraphcontext.cli.config_manager as config_manager
+    monkeypatch.setattr(config_manager, "resolve_context", lambda cli_context_flag: _Ctx() if cli_context_flag == "TinyCTX" else None)
+
+    clean_env = {
+        k: v for k, v in os.environ.items()
+        if k not in {"DEFAULT_DATABASE", "CGC_RUNTIME_DB_TYPE", "DATABASE_TYPE"}
+    }
+    with patch.dict(os.environ, clean_env, clear=True):
+        output = StringIO()
+        with patch("codegraphcontext.cli.main.console", Console(file=output, force_terminal=False)):
+            _load_credentials(cli_context_flag="TinyCTX")
+        
+        # It should resolve context database to ladybugdb and override DEFAULT_DATABASE
+        assert os.environ.get("DEFAULT_DATABASE") == "ladybugdb"
+        lowered = output.getvalue().lower()
+        assert "using database: ladybugdb" in lowered
+        assert "context (tinyctx)" in lowered

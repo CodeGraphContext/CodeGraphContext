@@ -1,3 +1,4 @@
+# src/codegraphcontext/cli/setup_wizard.py
 from InquirerPy import prompt
 from rich.console import Console
 import subprocess
@@ -10,6 +11,7 @@ import sys
 import shutil
 import yaml 
 from codegraphcontext.core.database import DatabaseManager
+from codegraphcontext.cli.config_manager import normalize_config_path
 
 console = Console()
 
@@ -152,13 +154,109 @@ def _print_opencode_mcp_instructions(mcp_config: dict) -> None:
     console.print("\n[bold]Suggested MCP server JSON:[/bold]")
     console.print(json.dumps(mcp_config, indent=2))
 
+def _configure_goose(mcp_config):
+    """Configures Goose CLI with the MCP server."""
+    # Define paths
+    paths = [
+        Path.home() / ".config" / "goose" / "config.yaml", # Linux/macOS
+        Path.home() / "AppData" / "Roaming" / "Block" / "goose" / "config.yaml", # Windows default
+        Path.home() / "AppData" / "Roaming" / "goose" / "config.yaml" # Windows alternative
+    ]
+    
+    target_path = None
+    for path in paths:
+        if path.exists():
+            target_path = path
+            break
+            
+    if not target_path:
+        # Check parents
+        for path in paths:
+            if path.parent.exists():
+                target_path = path
+                break
+                
+    if not target_path:
+        # If no config found, default to the first standard path and ensure directory exists
+        target_path = paths[0]
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            console.print(f"[green]Created new configuration directory at: {target_path.parent}[/green]")
+        except Exception as e:
+             console.print(f"[yellow]Current paths checked: {[str(p) for p in paths]}[/yellow]")
+             console.print(f"[yellow]Could not create configuration directory: {e}[/yellow]")
+             console.print("Please add the MCP configuration manually.")
+             return
+
+    console.print(f"Using configuration file at: {target_path}")
+
+    try:
+        # Load existing config or start fresh
+        if target_path.exists():
+            with open(target_path, "r") as f:
+                try:
+                    config = yaml.safe_load(f) or {}
+                except yaml.YAMLError as e:
+                    console.print(f"[red]Error parsing existing Goose configuration: {e}[/red]")
+                    console.print("[yellow]Aborting to prevent data loss. Please fix your config.yaml and try again.[/yellow]")
+                    return
+        else:
+            config = {}
+            
+        if "extensions" in config and not isinstance(config["extensions"], dict):
+            console.print("[red]Error: The 'extensions' field in the Goose configuration must be a mapping (dictionary).[/red]")
+            console.print("[yellow]Aborting to prevent overwriting an invalid 'extensions' value. Please fix your config.yaml and try again.[/yellow]")
+            return
+
+        if "extensions" not in config:
+            config["extensions"] = {}
+            
+        # Transform mcp_config to Goose format
+        if "mcpServers" in mcp_config and "CodeGraphContext" in mcp_config["mcpServers"]:
+            cgc_config = mcp_config["mcpServers"]["CodeGraphContext"]
+            
+            # Ensure args are in list format before writing Goose configuration
+            cmd = cgc_config.get("command", "cgc")
+            raw_args = cgc_config.get("args")
+
+            if raw_args is None:
+                args = ["mcp", "start"]
+            elif isinstance(raw_args, str):
+                # Allow a single string and treat it as a single argument
+                args = [raw_args]
+            elif isinstance(raw_args, list):
+                args = raw_args
+            else:
+                console.print("[red]Error: Invalid type for 'args' in MCP configuration. Expected a list of arguments or a string.[/red]")
+                return
+            
+            goose_ext = {
+                "enabled": True,
+                "name": "CodeGraphContext",
+                "type": "stdio",
+                "cmd": cmd,
+                "args": args,
+                "envs": cgc_config.get("env", {})
+            }
+            
+            config["extensions"]["codegraphcontext"] = goose_ext
+            
+            with open(target_path, "w") as f:
+                yaml.dump(config, f, default_flow_style=False)
+                
+            console.print(f"[green]Successfully updated Goose configuration.[/green]")
+        else:
+            console.print("[red]Error: Invalid MCP configuration structure.[/red]")
+        
+    except Exception as e:
+        console.print(f"[red]Failed to update Goose configuration: {e}[/red]")
 
 def _configure_ide(mcp_config):
     """Asks user for their IDE and configures it automatically."""
     questions = [
         {
             "type": "confirm",
-            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Antigravity, OpenCode)?",
+            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Goose, Antigravity, OpenCode)?",
             "name": "configure_ide",
             "default": True,
         }
@@ -172,7 +270,7 @@ def _configure_ide(mcp_config):
         {
             "type": "list",
             "message": "Choose your IDE/CLI to configure:",
-            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Antigravity", "OpenCode", "None of the above"],
+            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity", "OpenCode", "None of the above"],
             "name": "ide_choice",
         }
     ]
@@ -191,12 +289,16 @@ def _configure_ide(mcp_config):
         )
         return
 
-    if ide_choice in ["VS Code", "Cursor", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "Windsurf", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Antigravity"]:
+    if ide_choice in ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity"]:
         console.print(f"\n[bold cyan]Configuring for {ide_choice}...[/bold cyan]")
 
         if ide_choice == "Amazon Q Developer":
             convert_mcp_json_to_yaml()
             return  
+        
+        if ide_choice == "Goose":
+            _configure_goose(mcp_config)
+            return
         
         config_paths = {
             "VS Code": [
@@ -204,7 +306,7 @@ def _configure_ide(mcp_config):
                 Path.home() / "Library" / "Application Support" / "Code" / "User" / "settings.json",
                 Path.home() / "AppData" / "Roaming" / "Code" / "User" / "settings.json"
             ],
-            "Cursor/CLI": [
+            "Cursor": [
                 Path.home() / ".cursor" / "settings.json",
                 Path.home() / ".config" / "cursor" / "settings.json",
                 Path.home() / "Library" / "Application Support" / "cursor" / "settings.json",
@@ -413,17 +515,15 @@ def configure_mcp_client():
         except Exception:
             pass
     
-    # Add all configuration values, converting relative paths to absolute
+    # Add all configuration values, normalizing path-related settings
     for key, value in config.items():
         # Skip database credentials (already added above)
         if key in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"]:
             continue
         
-        # Convert relative paths to absolute for path-related configs
+        # Expand ~/$VARS and convert relative paths to absolute for MCP env
         if "PATH" in key and value:
-            path_obj = Path(value)
-            if not path_obj.is_absolute():
-                value = str(path_obj.resolve())
+            value = normalize_config_path(value, absolute=True)
         
         env_vars[key] = value
     

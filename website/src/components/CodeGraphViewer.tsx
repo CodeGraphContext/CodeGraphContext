@@ -2,17 +2,32 @@ import ForceGraph2D from "react-force-graph-2d";
 import ForceGraph3D from "react-force-graph-3d";
 import * as THREE from "three";
 import { useCallback, useRef, useState, useEffect, useMemo } from "react";
+import { useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft, ZoomIn, ZoomOut, Maximize, FileCode, Search,
   Eye, EyeOff, Settings2, Palette, Star,
   ChevronRight, ChevronDown, Folder, FolderOpen,
   PanelLeftClose, PanelLeftOpen,
-  Layers, Check, X, Code2, Sun, Moon, ChevronUp, Route
+  Layers, Check, X, Code2, Sun, Moon, ChevronUp, Route,
+  Download, UploadCloud, Menu, MessageSquare, Copy
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
 import FlowchartSVG from "./FlowchartSVG";
+import { packageCgcBundle, downloadBlob, publishCgcBundle } from "../lib/cgc-exporter";
+import { toast } from "sonner";
+import { getOrCreateSessionId } from "../lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 
 const PALETTE = {
   dark: {
@@ -85,10 +100,11 @@ const DEFAULT_EDGE_COLORS: Record<string, string> = {
 };
 
 // ─── Visualization Modes ─────────────────────────────────────────────────────
-type VisualizationMode = 'classic' | 'icon' | 'neon' | 'galaxy' | 'mermaid' | 'city3d' | 'graph3d';
+type VisualizationMode = 'classic' | 'curvy' | 'icon' | 'neon' | 'galaxy' | 'mermaid' | 'city3d' | 'graph3d';
 
 const VISUALIZATION_MODES: { id: VisualizationMode; name: string; description: string; previewColor: string }[] = [
   { id: 'classic', name: 'Classic', description: 'Standard colored circles', previewColor: '#42a5f5' },
+  { id: 'curvy', name: 'Curvy 2D', description: 'Smooth Bezier curved edges', previewColor: '#ec407a' },
   { id: 'mermaid', name: 'Flowchart', description: 'SVG diagram with Bezier edges', previewColor: '#26c6da' },
   { id: 'icon', name: 'Icon', description: 'Emoji icons by node type', previewColor: '#ffca28' },
   { id: 'city3d', name: 'City 3D', description: '3D cityscape with buildings', previewColor: '#ff9800' },
@@ -310,8 +326,8 @@ function TreeItem({
     <button
       onClick={() => onFileClick(node.path)}
       className={`w-full flex items-center gap-2 py-[3px] px-2 rounded-lg text-[13px] transition-all group ${isSelected
-          ? 'bg-blue-500/20 text-blue-200 border border-blue-500/20'
-          : 'text-gray-400 hover:text-gray-200 hover:bg-white/5 border border-transparent'
+        ? 'bg-blue-500/20 text-blue-200 border border-blue-500/20'
+        : 'text-gray-400 hover:text-gray-200 hover:bg-white/5 border border-transparent'
         }`}
       style={{ paddingLeft: `${indent + 20}px` }}
     >
@@ -335,7 +351,9 @@ function clamp(value: number, min: number, max: number): number {
 
 function getGraphAwareNodeScale(totalNodes: number): number {
   const safeNodeCount = Math.max(totalNodes, 1);
-  return clamp(1 + Math.log10(safeNodeCount) * 0.22, 1, 2);
+  // High node count = smaller nodes to prevent overlap and visual clutter
+  // Low node count = larger, more prominent nodes for readability
+  return clamp(2.5 / (1 + Math.log10(safeNodeCount) * 0.95), 0.45, 2.5);
 }
 
 export default function CodeGraphViewer({ data, onClose }: { data: any, onClose: () => void }) {
@@ -349,6 +367,150 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [focusSet, setFocusSet] = useState<{ nodes: Set<number>, links: Set<any> } | null>(null);
+
+  // Publish and Export parameters
+  const { owner, repo } = useParams();
+  const defaultRepoName = data.metadata?.repo || (owner && repo ? `${owner}/${repo}` : "");
+  const [showPublishModal, setShowPublishModal] = useState(false);
+  const [showChatGPTModal, setShowChatGPTModal] = useState(false);
+  const [publishRepo, setPublishRepo] = useState("");
+  const [publishVersion, setPublishVersion] = useState("1.0.0");
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [showWarningAlert, setShowWarningAlert] = useState(false);
+  const [duplicateBundle, setDuplicateBundle] = useState<any | null>(null);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+
+  // Dynamic ChatGPT Connection URL with pre-filled version-scoped query
+  const metadata = data.metadata || {};
+  const repoName = metadata.repo || (owner && repo ? `${owner}/${repo}` : "playground");
+  const branchName = metadata.branch || "main";
+  const commitSha = metadata.commit || "latest";
+  const cleanCommit = commitSha.length === 40 && /^[0-9a-fA-F]+$/.test(commitSha) ? commitSha.substring(0, 7) : commitSha;
+
+  // Standardized bundle/repository naming format we designed: owner__repo__branch__commit
+  const [ownerPart, repoPart] = repoName.includes('/') ? repoName.split('/') : [owner || repoName, repo || ''];
+  const cleanOwner = String(ownerPart).trim();
+  const cleanRepo = String(repoPart).trim();
+  const designedRepoName = cleanOwner && cleanRepo 
+    ? `${cleanOwner}__${cleanRepo}__${branchName}__${cleanCommit}` 
+    : repoName;
+
+  const userId = getOrCreateSessionId();
+  const chatgptPreFillPrompt = `Let's connect to codegraphcontext session: ${userId}`;
+  const chatgptUrl = "https://chatgpt.com/g/g-6a1368599210819199a1c47d021020b6-codegraphcontext";
+
+  const handleConnectChatGPT = () => {
+    setShowChatGPTModal(true);
+  };
+
+  const handleCopyAndLaunchChatGPT = () => {
+    navigator.clipboard.writeText(chatgptPreFillPrompt)
+      .then(() => {
+        toast.success("Prompt copied to clipboard!", {
+          icon: "📋",
+        });
+      })
+      .catch((err) => {
+        console.warn("Failed to auto-copy prompt:", err);
+      });
+    window.open(chatgptUrl, "_blank", "noopener,noreferrer");
+    setShowChatGPTModal(false);
+  };
+
+  const handleExport = async () => {
+    try {
+      const repoName = data.metadata?.repo || "unknown/code-graph";
+      let filename = "";
+      if (repoName.includes('/')) {
+        const owner = repoName.split('/')[0];
+        const repo = repoName.split('/')[1];
+        const branch = data.metadata?.branch || "main";
+        const commit = data.metadata?.commit || data.metadata?.version || "latest";
+        const cleanCommit = commit.length === 40 && /^[0-9a-fA-F]+$/.test(commit) ? commit.substring(0, 7) : commit;
+        filename = `${owner}__${repo}__${branch}__${cleanCommit}.cgc`;
+      } else {
+        filename = `${repoName}.cgc`;
+      }
+      
+      const blob = await packageCgcBundle(repoName, data.nodes, data.links, data.metadata?.version || "1.0.0", data.metadata);
+      downloadBlob(blob, filename);
+      toast.success("CGC bundle exported successfully!");
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Failed to export bundle: " + err.message);
+    }
+  };
+
+  const executePublishFlow = async () => {
+    setIsPublishing(true);
+    try {
+      const blob = await packageCgcBundle(publishRepo, data.nodes, data.links, publishVersion, data.metadata);
+      const result = await publishCgcBundle(blob, publishRepo, publishVersion);
+      if (result.success) {
+        toast.success(`Successfully published ${publishRepo} (v${publishVersion}) to the registry!`);
+        setShowPublishModal(false);
+      } else {
+        toast.error(result.message || "Failed to publish bundle.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "An error occurred during publishing.");
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handlePublishSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!publishRepo || !publishRepo.includes("/")) {
+      toast.error("Invalid repository name. Expected 'owner/repo' format.");
+      return;
+    }
+    
+    // Check if this repository and commit/branch is already pre-indexed in the manifest
+    const commitSha = data.metadata?.commit || "";
+    if (commitSha) {
+      setIsPublishing(true);
+      try {
+        console.log(`[Publish] Checking if ${publishRepo} at commit ${commitSha} is already pre-indexed...`);
+        const manifestRes = await fetch('/api/bundles');
+        if (manifestRes.ok) {
+          const manifestData = await manifestRes.json();
+          const bundles = manifestData.bundles || [];
+          
+          const match = bundles.find((b: any) => {
+            const sameRepo = b.repo && b.repo.toLowerCase() === publishRepo.toLowerCase();
+            
+            // The commit SHA can be stored in either b.commit or b.version (e.g. Hugging Face manifest)
+            const targetCommit = (b.commit || b.version || "").toLowerCase();
+            const currentCommit = commitSha.toLowerCase();
+            
+            const sameCommit = targetCommit && (
+              currentCommit === targetCommit ||
+              currentCommit.startsWith(targetCommit) ||
+              targetCommit.startsWith(currentCommit)
+            );
+            
+            return sameRepo && sameCommit;
+          });
+
+          if (match) {
+            console.log("[Publish] Matching pre-indexed bundle found, showing custom alert dialog:", match);
+            setDuplicateBundle(match);
+            setIsPublishing(false);
+            setShowWarningAlert(true);
+            return;
+          }
+        }
+      } catch (manifestErr) {
+        console.warn("[Publish] Failed to fetch or check pre-indexed repos manifest:", manifestErr);
+      } finally {
+        setIsPublishing(false);
+      }
+    }
+
+    await executePublishFlow();
+  };
 
   // Path traversal states
   const [isPathMode, setIsPathMode] = useState(false);
@@ -368,7 +530,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const codeBodyRef = useRef<HTMLDivElement>(null);
 
   // Legend collapsible state
-  const [legendCollapsed, setLegendCollapsed] = useState(false);
+  const [legendCollapsed, setLegendCollapsed] = useState(() => window.innerWidth < 1024);
 
   const fileContents: Record<string, string> = data.fileContents || {};
 
@@ -382,24 +544,33 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     return all;
   });
   const [showConfig, setShowConfig] = useState(false);
-  const [lineWidth, setLineWidth] = useState(0.8);
-  const [nodeSize, setNodeSize] = useState(1.0);
+  const [lineWidth, setLineWidth] = useState(0.24);
+  const [nodeSize, setNodeSize] = useState(3.0);
   const [graphMode, setGraphMode] = useState<VisualizationMode>('classic');
   const [showModeMenu, setShowModeMenu] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement>(null);
 
   // Sidebar resize / collapse
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_W);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(window.innerWidth < 768);
   const isResizing = useRef(false);
   const resizeStartX = useRef(0);
   const resizeStartW = useRef(DEFAULT_SIDEBAR_W);
 
   useEffect(() => {
-    const handleResize = () => setDimensions({
-      width: window.innerWidth,
-      height: window.innerHeight
-    });
+    const handleResize = () => {
+      const w = window.innerWidth;
+      setDimensions({
+        width: w,
+        height: window.innerHeight
+      });
+      if (w < 1024) {
+        setLegendCollapsed(true);
+      }
+      if (w < 768) {
+        setCollapsed(true);
+      }
+    };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -780,7 +951,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
         const pts = new Float32Array(CITY_ARC_SEGMENTS * 3);
         for (let i = 0; i < CITY_ARC_SEGMENTS; i++) {
           const t = i / (CITY_ARC_SEGMENTS - 1);
-          pts[i * 3]     = arc.sx + dx * t;
+          pts[i * 3] = arc.sx + dx * t;
           pts[i * 3 + 2] = arc.sz + dz * t;
           // Quadratic bezier Y: start rooftop → peak → end rooftop
           pts[i * 3 + 1] = (1 - t) * (1 - t) * arc.sy + 2 * (1 - t) * t * peakY + t * t * arc.ty;
@@ -1024,8 +1195,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     const tId = pathTarget.id;
 
     const adj = new Map<any, Set<any>>();
-    const edgeMap = new Map<string, any>(); 
-    
+    const edgeMap = new Map<string, any>();
+
     for (const link of filteredData.links) {
       const u = typeof link.source === 'object' ? link.source.id : link.source;
       const v = typeof link.target === 'object' ? link.target.id : link.target;
@@ -1033,7 +1204,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       if (!adj.has(v)) adj.set(v, new Set());
       adj.get(u)!.add(v);
       adj.get(v)!.add(u);
-      
+
       edgeMap.set(`${u}-${v}`, link);
       edgeMap.set(`${v}-${u}`, link);
     }
@@ -1070,7 +1241,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     setPathError(null);
     const pathNodes = new Set<number>();
     const pathLinks = new Set<any>();
-    
+
     let curr = tId;
     pathNodes.add(curr);
     while (curr !== sId) {
@@ -1109,8 +1280,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     return baseColor;
   }, [focusSet, edgeColors, graphMode]);
 
-  const effectiveSidebarW = collapsed ? 0 : sidebarWidth;
-  const effectiveCodePanelW = selectedFile ? codePanelWidth : 0;
+  const effectiveSidebarW = (collapsed || dimensions.width < 768) ? 0 : sidebarWidth;
+  const effectiveCodePanelW = (selectedFile === null || dimensions.width < 768) ? 0 : codePanelWidth;
 
   return (
     <motion.div
@@ -1121,9 +1292,15 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       style={{ backgroundColor: pal.bg }}
     >
       {/* ── SIDEBAR ── */}
+      {!collapsed && dimensions.width < 768 && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[85]"
+          onClick={() => setCollapsed(true)}
+        />
+      )}
       <div
-        className="relative h-full flex-shrink-0 flex"
-        style={{ width: collapsed ? 0 : sidebarWidth, transition: isResizing.current ? 'none' : 'width 0.2s ease' }}
+        className={`h-full flex-shrink-0 flex ${dimensions.width < 768 ? 'absolute left-0 top-0 z-[90]' : 'relative'}`}
+        style={{ width: collapsed ? 0 : (dimensions.width < 768 ? Math.min(sidebarWidth, dimensions.width * 0.85) : sidebarWidth), transition: isResizing.current ? 'none' : 'width 0.2s ease' }}
       >
         <AnimatePresence>
           {!collapsed && (
@@ -1139,12 +1316,12 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
               {/* Header */}
               <div className="px-4 pt-4 pb-2 flex-shrink-0">
                 <Button
-                  onClick={onClose}
+                  onClick={() => window.location.href = "/"}
                   variant="ghost"
                   className={`w-full justify-start mb-4 rounded-xl transition-colors text-sm ${isDark ? 'text-gray-400 hover:text-white hover:bg-white/5 border border-white/5' : 'text-gray-600 hover:text-black hover:bg-black/5 border border-black/10'}`}
                 >
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Back to Dashboard
+                  <X className="w-4 h-4 mr-2 text-red-400" />
+                  Exit to Homepage
                 </Button>
 
                 <div className="flex items-center justify-between mb-3">
@@ -1203,7 +1380,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                       <Route className="w-3 h-3" /> Path Traversal
                     </h3>
                     <p className="text-xs text-gray-400">Select two nodes in the graph to find the shortest path between them.</p>
-                    
+
                     <div className="space-y-3 mt-4">
                       <div className="flex flex-col gap-1">
                         <label className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Source Node</label>
@@ -1211,7 +1388,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                           {pathSource ? pathSource.name : "Click a node in the graph..."}
                         </div>
                       </div>
-                      
+
                       <div className="flex flex-col gap-1">
                         <label className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Target Node</label>
                         <div className={`text-sm px-3 py-2 rounded-lg border ${pathTarget ? (isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-black/5 border-black/10 text-black') : 'bg-transparent border-dashed border-gray-600 text-gray-500'}`}>
@@ -1225,11 +1402,11 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                         {pathError}
                       </div>
                     )}
-                    
+
                     <div className="flex gap-2 mt-4">
-                      <Button 
-                        size="sm" 
-                        variant="secondary" 
+                      <Button
+                        size="sm"
+                        variant="secondary"
                         className="w-full text-xs"
                         onClick={() => {
                           setPathSource(null);
@@ -1240,8 +1417,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                       >
                         Clear
                       </Button>
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         className="w-full text-xs bg-indigo-500 hover:bg-indigo-600 text-white"
                         disabled={!pathSource || !pathTarget}
                         onClick={calculatePath}
@@ -1260,16 +1437,16 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                       <div className="mb-6 px-1">
                         <label className="text-[10px] text-gray-400 uppercase font-bold tracking-widest block mb-2">Node Size: {nodeSize.toFixed(1)}x</label>
                         <input
-                          type="range" min="0.2" max="4.0" step="0.1" value={nodeSize}
+                          type="range" min="0.5" max="8.0" step="0.1" value={nodeSize}
                           onChange={(e) => setNodeSize(parseFloat(e.target.value))}
                           className="w-full accent-purple-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
                         />
                       </div>
 
                       <div className="mb-6 px-1">
-                        <label className="text-[10px] text-gray-400 uppercase font-bold tracking-widest block mb-2">Edge Width: {lineWidth.toFixed(1)}px</label>
+                        <label className="text-[10px] text-gray-400 uppercase font-bold tracking-widest block mb-2">Edge Width: {lineWidth.toFixed(2)}px</label>
                         <input
-                          type="range" min="0.2" max="3.0" step="0.1" value={lineWidth}
+                          type="range" min="0.05" max="3.0" step="0.05" value={lineWidth}
                           onChange={(e) => setLineWidth(parseFloat(e.target.value))}
                           className="w-full accent-blue-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
                         />
@@ -1342,7 +1519,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
         </AnimatePresence>
 
         {/* ── Drag Handle ── */}
-        {!collapsed && (
+        {!collapsed && dimensions.width >= 768 && (
           <div
             onMouseDown={onDragStart}
             className="absolute right-0 top-0 h-full w-1 cursor-col-resize z-[80] group flex items-center justify-center"
@@ -1368,8 +1545,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       <div className={`flex-1 relative overflow-hidden ${isDark ? 'bg-[radial-gradient(circle_at_center,_#0a0a0a_0%,_#000_100%)]' : 'bg-[radial-gradient(circle_at_center,_#f0f0f2_0%,_#e8e8ec_100%)]'}`}>
 
         {/* Top Right Badges */}
-        <div className="absolute top-6 right-6 z-[60] flex flex-col md:flex-row items-end md:items-center gap-3">
-          {/* Theme Toggle */}
+        <div className="absolute top-6 right-6 z-[60] flex items-center gap-2">
+          {/* Theme Toggle (Always Visible) */}
           <button
             onClick={() => setTheme(isDark ? 'light' : 'dark')}
             className={`flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-white/10 border-white/10 text-yellow-300' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
@@ -1378,65 +1555,198 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
 
-          {/* Mode Selector Dropdown */}
-          <div ref={modeMenuRef} className="relative">
+          {/* Desktop Top Right Badges */}
+          <div className="hidden md:flex items-center gap-3">
+            {/* Export Button */}
             <button
-              onClick={() => setShowModeMenu(v => !v)}
+              onClick={handleExport}
               className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              title="Download code graph as a .cgc file"
             >
-              <Layers className="w-3.5 h-3.5 text-purple-400" />
-              {VISUALIZATION_MODES.find(m => m.id === graphMode)?.name}
-              <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${showModeMenu ? 'rotate-180' : ''}`} />
+              <Download className="w-3.5 h-3.5 text-blue-400" />
+              Export
             </button>
-            <AnimatePresence>
-              {showModeMenu && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -8, scale: 0.96 }}
-                  transition={{ duration: 0.15 }}
-                  className={`absolute right-0 top-full mt-2 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden min-w-[280px] py-1.5 z-[100] ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
-                >
-                  {VISUALIZATION_MODES.map(mode => (
-                    <button
-                      key={mode.id}
-                      onClick={() => { setGraphMode(mode.id); setShowModeMenu(false); }}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer ${
-                        graphMode === mode.id
-                          ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
-                          : (isDark ? 'text-gray-400 hover:text-white hover:bg-white/5' : 'text-gray-500 hover:text-black hover:bg-black/5')
-                      }`}
-                    >
-                      <div
-                        className="w-3 h-3 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: mode.previewColor, boxShadow: `0 0 8px ${mode.previewColor}` }}
-                      />
-                      <div className="text-left flex-1 min-w-0">
-                        <div className="text-[12px] font-bold tracking-wide">{mode.name}</div>
-                        <div className="text-[10px] text-gray-500">{mode.description}</div>
-                      </div>
-                      {graphMode === mode.id && (
-                        <Check className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-                      )}
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
+
+            {/* Publish Button */}
+            <button
+              onClick={() => {
+                setPublishRepo(defaultRepoName);
+                setPublishVersion(data.metadata?.version || "1.0.0");
+                setShowPublishModal(true);
+              }}
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              title="Publish this graph to the public registry"
+            >
+              <UploadCloud className="w-3.5 h-3.5 text-green-400" />
+              Publish
+            </button>
+
+            {/* ChatGPT Tunnel Button */}
+            <button
+              onClick={handleConnectChatGPT}
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              title="Open the CGC ChatGPT GPT. Keep this cgc.codes tab focused (not behind ChatGPT) so the signaling tunnel stays online."
+            >
+              <div className="w-2 h-2 rounded-full bg-amber-500/80 shadow-[0_0_6px_#f59e0b]" title="Tunnel status is not shown here — keep this tab active while using ChatGPT" />
+              <MessageSquare className="w-3.5 h-3.5 text-purple-400" />
+              ChatGPT
+            </button>
+
+            {/* Mode Selector Dropdown */}
+            <div ref={modeMenuRef} className="relative">
+              <button
+                onClick={() => setShowModeMenu(v => !v)}
+                className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              >
+                <Layers className="w-3.5 h-3.5 text-purple-400" />
+                {VISUALIZATION_MODES.find(m => m.id === graphMode)?.name}
+                <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${showModeMenu ? 'rotate-180' : ''}`} />
+              </button>
+              <AnimatePresence>
+                {showModeMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                    transition={{ duration: 0.15 }}
+                    className={`absolute right-0 top-full mt-2 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden min-w-[280px] py-1.5 z-[100] ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
+                  >
+                    {VISUALIZATION_MODES.map(mode => (
+                      <button
+                        key={mode.id}
+                        onClick={() => { setGraphMode(mode.id); setShowModeMenu(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer ${graphMode === mode.id
+                            ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
+                            : (isDark ? 'text-gray-400 hover:text-white hover:bg-white/5' : 'text-gray-500 hover:text-black hover:bg-black/5')
+                          }`}
+                      >
+                        <div
+                          className="w-3 h-3 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: mode.previewColor, boxShadow: `0 0 8px ${mode.previewColor}` }}
+                        />
+                        <div className="text-left flex-1 min-w-0">
+                          <div className="text-[12px] font-bold tracking-wide">{mode.name}</div>
+                          <div className="text-[10px] text-gray-500">{mode.description}</div>
+                        </div>
+                        {graphMode === mode.id && (
+                          <Check className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                        )}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <a
+              href="https://github.com/CodeGraphContext/CodeGraphContext"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+            >
+              <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+              Star on GitHub
+            </a>
+            <div className={`text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 text-gray-400 border-white/10' : 'bg-white/80 text-gray-500 border-black/10'}`}>
+              Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 transition-colors">shashankss1205</a>
+            </div>
           </div>
 
-          <a
-            href="https://github.com/CodeGraphContext/CodeGraphContext"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+          {/* Mobile Hamburger Menu Toggle */}
+          <button
+            onClick={() => setShowMobileMenu(prev => !prev)}
+            className={`md:hidden flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-white/10 border-white/10 text-white' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
+            title="Toggle Menu"
           >
-            <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
-            Star on GitHub
-          </a>
-          <div className={`text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 text-gray-400 border-white/10' : 'bg-white/80 text-gray-500 border-black/10'}`}>
-            Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 transition-colors">shashankss1205</a>
-          </div>
+            {showMobileMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+          </button>
+
+          {/* Mobile Dropdown Panel */}
+          <AnimatePresence>
+            {showMobileMenu && (
+              <motion.div
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className={`absolute right-0 top-full mt-2 backdrop-blur-2xl border rounded-2xl shadow-2xl overflow-hidden min-w-[200px] p-3 z-[100] flex flex-col gap-2.5 ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
+              >
+                {/* Mobile Export */}
+                <button
+                  onClick={() => { handleExport(); setShowMobileMenu(false); }}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-400" />
+                  Export CGC
+                </button>
+
+                {/* Mobile Publish */}
+                <button
+                  onClick={() => {
+                    setPublishRepo(defaultRepoName);
+                    setPublishVersion(data.metadata?.version || "1.0.0");
+                    setShowPublishModal(true);
+                    setShowMobileMenu(false);
+                  }}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                >
+                  <UploadCloud className="w-3.5 h-3.5 text-green-400" />
+                  Publish Graph
+                </button>
+
+                {/* Mobile ChatGPT Tunnel */}
+                <button
+                  onClick={() => {
+                    handleConnectChatGPT();
+                    setShowMobileMenu(false);
+                  }}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all text-left w-full ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                >
+                  <div className="w-2 h-2 rounded-full bg-amber-500/80 shadow-[0_0_6px_#f59e0b]" />
+                  <MessageSquare className="w-3.5 h-3.5 text-purple-400" />
+                  ChatGPT Tunnel
+                </button>
+
+                {/* Mobile Mode Selector */}
+                <div className="border-t border-white/5 my-0.5" />
+                <div className="px-2 text-[8px] uppercase tracking-widest font-bold text-gray-500">Visualization Mode</div>
+                {VISUALIZATION_MODES.map(mode => (
+                  <button
+                    key={mode.id}
+                    onClick={() => { setGraphMode(mode.id); setShowMobileMenu(false); }}
+                    className={`flex items-center gap-3 px-3 py-1.5 rounded-lg transition-all text-left cursor-pointer ${graphMode === mode.id
+                        ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
+                        : (isDark ? 'text-gray-400 hover:text-white hover:bg-white/5' : 'text-gray-500 hover:text-black hover:bg-black/5')
+                      }`}
+                  >
+                    <div
+                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: mode.previewColor }}
+                    />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">{mode.name}</span>
+                  </button>
+                ))}
+
+                {/* Mobile Star */}
+                <div className="border-t border-white/5 my-0.5" />
+                <a
+                  href="https://github.com/CodeGraphContext/CodeGraphContext"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-850'}`}
+                  onClick={() => setShowMobileMenu(false)}
+                >
+                  <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+                  Star on GitHub
+                </a>
+
+                {/* Mobile Made By */}
+                <div className="text-[9px] uppercase tracking-widest text-center mt-1 text-gray-500 py-1 border-t border-white/5">
+                  Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 font-bold transition-colors">shashankss1205</a>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Zoom Controls */}
@@ -1509,8 +1819,12 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
             height={dimensions.height}
             backgroundColor={pal.canvasBg}
             nodeThreeObject={graph3dNodeThreeObject}
-            nodeThreeObjectExtend={false}
-            nodeLabel={(n: any) => `${n.type}: ${n.name}`}
+            nodeLabel={(n: any) => {
+              let label = `${n.type}: ${n.name}`;
+              if (n.complexity) label += `\nComplexity: ${n.complexity}`;
+              if (n.docstring) label += `\n\n${n.docstring.slice(0, 100)}${n.docstring.length > 100 ? '...' : ''}`;
+              return label;
+            }}
             linkColor={graph3dLinkColor}
             linkWidth={lineWidth * 0.5}
             linkOpacity={0.4}
@@ -1539,12 +1853,19 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
             graphData={filteredData}
             width={dimensions.width - effectiveSidebarW - effectiveCodePanelW}
             height={dimensions.height}
-            nodeLabel="name"
+            nodeLabel={(n: any) => {
+              let label = `${n.type}: ${n.name}`;
+              if (n.complexity) label += ` (Complexity: ${n.complexity})`;
+              if (n.decorators?.length) label += `\n@${n.decorators.join('\n@')}`;
+              if (n.docstring) label += `\n\n${n.docstring.slice(0, 150)}${n.docstring.length > 150 ? '...' : ''}`;
+              return label;
+            }}
+            linkCurvature={graphMode === 'curvy' ? 0.25 : 0}
             linkColor={getLinkColor}
             linkWidth={
               graphMode === 'galaxy' ? 0.7
-              : graphMode === 'neon' ? lineWidth * 1.2
-              : lineWidth
+                : graphMode === 'neon' ? lineWidth * 1.2
+                  : lineWidth
             }
             linkDirectionalParticles={
               graphMode === 'galaxy'
@@ -1573,45 +1894,55 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
           />
         )}
 
-        {/* Legend Overlay */}
+        {/* Floating Controls Overlay (Bottom Right) */}
         {!showConfig && (
           <div
-            className={`absolute bottom-6 z-[60] backdrop-blur-3xl border rounded-2xl shadow-2xl pointer-events-auto ${isDark ? 'bg-black/50 border-white/10' : 'bg-white/80 border-black/10'}`}
-            style={{ right: selectedFile ? codePanelWidth + 24 : 24 }}
+            className="absolute bottom-6 z-[60] flex flex-col gap-4 pointer-events-none items-end max-w-xs md:max-w-sm"
+            style={{ right: (selectedFile && dimensions.width >= 768) ? codePanelWidth + 24 : 24 }}
           >
+            {/* Legend Overlay */}
             <div
-              className={`flex items-center justify-between px-5 pt-4 ${legendCollapsed ? 'pb-4' : 'pb-2'} cursor-pointer transition-colors rounded-t-2xl ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}
-              onClick={() => setLegendCollapsed(v => !v)}
+              className={`pointer-events-auto backdrop-blur-3xl border rounded-2xl shadow-2xl ${isDark ? 'bg-black/50 border-white/10' : 'bg-white/80 border-black/10'}`}
             >
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 flex items-center gap-2">
-                <span>Graph Legend</span>
-              </p>
-              <div className="flex items-center gap-2">
-                <span
-                  className="text-blue-400/50 text-[10px] font-bold uppercase tracking-widest cursor-pointer"
-                  onClick={(e) => { e.stopPropagation(); setShowConfig(true); }}
-                >
-                  Filters
-                </span>
-                <ChevronUp className={`w-3 h-3 text-gray-500 transition-transform ${legendCollapsed ? 'rotate-180' : ''}`} />
+              <div
+                className={`flex items-center justify-between px-5 pt-4 ${legendCollapsed ? 'pb-4' : 'pb-2'} cursor-pointer transition-colors rounded-t-2xl ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}
+                onClick={() => setLegendCollapsed(v => !v)}
+              >
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 flex items-center gap-2">
+                  <span>Graph Legend</span>
+                </p>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="text-blue-400/50 text-[10px] font-bold uppercase tracking-widest cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowConfig(true);
+                      setCollapsed(false);
+                      setIsPathMode(false);
+                    }}
+                  >
+                    Filters
+                  </span>
+                  <ChevronUp className={`w-3 h-3 text-gray-500 transition-transform ${legendCollapsed ? 'rotate-180' : ''}`} />
+                </div>
               </div>
+              {!legendCollapsed && (
+                <div className="flex flex-wrap gap-x-5 gap-y-3 justify-end px-5 pb-4 max-w-lg">
+                  {Object.keys(DEFAULT_NODE_COLORS).map(type => (
+                    <div key={type} className="flex items-center gap-2">
+                      {graphMode === 'icon' ? (
+                        <span className="text-[12px]">{EMOJI_MAP[type] || '❓'}</span>
+                      ) : (
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: nodeColors[type], boxShadow: `0 0 8px ${nodeColors[type]}` }} />
+                      )}
+                      <span className={`text-[10px] font-bold uppercase tracking-widest ${visibleNodeTypes.has(type) ? (isDark ? 'text-gray-300' : 'text-gray-700') : 'text-gray-500 line-through'}`}>
+                        {type}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            {!legendCollapsed && (
-              <div className="flex flex-wrap gap-x-5 gap-y-3 justify-end px-5 pb-4 max-w-lg">
-                {Object.keys(DEFAULT_NODE_COLORS).map(type => (
-                  <div key={type} className="flex items-center gap-2">
-                    {graphMode === 'icon' ? (
-                      <span className="text-[12px]">{EMOJI_MAP[type] || '❓'}</span>
-                    ) : (
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: nodeColors[type], boxShadow: `0 0 8px ${nodeColors[type]}` }} />
-                    )}
-                    <span className={`text-[10px] font-bold uppercase tracking-widest ${visibleNodeTypes.has(type) ? (isDark ? 'text-gray-300' : 'text-gray-700') : 'text-gray-500 line-through'}`}>
-                      {type}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -1619,120 +1950,400 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       {/* ── CODE VIEWER PANEL ── */}
       <AnimatePresence>
         {selectedFile && (
-          <motion.div
-            key="code-panel"
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: codePanelWidth, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="relative h-full flex-shrink-0 flex z-[70] shadow-2xl overflow-hidden"
-            style={{ backgroundColor: pal.panelBg, borderLeft: `1px solid ${pal.border}` }}
-          >
-            {/* drag handle (left edge) */}
-            <div
-              onMouseDown={onCodeDragStart}
-              className="absolute left-0 top-0 h-full w-1 cursor-col-resize z-[80] group flex items-center justify-center"
+          <>
+            {dimensions.width < 768 && (
+              <div
+                className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[85]"
+                onClick={() => onFileClick(null)}
+              />
+            )}
+            <motion.div
+              key="code-panel"
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: dimensions.width < 768 ? Math.min(codePanelWidth, dimensions.width * 0.85) : codePanelWidth, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className={`h-full flex-shrink-0 flex z-[90] shadow-2xl overflow-hidden ${dimensions.width < 768 ? 'absolute right-0 top-0' : 'relative'}`}
+              style={{ backgroundColor: pal.panelBg, borderLeft: `1px solid ${pal.border}` }}
             >
-              <div className="w-0.5 h-full bg-white/5 group-hover:bg-blue-500/50 transition-colors duration-150" />
-            </div>
+              {/* drag handle (left edge) */}
+              {dimensions.width >= 768 && (
+                <div
+                  onMouseDown={onCodeDragStart}
+                  className="absolute left-0 top-0 h-full w-1 cursor-col-resize z-[80] group flex items-center justify-center"
+                >
+                  <div className="w-0.5 h-full bg-white/5 group-hover:bg-blue-500/50 transition-colors duration-150" />
+                </div>
+              )}
 
-            <div className="flex flex-col w-full overflow-hidden">
-              {/* header */}
-              <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${pal.border}` }}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <Code2 className="w-4 h-4 text-blue-400 flex-shrink-0" />
-                  <span className="text-[13px] font-bold truncate" style={{ color: pal.text }}>
-                    {selectedFile.split('/').pop()}
-                  </span>
+              <div className="flex flex-col w-full overflow-hidden">
+                {/* header */}
+                <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${pal.border}` }}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Code2 className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                    <span className="text-[13px] font-bold truncate" style={{ color: pal.text }}>
+                      {selectedFile.split('/').pop()}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => onFileClick(null)}
+                    className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${isDark ? 'text-gray-500 hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-black hover:bg-black/10'}`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* path breadcrumb + tabs */}
+                <div className="flex items-center gap-0 px-4 py-0 text-[10px] font-mono flex-shrink-0" style={{ borderBottom: `1px solid ${pal.border}` }}>
+                  <span className="text-gray-500 truncate flex-1 py-1.5">{selectedFile}</span>
+                  <div className="flex ml-2 flex-shrink-0">
+                    <button
+                      onClick={() => setCodePanelTab('code')}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'code' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
+                    >
+                      Code
+                    </button>
+                    <button
+                      onClick={() => setCodePanelTab('entities')}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'entities' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
+                    >
+                      Entities
+                    </button>
+                  </div>
+                </div>
+
+                {/* body */}
+                <div ref={codeBodyRef} className="flex-1 overflow-auto custom-scrollbar">
+                  {codePanelTab === 'code' ? (
+                    codeContent !== null ? (
+                      <pre className={`p-4 text-[12px] leading-[1.65] font-mono whitespace-pre overflow-x-auto ${isDark ? 'text-gray-300' : 'text-gray-800'}`}>
+                        {codeContent.split('\n').map((line, i) => {
+                          const lineNum = i + 1;
+                          const isHL = highlightLine === lineNum;
+                          return (
+                            <div
+                              key={i}
+                              data-line={lineNum}
+                              className={`flex ${isHL ? (isDark ? 'bg-yellow-400/10' : 'bg-yellow-300/20') : (isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-black/[0.03]')}`}
+                            >
+                              <span className={`inline-block w-10 text-right pr-4 select-none flex-shrink-0 ${isHL ? 'text-yellow-400 font-bold' : (isDark ? 'text-gray-600' : 'text-gray-400')}`}>{lineNum}</span>
+                              <span>{line || ' '}</span>
+                            </div>
+                          );
+                        })}
+                      </pre>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-40 text-gray-500 text-[12px]">
+                        <p>{codeError || 'No source available'}</p>
+                      </div>
+                    )
+                  ) : (
+                    <div className="p-4">
+                      <div className="space-y-1">
+                        {fileEntities.map((n: any) => {
+                          const lineNum = n.line_number ?? n.properties?.line_number;
+                          return (
+                            <>
+                              <div
+                                key={n.id}
+                                onClick={() => { if (lineNum && codeContent) { setHighlightLine(Number(lineNum)); setCodePanelTab('code'); } }}
+                                className={`flex items-center gap-2 py-1.5 px-2 rounded-lg ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${lineNum && codeContent ? 'cursor-pointer' : ''}`}
+                              >
+                                {graphMode === 'icon' ? (
+                                  <span className="text-[14px] flex-shrink-0">{EMOJI_MAP[n.type] || '❓'}</span>
+                                ) : (
+                                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: nodeColors[n.type] || '#78909c' }} />
+                                )}
+                                <span className="text-[12px] font-medium truncate" style={{ color: pal.textSecondary }}>{n.name}</span>
+                                <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
+                                  {n.complexity && (
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${n.complexity > 10 ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'}`}>
+                                      C:{n.complexity}
+                                    </span>
+                                  )}
+                                  <span className="text-[9px] uppercase tracking-wider" style={{ color: pal.dimText }}>
+                                    {n.type}{lineNum ? `:${lineNum}` : ''}
+                                  </span>
+                                </div>
+                              </div>
+                              {n.decorators?.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1 px-2">
+                                  {n.decorators.map((d: string, i: number) => (
+                                    <span key={i} className="text-[8px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">@{d.replace(/^@/, '')}</span>
+                                  ))}
+                                </div>
+                              )}
+                              {n.docstring && (
+                                <div className="mt-1 px-2 text-[9px] text-gray-500 line-clamp-2 italic">
+                                  "{n.docstring}"
+                                </div>
+                              )}
+                            </>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* footer */}
+                <div className={`px-4 py-2 text-[10px] text-gray-500 uppercase tracking-widest font-black flex-shrink-0 ${isDark ? 'border-t border-white/5 bg-black/40' : 'border-t border-black/5 bg-gray-50'}`}>
+                  {fileEntities.length} entities
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── PUBLISH MODAL ── */}
+      <AnimatePresence>
+        {showPublishModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !isPublishing && setShowPublishModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-md"
+            />
+
+            {/* Dialog Panel */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${
+                isDark 
+                  ? "bg-zinc-950/80 border-zinc-800 text-white" 
+                  : "bg-white/90 border-zinc-200 text-zinc-900"
+              }`}
+            >
+              {/* Subtle top glow bar */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
+
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-lg font-bold tracking-tight">Publish Code Graph</h3>
+                  <p className={`text-xs mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}`}>
+                    Register this bundle in the public search index.
+                  </p>
                 </div>
                 <button
-                  onClick={() => onFileClick(null)}
-                  className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${isDark ? 'text-gray-500 hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-black hover:bg-black/10'}`}
+                  disabled={isPublishing}
+                  onClick={() => setShowPublishModal(false)}
+                  className={`p-1.5 rounded-full transition-colors ${
+                    isDark ? "hover:bg-white/10 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
+                  }`}
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* path breadcrumb + tabs */}
-              <div className="flex items-center gap-0 px-4 py-0 text-[10px] font-mono flex-shrink-0" style={{ borderBottom: `1px solid ${pal.border}` }}>
-                <span className="text-gray-500 truncate flex-1 py-1.5">{selectedFile}</span>
-                <div className="flex ml-2 flex-shrink-0">
-                  <button
-                    onClick={() => setCodePanelTab('code')}
-                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'code' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
-                  >
-                    Code
-                  </button>
-                  <button
-                    onClick={() => setCodePanelTab('entities')}
-                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'entities' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
-                  >
-                    Entities
-                  </button>
+              <form onSubmit={handlePublishSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-400 block">
+                    GitHub Repository
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    disabled={isPublishing}
+                    value={publishRepo}
+                    onChange={(e) => setPublishRepo(e.target.value)}
+                    placeholder="e.g. owner/repository"
+                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${
+                      isDark 
+                        ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700" 
+                        : "bg-zinc-50 border-zinc-200 text-zinc-950 placeholder-zinc-400 focus:border-zinc-300"
+                    }`}
+                  />
                 </div>
-              </div>
 
-              {/* body */}
-              <div ref={codeBodyRef} className="flex-1 overflow-auto custom-scrollbar">
-                {codePanelTab === 'code' ? (
-                  codeContent !== null ? (
-                    <pre className={`p-4 text-[12px] leading-[1.65] font-mono whitespace-pre overflow-x-auto ${isDark ? 'text-gray-300' : 'text-gray-800'}`}>
-                      {codeContent.split('\n').map((line, i) => {
-                        const lineNum = i + 1;
-                        const isHL = highlightLine === lineNum;
-                        return (
-                          <div
-                            key={i}
-                            data-line={lineNum}
-                            className={`flex ${isHL ? (isDark ? 'bg-yellow-400/10' : 'bg-yellow-300/20') : (isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-black/[0.03]')}`}
-                          >
-                            <span className={`inline-block w-10 text-right pr-4 select-none flex-shrink-0 ${isHL ? 'text-yellow-400 font-bold' : (isDark ? 'text-gray-600' : 'text-gray-400')}`}>{lineNum}</span>
-                            <span>{line || ' '}</span>
-                          </div>
-                        );
-                      })}
-                    </pre>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-40 text-gray-500 text-[12px]">
-                      <p>{codeError || 'No source available'}</p>
-                    </div>
-                  )
-                ) : (
-                  <div className="p-4">
-                    <div className="space-y-1">
-                      {fileEntities.map((n: any) => {
-                        const lineNum = n.line_number ?? n.properties?.line_number;
-                        return (
-                          <div
-                            key={n.id}
-                            onClick={() => { if (lineNum && codeContent) { setHighlightLine(Number(lineNum)); setCodePanelTab('code'); } }}
-                            className={`flex items-center gap-2 py-1.5 px-2 rounded-lg ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${lineNum && codeContent ? 'cursor-pointer' : ''}`}
-                          >
-                            {graphMode === 'icon' ? (
-                              <span className="text-[14px] flex-shrink-0">{EMOJI_MAP[n.type] || '❓'}</span>
-                            ) : (
-                              <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: nodeColors[n.type] || '#78909c' }} />
-                            )}
-                            <span className="text-[12px] font-medium truncate" style={{ color: pal.textSecondary }}>{n.name}</span>
-                            <span className="text-[9px] uppercase tracking-wider ml-auto flex-shrink-0" style={{ color: pal.dimText }}>
-                              {n.type}{lineNum ? `:${lineNum}` : ''}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-400 block">
+                    Version
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    disabled={isPublishing}
+                    value={publishVersion}
+                    onChange={(e) => setPublishVersion(e.target.value)}
+                    placeholder="e.g. 1.0.0"
+                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${
+                      isDark 
+                        ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700" 
+                        : "bg-zinc-50 border-zinc-200 text-zinc-950 placeholder-zinc-400 focus:border-zinc-300"
+                    }`}
+                  />
+                </div>
 
-              {/* footer */}
-              <div className={`px-4 py-2 text-[10px] text-gray-500 uppercase tracking-widest font-black flex-shrink-0 ${isDark ? 'border-t border-white/5 bg-black/40' : 'border-t border-black/5 bg-gray-50'}`}>
-                {fileEntities.length} entities
-              </div>
-            </div>
-          </motion.div>
+                <div className="pt-4 flex gap-3">
+                  <Button
+                    type="button"
+                    disabled={isPublishing}
+                    variant="outline"
+                    onClick={() => setShowPublishModal(false)}
+                    className="w-full rounded-xl"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={isPublishing}
+                    className="w-full rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-indigo-500/20"
+                  >
+                    {isPublishing ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Publishing...
+                      </span>
+                    ) : (
+                      "Publish"
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
+
+      {/* ── CHATGPT CONNECTION INSTRUCTION MODAL ── */}
+      <AnimatePresence>
+        {showChatGPTModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowChatGPTModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-md"
+            />
+
+            {/* Dialog Panel */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${
+                isDark 
+                  ? "bg-zinc-950/80 border-zinc-800 text-white" 
+                  : "bg-white/90 border-zinc-200 text-zinc-900"
+              }`}
+            >
+              {/* Subtle top glow bar */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 via-pink-500 to-amber-500" />
+
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-lg font-bold tracking-tight flex items-center gap-2">
+                    <MessageSquare className="w-5 h-5 text-purple-400" />
+                    Connect to ChatGPT GPT
+                  </h3>
+                  <p className={`text-xs mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}`}>
+                    To link ChatGPT to this browser tunnel, you need to paste a setup prompt.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowChatGPTModal(false)}
+                  className={`p-1.5 rounded-full transition-colors ${
+                    isDark ? "hover:bg-white/10 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
+                  }`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-400 block">
+                    Connection Prompt (Auto-copied on Launch)
+                  </label>
+                  <div className={`relative p-3 rounded-xl border font-mono text-xs flex justify-between items-center ${
+                    isDark ? "bg-zinc-900/60 border-zinc-800 text-zinc-300" : "bg-zinc-50 border-zinc-200 text-zinc-700"
+                  }`}>
+                    <span className="select-all break-all pr-8">{chatgptPreFillPrompt}</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(chatgptPreFillPrompt);
+                        toast.success("Prompt copied to clipboard!", { icon: "📋" });
+                      }}
+                      className={`absolute right-2 p-1.5 rounded-lg transition-colors ${
+                        isDark ? "hover:bg-white/5 text-zinc-400 hover:text-white" : "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-900"
+                      }`}
+                      title="Copy prompt to clipboard"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                  isDark ? "bg-amber-950/20 border-amber-900/40 text-amber-300" : "bg-amber-50 border-amber-200/60 text-amber-800"
+                }`}>
+                  <p className="font-semibold mb-1">💡 Important Instruction:</p>
+                  <p>When the ChatGPT window loads, click on the chat box, press <kbd className="px-1 py-0.5 rounded border border-current font-sans text-[10px]">Ctrl+V</kbd> (or <kbd className="px-1 py-0.5 rounded border border-current font-sans text-[10px]">Cmd+V</kbd>) to paste the copied prompt, and hit enter!</p>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowChatGPTModal(false)}
+                    className="w-full rounded-xl"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleCopyAndLaunchChatGPT}
+                    className="w-full rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700 shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2"
+                  >
+                    Copy & Open ChatGPT
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Already Pre-indexed Bundle Warning Dialog */}
+      <AlertDialog open={showWarningAlert} onOpenChange={setShowWarningAlert}>
+        <AlertDialogContent className="bg-zinc-950 border border-zinc-800 text-zinc-100 max-w-md rounded-3xl shadow-2xl p-6 relative overflow-hidden backdrop-blur-2xl">
+          {/* Subtle top glow bar */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500" />
+          
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+              <span className="text-amber-500">⚡</span> Pre-indexed Bundle Exists
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400 text-sm mt-2 leading-relaxed">
+              A pre-indexed bundle for <span className="font-semibold text-purple-400 font-mono">{publishRepo}</span> at this exact commit (<span className="font-mono bg-white/5 px-1 py-0.5 rounded text-xs text-amber-300">{data.metadata?.commit?.substring(0, 7) || "latest"}</span>) already exists in the manifest registry.
+              <br /><br />
+              Publishing again is redundant. Are you sure you want to force overwrite or republish?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-6 flex flex-col sm:flex-row gap-3">
+            <AlertDialogCancel className="w-full sm:w-auto rounded-xl bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                setShowWarningAlert(false);
+                await executePublishFlow();
+              }}
+              className="w-full sm:w-auto rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold shadow-lg shadow-orange-500/20"
+            >
+              Force Publish
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   );
 }

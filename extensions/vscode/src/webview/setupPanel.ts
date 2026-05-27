@@ -193,7 +193,7 @@ export class SetupPanel {
             <div class="field">
                 <label>Database Mode</label>
                 <select id="dbMode">
-                    <option value="ladybugdb" ${dbMode === "ladybugdb" ? "selected" : ""}>LadybugDB (Embedded)</option>
+                    <option value="kuzudb" ${dbMode === "kuzudb" ? "selected" : ""}>KuzuDB (Embedded)</option>
                     <option value="falkordb" ${dbMode === "falkordb" ? "selected" : ""}>FalkorDB (Redis-based)</option>
                     <option value="neo4j" ${dbMode === "neo4j" ? "selected" : ""}>Neo4j</option>
                 </select>

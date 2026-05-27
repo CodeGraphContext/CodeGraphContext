@@ -25,8 +25,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
           pip install build
+          pip install "tree-sitter==0.25.2" "tree-sitter-language-pack==0.13.0"
           pip install .[dev]
 
       - name: Build package

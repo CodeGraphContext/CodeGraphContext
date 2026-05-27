@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/haskell.py
 """Haskell tree-sitter parser (tree-sitter-haskell grammar)."""
 
 from pathlib import Path

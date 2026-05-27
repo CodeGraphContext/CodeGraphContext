@@ -159,6 +159,73 @@ class TestJavaDiCrossFileCalls:
         assert JavaTreeSitterParser._strip_generic("  RoidFraudCheckService  ") == "RoidFraudCheckService"
 
 
+class TestJavaParameterParsing:
+    def test_annotation_string_commas_do_not_split_parameters(self, parser):
+        src = """
+        package com.example.app;
+
+        public class AnnotatedController {
+            public void handle(
+                @Named(value = "text, with (parentheses)", escaped = "quote: \\"") String name,
+                java.util.List<java.util.Map<String, Integer>> values
+            ) {}
+        }
+
+        @interface Named {
+            String value();
+            String escaped() default "";
+        }
+        """
+
+        data = _write_and_parse(parser, src)
+        handle = next(f for f in data["functions"] if f["name"] == "handle")
+
+        assert handle["args"] == ["name", "values"]
+        assert handle["arg_types"] == ["String", "java.util.List"]
+
+    def test_annotation_array_values_do_not_split_parameters(self, parser):
+        src = """
+        package com.example.app;
+
+        public class AnnotatedController {
+            public void handle(@Flags({"a,b", "(x,y)"}) String name, int count) {}
+        }
+
+        @interface Flags {
+            String[] value();
+        }
+        """
+
+        data = _write_and_parse(parser, src)
+        handle = next(f for f in data["functions"] if f["name"] == "handle")
+
+        assert handle["args"] == ["name", "count"]
+        assert handle["arg_types"] == ["String", "Int"]
+
+    def test_final_with_non_space_whitespace_is_stripped(self, parser):
+        src = """
+        package com.example.app;
+
+        public class AnnotatedController {
+            public void handle(
+                @Named("a,b") final
+                String name,
+                final\tint count
+            ) {}
+        }
+
+        @interface Named {
+            String value();
+        }
+        """
+
+        data = _write_and_parse(parser, src)
+        handle = next(f for f in data["functions"] if f["name"] == "handle")
+
+        assert handle["args"] == ["name", "count"]
+        assert handle["arg_types"] == ["String", "Int"]
+
+
 # ---------------------------------------------------------------------------
 # End-to-end: full cross-file CALLS resolution via resolve_function_call
 # ---------------------------------------------------------------------------
@@ -225,3 +292,236 @@ class TestJavaCrossFileResolution:
                 assert resolved["called_file_path"] == service_path, (
                     f"WorkService has no DI fields; expected self-resolution for '{call['name']}'"
                 )
+
+
+    def test_super_call_without_base_context_stays_in_caller_file(self):
+        """Non-Kotlin super.method() calls must not resolve to unrelated same-name symbols."""
+        caller_path = "/tmp/Controller.java"
+        external_path = "/tmp/Audit.java"
+
+        resolved = resolve_function_call(
+            {
+                "name": "audit",
+                "full_name": "super.audit",
+                "line_number": 12,
+                "args": [],
+                "context": ("handle", "function", 10),
+            },
+            caller_file_path=caller_path,
+            local_names={"Controller", "handle"},
+            local_imports={},
+            imports_map={"audit": [external_path]},
+            skip_external=False,
+        )
+
+        assert resolved is not None
+        assert resolved["called_file_path"] == caller_path
+
+
+# ---------------------------------------------------------------------------
+# ORM / datasource mapping extraction tests (#843)
+# ---------------------------------------------------------------------------
+
+JPA_ENTITY_SRC = """
+package com.example;
+
+import javax.persistence.Entity;
+import javax.persistence.Table;
+import javax.persistence.Column;
+
+@Entity
+@Table(name = "users")
+public class User {
+    @Column(name = "email")
+    private String email;
+
+    @Column(name = "created_at")
+    private java.time.Instant createdAt;
+}
+"""
+
+CASSANDRA_TABLE_SRC = """
+package com.example;
+
+import org.springframework.data.cassandra.core.mapping.Table;
+
+@Table(value = "events")
+public class EventEntity {
+    private String id;
+}
+"""
+
+REDIS_HASH_SRC = """
+package com.example;
+
+import org.springframework.data.redis.core.RedisHash;
+
+@RedisHash(value = "session")
+public class SessionData {
+    private String token;
+}
+"""
+
+SPRING_QUERY_SRC = """
+package com.example;
+
+import org.springframework.data.jpa.repository.Query;
+
+public interface UserRepository {
+    @Query("SELECT u FROM users u WHERE u.id = :id")
+    User findById(Long id);
+
+    @Query("INSERT INTO audit_log(user_id, action) VALUES (:userId, :action)")
+    void logAction(Long userId, String action);
+}
+"""
+
+MYBATIS_SRC = """
+package com.example;
+
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Insert;
+
+public interface UserMapper {
+    @Select("SELECT * FROM users WHERE id = #{id}")
+    User selectById(int id);
+
+    @Insert("INSERT INTO orders(user_id, total) VALUES(#{userId}, #{total})")
+    int createOrder(int userId, double total);
+}
+"""
+
+
+class TestOrmMappingExtraction:
+    def test_jpa_entity_table_mapping(self, parser):
+        data = _write_and_parse(parser, JPA_ENTITY_SRC)
+        orm = data.get("orm_mappings", [])
+        class_maps = [r for r in orm if r["kind"] == "class_table"]
+        assert len(class_maps) == 1
+        assert class_maps[0]["orm_table"] == "users"
+        assert class_maps[0]["datastore"] == "mysql"
+        assert class_maps[0]["class_name"] == "User"
+
+    def test_cassandra_table_mapping(self, parser):
+        data = _write_and_parse(parser, CASSANDRA_TABLE_SRC)
+        orm = data.get("orm_mappings", [])
+        class_maps = [r for r in orm if r["kind"] == "class_table"]
+        assert len(class_maps) == 1
+        assert class_maps[0]["orm_table"] == "events"
+        assert class_maps[0]["datastore"] == "cassandra"
+
+    def test_redis_hash_mapping(self, parser):
+        data = _write_and_parse(parser, REDIS_HASH_SRC)
+        orm = data.get("orm_mappings", [])
+        class_maps = [r for r in orm if r["kind"] == "class_table"]
+        assert len(class_maps) == 1
+        assert class_maps[0]["orm_table"] == "session"
+        assert class_maps[0]["datastore"] == "redis"
+
+    def test_spring_query_read_detection(self, parser):
+        data = _write_and_parse(parser, SPRING_QUERY_SRC)
+        orm = data.get("orm_mappings", [])
+        reads = [r for r in orm if r.get("operation") == "READS"]
+        assert any("users" in r.get("db_tables", []) for r in reads), (
+            "Expected a READS edge to 'users'"
+        )
+
+    def test_spring_query_write_detection(self, parser):
+        data = _write_and_parse(parser, SPRING_QUERY_SRC)
+        orm = data.get("orm_mappings", [])
+        writes = [r for r in orm if r.get("operation") == "WRITES"]
+        assert any("audit_log" in r.get("db_tables", []) for r in writes), (
+            "Expected a WRITES edge to 'audit_log'"
+        )
+
+    def test_mybatis_select_annotation(self, parser):
+        data = _write_and_parse(parser, MYBATIS_SRC)
+        orm = data.get("orm_mappings", [])
+        reads = [r for r in orm if r.get("operation") == "READS"]
+        assert any("users" in r.get("db_tables", []) for r in reads)
+
+    def test_mybatis_insert_annotation(self, parser):
+        data = _write_and_parse(parser, MYBATIS_SRC)
+        orm = data.get("orm_mappings", [])
+        writes = [r for r in orm if r.get("operation") == "WRITES"]
+        assert any("orders" in r.get("db_tables", []) for r in writes)
+
+    def test_orm_mappings_key_present(self, parser):
+        """orm_mappings key must always be present in parse() output."""
+        data = _write_and_parse(parser, CONTROLLER_SRC)
+        assert "orm_mappings" in data
+        assert isinstance(data["orm_mappings"], list)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Spring Data repository derived-query method detection
+# ──────────────────────────────────────────────────────────────────────────────
+
+SPRING_DATA_REPO_SRC = """\
+package com.example.db;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.CrudRepository;
+import java.util.List;
+import java.util.Optional;
+
+public interface UserAuthenticationRepository extends JpaRepository<UserAuthentication, Long> {
+
+    Optional<UserAuthentication> findByUserId(String userId);
+
+    List<UserAuthentication> findByEmailAndStatus(String email, String status);
+
+    long countByStatus(String status);
+
+    boolean existsByUserId(String userId);
+
+    void deleteByUserId(String userId);
+
+    List<UserAuthentication> findAllByCreatedAtAfter(long timestamp);
+}
+
+public interface OrderRepository extends CrudRepository<Order, Long> {
+
+    List<Order> findByCustomerId(String customerId);
+
+    void deleteById(Long id);
+}
+"""
+
+
+class TestSpringDataRepoDetection:
+    def test_spring_data_reads_emitted(self, parser):
+        data = _write_and_parse(parser, SPRING_DATA_REPO_SRC)
+        orm = data.get("orm_mappings", [])
+        spring_reads = [r for r in orm if r.get("kind") == "spring_data_method" and r.get("operation") == "READS"]
+        assert len(spring_reads) >= 4, f"Expected >=4 READS, got {len(spring_reads)}: {spring_reads}"
+
+    def test_spring_data_writes_emitted(self, parser):
+        data = _write_and_parse(parser, SPRING_DATA_REPO_SRC)
+        orm = data.get("orm_mappings", [])
+        spring_writes = [r for r in orm if r.get("kind") == "spring_data_method" and r.get("operation") == "WRITES"]
+        method_names = [r["method_name"] for r in spring_writes]
+        assert "deleteByUserId" in method_names, f"Expected deleteByUserId in WRITES, got: {method_names}"
+
+    def test_spring_data_entity_class_extracted(self, parser):
+        data = _write_and_parse(parser, SPRING_DATA_REPO_SRC)
+        orm = data.get("orm_mappings", [])
+        spring = [r for r in orm if r.get("kind") == "spring_data_method"]
+        user_auth_methods = [r for r in spring if r.get("entity_class") == "UserAuthentication"]
+        assert len(user_auth_methods) >= 1, f"Expected entity_class=UserAuthentication, got: {[r.get('entity_class') for r in spring]}"
+
+    def test_spring_data_crud_repo_detected(self, parser):
+        data = _write_and_parse(parser, SPRING_DATA_REPO_SRC)
+        orm = data.get("orm_mappings", [])
+        order_methods = [r for r in orm if r.get("kind") == "spring_data_method" and r.get("entity_class") == "Order"]
+        assert len(order_methods) >= 1, f"Expected Order entity methods, got: {order_methods}"
+
+    def test_spring_data_class_name_set(self, parser):
+        data = _write_and_parse(parser, SPRING_DATA_REPO_SRC)
+        orm = data.get("orm_mappings", [])
+        spring = [r for r in orm if r.get("kind") == "spring_data_method"]
+        for r in spring:
+            assert r.get("class_name"), f"class_name missing on {r}"
+            assert r.get("method_name"), f"method_name missing on {r}"
+            assert r.get("method_path"), f"method_path missing on {r}"
+            assert r.get("entity_class"), f"entity_class missing on {r}"

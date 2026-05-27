@@ -283,6 +283,107 @@ class TestCreateAllFunctionCallsV3:
         for q in call_rels:
             assert "MERGE" in q, f"Expected MERGE in CALLS query, got: {q[:120]}"
 
+    def test_calls_merge_identity_excludes_mutable_metadata(self):
+        """CALLS confidence/tier should update without becoming relationship identity."""
+        file_data = [{
+            "path": "/repo/a.py",
+            "functions": [{"name": "foo", "line_number": 1}],
+            "classes": [],
+            "imports": [],
+            "function_calls": [{
+                "name": "foo",
+                "line_number": 5,
+                "full_name": "foo",
+                "args": [],
+                "context": ("bar", None, 4),
+                "confidence": 0.9,
+                "resolution_tier": 1,
+            }],
+        }]
+        calls = self._run(file_data)
+        call_write = next(c for c in calls if "CALLS" in c["query"])
+        merge_clause = call_write["query"].split("MERGE", 1)[1].split("SET", 1)[0]
+
+        assert "confidence" not in merge_clause
+        assert "resolution_tier" not in merge_clause
+        assert "SET call.confidence = row.confidence" in call_write["query"]
+        assert "call.resolution_tier = row.resolution_tier" in call_write["query"]
+
+    def test_function_call_writes_use_precise_target_filters(self):
+        """CALLS writes should use target line/context hints when resolution provides them."""
+        file_data = [{
+            "path": "/repo/a.py",
+            "functions": [
+                {"name": "caller_fn", "line_number": 1, "args": []},
+                {"name": "callee", "line_number": 10, "args": ["value"]},
+                {"name": "callee", "line_number": 20, "args": ["value", "flag"]},
+            ],
+            "classes": [],
+            "imports": [],
+            "function_calls": [{
+                "name": "callee",
+                "line_number": 5,
+                "full_name": "callee",
+                "args": ["value", "true"],
+                "context": ("caller_fn", None, 1),
+            }],
+        }]
+
+        calls = self._run(file_data)
+        call_write = next(c for c in calls if "CALLS" in c["query"])
+
+        assert "called.line_number = row.called_line_number" in call_write["query"]
+        assert "called.context = row.called_context" in call_write["query"]
+        assert call_write["kwargs"]["batch"][0]["called_line_number"] == 20
+        assert call_write["kwargs"]["batch"][0]["called_context"] == ""
+
+    def test_function_call_batch_normalization_preserves_falsy_filters(self):
+        """Only None should become the broad target sentinel; malformed rows are skipped."""
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+
+        session = _RecordingSession()
+        writer = GraphWriter(_FakeDBManager(session))
+        writer.write_function_call_groups(
+            [
+                {},
+                None,
+                {
+                    "caller_name": "caller",
+                    "caller_file_path": "/repo/a.py",
+                    "caller_line_number": 1,
+                    "called_name": "callee",
+                    "called_file_path": "/repo/a.py",
+                    "called_line_number": 0,
+                    "called_context": "",
+                    "line_number": 5,
+                    "args": [],
+                    "full_call_name": "callee",
+                },
+                {
+                    "caller_name": "caller",
+                    "caller_file_path": "/repo/a.py",
+                    "caller_line_number": 1,
+                    "called_name": "bad",
+                    "called_file_path": "/repo/a.py",
+                    "called_line_number": False,
+                    "called_context": False,
+                    "line_number": 6,
+                    "args": [],
+                    "full_call_name": "bad",
+                },
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
+
+        call_write = next(c for c in session.calls if "CALLS" in c["query"])
+        assert len(call_write["kwargs"]["batch"]) == 1
+        assert call_write["kwargs"]["batch"][0]["called_line_number"] == 0
+        assert call_write["kwargs"]["batch"][0]["called_context"] == ""
+
     def test_empty_file_data_writes_nothing(self):
         calls = self._run([])
         call_rels = [c for c in calls if "CALLS" in c.get("query", "")]
@@ -368,6 +469,92 @@ class TestAddFileToGraph:
         gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str="/repo")
         queries = [c["query"] for c in session.calls]
         assert any("UNWIND" in q for q in queries), "Expected UNWIND batch writes"
+
+    def test_class_function_contains_uses_class_context_line(self):
+        """Same-named nested classes in one file should not all own every method."""
+        session = _RecordingSession(responses=[_FakeResult()])
+        gb, _ = _make_graph_builder(session)
+        file_data = {
+            "path": "/repo/A.kt",
+            "lang": "kotlin",
+            "is_dependency": False,
+            "functions": [
+                {
+                    "name": "run",
+                    "line_number": 3,
+                    "args": [],
+                    "class_context": "Worker",
+                    "class_context_line": 2,
+                },
+                {
+                    "name": "run",
+                    "line_number": 8,
+                    "args": [],
+                    "class_context": "Worker",
+                    "class_context_line": 7,
+                },
+            ],
+            "classes": [
+                {"name": "Worker", "line_number": 2},
+                {"name": "Worker", "line_number": 7},
+            ],
+            "variables": [],
+            "imports": [],
+            "function_calls": [],
+        }
+        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str="/repo")
+
+        class_fn_call = next(
+            c
+            for c in session.calls
+            if "MATCH (c:Class" in c["query"] and "MERGE (c)-[:CONTAINS]->(fn)" in c["query"]
+        )
+        assert "c.line_number = row.class_line" in class_fn_call["query"]
+        assert class_fn_call["kwargs"]["batch"] == [
+            {"class_name": "Worker", "class_line": 2, "func_name": "run", "func_line": 3},
+            {"class_name": "Worker", "class_line": 7, "func_name": "run", "func_line": 8},
+        ]
+
+    def test_non_javascript_import_rows_are_schema_complete(self):
+        """Imports without full_import_name/source parity should not break Kuzu UNWIND."""
+        session = _RecordingSession(responses=[_FakeResult()])
+        gb, _ = _make_graph_builder(session)
+        file_data = {
+            "path": "/repo/main.go",
+            "lang": "go",
+            "is_dependency": False,
+            "functions": [],
+            "classes": [],
+            "variables": [],
+            "imports": [
+                {
+                    "name": "fmt",
+                    "source": "fmt",
+                    "alias": None,
+                    "line_number": 3,
+                    "lang": "go",
+                }
+            ],
+            "function_calls": [],
+        }
+
+        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str="/repo")
+
+        import_call = next(
+            c for c in session.calls
+            if "MERGE (f)-[r:IMPORTS]->(m)" in c["query"]
+        )
+        assert "m.alias" not in import_call["query"]
+        assert import_call["kwargs"]["batch"] == [
+            {
+                "name": "fmt",
+                "full_import_name": "fmt",
+                "imported_name": "fmt",
+                "alias": None,
+                "line_number": 3,
+                "lang": "go",
+            }
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -664,3 +851,53 @@ class TestWatcherIncrementalHandleModification:
             watcher._handle_modification("/fake/module.py")
 
         mock_gb.link_function_calls.assert_called_once()
+
+
+class TestWriteOrmMappingsDatasourceName:
+    """Regression test for bug: DbTable.datasource_name is null when write_query_links
+    creates the DbTable node before write_orm_mappings runs (ON CREATE SET is a no-op
+    on an existing node). Fix: add ON MATCH SET with COALESCE guard.
+    """
+
+    def _make_writer(self):
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+        mock_driver = MagicMock()
+        mock_session = MagicMock()
+        mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+        mock_db_manager = MagicMock()
+        mock_db_manager.get_driver.return_value = mock_driver
+        writer = GraphWriter(mock_db_manager)
+        return writer, mock_session
+
+    def test_on_match_set_present_in_write_orm_mappings(self):
+        """write_orm_mappings Cypher must include ON MATCH SET so datasource_name
+        is back-filled on DbTable nodes created by write_query_links."""
+        import inspect
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+        src = inspect.getsource(GraphWriter.write_orm_mappings)
+        assert "ON MATCH SET" in src, (
+            "write_orm_mappings is missing ON MATCH SET — DbTable.datasource_name will be "
+            "null when the node was created by write_query_links before write_orm_mappings runs"
+        )
+        assert "COALESCE" in src, (
+            "ON MATCH SET must use COALESCE to avoid overwriting a datasource_name already set"
+        )
+
+    def test_orm_batch_sets_datasource_name_on_existing_node(self):
+        """write_orm_mappings must emit an ON MATCH SET clause that populates
+        datasource_name even when the DbTable node pre-exists."""
+        writer, mock_session = self._make_writer()
+        orm_batch = [{
+            "kind": "class_table",
+            "class_name": "WhiteListDB",
+            "class_path": "/repo/WhiteListDB.java",
+            "orm_table": "whitelist",
+            "datastore": "cassandra",
+            "line_number": 9,
+        }]
+        writer.write_orm_mappings(orm_batch)
+        assert mock_session.run.called
+        query = mock_session.run.call_args[0][0]
+        assert "ON MATCH SET" in query
+        assert "COALESCE" in query

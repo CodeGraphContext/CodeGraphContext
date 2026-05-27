@@ -2,21 +2,52 @@ import * as vscode from "vscode";
 import { spawn } from "child_process";
 import { CgcService } from "../mcp/service";
 import { CgcMcpClient } from "../mcp/client";
+import { cgcEvents } from "../mcp/eventBus";
+import { RepoStats } from "../types/cgc";
 
 export class SidebarControlPanel implements vscode.WebviewViewProvider {
   public static readonly viewType = "cgc-control";
   private view?: vscode.WebviewView;
+  private eventDisposables: Array<() => void> = [];
 
   constructor(
     private readonly service: CgcService,
     private readonly client: CgcMcpClient,
     private readonly context: vscode.ExtensionContext
-  ) {}
+  ) {
+    // Listen for events emitted by other components (dashboard, etc.)
+    // so the sidebar stays in sync when repo/context changes elsewhere.
+    this.eventDisposables.push(
+      cgcEvents.on("repo:changed", (evt) => {
+        const payload = evt.payload as { source?: string } | undefined;
+        // Only refresh if the event came from another component (avoid self-loop)
+        if (payload?.source !== "sidebar") {
+          this.refresh();
+        }
+      }),
+      cgcEvents.on("context:changed", (evt) => {
+        const payload = evt.payload as { source?: string } | undefined;
+        if (payload?.source !== "sidebar") {
+          this.refresh();
+        }
+      }),
+      cgcEvents.on("graph:changed", () => this.refresh()),
+      cgcEvents.on("index:done", () => this.refresh())
+    );
+  }
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
     view.webview.options = { enableScripts: true };
     this.render();
+
+    // Auto-refresh when the sidebar becomes visible (e.g. user expands it).
+    // This catches external changes like repos deleted via CLI.
+    view.onDidChangeVisibility(() => {
+      if (view.visible) {
+        this.refresh();
+      }
+    });
 
     view.webview.onDidReceiveMessage(async (msg: Record<string, unknown>) => {
       await this.handleMessage(msg);
@@ -28,26 +59,50 @@ export class SidebarControlPanel implements vscode.WebviewViewProvider {
     await this.render();
   }
 
-  private async render(): Promise<void> {
+  private async render(explicitMode?: string): Promise<void> {
     if (!this.view) return;
 
-    const repos = await this.service.listRepositories().catch(() => []);
-    const watches = await this.service.listWatches().catch(() => []);
-    const hotspots = await this.service.getComplexityHotspots(10).catch(() => []);
+    let [repos, watches, hotspots, stats] = await Promise.all([
+      this.service.listRepositories().catch(() => []),
+      this.service.listWatches().catch(() => []),
+      this.service.getComplexityHotspots(10).catch(() => []),
+      this.service.getRepoStats().catch(() => ({} as RepoStats)),
+    ]);
     const cfg = vscode.workspace.getConfiguration("cgc");
 
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
     const selectedRepo = cfg.get<string>("repoPath", "") || (repos[0]?.path ?? "");
-    const contextMode = cfg.get<string>("contextMode", "global");
+    const contextMode = explicitMode || cfg.get<string>("contextMode", "global");
+
+    let discoveredContexts: any[] = [];
+    if (contextMode === "shared" || (contextMode === "per-repo" && !selectedRepo)) {
+      discoveredContexts = await this.service.discoverContexts(workspacePath);
+    }
+
+    // If per-repo mode but no local index exists, switch_context on backend will fail 
+    // and it will remain in the global context. To prevent leaking global repos/stats:
+    if (contextMode === "per-repo") {
+      const fs = require("fs");
+      const path = require("path");
+      const rootCgcPath = path.join(workspacePath, ".codegraphcontext");
+      if (!fs.existsSync(rootCgcPath)) {
+        repos = [];
+        watches = [];
+        hotspots = [];
+        stats = {} as RepoStats;
+      }
+    }
 
     this.view.webview.html = this.buildHtml({
       repos,
       watches,
       hotspots,
+      stats,
       selectedRepo,
       contextMode,
       workspacePath,
-      cfg
+      cfg,
+      discoveredContexts
     });
   }
 
@@ -56,15 +111,36 @@ export class SidebarControlPanel implements vscode.WebviewViewProvider {
 
     switch (type) {
       case "change-repo": {
-        const path = msg.value as string;
-        await vscode.workspace.getConfiguration("cgc").update("repoPath", path, vscode.ConfigurationTarget.Workspace);
-        await this.render();
+        try {
+          const path = msg.value as string;
+          await vscode.workspace.getConfiguration("cgc").update("repoPath", path, vscode.ConfigurationTarget.Workspace);
+          const mode = vscode.workspace.getConfiguration("cgc").get<string>("contextMode", "global");
+          if (mode === "shared") {
+            await this.service.switchContext(path);
+          }
+          // Emit so dashboard and other components sync
+          cgcEvents.emit("repo:changed", { source: "sidebar", repoPath: path });
+          await this.render();
+        } catch (e) {
+          vscode.window.showErrorMessage("Repository switch failed: " + String(e));
+          await this.render();
+        }
         break;
       }
       case "change-context": {
-        const mode = msg.value as string;
-        await vscode.workspace.getConfiguration("cgc").update("contextMode", mode, vscode.ConfigurationTarget.Global);
-        await this.render();
+        try {
+          const mode = msg.value as string;
+          // Update Workspace to ensure it overrides any workspace-level settings
+          await vscode.workspace.getConfiguration("cgc").update("contextMode", mode, vscode.ConfigurationTarget.Workspace);
+          const contextManager = new (require("../mcp/contextManager").ContextManager)(this.service, this);
+          await contextManager.initializeContext(mode);
+          // Emit so dashboard and other components sync
+          cgcEvents.emit("context:changed", { source: "sidebar", contextMode: mode });
+          await this.render(mode);
+        } catch (e) {
+          vscode.window.showErrorMessage("Context switch failed: " + String(e));
+          await this.render();
+        }
         break;
       }
       case "visualize-repo": {
@@ -80,16 +156,15 @@ export class SidebarControlPanel implements vscode.WebviewViewProvider {
       case "toggle-watch": {
         const path = msg.path as string;
         if (path) {
-          await this.service.watchWorkspace(path);
+          const terminal = vscode.window.createTerminal("CGC Watch");
+          terminal.show();
+          terminal.sendText(`cgc watch "${path}"`);
           await this.render();
         }
         break;
       }
-      case "refresh-extension": {
-        this.client.dispose();
-        await this.client.ensureStarted();
-        await this.render();
-        vscode.window.showInformationMessage("CGC extension restarted.");
+      case "open-engine-config": {
+        vscode.commands.executeCommand("workbench.action.openSettings", "cgc");
         break;
       }
       case "save-config": {
@@ -118,6 +193,8 @@ export class SidebarControlPanel implements vscode.WebviewViewProvider {
             { location: vscode.ProgressLocation.Notification, title: "Indexing workspace…" },
             async () => { await this.service.indexWorkspace(wp); }
           );
+          // Emit so dashboard refreshes with new index data
+          cgcEvents.emit("graph:changed");
           await this.render();
         }
         break;
@@ -214,6 +291,30 @@ export class SidebarControlPanel implements vscode.WebviewViewProvider {
           );
           break;
         }
+        case "find-importers": {
+          results = await this.service.findImporters(msg.target as string, (msg.file as string) || undefined);
+          break;
+        }
+        case "module-deps": {
+          results = await this.service.findModuleDeps(msg.target as string, (msg.file as string) || undefined);
+          break;
+        }
+        case "class-hierarchy": {
+          results = await this.service.findClassHierarchy(msg.target as string, (msg.file as string) || undefined);
+          break;
+        }
+        case "find-dead-code": {
+          results = await this.service.findDeadCode();
+          break;
+        }
+        case "variable-impact": {
+          results = await this.service.variableImpactRadius(msg.target as string, (msg.file as string) || undefined);
+          break;
+        }
+        case "find-by-decorator": {
+          results = await this.service.findFunctionsByDecorator(msg.target as string);
+          break;
+        }
       }
     } catch (err) {
       error = String(err);
@@ -226,21 +327,32 @@ export class SidebarControlPanel implements vscode.WebviewViewProvider {
     repos: Array<{ repo_name?: string; path?: string }>;
     watches: string[];
     hotspots: Array<{ function_name?: string; cyclomatic_complexity?: number; path?: string }>;
+    stats: RepoStats;
     selectedRepo: string;
     contextMode: string;
     workspacePath: string;
     cfg: vscode.WorkspaceConfiguration;
+    discoveredContexts?: Array<{ name?: string; path: string }>;
   }): string {
-    const { repos, watches, hotspots, selectedRepo, contextMode, workspacePath, cfg } = data;
+    const { repos, watches, hotspots, stats, selectedRepo, contextMode, workspacePath, cfg, discoveredContexts = [] } = data;
+    const fnCount = stats.function_count ?? stats.total_functions;
+    const clCount = stats.class_count ?? stats.total_classes;
+    const fileCount = stats.file_count ?? stats.total_files;
+    const statsStr = [fnCount !== undefined ? `${fnCount} fn` : null, clCount !== undefined ? `${clCount} cls` : null, fileCount !== undefined ? `${fileCount} files` : null].filter(Boolean).join(" · ") || "No index data";
 
-    const repoOptions = [
-      `<option value="">Auto (workspace)</option>`,
-      ...repos.map(r => {
-        const p = r.path ?? "";
-        const sel = p === selectedRepo ? "selected" : "";
-        return `<option value="${esc(p)}" ${sel}>${esc((r.repo_name ?? p) || "Repository")}</option>`;
-      })
-    ].join("");
+    const contextOptions = ["global", "per-repo", "shared"].map(m =>
+      `<option value="${m}" ${m === contextMode ? "selected" : ""}>${m}</option>`
+    ).join("");
+
+
+    const repoOptions = repos.length > 0
+      ? `<option value="" ${!selectedRepo ? "selected" : ""}>Merged View (All Repos)</option>` + 
+        repos.map(r => {
+          const p = r.path ?? "";
+          const sel = p === selectedRepo ? "selected" : "";
+          return `<option value="${esc(p)}" ${sel}>${esc((r.repo_name ?? p) || "Repository")}</option>`;
+        }).join("")
+      : `<option disabled>No repositories indexed</option>`;
 
     const watchItems = watches.map(w =>
       `<label class="watch-item"><input type="checkbox" checked value="${esc(w)}"> <span title="${esc(w)}">${esc(w.split("/").slice(-2).join("/"))}</span></label>`
@@ -258,21 +370,7 @@ export class SidebarControlPanel implements vscode.WebviewViewProvider {
       </div>`;
     }).join("") || `<div class="empty-state">Run an index first</div>`;
 
-    const executable = esc(cfg.get<string>("executable", "cgc"));
-    const dbMode = cfg.get<string>("databaseMode", "falkordb");
-    const pythonPkg = esc(cfg.get<string>("pythonPackagePath", ""));
-    const neo4jUri = esc(cfg.get<string>("neo4jUri", ""));
-    const maxTokens = cfg.get<number>("maxToolResponseTokens", 0);
-    const complexityThreshold = cfg.get<number>("complexityWarningThreshold", 10);
-    const maxDead = cfg.get<number>("maxDeadCodeDiagnostics", 100);
-
-    const dbOptions = ["falkordb", "ladybugdb", "neo4j"].map(d =>
-      `<option value="${d}" ${d === dbMode ? "selected" : ""}>${d}</option>`
-    ).join("");
-
-    const contextOptions = ["global", "per-repo", "named"].map(m =>
-      `<option value="${m}" ${m === contextMode ? "selected" : ""}>${m}</option>`
-    ).join("");
+    // Configuration variables removed from HTML building
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -354,14 +452,27 @@ label.field-label:first-child{margin-top:0}
     <span class="arrow" style="margin-left:auto">▶</span>
   </div>
   <div class="section-body">
-    <label class="field-label">Context Mode</label>
+    <label class="field-label" style="margin-top:0">Context Mode</label>
     <select id="contextMode" onchange="changeContext(this.value)">
       ${contextOptions}
     </select>
+
+    ${contextMode === "shared" ? `
+    <label class="field-label" style="margin-top:8px">Available Shared Contexts</label>
+    <select id="repoSelect" onchange="changeRepo(this.value)">
+      <option value="">-- Choose a Context --</option>
+      ${discoveredContexts.length ? discoveredContexts.map(c => `<option value="${esc(c.path)}" ${c.path === selectedRepo ? "selected" : ""}>${esc(c.name || c.path)}</option>`).join("") : '<option disabled>No shared contexts found</option>'}
+    </select>
+    ` : `
     <label class="field-label" style="margin-top:8px">Active Repository</label>
     <select id="repoSelect" onchange="changeRepo(this.value)">
       ${repoOptions}
     </select>
+    `}
+
+    <div style="margin-top:8px;padding:6px 8px;background:var(--vscode-editor-background);border-radius:5px;border:1px solid var(--vscode-widget-border);font-size:11px;color:var(--vscode-descriptionForeground)" title="Indexed entity counts">
+      📊 ${esc(statsStr)}
+    </div>
   </div>
 </div>
 
@@ -373,8 +484,8 @@ label.field-label:first-child{margin-top:0}
   </div>
   <div class="section-body">
     <button class="btn btn-primary" onclick="visualize()">🗺 Visualize Entire Repo</button>
-    <button class="btn btn-secondary" onclick="refreshExtension()">🔄 Refresh Extension</button>
     <button class="btn btn-secondary" onclick="indexWorkspace()">📦 Re-Index Workspace</button>
+    <button class="btn btn-secondary" onclick="openEngineConfig()">⚙ Engine Settings</button>
   </div>
 </div>
 
@@ -389,7 +500,7 @@ label.field-label:first-child{margin-top:0}
     <div class="divider"></div>
     <label class="field-label">Watch new path</label>
     <div class="row mt4">
-      <input type="text" id="newWatchPath" placeholder="${esc(workspacePath)}" value="${esc(workspacePath)}">
+      <input type="text" id="newWatchPath" placeholder="e.g. /path/to/folder">
       <button class="btn btn-icon" onclick="addWatch()">+ Add</button>
     </div>
   </div>
@@ -414,22 +525,26 @@ label.field-label:first-child{margin-top:0}
   </div>
   <div class="section-body">
 
-    <!-- List Functions -->
-    <div class="query-card" id="qc-list-functions" onclick="selectQuery('list-functions')">
-      <div class="query-title">List all functions</div>
-      <div class="query-desc">Show every function in the active repo</div>
-    </div>
+    <label class="field-label" style="margin-top:0">Select Query Type</label>
+    <select id="queryType" onchange="selectQuery(this.value)">
+      <option value="" disabled selected>-- Choose a Query --</option>
+      <option value="list-functions">List all functions</option>
+      <option value="list-classes">List all classes</option>
+      <option value="list-imports">List all imports of a file</option>
+      <option value="list-callers">List all callers of a function</option>
+      <option value="list-callees">List all callees of a function</option>
+      <option value="call-chain">Find call chain A → B</option>
+      <option value="find-importers">Find importers of module</option>
+      <option value="module-deps">Module dependencies</option>
+      <option value="class-hierarchy">Class hierarchy</option>
+      <option value="variable-impact">Variable impact radius</option>
+      <option value="find-by-decorator">Functions by decorator @</option>
+      <option value="find-dead-code">Find dead code (repo-wide)</option>
+    </select>
 
-    <!-- List Classes -->
-    <div class="query-card" id="qc-list-classes" onclick="selectQuery('list-classes')">
-      <div class="query-title">List all classes</div>
-      <div class="query-desc">Show every class in the active repo</div>
-    </div>
+    <div id="queryFormsContainer" style="margin-top: 12px; padding: 10px; border: 1px solid var(--vscode-widget-border); border-radius: 6px; background: var(--vscode-editor-background); display: none;">
 
-    <!-- Imports of file -->
-    <div class="query-card" id="qc-list-imports" onclick="selectQuery('list-imports')">
-      <div class="query-title">List all imports of file <span class="badge badge-yellow">file</span></div>
-      <div class="query-desc">What does this file import?</div>
+      <!-- Imports of file -->
       <div class="query-form" id="qf-list-imports">
         <label class="field-label">File path (absolute) — defaults to active file</label>
         <div class="input-row">
@@ -438,12 +553,8 @@ label.field-label:first-child{margin-top:0}
           <button class="btn btn-icon" title="Use editor selection" onclick="fillFromEditor(event,'qi-import-file')">📍</button>
         </div>
       </div>
-    </div>
 
-    <!-- Callers of -->
-    <div class="query-card" id="qc-list-callers" onclick="selectQuery('list-callers')">
-      <div class="query-title">List all callers of <span class="badge badge-yellow">fn</span></div>
-      <div class="query-desc">Who calls this function?</div>
+      <!-- Callers of -->
       <div class="query-form" id="qf-list-callers">
         <label class="field-label">Function name</label>
         <div class="input-row">
@@ -456,12 +567,8 @@ label.field-label:first-child{margin-top:0}
           <button class="btn btn-icon" onclick="useActiveFile(event,'qi-caller-file')">📄</button>
         </div>
       </div>
-    </div>
 
-    <!-- Callees of -->
-    <div class="query-card" id="qc-list-callees" onclick="selectQuery('list-callees')">
-      <div class="query-title">List all callees of <span class="badge badge-yellow">fn</span></div>
-      <div class="query-desc">What does this function call?</div>
+      <!-- Callees of -->
       <div class="query-form" id="qf-list-callees">
         <label class="field-label">Function name</label>
         <div class="input-row">
@@ -476,12 +583,8 @@ label.field-label:first-child{margin-top:0}
         <label class="field-label">Depth (1 = direct calls, 2+ = transitive)</label>
         <input type="number" id="qi-callee-depth" value="1" min="1" max="10" style="margin-top:4px">
       </div>
-    </div>
 
-    <!-- Call chain -->
-    <div class="query-card" id="qc-call-chain" onclick="selectQuery('call-chain')">
-      <div class="query-title">Find call chain <span class="badge badge-yellow">A</span> → <span class="badge badge-yellow">B</span></div>
-      <div class="query-desc">Trace execution path between two functions</div>
+      <!-- Call chain -->
       <div class="query-form" id="qf-call-chain">
         <label class="field-label">From function</label>
         <div class="input-row">
@@ -504,6 +607,60 @@ label.field-label:first-child{margin-top:0}
           <button class="btn btn-icon" onclick="useActiveFile(event,'qi-chain-to-file')">📄</button>
         </div>
       </div>
+
+      <!-- Find importers of -->
+      <div class="query-form" id="qf-find-importers">
+        <label class="field-label">Module or file name</label>
+        <div class="input-row">
+          <input type="text" id="qi-importers-target" placeholder="e.g. utils or requests">
+          <button class="btn btn-icon" onclick="fillFromEditor(event,'qi-importers-target')">📍</button>
+        </div>
+      </div>
+
+      <!-- Module dependencies -->
+      <div class="query-form" id="qf-module-deps">
+        <label class="field-label">Module name</label>
+        <div class="input-row">
+          <input type="text" id="qi-moddeps-target" placeholder="e.g. myapp.utils">
+          <button class="btn btn-icon" onclick="fillFromEditor(event,'qi-moddeps-target')">📍</button>
+        </div>
+      </div>
+
+      <!-- Class hierarchy -->
+      <div class="query-form" id="qf-class-hierarchy">
+        <label class="field-label">Class name</label>
+        <div class="input-row">
+          <input type="text" id="qi-classhier-target" placeholder="e.g. BaseModel">
+          <button class="btn btn-icon" onclick="fillFromEditor(event,'qi-classhier-target')">📍</button>
+        </div>
+        <label class="field-label">File path (optional)</label>
+        <div class="input-row">
+          <input type="text" id="qi-classhier-file" placeholder="/path/to/file.py">
+          <button class="btn btn-icon" onclick="useActiveFile(event,'qi-classhier-file')">📄</button>
+        </div>
+      </div>
+
+      <!-- Variable impact radius -->
+      <div class="query-form" id="qf-variable-impact">
+        <label class="field-label">Variable name</label>
+        <div class="input-row">
+          <input type="text" id="qi-varimp-target" placeholder="e.g. db_connection">
+          <button class="btn btn-icon" onclick="fillFromEditor(event,'qi-varimp-target')">📍</button>
+        </div>
+        <label class="field-label">File path (optional)</label>
+        <div class="input-row">
+          <input type="text" id="qi-varimp-file" placeholder="/path/to/file.py">
+          <button class="btn btn-icon" onclick="useActiveFile(event,'qi-varimp-file')">📄</button>
+        </div>
+      </div>
+
+      <!-- Find by decorator -->
+      <div class="query-form" id="qf-find-by-decorator">
+        <label class="field-label">Decorator name (without @)</label>
+        <div class="input-row">
+          <input type="text" id="qi-decorator-target" placeholder="e.g. app.route or property">
+        </div>
+      </div>
     </div>
 
     <button class="btn btn-primary" id="runQueryBtn" onclick="runQuery()" style="display:none">▶ Run Query</button>
@@ -511,37 +668,6 @@ label.field-label:first-child{margin-top:0}
   </div>
 </div>
 
-<!-- ═══ 6. CONFIG ═══ -->
-<div class="section" id="sec-config">
-  <div class="section-header" onclick="toggle('sec-config')">
-    <span class="section-icon">⚙️</span> Configuration
-    <span class="arrow" style="margin-left:auto">▶</span>
-  </div>
-  <div class="section-body">
-    <label class="field-label">CGC Executable</label>
-    <input type="text" id="cfg-executable" value="${executable}" placeholder="cgc or /path/to/cgc">
-
-    <label class="field-label">Database Mode</label>
-    <select id="cfg-dbMode">${dbOptions}</select>
-
-    <label class="field-label">Python Package Path / uvx</label>
-    <input type="text" id="cfg-pythonPkg" value="${pythonPkg}" placeholder="Leave blank to use PATH">
-
-    <label class="field-label">Neo4j URI</label>
-    <input type="text" id="cfg-neo4jUri" value="${neo4jUri}" placeholder="bolt://localhost:7687">
-
-    <label class="field-label">Max Tool Response Tokens (0 = unlimited)</label>
-    <input type="number" id="cfg-maxTokens" value="${maxTokens}" min="0">
-
-    <label class="field-label">Complexity Warning Threshold</label>
-    <input type="number" id="cfg-complexityThreshold" value="${complexityThreshold}" min="1">
-
-    <label class="field-label">Max Dead Code Diagnostics</label>
-    <input type="number" id="cfg-maxDead" value="${maxDead}" min="0">
-
-    <button class="btn btn-primary" onclick="saveConfig()">💾 Save &amp; Restart</button>
-  </div>
-</div>
 
 <script>
 const vscode = acquireVsCodeApi();
@@ -555,23 +681,32 @@ function toggle(id) {
 function changeContext(val) { vscode.postMessage({ type: 'change-context', value: val }); }
 function changeRepo(val)    { vscode.postMessage({ type: 'change-repo', value: val }); }
 function visualize()        { vscode.postMessage({ type: 'visualize-repo' }); }
-function refreshExtension() { vscode.postMessage({ type: 'refresh-extension' }); }
 function indexWorkspace()   { vscode.postMessage({ type: 'index-workspace' }); }
+function openEngineConfig() { vscode.postMessage({ type: 'open-engine-config' }); }
+
 function addWatch() {
   const path = document.getElementById('newWatchPath').value.trim();
   if (path) vscode.postMessage({ type: 'toggle-watch', path });
 }
 
 function selectQuery(type) {
-  document.querySelectorAll('.query-card').forEach(c => c.classList.remove('active'));
-  document.querySelectorAll('.query-form').forEach(f => f.classList.remove('show'));
+  if (!type) return;
   activeQuery = type;
-  const card = document.getElementById('qc-' + type);
+  document.querySelectorAll('.query-form').forEach(el => el.classList.remove('show'));
+
   const form = document.getElementById('qf-' + type);
-  if (card) card.classList.add('active');
-  if (form) form.classList.add('show');
+  const container = document.getElementById('queryFormsContainer');
+  if (form) {
+    container.style.display = 'block';
+    form.classList.add('show');
+  } else {
+    container.style.display = 'none';
+  }
+
   document.getElementById('runQueryBtn').style.display = 'flex';
   document.getElementById('queryResult').style.display = 'none';
+  document.getElementById('queryResult').innerHTML = '';
+
   // Auto-fill active file for imports
   if (type === 'list-imports') vscode.postMessage({ type: 'get-active-file' });
 }
@@ -610,22 +745,24 @@ function runQuery() {
     msg.to       = v('qi-chain-to');
     msg.fromFile = v('qi-chain-from-file');
     msg.toFile   = v('qi-chain-to-file');
+  } else if (activeQuery === 'find-importers') {
+    msg.target = v('qi-importers-target');
+  } else if (activeQuery === 'module-deps') {
+    msg.target = v('qi-moddeps-target');
+  } else if (activeQuery === 'class-hierarchy') {
+    msg.target = v('qi-classhier-target');
+    msg.file   = v('qi-classhier-file');
+  } else if (activeQuery === 'variable-impact') {
+    msg.target = v('qi-varimp-target');
+    msg.file   = v('qi-varimp-file');
+  } else if (activeQuery === 'find-by-decorator') {
+    msg.target = v('qi-decorator-target');
   }
+  // find-dead-code and list-functions/list-classes have no inputs
   vscode.postMessage(msg);
 }
 
-function saveConfig() {
-  vscode.postMessage({
-    type: 'save-config',
-    executable: v('cfg-executable'),
-    databaseMode: document.getElementById('cfg-dbMode').value,
-    pythonPackagePath: v('cfg-pythonPkg'),
-    neo4jUri: v('cfg-neo4jUri'),
-    maxToolResponseTokens: Number(v('cfg-maxTokens') || 0),
-    complexityWarningThreshold: Number(v('cfg-complexityThreshold') || 10),
-    maxDeadCodeDiagnostics: Number(v('cfg-maxDead') || 100),
-  });
-}
+
 
 window.addEventListener('message', e => {
   const m = e.data;

@@ -2,18 +2,15 @@ import { Button } from "@/components/ui/button";
 import { Mail, MapPin, Phone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { createClient } from "@supabase/supabase-js";
+import { getSupabaseClient } from "@/lib/supabase-client";
 import { FaGithub, FaDiscord } from "react-icons/fa";
 import { SiPypi } from "react-icons/si";
 import { FiBookOpen } from "react-icons/fi";
 
-// Only create Supabase client if environment variables are set
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : null;
+  supabaseUrl && supabaseAnonKey ? getSupabaseClient() : null;
 
 const Footer = () => {
   const [email, setEmail] = useState("");
@@ -96,9 +93,16 @@ const Footer = () => {
           <div className="flex-1 flex flex-col sm:flex-row gap-12">
             {/* Brand */}
             <div className="flex-1">
-              <h3 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent mb-4">
-                CodeGraphContext
-              </h3>
+              <div className="flex items-center gap-3 mb-4 select-none">
+                <img
+                  src="/cgcIcon.png"
+                  className="w-10 h-10 drop-shadow-[0_0_8px_rgba(168,85,247,0.4)]"
+                  alt="CodeGraphContext Logo"
+                />
+                <h3 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                  CodeGraphContext
+                </h3>
+              </div>
               <p className="text-muted-foreground mb-6 leading-relaxed max-w-sm">
                 Transform your codebase into an intelligent knowledge graph for
                 AI assistants.
@@ -171,7 +175,7 @@ const Footer = () => {
                   className="social-btn social-docs social-float"
                 >
                   <a
-                    href="https://codegraphcontext.github.io/CodeGraphContext/"
+                    href="https://codegraphcontext.github.io/"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center"
@@ -192,7 +196,7 @@ const Footer = () => {
               <ul className="space-y-3 text-muted-foreground">
                 <li>
                   <a
-                    href="https://codegraphcontext.github.io/CodeGraphContext/"
+                    href="https://codegraphcontext.github.io/"
                     className="hover:text-foreground transition-smooth"
                     target="_blank"
                     rel="noopener noreferrer"

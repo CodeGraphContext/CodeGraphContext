@@ -126,3 +126,53 @@ def test_build_ignore_spec_auto_creates_local_even_with_explicit_context_file(tm
     assert spec.match_file("notes.txt")
     assert spec.match_file("assets/image.png")
     assert not spec.match_file("src/main.py")
+
+
+def test_safe_walk_directory_pruning_and_error_handling(tmp_path: Path, monkeypatch):
+    from codegraphcontext.tools.indexing.discovery import safe_walk
+    from pathspec import PathSpec
+    from pathspec.patterns import GitWildMatchPattern
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    # Create directory structure
+    (repo / "src").mkdir()
+    (repo / "src" / "main.py").touch()
+    (repo / "node_modules").mkdir()
+    (repo / "node_modules" / "package.json").touch()
+    (repo / "restricted_dir").mkdir()
+    (repo / "restricted_dir" / "secret.txt").touch()
+
+    # 1. Test pruning with .cgcignore patterns
+    spec = PathSpec.from_lines(GitWildMatchPattern, ["node_modules/"])
+    files = safe_walk(repo, spec=spec, ignore_root=repo)
+    file_names = {f.name for f in files}
+    assert "main.py" in file_names
+    assert "package.json" not in file_names
+    assert "secret.txt" in file_names
+
+    # 2. Test pruning with IGNORE_DIRS
+    files_pruned_dirs = safe_walk(repo, ignore_dirs={"restricted_dir"}, ignore_root=repo)
+    pruned_names = {f.name for f in files_pruned_dirs}
+    assert "main.py" in pruned_names
+    assert "package.json" in pruned_names
+    assert "secret.txt" not in pruned_names
+
+    # 3. Test walk error handling / OSError recovery
+    import os
+    original_walk = os.walk
+
+    def mock_walk(top, topdown=True, onerror=None, followlinks=False):
+        if onerror and "restricted_dir" in top:
+            onerror(PermissionError("Permission Denied mock error"))
+            return iter([])
+        return original_walk(top, topdown=topdown, onerror=onerror, followlinks=followlinks)
+
+    monkeypatch.setattr(os, "walk", mock_walk)
+
+    # Walk should run successfully without raising PermissionError and still find other files
+    files_with_error = safe_walk(repo, ignore_root=repo)
+    recovered_names = {f.name for f in files_with_error}
+    assert "main.py" in recovered_names
+

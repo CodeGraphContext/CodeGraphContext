@@ -1,3 +1,4 @@
+# src/codegraphcontext/utils/git_utils.py
 """Lightweight git helpers used across the indexing pipeline."""
 
 from __future__ import annotations
@@ -21,5 +22,18 @@ def get_repo_commit_hash(repo_path: Path) -> Optional[str]:
             stderr=subprocess.DEVNULL,
         ).decode().strip()
         return sha if sha else None
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return None
+
+
+def get_repo_branch_name(repo_path: Path) -> Optional[str]:
+    """Return the active git branch name for *repo_path*, or ``None``."""
+    try:
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=repo_path,
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        return branch if branch else None
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return None

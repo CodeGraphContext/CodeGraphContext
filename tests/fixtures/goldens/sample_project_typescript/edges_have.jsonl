@@ -1,0 +1,1330 @@
+{"from": "0", "to": "2", "type": "CONTAINS", "properties": {}}
+{"from": "0", "to": "59", "type": "CONTAINS", "properties": {}}
+{"from": "0", "to": "65", "type": "CONTAINS", "properties": {}}
+{"from": "0", "to": "383", "type": "CONTAINS", "properties": {}}
+{"from": "0", "to": "748", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "5", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "6", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "7", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "8", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "9", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "10", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "11", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "52", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "53", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "54", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "60", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "61", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "62", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "63", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "64", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "382", "type": "IMPORTS", "properties": {"imported_name": "./tough_circular_b", "alias": "", "line_number": 5}}
+{"from": "2", "to": "1", "type": "CONTAINS", "properties": {}}
+{"from": "2", "to": "3", "type": "CONTAINS", "properties": {}}
+{"from": "2", "to": "4", "type": "CONTAINS", "properties": {}}
+{"from": "2", "to": "55", "type": "CONTAINS", "properties": {}}
+{"from": "2", "to": "90", "type": "CONTAINS", "properties": {}}
+{"from": "2", "to": "113", "type": "CONTAINS", "properties": {}}
+{"from": "2", "to": "147", "type": "CONTAINS", "properties": {}}
+{"from": "2", "to": "231", "type": "CONTAINS", "properties": {}}
+{"from": "2", "to": "548", "type": "CONTAINS", "properties": {}}
+{"from": "2", "to": "593", "type": "CONTAINS", "properties": {}}
+{"from": "2", "to": "594", "type": "CONTAINS", "properties": {}}
+{"from": "2", "to": "688", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "12", "type": "CALLS", "properties": {"line_number": 508, "args": ["user.id"], "full_call_name": "fetchUser(user.id)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "12", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "13", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "14", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "15", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "16", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "17", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "18", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "19", "type": "CALLS", "properties": {"line_number": 543, "args": ["\"hello\""], "full_call_name": "isString(\"hello\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "19", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "20", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "21", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "22", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "23", "type": "CALLS", "properties": {"line_number": 524, "args": ["{\n    id: \"123\",\n    name: \"John Doe\",\n    email: \"john@example.com\",\n    age: \"30\"\n  }"], "full_call_name": "validateUser({\n    id: \"123\",\n    name: \"John Doe\",\n    email: \"john@example.com\",\n    age: \"30\"\n  })", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "23", "type": "CALLS", "properties": {"line_number": 501, "args": ["userData"], "full_call_name": "validateUser(userData)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "23", "type": "CALLS", "properties": {"line_number": 531, "args": ["{\n    id: \"\",\n    name: \"J\",\n    email: \"invalid-email\",\n    age: \"200\"\n  }"], "full_call_name": "validateUser({\n    id: \"\",\n    name: \"J\",\n    email: \"invalid-email\",\n    age: \"200\"\n  })", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "23", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "24", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "25", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "26", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "27", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "28", "type": "CALLS", "properties": {"line_number": 544, "args": ["42"], "full_call_name": "isNumber(42)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "28", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "29", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "30", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "31", "type": "CALLS", "properties": {"line_number": 503, "args": ["validationResult"], "full_call_name": "isErr(validationResult)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "31", "type": "CALLS", "properties": {"line_number": 510, "args": ["fetchResult"], "full_call_name": "isErr(fetchResult)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "31", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "32", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "33", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "34", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "35", "type": "CALLS", "properties": {"line_number": 495, "args": ["(error) => {\n  console.error(\"Unexpected error:\", error);\n}"], "full_call_name": "errorBoundary.onGlobalError((error) => {\n  console.error(\"Unexpected error:\", error);\n})", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "35", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "36", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "37", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "38", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "39", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "40", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "41", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "42", "type": "CALLS", "properties": {"line_number": 390, "args": ["error"], "full_call_name": "this.handle(error)", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "42", "type": "CALLS", "properties": {"line_number": 382, "args": ["error"], "full_call_name": "this.handle(error)", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "42", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "43", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "44", "type": "CALLS", "properties": {"line_number": 500, "args": ["async (userData: unknown) => {\n  const validationResult = validateUser(userData);\n  \n  if (isErr(validationResult)) {\n    throw new ValidationError(\"User validation failed\", \"user\", userData);\n  }\n\n  const user = validationResult.data;\n  const fetchResult = await fetchUser(user.id);\n  \n  if (isErr(fetchResult)) {\n    throw fetchResult.error;\n  }\n\n  return fetchResult.data;\n}"], "full_call_name": "errorBoundary.wrap(async (userData: unknown) => {\n  const validationResult = validateUser(userData);\n  \n  if (isErr(validationResult)) {\n    throw new ValidationError(\"User validation failed\", \"user\", userData);\n  }\n\n  const user = validationResult.data;\n  const fetchResult = await fetchUser(user.id);\n  \n  if (isErr(fetchResult)) {\n    throw fetchResult.error;\n  }\n\n  return fetchResult.data;\n})", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "44", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "45", "type": "CALLS", "properties": {"line_number": 487, "args": ["\"ValidationError\"", "(error) => {\n  console.error(\"Validation failed:\", error.message);\n}"], "full_call_name": "errorBoundary.onError(\"ValidationError\", (error) => {\n  console.error(\"Validation failed:\", error.message);\n})", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "45", "type": "CALLS", "properties": {"line_number": 491, "args": ["\"NetworkError\"", "(error) => {\n  console.error(\"Network error occurred:\", error.message);\n}"], "full_call_name": "errorBoundary.onError(\"NetworkError\", (error) => {\n  console.error(\"Network error occurred:\", error.message);\n})", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "45", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "46", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "47", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "48", "type": "CALLS", "properties": {"line_number": 545, "args": ["{ name: \"test\" }", "\"name\""], "full_call_name": "hasProperty({ name: \"test\" }, \"name\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "48", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "49", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "50", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "51", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "72", "type": "CALLS", "properties": {"line_number": 485, "args": [], "full_call_name": "new ErrorBoundary()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "72", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "73", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "74", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "75", "type": "CALLS", "properties": {"line_number": 504, "args": ["\"User validation failed\"", "\"user\"", "userData"], "full_call_name": "new ValidationError(\"User validation failed\", \"user\", userData)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "3", "to": "75", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "76", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "77", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "78", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "93", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "94", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "95", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "96", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "97", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "98", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "99", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "100", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "101", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "102", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "103", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "104", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "105", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "106", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "107", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "108", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "109", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "110", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "111", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "112", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "232", "type": "CONTAINS", "properties": {}}
+{"from": "3", "to": "233", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "56", "type": "CALLS", "properties": {"line_number": 371, "args": [], "full_call_name": "createTypeSafeGetter<User>()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "4", "to": "56", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "57", "type": "CALLS", "properties": {"line_number": 342, "args": ["\"user@example.com\""], "full_call_name": "createEmail(\"user@example.com\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "4", "to": "57", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "58", "type": "CALLS", "properties": {"line_number": 341, "args": ["123"], "full_call_name": "createUserId(123)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "4", "to": "58", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "66", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "67", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "68", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "69", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "70", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "71", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "83", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "84", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "85", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "86", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "87", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "88", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "89", "type": "CONTAINS", "properties": {}}
+{"from": "6", "to": "79", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "7", "to": "80", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "9", "to": "304", "type": "CALLS", "properties": {"line_number": 12, "args": [], "full_call_name": "this.b.respond()", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "10", "to": "81", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "11", "to": "82", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "12", "to": "21", "type": "CALLS", "properties": {"line_number": 473, "args": ["new NotFoundError(\"User\", id)"], "full_call_name": "Err(new NotFoundError(\"User\", id))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "12", "to": "21", "type": "CALLS", "properties": {"line_number": 468, "args": ["new NetworkError(\"Failed to fetch user\", 500, `/api/users/${id}`)"], "full_call_name": "Err(new NetworkError(\"Failed to fetch user\", 500, `/api/users/${id}`))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "12", "to": "21", "type": "CALLS", "properties": {"line_number": 461, "args": ["new ValidationError(\"Invalid user ID\", \"id\", id)"], "full_call_name": "Err(new ValidationError(\"Invalid user ID\", \"id\", id))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "12", "to": "49", "type": "CALLS", "properties": {"line_number": 476, "args": ["{\n    id,\n    name: `User ${id}`,\n    email: `user${id}@example.com`,\n    age: 25\n  }"], "full_call_name": "Ok({\n    id,\n    name: `User ${id}`,\n    email: `user${id}@example.com`,\n    age: 25\n  })", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "12", "to": "75", "type": "CALLS", "properties": {"line_number": 461, "args": ["\"Invalid user ID\"", "\"id\"", "id"], "full_call_name": "new ValidationError(\"Invalid user ID\", \"id\", id)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "12", "to": "76", "type": "CALLS", "properties": {"line_number": 473, "args": ["\"User\"", "id"], "full_call_name": "new NotFoundError(\"User\", id)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "12", "to": "77", "type": "CALLS", "properties": {"line_number": 468, "args": ["\"Failed to fetch user\"", "500", "`/api/users/${id}`"], "full_call_name": "new NetworkError(\"Failed to fetch user\", 500, `/api/users/${id}`)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "12", "to": "234", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "13", "to": "21", "type": "CALLS", "properties": {"line_number": 337, "args": ["new ValidationError(\n      `Parse error: ${error instanceof Error ? error.message : error}`,\n      \"value\",\n      value\n    )"], "full_call_name": "Err(new ValidationError(\n      `Parse error: ${error instanceof Error ? error.message : error}`,\n      \"value\",\n      value\n    ))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "13", "to": "49", "type": "CALLS", "properties": {"line_number": 335, "args": ["parser(value)"], "full_call_name": "Ok(parser(value))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "13", "to": "75", "type": "CALLS", "properties": {"line_number": 337, "args": ["`Parse error: ${error instanceof Error ? error.message : error}`", "\"value\"", "value"], "full_call_name": "new ValidationError(\n      `Parse error: ${error instanceof Error ? error.message : error}`,\n      \"value\",\n      value\n    )", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "13", "to": "235", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "13", "to": "236", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "14", "to": "17", "type": "CALLS", "properties": {"line_number": 174, "args": ["value"], "full_call_name": "isObject(value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "14", "to": "75", "type": "CALLS", "properties": {"line_number": 175, "args": ["\"Expected object\"", "\"value\"", "value"], "full_call_name": "new ValidationError(\"Expected object\", \"value\", value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "14", "to": "237", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "15", "to": "238", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "15", "to": "239", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "16", "to": "21", "type": "CALLS", "properties": {"line_number": 105, "args": ["fn(result.error)"], "full_call_name": "Err(fn(result.error))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "16", "to": "31", "type": "CALLS", "properties": {"line_number": 105, "args": ["result"], "full_call_name": "isErr(result)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "16", "to": "240", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "16", "to": "241", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "17", "to": "242", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "18", "to": "243", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "18", "to": "244", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "19", "to": "245", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "20", "to": "32", "type": "CALLS", "properties": {"line_number": 91, "args": ["result"], "full_call_name": "isOk(result)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "20", "to": "49", "type": "CALLS", "properties": {"line_number": 91, "args": ["fn(result.data)"], "full_call_name": "Ok(fn(result.data))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "20", "to": "246", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "20", "to": "247", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "21", "to": "248", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "22", "to": "249", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "22", "to": "250", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "23", "to": "37", "type": "CALLS", "properties": {"line_number": 456, "args": ["userData", "userSchema"], "full_call_name": "SchemaValidator.validateObject(userData, userSchema)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "23", "to": "251", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "24", "to": "21", "type": "CALLS", "properties": {"line_number": 325, "args": ["new ValidationError(\"Invalid float\", \"value\", value)"], "full_call_name": "Err(new ValidationError(\"Invalid float\", \"value\", value))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "24", "to": "49", "type": "CALLS", "properties": {"line_number": 327, "args": ["parsed"], "full_call_name": "Ok(parsed)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "24", "to": "75", "type": "CALLS", "properties": {"line_number": 325, "args": ["\"Invalid float\"", "\"value\"", "value"], "full_call_name": "new ValidationError(\"Invalid float\", \"value\", value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "24", "to": "252", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "25", "to": "21", "type": "CALLS", "properties": {"line_number": 317, "args": ["new ValidationError(\"Invalid integer\", \"value\", value)"], "full_call_name": "Err(new ValidationError(\"Invalid integer\", \"value\", value))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "25", "to": "49", "type": "CALLS", "properties": {"line_number": 319, "args": ["parsed"], "full_call_name": "Ok(parsed)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "25", "to": "75", "type": "CALLS", "properties": {"line_number": 317, "args": ["\"Invalid integer\"", "\"value\"", "value"], "full_call_name": "new ValidationError(\"Invalid integer\", \"value\", value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "25", "to": "253", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "26", "to": "48", "type": "CALLS", "properties": {"line_number": 183, "args": ["obj", "prop"], "full_call_name": "hasProperty(obj, prop)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "26", "to": "75", "type": "CALLS", "properties": {"line_number": 184, "args": ["`Expected property \"${prop}\"`", "prop", "obj"], "full_call_name": "new ValidationError(`Expected property \"${prop}\"`, prop, obj)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "26", "to": "254", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "26", "to": "255", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "27", "to": "19", "type": "CALLS", "properties": {"line_number": 162, "args": ["value"], "full_call_name": "isString(value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "27", "to": "75", "type": "CALLS", "properties": {"line_number": 163, "args": ["\"Expected string\"", "\"value\"", "value"], "full_call_name": "new ValidationError(\"Expected string\", \"value\", value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "27", "to": "256", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "28", "to": "257", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "29", "to": "17", "type": "CALLS", "properties": {"line_number": 136, "args": ["obj"], "full_call_name": "isObject(obj)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "29", "to": "258", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "29", "to": "259", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "30", "to": "32", "type": "CALLS", "properties": {"line_number": 98, "args": ["result"], "full_call_name": "isOk(result)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "30", "to": "260", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "30", "to": "261", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "31", "to": "262", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "32", "to": "263", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "33", "to": "264", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "33", "to": "265", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "33", "to": "266", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "33", "to": "267", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "34", "to": "21", "type": "CALLS", "properties": {"line_number": 412, "args": ["error instanceof Error ? error : new Error(String(error))"], "full_call_name": "Err(error instanceof Error ? error : new Error(String(error)))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "34", "to": "49", "type": "CALLS", "properties": {"line_number": 410, "args": ["result"], "full_call_name": "Ok(result)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "34", "to": "268", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "34", "to": "404", "type": "CALLS", "properties": {"line_number": 412, "args": ["error"], "full_call_name": "String(error)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "35", "to": "269", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "36", "to": "13", "type": "CALLS", "properties": {"line_number": 346, "args": ["json", "JSON.parse"], "full_call_name": "safeParse(json, JSON.parse)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "36", "to": "270", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "37", "to": "17", "type": "CALLS", "properties": {"line_number": 241, "args": ["value"], "full_call_name": "isObject(value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "37", "to": "21", "type": "CALLS", "properties": {"line_number": 242, "args": ["[new ValidationError(\"Expected object\", \"root\", value)]"], "full_call_name": "Err([new ValidationError(\"Expected object\", \"root\", value)])", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "37", "to": "21", "type": "CALLS", "properties": {"line_number": 261, "args": ["errors"], "full_call_name": "Err(errors)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "37", "to": "32", "type": "CALLS", "properties": {"line_number": 252, "args": ["fieldResult"], "full_call_name": "isOk(fieldResult)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "37", "to": "46", "type": "CALLS", "properties": {"line_number": 250, "args": ["fieldValue", "schema"], "full_call_name": "SchemaValidator.validate(fieldValue, schema)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "37", "to": "49", "type": "CALLS", "properties": {"line_number": 261, "args": ["result"], "full_call_name": "Ok(result)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "37", "to": "75", "type": "CALLS", "properties": {"line_number": 242, "args": ["\"Expected object\"", "\"root\"", "value"], "full_call_name": "new ValidationError(\"Expected object\", \"root\", value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "37", "to": "271", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "37", "to": "272", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "38", "to": "28", "type": "CALLS", "properties": {"line_number": 168, "args": ["value"], "full_call_name": "isNumber(value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "38", "to": "75", "type": "CALLS", "properties": {"line_number": 169, "args": ["\"Expected number\"", "\"value\"", "value"], "full_call_name": "new ValidationError(\"Expected number\", \"value\", value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "38", "to": "273", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "39", "to": "274", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "39", "to": "275", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "40", "to": "276", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "40", "to": "277", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "41", "to": "278", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "41", "to": "279", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "41", "to": "280", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "42", "to": "118", "type": "CALLS", "properties": {"line_number": 363, "args": ["error.name"], "full_call_name": "this.errorHandlers.get(error.name)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "42", "to": "281", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "43", "to": "21", "type": "CALLS", "properties": {"line_number": 403, "args": ["error instanceof Error ? error : new Error(String(error))"], "full_call_name": "Err(error instanceof Error ? error : new Error(String(error)))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "43", "to": "49", "type": "CALLS", "properties": {"line_number": 401, "args": ["fn()"], "full_call_name": "Ok(fn())", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "43", "to": "282", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "43", "to": "404", "type": "CALLS", "properties": {"line_number": 403, "args": ["error"], "full_call_name": "String(error)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "44", "to": "283", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "45", "to": "284", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "45", "to": "285", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "46", "to": "21", "type": "CALLS", "properties": {"line_number": 230, "args": ["new ValidationError(rule.message, \"value\", value)"], "full_call_name": "Err(new ValidationError(rule.message, \"value\", value))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "46", "to": "21", "type": "CALLS", "properties": {"line_number": 211, "args": ["new ValidationError(\"Value is required\")"], "full_call_name": "Err(new ValidationError(\"Value is required\"))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "46", "to": "21", "type": "CALLS", "properties": {"line_number": 221, "args": ["new ValidationError(`Transformation failed: ${error}`)"], "full_call_name": "Err(new ValidationError(`Transformation failed: ${error}`))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "46", "to": "46", "type": "CALLS", "properties": {"line_number": 229, "args": ["processedValue"], "full_call_name": "rule.validate(processedValue)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "46", "to": "49", "type": "CALLS", "properties": {"line_number": 234, "args": ["processedValue"], "full_call_name": "Ok(processedValue)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "46", "to": "49", "type": "CALLS", "properties": {"line_number": 209, "args": ["value as T"], "full_call_name": "Ok(value as T)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "46", "to": "75", "type": "CALLS", "properties": {"line_number": 211, "args": ["\"Value is required\""], "full_call_name": "new ValidationError(\"Value is required\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "46", "to": "75", "type": "CALLS", "properties": {"line_number": 221, "args": ["`Transformation failed: ${error}`"], "full_call_name": "new ValidationError(`Transformation failed: ${error}`)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "46", "to": "75", "type": "CALLS", "properties": {"line_number": 230, "args": ["rule.message", "\"value\"", "value"], "full_call_name": "new ValidationError(rule.message, \"value\", value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "46", "to": "286", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "46", "to": "287", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "47", "to": "288", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "48", "to": "17", "type": "CALLS", "properties": {"line_number": 129, "args": ["obj"], "full_call_name": "isObject(obj)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "48", "to": "289", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "48", "to": "290", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "49", "to": "291", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "50", "to": "292", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "50", "to": "293", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "50", "to": "294", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "50", "to": "295", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "51", "to": "296", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "51", "to": "297", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "51", "to": "298", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "52", "to": "6", "type": "CONTAINS", "properties": {}}
+{"from": "53", "to": "5", "type": "CONTAINS", "properties": {}}
+{"from": "54", "to": "8", "type": "CONTAINS", "properties": {}}
+{"from": "54", "to": "9", "type": "CONTAINS", "properties": {}}
+{"from": "54", "to": "11", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "114", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "115", "type": "CALLS", "properties": {"line_number": 430, "args": ["{\n  userId: 1,\n  message: \"Welcome to our platform!\"\n}"], "full_call_name": "asyncExamples.notificationQueue.enqueue({\n  userId: 1,\n  message: \"Welcome to our platform!\"\n})", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "115", "type": "CALLS", "properties": {"line_number": 435, "args": ["{\n  userId: 2,\n  message: \"Your order has been shipped!\"\n}"], "full_call_name": "asyncExamples.notificationQueue.enqueue({\n  userId: 2,\n  message: \"Your order has been shipped!\"\n})", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "115", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "116", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "117", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "118", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "119", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "120", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "121", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "122", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "123", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "124", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "125", "type": "CALLS", "properties": {"line_number": 218, "args": [], "full_call_name": "executeNext()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "125", "type": "CALLS", "properties": {"line_number": 223, "args": [], "full_call_name": "executeNext()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "125", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "126", "type": "CALLS", "properties": {"line_number": 425, "args": ["(event) => {\n  console.log(`User event: ${event.action} for user ${event.userId}`);\n}"], "full_call_name": "asyncExamples.userEvents.subscribe((event) => {\n  console.log(`User event: ${event.action} for user ${event.userId}`);\n})", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "126", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "127", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "128", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "129", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "130", "type": "CALLS", "properties": {"line_number": 410, "args": ["id"], "full_call_name": "fetchUserProfile(id)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "130", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "131", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "132", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "133", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "134", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "135", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "136", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "137", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "138", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "139", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "140", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "141", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "142", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "143", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "144", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "145", "type": "CALLS", "properties": {"line_number": 409, "args": ["async () => {\n      const profile = await fetchUserProfile(id);\n      return profile;\n    }"], "full_call_name": "pool.add(async () => {\n      const profile = await fetchUserProfile(id);\n      return profile;\n    })", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "145", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "146", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "203", "type": "CALLS", "properties": {"line_number": 214, "args": ["error instanceof Error ? error : new Error(String(error))"], "full_call_name": "this.errors.push(error instanceof Error ? error : new Error(String(error)))", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "203", "type": "CALLS", "properties": {"line_number": 284, "args": ["resolve"], "full_call_name": "this.waiting.push(resolve)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "203", "type": "CALLS", "properties": {"line_number": 211, "args": ["result"], "full_call_name": "this.results.push(result)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "299", "type": "CALLS", "properties": {"line_number": 377, "args": ["5"], "full_call_name": "new Semaphore(5)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "299", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "300", "type": "CALLS", "properties": {"line_number": 380, "args": ["async (notification) => {\n    console.log(`Sending notification to user ${notification.userId}: ${notification.message}`);\n    await new Promise(resolve => setTimeout(resolve, 100));\n  }"], "full_call_name": "new TaskQueue<{ userId: number; message: string }>(async (notification) => {\n    console.log(`Sending notification to user ${notification.userId}: ${notification.message}`);\n    await new Promise(resolve => setTimeout(resolve, 100));\n  })", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "300", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "301", "type": "CALLS", "properties": {"line_number": 371, "args": ["3"], "full_call_name": "new PromisePool<void, any>(3)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "301", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "302", "type": "CALLS", "properties": {"line_number": 374, "args": ["30000"], "full_call_name": "new AsyncCache<number, { id: number; name: string }>(30000)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "302", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "303", "type": "CALLS", "properties": {"line_number": 368, "args": [], "full_call_name": "new EventEmitter<{ userId: number; action: string }>()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "55", "to": "303", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "321", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "322", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "323", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "324", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "325", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "326", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "327", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "328", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "329", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "330", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "331", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "332", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "333", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "334", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "335", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "336", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "337", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "338", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "339", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "340", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "341", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "342", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "343", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "404", "type": "CALLS", "properties": {"line_number": 214, "args": ["error"], "full_call_name": "String(error)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "57", "to": "91", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "58", "to": "92", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "72", "to": "35", "type": "CONTAINS", "properties": {}}
+{"from": "72", "to": "42", "type": "CONTAINS", "properties": {}}
+{"from": "72", "to": "44", "type": "CONTAINS", "properties": {}}
+{"from": "72", "to": "45", "type": "CONTAINS", "properties": {}}
+{"from": "73", "to": "37", "type": "CONTAINS", "properties": {}}
+{"from": "73", "to": "46", "type": "CONTAINS", "properties": {}}
+{"from": "74", "to": "22", "type": "CONTAINS", "properties": {}}
+{"from": "74", "to": "78", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "75", "to": "50", "type": "CONTAINS", "properties": {}}
+{"from": "75", "to": "78", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "76", "to": "51", "type": "CONTAINS", "properties": {}}
+{"from": "76", "to": "78", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "77", "to": "33", "type": "CONTAINS", "properties": {}}
+{"from": "77", "to": "78", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "78", "to": "41", "type": "CONTAINS", "properties": {}}
+{"from": "78", "to": "917", "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": "90", "to": "148", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "149", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "150", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "151", "type": "CALLS", "properties": {"line_number": 426, "args": ["5"], "full_call_name": "moduleExamples.binaryTree.insert(5)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "151", "type": "CALLS", "properties": {"line_number": 428, "args": ["7"], "full_call_name": "moduleExamples.binaryTree.insert(7)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "151", "type": "CALLS", "properties": {"line_number": 427, "args": ["3"], "full_call_name": "moduleExamples.binaryTree.insert(3)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "151", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "152", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "153", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "154", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "155", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "156", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "157", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "158", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "159", "type": "CALLS", "properties": {"line_number": 422, "args": [], "full_call_name": "createDatabaseConnection()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "159", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "160", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "161", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "162", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "163", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "164", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "165", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "166", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "167", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "168", "type": "CALLS", "properties": {"line_number": 411, "args": ["2"], "full_call_name": "[1, 2, 3, 4, 5, 6].chunk(2)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "168", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "169", "type": "CALLS", "properties": {"line_number": 408, "args": ["10"], "full_call_name": "\"This is a very long string\".truncate(10)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "169", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "170", "type": "CALLS", "properties": {"line_number": 407, "args": [], "full_call_name": "\"hello world\".toTitleCase()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "170", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "171", "type": "CALLS", "properties": {"line_number": 431, "args": ["\"B\""], "full_call_name": "moduleExamples.graph.addVertex(\"B\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "171", "type": "CALLS", "properties": {"line_number": 430, "args": ["\"A\""], "full_call_name": "moduleExamples.graph.addVertex(\"A\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "171", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "172", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "173", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "174", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "175", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "176", "type": "CALLS", "properties": {"line_number": 412, "args": [], "full_call_name": "[1, 2, 2, 3, 3, 3].unique()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "176", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "177", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "178", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "179", "type": "CALLS", "properties": {"line_number": 432, "args": ["\"A\"", "\"B\""], "full_call_name": "moduleExamples.graph.addEdge(\"A\", \"B\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "179", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "180", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "181", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "182", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "183", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "184", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "185", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "306", "type": "CALLS", "properties": {"line_number": 415, "args": ["{\n    name: \"SampleFeature\",\n    version: \"1.0.0\",\n    dependencies: [\"core\", \"utils\"]\n  }"], "full_call_name": "new FeatureModule({\n    name: \"SampleFeature\",\n    version: \"1.0.0\",\n    dependencies: [\"core\", \"utils\"]\n  })", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "306", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "307", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "308", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "309", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "310", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "311", "type": "CALLS", "properties": {"line_number": 399, "args": ["1", "2", "3"], "full_call_name": "new MathUtils.Vector3D(1, 2, 3)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "311", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "312", "type": "CALLS", "properties": {"line_number": 398, "args": ["3", "4"], "full_call_name": "new MathUtils.Vector2D(3, 4)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "312", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "313", "type": "CALLS", "properties": {"line_number": 403, "args": [], "full_call_name": "new DataStructures.Trees.BinaryTree<number>()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "313", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "314", "type": "CALLS", "properties": {"line_number": 404, "args": [], "full_call_name": "new DataStructures.Graphs.Graph<string>()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "90", "to": "314", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "315", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "344", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "345", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "346", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "347", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "348", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "349", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "350", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "351", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "352", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "353", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "354", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "355", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "356", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "357", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "358", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "359", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "360", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "361", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "362", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "363", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "364", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "399", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "400", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "401", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "402", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "403", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "404", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "405", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "406", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "407", "type": "CONTAINS", "properties": {}}
+{"from": "90", "to": "408", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "186", "type": "CALLS", "properties": {"line_number": 377, "args": ["[{ type: \"fruit\", name: \"apple\" }, { type: \"fruit\", name: \"banana\" }, { type: \"vegetable\", name: \"carrot\" }]", "item => item.type"], "full_call_name": "arrayGroupBy(\n    [{ type: \"fruit\", name: \"apple\" }, { type: \"fruit\", name: \"banana\" }, { type: \"vegetable\", name: \"carrot\" }],\n    item => item.type\n  )", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "186", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "187", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "188", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "189", "type": "CALLS", "properties": {"line_number": 375, "args": ["[1, 2, 3, 4, 5, 6, 7]", "3"], "full_call_name": "arrayChunk([1, 2, 3, 4, 5, 6, 7], 3)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "189", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "190", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "191", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "192", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "193", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "194", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "195", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "196", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "197", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "198", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "199", "type": "CALLS", "properties": {"line_number": 329, "args": ["(obj as any)[key]"], "full_call_name": "deepClone((obj as any)[key])", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "199", "type": "CALLS", "properties": {"line_number": 323, "args": ["item"], "full_call_name": "deepClone(item)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "199", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "200", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "201", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "202", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "203", "type": "CALLS", "properties": {"line_number": 286, "args": ["item"], "full_call_name": "groups[key]!.push(item)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "203", "type": "CALLS", "properties": {"line_number": 386, "args": ["3"], "full_call_name": "functionExamples.numberStack.push(3)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "203", "type": "CALLS", "properties": {"line_number": 385, "args": ["2"], "full_call_name": "functionExamples.numberStack.push(2)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "203", "type": "CALLS", "properties": {"line_number": 384, "args": ["1"], "full_call_name": "functionExamples.numberStack.push(1)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "203", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "204", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "205", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "206", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "207", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "208", "type": "CALLS", "properties": {"line_number": 376, "args": ["[1, 2, 2, 3, 3, 3, 4]"], "full_call_name": "arrayUnique([1, 2, 2, 3, 3, 3, 4])", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "208", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "209", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "210", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "211", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "212", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "213", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "214", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "215", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "216", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "217", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "218", "type": "CALLS", "properties": {"line_number": 355, "args": ["\"123\""], "full_call_name": "parseValue(\"123\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "218", "type": "CALLS", "properties": {"line_number": 356, "args": ["456"], "full_call_name": "parseValue(456)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "218", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "219", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "220", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "221", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "222", "type": "CALLS", "properties": {"line_number": 369, "args": ["(n: number): number => {\n    if (n <= 1) return n;\n    return functionExamples.memoizedFib(n - 1) + functionExamples.memoizedFib(n - 2);\n  }"], "full_call_name": "memoize((n: number): number => {\n    if (n <= 1) return n;\n    return functionExamples.memoizedFib(n - 1) + functionExamples.memoizedFib(n - 2);\n  })", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "222", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "223", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "224", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "225", "type": "CALLS", "properties": {"line_number": 361, "args": ["{ name: \"John\" }", "{ age: 30 }"], "full_call_name": "merge({ name: \"John\" }, { age: 30 })", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "225", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "226", "type": "CALLS", "properties": {"line_number": 360, "args": ["42"], "full_call_name": "identity(42)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "226", "type": "CALLS", "properties": {"line_number": 359, "args": ["\"hello\""], "full_call_name": "identity(\"hello\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "226", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "227", "type": "CALLS", "properties": {"line_number": 368, "args": ["2"], "full_call_name": "createMultiplier(2)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "227", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "228", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "229", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "230", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "318", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "319", "type": "CALLS", "properties": {"line_number": 365, "args": [], "full_call_name": "new Queue<string>()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "319", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "320", "type": "CALLS", "properties": {"line_number": 364, "args": [], "full_call_name": "new Stack<number>()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "113", "to": "320", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "384", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "385", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "386", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "387", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "388", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "389", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "390", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "391", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "392", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "393", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "394", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "395", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "396", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "397", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "489", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "490", "type": "CONTAINS", "properties": {}}
+{"from": "113", "to": "491", "type": "CONTAINS", "properties": {}}
+{"from": "115", "to": "133", "type": "CALLS", "properties": {"line_number": 320, "args": [], "full_call_name": "this.processQueue()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "115", "to": "203", "type": "CALLS", "properties": {"line_number": 318, "args": ["item"], "full_call_name": "this.queue.push(item)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "115", "to": "421", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "116", "to": "116", "type": "CALLS", "properties": {"line_number": 264, "args": ["key"], "full_call_name": "this.cache.has(key)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "116", "to": "422", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "117", "to": "423", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "118", "to": "116", "type": "CALLS", "properties": {"line_number": 238, "args": ["key"], "full_call_name": "this.cache.has(key)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "118", "to": "118", "type": "CALLS", "properties": {"line_number": 240, "args": ["key"], "full_call_name": "this.cache.get(key)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "118", "to": "424", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "118", "to": "425", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "119", "to": "203", "type": "CALLS", "properties": {"line_number": 160, "args": ["callback"], "full_call_name": "this.asyncListeners.push(callback)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "119", "to": "426", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "120", "to": "427", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "120", "to": "428", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "121", "to": "404", "type": "CALLS", "properties": {"line_number": 72, "args": ["error"], "full_call_name": "String(error)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "121", "to": "429", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "121", "to": "430", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "121", "to": "431", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "122", "to": "432", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "124", "to": "124", "type": "CALLS", "properties": {"line_number": 260, "args": [], "full_call_name": "this.cache.clear()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "126", "to": "203", "type": "CALLS", "properties": {"line_number": 150, "args": ["callback"], "full_call_name": "this.listeners.push(callback)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "126", "to": "433", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "127", "to": "434", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "127", "to": "435", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "127", "to": "436", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "128", "to": "437", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "129", "to": "144", "type": "CALLS", "properties": {"line_number": 415, "args": [], "full_call_name": "pool.execute()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "129", "to": "301", "type": "CALLS", "properties": {"line_number": 406, "args": ["3"], "full_call_name": "new PromisePool<void, any>(3)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "129", "to": "438", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "130", "to": "122", "type": "CALLS", "properties": {"line_number": 395, "args": ["userId"], "full_call_name": "fetchUserPosts(userId)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "130", "to": "128", "type": "CALLS", "properties": {"line_number": 394, "args": ["userId"], "full_call_name": "fetchUserData(userId)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "130", "to": "439", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "131", "to": "440", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "131", "to": "441", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "131", "to": "442", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "134", "to": "443", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "135", "to": "444", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "136", "to": "445", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "137", "to": "446", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "137", "to": "447", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "138", "to": "448", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "139", "to": "449", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "139", "to": "450", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "140", "to": "123", "type": "CALLS", "properties": {"line_number": 298, "args": [], "full_call_name": "this.acquire()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "140", "to": "141", "type": "CALLS", "properties": {"line_number": 302, "args": [], "full_call_name": "this.release()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "140", "to": "451", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "142", "to": "452", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "143", "to": "453", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "145", "to": "203", "type": "CALLS", "properties": {"line_number": 194, "args": ["task"], "full_call_name": "this.tasks.push(task)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "145", "to": "454", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "146", "to": "455", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "147", "to": "304", "type": "CONTAINS", "properties": {}}
+{"from": "147", "to": "305", "type": "CONTAINS", "properties": {}}
+{"from": "147", "to": "398", "type": "CONTAINS", "properties": {}}
+{"from": "147", "to": "549", "type": "IMPORTS", "properties": {"imported_name": "./tough_cases", "alias": "", "line_number": 1}}
+{"from": "148", "to": "184", "type": "CALLS", "properties": {"line_number": 366, "args": ["`Loading dependency: ${name}`"], "full_call_name": "console.log(`Loading dependency: ${name}`)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "148", "to": "456", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "149", "to": "148", "type": "CALLS", "properties": {"line_number": 353, "args": ["dep"], "full_call_name": "this.loadDependency(dep)", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "149", "to": "184", "type": "CALLS", "properties": {"line_number": 349, "args": ["`Initializing ${this.config.name} v${this.config.version}`"], "full_call_name": "console.log(`Initializing ${this.config.name} v${this.config.version}`)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "150", "to": "184", "type": "CALLS", "properties": {"line_number": 288, "args": ["\"Connected to production database\""], "full_call_name": "console.log(\"Connected to production database\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "151", "to": "180", "type": "CALLS", "properties": {"line_number": 127, "args": ["this.root", "value"], "full_call_name": "this.insertNode(this.root, value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "151", "to": "457", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "152", "to": "152", "type": "CALLS", "properties": {"line_number": 40, "args": ["`[${this.prefix}] ERROR: ${message}`"], "full_call_name": "console.error(`[${this.prefix}] ERROR: ${message}`)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "152", "to": "458", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "153", "to": "459", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "155", "to": "460", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "157", "to": "184", "type": "CALLS", "properties": {"line_number": 281, "args": ["`Mock query: ${sql}`"], "full_call_name": "console.log(`Mock query: ${sql}`)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "157", "to": "461", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "158", "to": "184", "type": "CALLS", "properties": {"line_number": 273, "args": ["\"Connected to mock database\""], "full_call_name": "console.log(\"Connected to mock database\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "159", "to": "308", "type": "CALLS", "properties": {"line_number": 267, "args": [], "full_call_name": "new ProductionDatabaseConnection()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "159", "to": "309", "type": "CALLS", "properties": {"line_number": 265, "args": [], "full_call_name": "new MockDatabaseConnection()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "160", "to": "462", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "160", "to": "463", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "161", "to": "464", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "161", "to": "465", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "162", "to": "466", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "162", "to": "467", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "162", "to": "468", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "163", "to": "312", "type": "CALLS", "properties": {"line_number": 74, "args": ["this.x + other.x", "this.y + other.y"], "full_call_name": "new Vector2D(this.x + other.x, this.y + other.y)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "163", "to": "469", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "164", "to": "184", "type": "CALLS", "properties": {"line_number": 296, "args": ["`Production query: ${sql}`"], "full_call_name": "console.log(`Production query: ${sql}`)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "164", "to": "470", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "165", "to": "184", "type": "CALLS", "properties": {"line_number": 361, "args": ["`Cleaning up ${this.config.name}`"], "full_call_name": "console.log(`Cleaning up ${this.config.name}`)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "167", "to": "184", "type": "CALLS", "properties": {"line_number": 277, "args": ["\"Disconnected from mock database\""], "full_call_name": "console.log(\"Disconnected from mock database\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "168", "to": "471", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "168", "to": "472", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "169", "to": "473", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "171", "to": "116", "type": "CALLS", "properties": {"line_number": 158, "args": ["vertex"], "full_call_name": "this.adjacencyList.has(vertex)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "171", "to": "474", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "172", "to": "311", "type": "CALLS", "properties": {"line_number": 86, "args": ["this.x + other.x", "this.y + other.y", "this.z + other.z"], "full_call_name": "new Vector3D(this.x + other.x, this.y + other.y, this.z + other.z)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "172", "to": "475", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "174", "to": "152", "type": "CALLS", "properties": {"line_number": 316, "args": ["`Failed to load module ${moduleName}:`", "error"], "full_call_name": "console.error(`Failed to load module ${moduleName}:`, error)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "174", "to": "476", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "175", "to": "184", "type": "CALLS", "properties": {"line_number": 292, "args": ["\"Disconnected from production database\""], "full_call_name": "console.log(\"Disconnected from production database\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "176", "to": "477", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "177", "to": "478", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "179", "to": "118", "type": "CALLS", "properties": {"line_number": 166, "args": ["from"], "full_call_name": "this.adjacencyList.get(from)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "179", "to": "171", "type": "CALLS", "properties": {"line_number": 164, "args": ["from"], "full_call_name": "this.addVertex(from)", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "179", "to": "171", "type": "CALLS", "properties": {"line_number": 165, "args": ["to"], "full_call_name": "this.addVertex(to)", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "179", "to": "203", "type": "CALLS", "properties": {"line_number": 166, "args": ["to"], "full_call_name": "this.adjacencyList.get(from)!.push(to)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "179", "to": "479", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "179", "to": "480", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "180", "to": "180", "type": "CALLS", "properties": {"line_number": 139, "args": ["node.right", "value"], "full_call_name": "this.insertNode(node.right, value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "180", "to": "180", "type": "CALLS", "properties": {"line_number": 137, "args": ["node.left", "value"], "full_call_name": "this.insertNode(node.left, value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "180", "to": "404", "type": "CALLS", "properties": {"line_number": 136, "args": ["value"], "full_call_name": "String(value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "180", "to": "404", "type": "CALLS", "properties": {"line_number": 136, "args": ["node.value"], "full_call_name": "String(node.value)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "180", "to": "481", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "180", "to": "482", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "181", "to": "118", "type": "CALLS", "properties": {"line_number": 170, "args": ["vertex"], "full_call_name": "this.adjacencyList.get(vertex)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "181", "to": "483", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "183", "to": "484", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "183", "to": "485", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "184", "to": "184", "type": "CALLS", "properties": {"line_number": 36, "args": ["`[${this.prefix}] ${message}`"], "full_call_name": "console.log(`[${this.prefix}] ${message}`)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "184", "to": "486", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "185", "to": "487", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "185", "to": "488", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "186", "to": "495", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "186", "to": "496", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "188", "to": "497", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "188", "to": "498", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "189", "to": "203", "type": "CALLS", "properties": {"line_number": 270, "args": ["array.slice(i, i + size)"], "full_call_name": "chunks.push(array.slice(i, i + size))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "189", "to": "499", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "189", "to": "500", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "190", "to": "501", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "194", "to": "502", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "194", "to": "503", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "194", "to": "504", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "195", "to": "505", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "195", "to": "506", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "196", "to": "507", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "196", "to": "508", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "198", "to": "509", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "199", "to": "510", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "200", "to": "203", "type": "CALLS", "properties": {"line_number": 249, "args": ["item"], "full_call_name": "this.items.push(item)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "200", "to": "511", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "203", "to": "203", "type": "CALLS", "properties": {"line_number": 196, "args": ["item"], "full_call_name": "this.items.push(item)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "203", "to": "512", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "204", "to": "513", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "205", "to": "514", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "205", "to": "515", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "206", "to": "516", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "206", "to": "517", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "207", "to": "518", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "208", "to": "519", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "209", "to": "209", "type": "CALLS", "properties": {"line_number": 200, "args": [], "full_call_name": "this.items.pop()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "211", "to": "203", "type": "CALLS", "properties": {"line_number": 220, "args": ["item"], "full_call_name": "this.items.push(item)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "211", "to": "520", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "213", "to": "521", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "213", "to": "522", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "214", "to": "523", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "215", "to": "524", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "216", "to": "525", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "217", "to": "526", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "217", "to": "527", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "218", "to": "528", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "219", "to": "529", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "219", "to": "530", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "221", "to": "531", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "221", "to": "532", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "222", "to": "533", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "223", "to": "403", "type": "CALLS", "properties": {"line_number": 79, "args": ["length"], "full_call_name": "Array(length)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "223", "to": "534", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "223", "to": "535", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "224", "to": "536", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "224", "to": "537", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "224", "to": "538", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "225", "to": "539", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "225", "to": "540", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "226", "to": "541", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "227", "to": "542", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "228", "to": "543", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "228", "to": "544", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "229", "to": "545", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "230", "to": "546", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "230", "to": "547", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "231", "to": "316", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "317", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "365", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "366", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "367", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "368", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "369", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "370", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "371", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "372", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "373", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "374", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "375", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "376", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "377", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "378", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "379", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "380", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "381", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "411", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "412", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "413", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "414", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "415", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "416", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "417", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "418", "type": "CONTAINS", "properties": {}}
+{"from": "231", "to": "419", "type": "CONTAINS", "properties": {}}
+{"from": "299", "to": "123", "type": "CONTAINS", "properties": {}}
+{"from": "299", "to": "140", "type": "CONTAINS", "properties": {}}
+{"from": "299", "to": "141", "type": "CONTAINS", "properties": {}}
+{"from": "299", "to": "142", "type": "CONTAINS", "properties": {}}
+{"from": "300", "to": "114", "type": "CONTAINS", "properties": {}}
+{"from": "300", "to": "115", "type": "CONTAINS", "properties": {}}
+{"from": "300", "to": "132", "type": "CONTAINS", "properties": {}}
+{"from": "300", "to": "133", "type": "CONTAINS", "properties": {}}
+{"from": "300", "to": "134", "type": "CONTAINS", "properties": {}}
+{"from": "301", "to": "117", "type": "CONTAINS", "properties": {}}
+{"from": "301", "to": "144", "type": "CONTAINS", "properties": {}}
+{"from": "301", "to": "145", "type": "CONTAINS", "properties": {}}
+{"from": "302", "to": "116", "type": "CONTAINS", "properties": {}}
+{"from": "302", "to": "118", "type": "CONTAINS", "properties": {}}
+{"from": "302", "to": "124", "type": "CONTAINS", "properties": {}}
+{"from": "302", "to": "146", "type": "CONTAINS", "properties": {}}
+{"from": "303", "to": "119", "type": "CONTAINS", "properties": {}}
+{"from": "303", "to": "126", "type": "CONTAINS", "properties": {}}
+{"from": "303", "to": "135", "type": "CONTAINS", "properties": {}}
+{"from": "303", "to": "143", "type": "CONTAINS", "properties": {}}
+{"from": "304", "to": "8", "type": "CALLS", "properties": {"line_number": 9, "args": [], "full_call_name": "this.a.ping()", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "305", "to": "420", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "306", "to": "148", "type": "CONTAINS", "properties": {}}
+{"from": "306", "to": "149", "type": "CONTAINS", "properties": {}}
+{"from": "306", "to": "154", "type": "CONTAINS", "properties": {}}
+{"from": "306", "to": "165", "type": "CONTAINS", "properties": {}}
+{"from": "306", "to": "307", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "308", "to": "150", "type": "CONTAINS", "properties": {}}
+{"from": "308", "to": "164", "type": "CONTAINS", "properties": {}}
+{"from": "308", "to": "175", "type": "CONTAINS", "properties": {}}
+{"from": "308", "to": "401", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "309", "to": "157", "type": "CONTAINS", "properties": {}}
+{"from": "309", "to": "158", "type": "CONTAINS", "properties": {}}
+{"from": "309", "to": "167", "type": "CONTAINS", "properties": {}}
+{"from": "309", "to": "401", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "311", "to": "162", "type": "CONTAINS", "properties": {}}
+{"from": "311", "to": "172", "type": "CONTAINS", "properties": {}}
+{"from": "311", "to": "182", "type": "CONTAINS", "properties": {}}
+{"from": "311", "to": "406", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "312", "to": "163", "type": "CONTAINS", "properties": {}}
+{"from": "312", "to": "173", "type": "CONTAINS", "properties": {}}
+{"from": "312", "to": "183", "type": "CONTAINS", "properties": {}}
+{"from": "312", "to": "408", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "313", "to": "151", "type": "CONTAINS", "properties": {}}
+{"from": "313", "to": "177", "type": "CONTAINS", "properties": {}}
+{"from": "313", "to": "180", "type": "CONTAINS", "properties": {}}
+{"from": "314", "to": "171", "type": "CONTAINS", "properties": {}}
+{"from": "314", "to": "178", "type": "CONTAINS", "properties": {}}
+{"from": "314", "to": "179", "type": "CONTAINS", "properties": {}}
+{"from": "314", "to": "181", "type": "CONTAINS", "properties": {}}
+{"from": "315", "to": "152", "type": "CONTAINS", "properties": {}}
+{"from": "315", "to": "153", "type": "CONTAINS", "properties": {}}
+{"from": "315", "to": "184", "type": "CONTAINS", "properties": {}}
+{"from": "316", "to": "493", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "317", "to": "494", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "318", "to": "191", "type": "CONTAINS", "properties": {}}
+{"from": "318", "to": "192", "type": "CONTAINS", "properties": {}}
+{"from": "318", "to": "200", "type": "CONTAINS", "properties": {}}
+{"from": "318", "to": "220", "type": "CONTAINS", "properties": {}}
+{"from": "319", "to": "193", "type": "CONTAINS", "properties": {}}
+{"from": "319", "to": "197", "type": "CONTAINS", "properties": {}}
+{"from": "319", "to": "201", "type": "CONTAINS", "properties": {}}
+{"from": "319", "to": "210", "type": "CONTAINS", "properties": {}}
+{"from": "319", "to": "211", "type": "CONTAINS", "properties": {}}
+{"from": "320", "to": "187", "type": "CONTAINS", "properties": {}}
+{"from": "320", "to": "202", "type": "CONTAINS", "properties": {}}
+{"from": "320", "to": "203", "type": "CONTAINS", "properties": {}}
+{"from": "320", "to": "209", "type": "CONTAINS", "properties": {}}
+{"from": "320", "to": "212", "type": "CONTAINS", "properties": {}}
+{"from": "383", "to": "409", "type": "CONTAINS", "properties": {}}
+{"from": "383", "to": "410", "type": "CONTAINS", "properties": {}}
+{"from": "383", "to": "492", "type": "CONTAINS", "properties": {}}
+{"from": "383", "to": "552", "type": "IMPORTS", "properties": {"imported_name": "react", "alias": "", "line_number": 1}}
+{"from": "398", "to": "304", "type": "CONTAINS", "properties": {}}
+{"from": "398", "to": "305", "type": "CONTAINS", "properties": {}}
+{"from": "409", "to": "550", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "410", "to": "551", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "548", "to": "404", "type": "CALLS", "properties": {"line_number": 203, "args": ["propertyKey"], "full_call_name": "String(propertyKey)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "548", "to": "404", "type": "CALLS", "properties": {"line_number": 216, "args": ["propertyKey"], "full_call_name": "String(propertyKey)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "548", "to": "553", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "554", "type": "CALLS", "properties": {"line_number": 467, "args": ["25"], "full_call_name": "decoratorExamples.user.updateAge(25)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "548", "to": "554", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "555", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "556", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "557", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "558", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "559", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "560", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "561", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "562", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "563", "type": "CALLS", "properties": {"line_number": 323, "args": [], "full_call_name": "Serializable()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "548", "to": "563", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "564", "type": "CALLS", "properties": {"line_number": 321, "args": ["\"users\""], "full_call_name": "Entity(\"users\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "548", "to": "564", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "565", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "566", "type": "CALLS", "properties": {"line_number": 463, "args": [], "full_call_name": "decoratorExamples.user.getInfo()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "548", "to": "566", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "567", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "568", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "569", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "570", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "571", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "572", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "573", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "574", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "575", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "576", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "577", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "578", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "579", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "580", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "581", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "582", "type": "CALLS", "properties": {"line_number": 390, "args": ["{ selector: \"user-service\", template: \"<div>User Service</div>\" }"], "full_call_name": "Component({ selector: \"user-service\", template: \"<div>User Service</div>\" })", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "548", "to": "582", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "583", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "584", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "585", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "586", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "587", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "588", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "589", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "590", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "591", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "592", "type": "CALLS", "properties": {"line_number": 322, "args": [], "full_call_name": "Injectable()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "548", "to": "592", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "595", "type": "CALLS", "properties": {"line_number": 456, "args": ["\"mockUserRepo\"", "\"mockLogger\""], "full_call_name": "new UserService(\"mockUserRepo\", \"mockLogger\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "548", "to": "595", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "596", "type": "CALLS", "properties": {"line_number": 443, "args": ["1", "\"john_doe\"", "\"john@example.com\"", "30"], "full_call_name": "new User(1, \"john_doe\", \"john@example.com\", 30)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "548", "to": "596", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "597", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "598", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "652", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "653", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "654", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "655", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "656", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "657", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "658", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "659", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "660", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "661", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "662", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "663", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "664", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "665", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "666", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "667", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "668", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "669", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "670", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "671", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "672", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "673", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "674", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "675", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "676", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "677", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "678", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "679", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "680", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "681", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "682", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "683", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "684", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "685", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "686", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "687", "type": "CONTAINS", "properties": {}}
+{"from": "548", "to": "907", "type": "IMPORTS", "properties": {"imported_name": "reflect-metadata", "alias": "", "line_number": 8}}
+{"from": "554", "to": "556", "type": "CALLS", "properties": {"line_number": 364, "args": ["(value: number) => value > 0 && value <= 120", "\"Age must be between 1 and 120\""], "full_call_name": "ValidateParam((value: number) => value > 0 && value <= 120, \"Age must be between 1 and 120\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "554", "to": "749", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "555", "to": "750", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "556", "to": "751", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "556", "to": "752", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "557", "to": "753", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "558", "to": "754", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "559", "to": "755", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "560", "to": "756", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "561", "to": "757", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "562", "to": "758", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "564", "to": "759", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "565", "to": "760", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "567", "to": "588", "type": "CALLS", "properties": {"line_number": 394, "args": ["\"logger\""], "full_call_name": "Inject(\"logger\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "567", "to": "588", "type": "CALLS", "properties": {"line_number": 393, "args": ["\"userRepository\""], "full_call_name": "Inject(\"userRepository\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "567", "to": "761", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "567", "to": "762", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "568", "to": "763", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "569", "to": "764", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "570", "to": "765", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "570", "to": "766", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "570", "to": "767", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "571", "to": "768", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "572", "to": "769", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "572", "to": "770", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "573", "to": "771", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "576", "to": "596", "type": "CALLS", "properties": {"line_number": 401, "args": ["id", "`user${id}`", "`user${id}@example.com`", "25"], "full_call_name": "new User(id, `user${id}`, `user${id}@example.com`, 25)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "576", "to": "772", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "579", "to": "773", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "580", "to": "774", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "581", "to": "775", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "582", "to": "776", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "583", "to": "777", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "583", "to": "778", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "583", "to": "779", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "583", "to": "780", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "585", "to": "781", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "585", "to": "782", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "585", "to": "783", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "586", "to": "784", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "586", "to": "785", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "588", "to": "786", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "590", "to": "787", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "593", "to": "651", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "689", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "690", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "691", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "692", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "693", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "694", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "695", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "696", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "697", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "698", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "699", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "700", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "701", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "702", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "703", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "704", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "705", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "706", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "707", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "708", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "709", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "710", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "711", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "712", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "713", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "714", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "715", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "716", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "717", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "718", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "719", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "720", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "721", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "722", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "723", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "724", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "725", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "726", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "727", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "728", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "729", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "730", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "731", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "732", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "733", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "734", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "735", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "736", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "737", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "738", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "739", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "740", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "741", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "742", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "743", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "744", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "745", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "746", "type": "CONTAINS", "properties": {}}
+{"from": "593", "to": "747", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "599", "type": "CALLS", "properties": {"line_number": 357, "args": ["BaseUser"], "full_call_name": "Activatable(BaseUser)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "599", "type": "CALLS", "properties": {"line_number": 358, "args": ["BaseUser"], "full_call_name": "Activatable(BaseUser)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "599", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "600", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "601", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "602", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "603", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "604", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "605", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "606", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "607", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "608", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "609", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "610", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "611", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "612", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "613", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "614", "type": "CALLS", "properties": {"line_number": 356, "args": ["BaseUser"], "full_call_name": "Timestamped(BaseUser)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "614", "type": "CALLS", "properties": {"line_number": 358, "args": ["Activatable(BaseUser)"], "full_call_name": "Timestamped(Activatable(BaseUser))", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "614", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "615", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "616", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "617", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "618", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "619", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "620", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "621", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "622", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "623", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "624", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "625", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "626", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "627", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "628", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "629", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "630", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "631", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "632", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "633", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "634", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "635", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "636", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "637", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "638", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "639", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "640", "type": "CALLS", "properties": {"line_number": 376, "args": [], "full_call_name": "Database.getInstance()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "640", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "641", "type": "CALLS", "properties": {"line_number": 385, "args": ["\"World\""], "full_call_name": "classExamples.stringContainer.add(\"World\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "641", "type": "CALLS", "properties": {"line_number": 388, "args": ["20"], "full_call_name": "classExamples.numberContainer.add(20)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "641", "type": "CALLS", "properties": {"line_number": 389, "args": ["30"], "full_call_name": "classExamples.numberContainer.add(30)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "641", "type": "CALLS", "properties": {"line_number": 384, "args": ["\"Hello\""], "full_call_name": "classExamples.stringContainer.add(\"Hello\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "641", "type": "CALLS", "properties": {"line_number": 387, "args": ["10"], "full_call_name": "classExamples.numberContainer.add(10)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "641", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "642", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "643", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "644", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "645", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "646", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "647", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "648", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "649", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "650", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "788", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "789", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "790", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "791", "type": "CALLS", "properties": {"line_number": 373, "args": [], "full_call_name": "new NumberContainer<number>()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "791", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "792", "type": "CALLS", "properties": {"line_number": 372, "args": [], "full_call_name": "new Container<string>()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "792", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "793", "type": "CALLS", "properties": {"line_number": 369, "args": ["\"Quackers\"", "1"], "full_call_name": "new Duck(\"Quackers\", 1)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "793", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "794", "type": "CALLS", "properties": {"line_number": 364, "args": ["\"Jane Smith\"", "28", "456", "\"Engineering\"", "75000"], "full_call_name": "new Employee(\"Jane Smith\", 28, 456, \"Engineering\", 75000)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "794", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "795", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "796", "type": "CALLS", "properties": {"line_number": 367, "args": ["\"Buddy\"", "3", "\"Golden Retriever\""], "full_call_name": "new Dog(\"Buddy\", 3, \"Golden Retriever\")", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "796", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "797", "type": "CALLS", "properties": {"line_number": 368, "args": ["\"Whiskers\"", "2", "true"], "full_call_name": "new Cat(\"Whiskers\", 2, true)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "797", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "798", "type": "CALLS", "properties": {"line_number": 363, "args": ["\"John Doe\"", "30", "123"], "full_call_name": "new Person(\"John Doe\", 30, 123)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "594", "to": "798", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "817", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "818", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "819", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "820", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "821", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "822", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "823", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "824", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "825", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "827", "type": "CONTAINS", "properties": {}}
+{"from": "594", "to": "828", "type": "CONTAINS", "properties": {}}
+{"from": "595", "to": "567", "type": "CONTAINS", "properties": {}}
+{"from": "595", "to": "576", "type": "CONTAINS", "properties": {}}
+{"from": "596", "to": "553", "type": "CONTAINS", "properties": {}}
+{"from": "596", "to": "554", "type": "CONTAINS", "properties": {}}
+{"from": "596", "to": "566", "type": "CONTAINS", "properties": {}}
+{"from": "596", "to": "575", "type": "CONTAINS", "properties": {}}
+{"from": "596", "to": "583", "type": "CONTAINS", "properties": {}}
+{"from": "596", "to": "584", "type": "CONTAINS", "properties": {}}
+{"from": "597", "to": "565", "type": "CONTAINS", "properties": {}}
+{"from": "598", "to": "555", "type": "CONTAINS", "properties": {}}
+{"from": "598", "to": "568", "type": "CONTAINS", "properties": {}}
+{"from": "598", "to": "569", "type": "CONTAINS", "properties": {}}
+{"from": "598", "to": "570", "type": "CONTAINS", "properties": {}}
+{"from": "598", "to": "585", "type": "CONTAINS", "properties": {}}
+{"from": "598", "to": "586", "type": "CONTAINS", "properties": {}}
+{"from": "599", "to": "862", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "601", "to": "602", "type": "CALLS", "properties": {"line_number": 267, "args": [], "full_call_name": "this.getAll()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "603", "to": "863", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "605", "to": "864", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "605", "to": "865", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "606", "to": "866", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "609", "to": "867", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "609", "to": "868", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "609", "to": "869", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "609", "to": "870", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "609", "to": "871", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "610", "to": "872", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "610", "to": "873", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "610", "to": "874", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "612", "to": "875", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "614", "to": "876", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "615", "to": "877", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "617", "to": "878", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "619", "to": "879", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "620", "to": "880", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "621", "to": "881", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "621", "to": "882", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "621", "to": "883", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "625", "to": "884", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "625", "to": "885", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "625", "to": "886", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "627", "to": "887", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "627", "to": "888", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "627", "to": "889", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "627", "to": "890", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "628", "to": "602", "type": "CALLS", "properties": {"line_number": 263, "args": [], "full_call_name": "this.getAll()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "634", "to": "891", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "634", "to": "892", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "635", "to": "650", "type": "CALLS", "properties": {"line_number": 99, "args": ["this.age + 1"], "full_call_name": "this.updateAge(this.age + 1)", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "636", "to": "893", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "636", "to": "894", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "637", "to": "895", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "639", "to": "896", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "640", "to": "790", "type": "CALLS", "properties": {"line_number": 283, "args": [], "full_call_name": "new Database()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "641", "to": "203", "type": "CALLS", "properties": {"line_number": 235, "args": ["item"], "full_call_name": "this.items.push(item)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "641", "to": "897", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "642", "to": "898", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "644", "to": "899", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "644", "to": "900", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "644", "to": "901", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "649", "to": "902", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "650", "to": "637", "type": "CALLS", "properties": {"line_number": 48, "args": ["newAge"], "full_call_name": "this.validateAge(newAge)", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "650", "to": "903", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "651", "to": "799", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "688", "to": "800", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "801", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "802", "type": "CALLS", "properties": {"line_number": 402, "args": [], "full_call_name": "main()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "688", "to": "802", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "803", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "804", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "805", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "806", "type": "CALLS", "properties": {"line_number": 140, "args": ["`Task ${i + 1}`"], "full_call_name": "this.simulateAsyncTask(`Task ${i + 1}`)", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "688", "to": "806", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "807", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "808", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "809", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "810", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "811", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "812", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "813", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "814", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "815", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "816", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "826", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "829", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "830", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "831", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "832", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "833", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "834", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "835", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "836", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "837", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "838", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "839", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "840", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "841", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "842", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "843", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "844", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "845", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "846", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "847", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "848", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "849", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "850", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "851", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "852", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "853", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "854", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "855", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "856", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "857", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "858", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "859", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "860", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "861", "type": "CONTAINS", "properties": {}}
+{"from": "688", "to": "908", "type": "IMPORTS", "properties": {"imported_name": "./classes-inheritance", "alias": "", "line_number": 20}}
+{"from": "688", "to": "909", "type": "IMPORTS", "properties": {"imported_name": "./utilities-helpers", "alias": "", "line_number": 24}}
+{"from": "688", "to": "910", "type": "IMPORTS", "properties": {"imported_name": "./async-promises", "alias": "", "line_number": 22}}
+{"from": "688", "to": "911", "type": "IMPORTS", "properties": {"imported_name": "./functions-generics", "alias": "", "line_number": 21}}
+{"from": "688", "to": "912", "type": "IMPORTS", "properties": {"imported_name": "./error-validation", "alias": "", "line_number": 23}}
+{"from": "688", "to": "913", "type": "IMPORTS", "properties": {"imported_name": "./types-interfaces", "alias": "", "line_number": 19}}
+{"from": "688", "to": "914", "type": "IMPORTS", "properties": {"imported_name": "./advanced-types", "alias": "", "line_number": 14}}
+{"from": "688", "to": "915", "type": "IMPORTS", "properties": {"imported_name": "./modules-namespaces", "alias": "", "line_number": 13}}
+{"from": "688", "to": "916", "type": "IMPORTS", "properties": {"imported_name": "./decorators-metadata", "alias": "", "line_number": 12}}
+{"from": "788", "to": "639", "type": "CONTAINS", "properties": {}}
+{"from": "789", "to": "600", "type": "CONTAINS", "properties": {}}
+{"from": "789", "to": "612", "type": "CONTAINS", "properties": {}}
+{"from": "789", "to": "625", "type": "CONTAINS", "properties": {}}
+{"from": "789", "to": "627", "type": "CONTAINS", "properties": {}}
+{"from": "790", "to": "629", "type": "CONTAINS", "properties": {}}
+{"from": "790", "to": "630", "type": "CONTAINS", "properties": {}}
+{"from": "790", "to": "631", "type": "CONTAINS", "properties": {}}
+{"from": "790", "to": "640", "type": "CONTAINS", "properties": {}}
+{"from": "791", "to": "601", "type": "CONTAINS", "properties": {}}
+{"from": "791", "to": "628", "type": "CONTAINS", "properties": {}}
+{"from": "791", "to": "792", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "792", "to": "602", "type": "CONTAINS", "properties": {}}
+{"from": "792", "to": "603", "type": "CONTAINS", "properties": {}}
+{"from": "792", "to": "632", "type": "CONTAINS", "properties": {}}
+{"from": "792", "to": "638", "type": "CONTAINS", "properties": {}}
+{"from": "792", "to": "641", "type": "CONTAINS", "properties": {}}
+{"from": "793", "to": "604", "type": "CONTAINS", "properties": {}}
+{"from": "793", "to": "605", "type": "CONTAINS", "properties": {}}
+{"from": "793", "to": "615", "type": "CONTAINS", "properties": {}}
+{"from": "793", "to": "616", "type": "CONTAINS", "properties": {}}
+{"from": "793", "to": "617", "type": "CONTAINS", "properties": {}}
+{"from": "793", "to": "633", "type": "CONTAINS", "properties": {}}
+{"from": "793", "to": "642", "type": "CONTAINS", "properties": {}}
+{"from": "793", "to": "795", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "793", "to": "827", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "793", "to": "828", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "794", "to": "608", "type": "CONTAINS", "properties": {}}
+{"from": "794", "to": "609", "type": "CONTAINS", "properties": {}}
+{"from": "794", "to": "620", "type": "CONTAINS", "properties": {}}
+{"from": "794", "to": "635", "type": "CONTAINS", "properties": {}}
+{"from": "794", "to": "647", "type": "CONTAINS", "properties": {}}
+{"from": "794", "to": "648", "type": "CONTAINS", "properties": {}}
+{"from": "794", "to": "798", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "796", "to": "618", "type": "CONTAINS", "properties": {}}
+{"from": "796", "to": "619", "type": "CONTAINS", "properties": {}}
+{"from": "796", "to": "621", "type": "CONTAINS", "properties": {}}
+{"from": "796", "to": "645", "type": "CONTAINS", "properties": {}}
+{"from": "796", "to": "795", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "797", "to": "606", "type": "CONTAINS", "properties": {}}
+{"from": "797", "to": "607", "type": "CONTAINS", "properties": {}}
+{"from": "797", "to": "643", "type": "CONTAINS", "properties": {}}
+{"from": "797", "to": "644", "type": "CONTAINS", "properties": {}}
+{"from": "797", "to": "795", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "798", "to": "610", "type": "CONTAINS", "properties": {}}
+{"from": "798", "to": "622", "type": "CONTAINS", "properties": {}}
+{"from": "798", "to": "623", "type": "CONTAINS", "properties": {}}
+{"from": "798", "to": "624", "type": "CONTAINS", "properties": {}}
+{"from": "798", "to": "636", "type": "CONTAINS", "properties": {}}
+{"from": "798", "to": "637", "type": "CONTAINS", "properties": {}}
+{"from": "798", "to": "649", "type": "CONTAINS", "properties": {}}
+{"from": "798", "to": "650", "type": "CONTAINS", "properties": {}}
+{"from": "800", "to": "807", "type": "CALLS", "properties": {"line_number": 309, "args": [], "full_call_name": "this.demonstrateModulesNamespaces()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "800", "to": "808", "type": "CALLS", "properties": {"line_number": 308, "args": [], "full_call_name": "this.demonstrateDecorators()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "800", "to": "809", "type": "CALLS", "properties": {"line_number": 307, "args": [], "full_call_name": "this.demonstrateAdvancedTypes()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "800", "to": "810", "type": "CALLS", "properties": {"line_number": 306, "args": [], "full_call_name": "this.demonstrateUtilities()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "800", "to": "811", "type": "CALLS", "properties": {"line_number": 305, "args": [], "full_call_name": "this.demonstrateErrorHandling()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "800", "to": "812", "type": "CALLS", "properties": {"line_number": 302, "args": [], "full_call_name": "this.demonstrateClassesInheritance()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "800", "to": "813", "type": "CALLS", "properties": {"line_number": 303, "args": [], "full_call_name": "this.demonstrateFunctionsGenerics()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "800", "to": "814", "type": "CALLS", "properties": {"line_number": 301, "args": [], "full_call_name": "this.demonstrateBasicTypes()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "800", "to": "815", "type": "CALLS", "properties": {"line_number": 304, "args": [], "full_call_name": "this.demonstrateAsyncPatterns()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "801", "to": "126", "type": "CALLS", "properties": {"line_number": 319, "args": ["(event) => {\n      console.log(`Event: ${event.action}`, event.data);\n    }"], "full_call_name": "this.eventEmitter.subscribe((event) => {\n      console.log(`Event: ${event.action}`, event.data);\n    })", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "802", "to": "800", "type": "CALLS", "properties": {"line_number": 362, "args": [], "full_call_name": "showcase.runAllDemonstrations()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "802", "to": "826", "type": "CALLS", "properties": {"line_number": 361, "args": [], "full_call_name": "new TypeScriptShowcase()", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "803", "to": "21", "type": "CALLS", "properties": {"line_number": 348, "args": ["errors"], "full_call_name": "Err(errors)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "803", "to": "49", "type": "CALLS", "properties": {"line_number": 348, "args": ["data"], "full_call_name": "Ok(data)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "803", "to": "904", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "804", "to": "75", "type": "CALLS", "properties": {"line_number": 354, "args": ["\"Random validation failure\""], "full_call_name": "new ValidationError(\"Random validation failure\")", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "805", "to": "905", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "806", "to": "906", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "811", "to": "803", "type": "CALLS", "properties": {"line_number": 162, "args": ["{\n      id: \"123\",\n      name: \"John Doe\",\n      email: \"john@example.com\",\n      age: \"30\"\n    }"], "full_call_name": "this.validateUserData({\n      id: \"123\",\n      name: \"John Doe\",\n      email: \"john@example.com\",\n      age: \"30\"\n    })", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "811", "to": "804", "type": "CALLS", "properties": {"line_number": 177, "args": [], "full_call_name": "this.riskyOperation()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "812", "to": "624", "type": "CALLS", "properties": {"line_number": 97, "args": [], "full_call_name": "Person.getSpecies()", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "812", "to": "796", "type": "CALLS", "properties": {"line_number": 82, "args": ["\"Buddy\"", "3", "\"Golden Retriever\""], "full_call_name": "new Dog(\"Buddy\", 3, \"Golden Retriever\")", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "812", "to": "798", "type": "CALLS", "properties": {"line_number": 80, "args": ["\"John Doe\"", "30", "123"], "full_call_name": "new Person(\"John Doe\", 30, 123)", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "813", "to": "222", "type": "CALLS", "properties": {"line_number": 121, "args": ["(n: number): number => {\n      if (n <= 1) return n;\n      return memoizedFib(n - 1) + memoizedFib(n - 2);\n    }"], "full_call_name": "memoize((n: number): number => {\n      if (n <= 1) return n;\n      return memoizedFib(n - 1) + memoizedFib(n - 2);\n    })", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "813", "to": "319", "type": "CALLS", "properties": {"line_number": 108, "args": [], "full_call_name": "new Queue<number>()", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "813", "to": "320", "type": "CALLS", "properties": {"line_number": 107, "args": [], "full_call_name": "new Stack<string>()", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "815", "to": "135", "type": "CALLS", "properties": {"line_number": 136, "args": ["{ action: 'user_login', data: { userId: 1 } }"], "full_call_name": "this.eventEmitter.emit({ action: 'user_login', data: { userId: 1 } })", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "815", "to": "805", "type": "CALLS", "properties": {"line_number": 150, "args": ["3"], "full_call_name": "this.asyncGenerator(3)", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "816", "to": "801", "type": "CALLS", "properties": {"line_number": 35, "args": [], "full_call_name": "this.initializeEventHandlers()", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": "826", "to": "800", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "801", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "803", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "804", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "805", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "806", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "807", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "808", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "809", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "810", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "811", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "812", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "813", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "814", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "815", "type": "CONTAINS", "properties": {}}
+{"from": "826", "to": "816", "type": "CONTAINS", "properties": {}}

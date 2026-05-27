@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/typescript.py
 from pathlib import Path
 from typing import Dict
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger, debug_logger
@@ -176,18 +177,18 @@ class TypescriptTreeSitterParser:
         def _fn_for_name(name_node):
             current = name_node.parent
             while current:
-                if current.type in ('function_declaration', 'function', 'arrow_function', 'method_definition'):
+                if current.type in ('function_declaration', 'function', 'arrow_function', 'method_definition', 'function_expression'):
                     return current
                 elif current.type in ('variable_declarator', 'assignment_expression'):
                     for child in current.children:
-                        if child.type in ('function', 'arrow_function'):
+                        if child.type in ('function', 'arrow_function', 'function_expression'):
                             return child
                 current = current.parent
             return None
         def _fn_for_params(params_node):
             current = params_node.parent
             while current:
-                if current.type in ('function_declaration', 'function', 'arrow_function', 'method_definition'):
+                if current.type in ('function_declaration', 'function', 'arrow_function', 'method_definition', 'function_expression'):
                     return current
                 current = current.parent
             return None

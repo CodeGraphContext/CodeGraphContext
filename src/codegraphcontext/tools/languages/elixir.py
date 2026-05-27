@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/elixir.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from codegraphcontext.utils.debug_log import warning_logger
@@ -120,18 +121,41 @@ class ElixirTreeSitterParser:
         curr = node.parent
         while curr:
             if curr.type == 'call':
+                keyword = None
+                name = None
                 for child in curr.children:
                     if child.type == 'identifier':
-                        keyword = self._get_node_text(child)
-                        if keyword in MODULE_KEYWORDS:
-                            for arg_child in curr.children:
-                                if arg_child.type == 'arguments':
-                                    for ac in arg_child.children:
-                                        if ac.type == 'alias':
-                                            return self._get_node_text(ac)
-                        break
+                        kw = self._get_node_text(child)
+                        if kw in MODULE_KEYWORDS:
+                            keyword = kw
+                    elif child.type == 'arguments' and keyword:
+                        for ac in child.children:
+                            if ac.type == 'alias':
+                                name = self._get_node_text(ac)
+                                break
+                
+                if keyword and name:
+                    if keyword == "defimpl":
+                        # Try to find the 'for' argument
+                        full_name = name
+                        for child in curr.children:
+                            if child.type == 'arguments':
+                                for arg in child.children:
+                                    if arg.type == 'keywords':
+                                        for p in arg.children:
+                                            if p.type == 'pair':
+                                                p_children = p.children
+                                                if len(p_children) >= 2:
+                                                    k_text = self._get_node_text(p_children[0]).strip(': ')
+                                                    if k_text == 'for':
+                                                        v_text = self._get_node_text(p_children[1])
+                                                        full_name = f"{name}.{v_text}"
+                                                        break
+                        return full_name
+                    return name
             curr = curr.parent
         return None
+
 
     def _calculate_complexity(self, node: Any) -> int:
         """Calculate cyclomatic complexity for Elixir constructs."""
@@ -224,14 +248,36 @@ class ElixirTreeSitterParser:
                     has_do_block = True
 
             if keyword and name and has_do_block:
+                full_name = name
+                if keyword == "defimpl":
+                    # Try to find the 'for' argument
+                    for child in node.children:
+                        if child.type == 'arguments':
+                            for arg in child.children:
+                                if arg.type == 'keywords':
+                                    for p in arg.children:
+                                        if p.type == 'pair':
+                                            # In tree-sitter-elixir, pair children are [keyword, value]
+                                            p_children = p.children
+                                            if len(p_children) >= 2:
+                                                k_text = self._get_node_text(p_children[0]).strip(': ')
+                                                if k_text == 'for':
+                                                    v_text = self._get_node_text(p_children[1])
+                                                    full_name = f"{name}.{v_text}"
+                                                    break
+                
                 module_data = {
-                    "name": name,
+                    "name": full_name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": node.end_point[0] + 1,
                     "lang": self.language_name,
                     "is_dependency": False,
                     "type": keyword,  # defmodule, defprotocol, defimpl
                 }
+
+
+
+
                 if self.index_source:
                     module_data["source"] = self._get_node_text(node)
                 modules.append(module_data)

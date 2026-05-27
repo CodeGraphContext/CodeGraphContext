@@ -20,7 +20,7 @@ GITHUB_REPO = "CodeGraphContext"
 
 
 def fetch_available_bundles() -> List[Dict[str, Any]]:
-    """Fetch all available bundles from GitHub Releases (delegates to core BundleRegistry)."""
+    """Fetch all available bundles from the Hugging Face registry (delegates to core BundleRegistry)."""
     from ..core.bundle_registry import BundleRegistry
     return BundleRegistry.fetch_available_bundles()
 
@@ -238,11 +238,14 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
     
     # Determine output path
     bundle_filename = bundle.get('bundle_name', f"{name}.cgc")
+    is_base64 = download_url.endswith('.base64') or bundle_filename.endswith('.base64')
+    clean_filename = bundle_filename.replace('.base64', '')
+    
     if output_dir:
-        output_path = Path(output_dir) / bundle_filename
+        output_path = Path(output_dir) / clean_filename
         output_path.parent.mkdir(parents=True, exist_ok=True)
     else:
-        output_path = Path.cwd() / bundle_filename
+        output_path = Path.cwd() / clean_filename
     
     # Check if already exists
     if output_path.exists():
@@ -257,7 +260,7 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
     
     # Download with progress bar
     try:
-        console.print(f"[cyan]Downloading {bundle_filename}...[/cyan]")
+        console.print(f"[cyan]Downloading {clean_filename}...[/cyan]")
         console.print(f"[dim]From: {download_url}[/dim]")
         
         response = requests.get(download_url, stream=True, timeout=30)
@@ -272,11 +275,20 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
         ) as progress:
             task = progress.add_task(f"Downloading {bundle.get('size', 'unknown')}...", total=total_size)
             
-            with open(output_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        progress.update(task, advance=len(chunk))
+            if is_base64:
+                # Read entire base64 response, decode it, and write it
+                base64_content = response.content.strip()
+                import base64
+                decoded_content = base64.b64decode(base64_content)
+                with open(output_path, 'wb') as f:
+                    f.write(decoded_content)
+                progress.update(task, completed=total_size)
+            else:
+                with open(output_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            progress.update(task, advance=len(chunk))
         
         console.print(f"[bold green]✓ Downloaded successfully: {output_path}[/bold green]")
         

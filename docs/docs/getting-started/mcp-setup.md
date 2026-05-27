@@ -1,87 +1,104 @@
-CodeGraphContext (CGC) implements the **Model Context Protocol (MCP)**, allowing it to act as a powerful context provider for AI assistants like Claude Desktop, Cursor, and VS Code.
+# Model Context Protocol Setup
 
-## 🚀 Smart Setup (Recommended)
-
-The easiest way to configure CGC for your AI assistant is to use the interactive setup wizard. This tool will automatically detect your installed IDEs and apps and offer to configure them for you.
-
-### Using `uvx` (No Installation Required)
-If you have [uv](https://github.com/astral-sh/uv) installed, run:
-```bash
-uvx codegraphcontext mcp setup
-```
-
-### Using Local CLI
-If you have already installed CGC, run:
-```bash
-codegraphcontext mcp setup
-```
+CodeGraphContext (CGC) implements the Model Context Protocol (MCP). This enables LLM-powered applications and IDE extensions to discover and invoke tools that fetch context directly from your code graph.
 
 ---
 
-## Manual Configuration
-If the automated setup doesn't work for your environment, you can configure your client manually.
+## 1. Automated Setup (Recommended)
 
-## 1. Claude Desktop
+CGC includes an interactive wizard that detects supported IDEs and applications on your system and configures their MCP client settings automatically.
 
-To use CGC with the Claude Desktop app, you need to add it to your configuration file.
+Run the wizard from your terminal:
 
-### Configuration Path
-*   **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-*   **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-*   **Linux**: `~/.config/Claude/claude_desktop_config.json`
+```bash
+cgc mcp setup
+```
 
-### Add CGC to `mcpServers`
-Add the following entry to the `mcpServers` object:
+The wizard will locate configuration files for Claude Desktop, Cursor, and other compatible environments, and request permission to add CodeGraphContext as a local tool provider.
+
+---
+
+## 2. Manual Client Configuration
+
+If you prefer to configure your workspace manually, refer to the client configurations below.
+
+### Claude Desktop
+
+To configure Claude Desktop to run the local CGC server, add a configuration entry to the `claude_desktop_config.json` file.
+
+#### Configuration File Locations:
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+#### Configuration Schema:
+Add the following key under the `mcpServers` object:
 
 ```json
 {
   "mcpServers": {
-    "CodeGraphContext": {
-      "command": "codegraphcontext",
+    "codegraphcontext": {
+      "command": "cgc",
       "args": ["mcp", "start"]
     }
   }
 }
 ```
 
-> [!TIP]
-> If you installed CGC via `uvx`, you can use `"command": "uvx", "args": ["codegraphcontext", "mcp", "start"]` instead.
-
-## 2. Cursor
-
-Cursor supports MCP servers natively.
-
-1.  Open **Cursor Settings** (`Cmd+,` or `Ctrl+,`).
-2.  Navigate to **Features** > **MCP**.
-3.  Click **+ Add New MCP Server**.
-4.  Enter the following details:
-    *   **Name**: `CodeGraphContext`
-    *   **Type**: `command`
-    *   **Command**: `codegraphcontext mcp`
-
-## 3. VS Code (Windsurf / Kiro)
-
-For VS Code extensions that support MCP, use the same command: `codegraphcontext mcp`. Ensure your terminal environment has access to the `codegraphcontext` command.
+*Note: If you are running CGC in an isolated virtual environment or using `uvx`, adjust the command accordingly (e.g., using `uvx codegraphcontext mcp start`).*
 
 ---
 
-## Verifying the Connection
+### Cursor IDE
 
-Once configured, restart your AI assistant. You should see a list of tools provided by CodeGraphContext, such as:
+Cursor supports local MCP servers via direct process execution:
 
-*   `find_code`
-*   `analyze_code_relationships`
-*   `load_bundle`
-
-You can now ask your AI things like:
-> "Who calls the `handle_request` function?"
-> "Explain the class hierarchy of the `BaseStorage` class."
+1. Open **Cursor Settings** (Preferences / Settings -> Features -> MCP).
+2. Click **+ Add New MCP Server**.
+3. Fill in the fields:
+   - **Name**: `CodeGraphContext`
+   - **Type**: `command`
+   - **Command**: `cgc mcp start`
+4. Click **Save**.
 
 ---
 
-## Troubleshooting
+### VS Code (via Continue extension)
 
-If the tools do not appear:
-1.  Check that `codegraphcontext mcp` runs without errors in your terminal.
-2.  Verify the path to the `codegraphcontext` executable in your config file.
-3.  Consult the **[Troubleshooting Guide](../reference/troubleshooting.md)**.
+If you use VS Code with the [Continue.dev](https://continue.dev) plugin:
+
+1. Open your Continue configuration file (`~/.continue/config.json`).
+2. Add the server details inside the `contextProviders` or `mcp` settings array:
+
+```json
+{
+  "mcp": {
+    "codegraphcontext": {
+      "command": "cgc",
+      "args": ["mcp", "start"]
+    }
+  }
+}
+```
+
+---
+
+## 3. Verifying Tool Connectivity
+
+After restarting your IDE or Claude Desktop app, verify that the 21 MCP tools are active. You should see commands like:
+
+- `find_code` (Keyword search across symbols and file contents)
+- `analyze_code_relationships` (Lookup callers, callees, and inheritance paths)
+- `execute_cypher_query` (Execute direct database Cypher statements)
+
+You can verify it by prompting the assistant:
+> "Analyze the call path between the `process_data` and `db_commit` functions in my current codebase."
+
+---
+
+## 4. Connection Troubleshooting
+
+If the tools do not load:
+1. **Command Resolution**: Verify that the `cgc` command is present in your system's global `PATH`. If you installed via a virtual environment, use the absolute path to the executable (e.g., `/usr/local/bin/cgc` or `/home/user/.local/bin/cgc`).
+2. **Process Integrity**: Test starting the server manually in your shell by running `cgc mcp start`. It should listen on standard input/output (stdin/stdout) for JSON-RPC messages and not exit immediately.
+3. **Database Selection**: Ensure your default database is configured and has indexed data. Run `cgc doctor` to verify configuration.

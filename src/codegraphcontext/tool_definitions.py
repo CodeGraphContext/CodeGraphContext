@@ -1,3 +1,4 @@
+# src/codegraphcontext/tool_definitions.py
 
 # JSON schema snippet added to every tool that executes queries against a graph.
 # See docstring above each tool for the full list; tools that only touch in-memory
@@ -264,6 +265,69 @@ TOOLS = {
                 "save": {"type": "boolean", "description": "Whether to persist this mapping so the server reconnects automatically next time. Defaults to true.", "default": True}
             },
             "required": ["context_path"]
+        }
+    },
+    "generate_report": {
+        "name": "generate_report",
+        "description": "Generate a CGC_REPORT.md summarising god nodes (highest fan-in), most complex functions, cross-module coupling, potential dead code, and suggested Cypher queries. Use include_java=true to also include Spring endpoint tables, bean stereotype counts, and Maven module dependency summaries.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "output_path": {"type": "string", "description": "Where to write the report. Defaults to CGC_REPORT.md in the server working directory."},
+                "include_java": {"type": "boolean", "description": "Include Spring/Maven Java-specific sections.", "default": False},
+                "god_node_limit": {"type": "integer", "description": "Max rows for god-nodes section.", "default": 15},
+                "complexity_limit": {"type": "integer", "description": "Max rows for complexity section.", "default": 15},
+                "cross_module_limit": {"type": "integer", "description": "Max rows for cross-module connections section.", "default": 20},
+                "graph_name": _GRAPH_NAME_PROP,
+            }
+        }
+    },
+    "find_java_spring_endpoints": {
+        "name": "find_java_spring_endpoints",
+        "description": "Find all Spring HTTP endpoint handler functions in the indexed Java codebase. Optionally filter by HTTP method (GET, POST, PUT, DELETE, PATCH) or URL path pattern.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "http_method": {"type": "string", "description": "Optional: HTTP method to filter by (GET, POST, PUT, DELETE, PATCH).", "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]},
+                "path_pattern": {"type": "string", "description": "Optional: URL path substring to filter by (e.g. '/api/users')."},
+                "repo_path": {"type": "string", "description": "Optional: Restrict search to a specific repository path."},
+                "graph_name": _GRAPH_NAME_PROP,
+            }
+        }
+    },
+    "find_java_spring_beans": {
+        "name": "find_java_spring_beans",
+        "description": "Find Spring bean classes by stereotype (CONTROLLER, REST_CONTROLLER, SERVICE, REPOSITORY, COMPONENT, CONFIGURATION). Returns class names, file paths, and injection counts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "stereotype": {"type": "string", "description": "Optional: Filter by Spring stereotype.", "enum": ["CONTROLLER", "REST_CONTROLLER", "SERVICE", "REPOSITORY", "COMPONENT", "CONFIGURATION"]},
+                "repo_path": {"type": "string", "description": "Optional: Restrict search to a specific repository path."},
+                "graph_name": _GRAPH_NAME_PROP,
+            }
+        }
+    },
+    "find_datasource_nodes": {
+        "name": "find_datasource_nodes",
+        "description": "Query Datasource, DbTable, DbColumn, and RedisKeyPattern nodes in the code graph. Returns datasources and their tables/key-patterns, optionally filtered by kind or name.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "description": "Optional: Filter by datasource kind.",
+                    "enum": ["mysql", "cassandra", "redis"]
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Optional: Filter by datasource name (substring match)."
+                },
+                "include_columns": {
+                    "type": "boolean",
+                    "description": "If true, include DbColumn / RedisKeyPattern details in the response. Default false."
+                },
+                "graph_name": _GRAPH_NAME_PROP,
+            }
         }
     }
 }

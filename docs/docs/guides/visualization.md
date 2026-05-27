@@ -1,56 +1,56 @@
-# Visualizing the Code Graph
+# Interactive Graph Visualization
 
-Visualizing your codebase can help reveal architectural patterns, circular dependencies, and complex call chains that are difficult to see in raw code.
+Visualizing your code graph helps identify complex call paths, cyclical dependencies, and architectural anomalies. CodeGraphContext includes a built-in React-based interactive force-directed graph visualizer.
 
-## 1. CLI Visualization
+---
 
-CGC provides a quick way to visualize the graph directly from the terminal.
+## 1. Running the Local Visualizer Server
+
+Start the local visualization server using the `visualize` command:
 
 ```bash
 cgc visualize
 ```
 
-This command generates a temporary visualization file (usually an HTML file with an interactive graph) and opens it in your default web browser.
+By default, this command:
+1. Resolves the active database context.
+2. Launches a FastAPI web server on port **8000**.
+3. Opens your default web browser to `http://localhost:8000`.
 
-### Visualizing Specific Queries
-You can visualize the result of a specific relationship query:
+### Custom Port & Repo Overrides
+Specify a custom port or target repository path when starting the server:
 
 ```bash
-cgc visualize --query "callers find_request_handler"
+# Run server on port 9000 for a specific repository
+cgc visualize --repo ~/projects/my-api --port 9000
+
+# Use a specific named context database
+cgc visualize --context StagingGraph
 ```
 
 ---
 
-## 2. Interactive Analysis with Neo4j
+## 2. Using the Interactive UI
 
-If you are using the **Neo4j** backend, you can leverage the full power of the **Neo4j Browser**.
+The browser interface serves a force-directed graph showing your codebase structures:
 
-1.  **Start Neo4j**: Ensure your Neo4j container or service is running.
-2.  **Access Browser**: Open `http://localhost:7474` in your browser.
-3.  **Run Cypher**: Write custom Cypher queries to explore the graph visually.
+- **Node Interactions**: Click on any node (file, class, function) to view its code details, extracted signatures, cyclomatic complexity scores, and docstrings in the detail pane.
+- **Dynamic Search**: Use the search filter to highlight specific symbols.
+- **Relationship Filters**: Toggle visibility of relationship edges (e.g., hiding `IMPORTS` to focus exclusively on execution `CALLS` flow).
+- **Navigation Controls**: Zoom, pan, and drag nodes to isolate call loops and modules.
 
-### Example: Visualizing a Module Hierarchy
+---
+
+## 3. Neo4j Browser Visualizations (Neo4j Backend Only)
+
+If you are using Neo4j as your active database backend, you can leverage the native **Neo4j Browser Console** for complex Cypher queries.
+
+1. Open your browser and navigate to the Neo4j Console (typically `http://localhost:7474`).
+2. Log in using your configured credentials.
+3. Execute a Cypher query to retrieve and render graph structures:
+
 ```cypher
-MATCH (m:Module)-[:CONTAINS]->(c:Class)
-RETURN m, c
+// Visualize all functions called by the "process_payment" function
+MATCH (f1:Function {name: 'process_payment'})-[r:CALLS]->(f2:Function)
+RETURN f1, r, f2
 ```
-
----
-
-## 3. Visualizing via MCP Tools
-
-When using CGC with an AI assistant (like Cursor or Claude), the AI can generate visualization URLs for you.
-
-**Ask the AI**:
-> "Visualize the call chain leading to the `process_order` function."
-
-The AI will call the `visualize_graph_query` tool and provide you with a link to view the resulting graph.
-
----
-
-## Common Visualization Types
-
-*   **Call Graphs**: Showing which functions call which others.
-*   **Dependency Graphs**: Mapping imports between files and modules.
-*   **Class Hierarchies**: Visualizing inheritance and implementations.
-*   **Complexity Heatmaps**: (Experimental) Nodes sized or colored by their cyclomatic complexity.

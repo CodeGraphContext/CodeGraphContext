@@ -1,8 +1,10 @@
+# src/codegraphcontext/viz/server.py
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 from pathlib import Path
+import re
 import uvicorn
 import json
 import os
@@ -14,11 +16,15 @@ from ..utils.debug_log import debug_log
 
 app = FastAPI()
 
-# Enable CORS for development
+# CORS: only allow requests from the local visualization frontend.
+# The server binds to 127.0.0.1 (localhost) so only local origins are legitimate.
+_ALLOWED_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=[],
+    allow_origin_regex=_ALLOWED_ORIGIN_REGEX,
+    allow_methods=["GET"],
     allow_headers=["*"],
 )
 
@@ -30,6 +36,23 @@ _static_dir: Optional[str] = None
 def set_db_manager(manager: DatabaseManager):
     global db_manager
     db_manager = manager
+
+# Forbidden Cypher write keywords. Mirrors src/codegraphcontext/tools/handlers/query_handlers.py
+# so that the visualization HTTP endpoint enforces the same read-only contract as the
+# MCP tool. Without this, any caller able to reach the viz server (which by default
+# enables permissive CORS) could execute arbitrary write Cypher (CWE-943).
+_FORBIDDEN_CYPHER_KEYWORDS = (
+    'CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc'
+)
+_STRING_LITERAL_RE = re.compile(r'''"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'''')
+
+def _is_read_only_cypher(query: str) -> bool:
+    """Return True if *query* contains no write keywords (outside string literals)."""
+    stripped = _STRING_LITERAL_RE.sub('', query)
+    for keyword in _FORBIDDEN_CYPHER_KEYWORDS:
+        if re.search(r'\b' + keyword + r'\b', stripped, re.IGNORECASE):
+            return False
+    return True
 
 @app.get("/api/graph")
 async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str] = None):
@@ -76,6 +99,15 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
 
         with db_manager.get_driver().session() as session:
             if cypher_query:
+                if not _is_read_only_cypher(cypher_query):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "This endpoint only supports read-only Cypher queries. "
+                            "Prohibited keywords like CREATE, MERGE, DELETE, SET, REMOVE, "
+                            "DROP, or CALL apoc are not allowed."
+                        ),
+                    )
                 print(f"DEBUG: Executing custom query: {cypher_query}", flush=True)
                 result = session.run(cypher_query)
             elif repo_path:
@@ -238,6 +270,9 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
         print(f"API SUCCESS: Returning graph with {len(response_data['nodes'])} nodes and {len(response_data['links'])} links.", file=sys.stderr, flush=True)
         return response_data
 
+    except HTTPException:
+        # Preserve intentional HTTP errors (e.g. 400 for forbidden write queries).
+        raise
     except Exception as e:
         debug_log(f"Error fetching graph: {str(e)}")
         import traceback
