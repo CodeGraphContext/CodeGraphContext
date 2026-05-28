@@ -40,7 +40,7 @@ DEFAULT_CONFIG = {
     "LOG_FILE_PATH": str(CONFIG_DIR / "logs" / "cgc.log"),
     "MAX_FILE_SIZE_MB": "10",
     "IGNORE_TEST_FILES": "false",
-    "IGNORE_HIDDEN_FILES": "true",
+    "IGNORE_HIDDEN_FILES": "false",
     "ENABLE_AUTO_WATCH": "false",
     "COMPLEXITY_THRESHOLD": "10",
     "MAX_DEPTH": "unlimited",

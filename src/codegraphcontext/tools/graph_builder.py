@@ -13,7 +13,7 @@ from ..core.database import DatabaseManager
 from ..core.jobs import JobManager, JobStatus
 from ..utils.debug_log import debug_log, error_logger, info_logger, warning_logger
 from .indexing.constants import DEFAULT_IGNORE_PATTERNS
-from .indexing.persistence.writer import GraphWriter
+from .indexing.persistence.writer import GraphWriter, _canonical_import_rows
 from .indexing.pipeline import run_tree_sitter_index_async
 from .indexing.pre_scan import pre_scan_for_imports
 from .indexing.resolution.calls import build_function_call_groups, resolve_function_call
@@ -34,6 +34,7 @@ class GraphBuilder:
         self.driver = self.db_manager.get_driver()
         self._writer = GraphWriter(self.driver)
         self.last_call_resolution_diagnostics: list[Dict[str, Any]] = []
+        self._unavailable_parsers: set[str] = set()
         self.parsers = {
             ".py": "python",
             ".ipynb": "python",
@@ -85,6 +86,9 @@ class GraphBuilder:
 
     def get_parser(self, extension: str) -> Optional[TreeSitterParser]:
         """Gets or creates a TreeSitterParser for the given extension (thread-local)."""
+        if extension in self._unavailable_parsers:
+            return None
+
         lang_name = self.parsers.get(extension)
         if not lang_name:
             return None
@@ -96,7 +100,11 @@ class GraphBuilder:
             try:
                 self._parsed_cache.parsers[lang_name] = TreeSitterParser(lang_name)
             except Exception as e:
-                warning_logger(f"Failed to initialize parser for {lang_name}: {e}")
+                warning_logger(
+                    f"Tree-sitter parser for {lang_name} ({extension}) is unavailable. "
+                    f"Falling back to file-only indexing for matching files. Error: {e}"
+                )
+                self._unavailable_parsers.add(extension)
                 return None
         return self._parsed_cache.parsers[lang_name]
 
@@ -128,100 +136,7 @@ class GraphBuilder:
 
     def _pre_scan_for_imports(self, files: list[Path]) -> dict:
         """Dispatches pre-scan to the correct language-specific implementation."""
-        imports_map = {}
-        
-        # Group files by language/extension
-        files_by_lang = {}
-        for file in files:
-            if file.suffix in self.parsers:
-                lang_ext = file.suffix
-                if lang_ext not in files_by_lang:
-                    files_by_lang[lang_ext] = []
-                files_by_lang[lang_ext].append(file)
-
-        if '.py' in files_by_lang:
-            from .languages import python as python_lang_module
-            imports_map.update(python_lang_module.pre_scan_python(files_by_lang['.py'], self.get_parser('.py')))
-        if '.ipynb' in files_by_lang:
-            from .languages import python as python_lang_module
-            imports_map.update(python_lang_module.pre_scan_python(files_by_lang['.ipynb'], self.get_parser('.ipynb')))
-        if '.js' in files_by_lang:
-            from .languages import javascript as js_lang_module
-            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.js'], self.get_parser('.js')))
-        if '.jsx' in files_by_lang:
-            from .languages import javascript as js_lang_module
-            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.jsx'], self.get_parser('.jsx')))
-        if '.mjs' in files_by_lang:
-            from .languages import javascript as js_lang_module
-            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.mjs'], self.get_parser('.mjs')))
-        if '.cjs' in files_by_lang:
-            from .languages import javascript as js_lang_module
-            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.cjs'], self.get_parser('.cjs')))
-        if '.go' in files_by_lang:
-             from .languages import go as go_lang_module
-             imports_map.update(go_lang_module.pre_scan_go(files_by_lang['.go'], self.get_parser('.go')))
-        if '.ts' in files_by_lang:
-            from .languages import typescript as ts_lang_module
-            imports_map.update(ts_lang_module.pre_scan_typescript(files_by_lang['.ts'], self.get_parser('.ts')))
-        if '.tsx' in files_by_lang:
-            from .languages import typescriptjsx as tsx_lang_module
-            imports_map.update(tsx_lang_module.pre_scan_typescript(files_by_lang['.tsx'], self.get_parser('.tsx')))
-        if '.cpp' in files_by_lang:
-            from .languages import cpp as cpp_lang_module
-            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.cpp'], self.get_parser('.cpp')))
-        if '.h' in files_by_lang:
-            from .languages import cpp as cpp_lang_module
-            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.h'], self.get_parser('.h')))
-        if '.hpp' in files_by_lang:
-            from .languages import cpp as cpp_lang_module
-            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.hpp'], self.get_parser('.hpp')))
-        if '.hh' in files_by_lang:
-            from .languages import cpp as cpp_lang_module
-            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.hh'], self.get_parser('.hh')))
-        if '.rs' in files_by_lang:
-            from .languages import rust as rust_lang_module
-            imports_map.update(rust_lang_module.pre_scan_rust(files_by_lang['.rs'], self.get_parser('.rs')))
-        if '.c' in files_by_lang:
-            from .languages import c as c_lang_module
-            imports_map.update(c_lang_module.pre_scan_c(files_by_lang['.c'], self.get_parser('.c')))
-        elif '.java' in files_by_lang:
-            from .languages import java as java_lang_module
-            imports_map.update(java_lang_module.pre_scan_java(files_by_lang['.java'], self.get_parser('.java')))
-        elif '.rb' in files_by_lang:
-            from .languages import ruby as ruby_lang_module
-            imports_map.update(ruby_lang_module.pre_scan_ruby(files_by_lang['.rb'], self.get_parser('.rb')))
-        elif '.cs' in files_by_lang:
-            from .languages import csharp as csharp_lang_module
-            imports_map.update(csharp_lang_module.pre_scan_csharp(files_by_lang['.cs'], self.get_parser('.cs')))
-        if '.kt' in files_by_lang:
-            from .languages import kotlin as kotlin_lang_module
-            imports_map.update(kotlin_lang_module.pre_scan_kotlin(files_by_lang['.kt'], self.get_parser('.kt')))
-        if '.scala' in files_by_lang:
-            from .languages import scala as scala_lang_module
-            imports_map.update(scala_lang_module.pre_scan_scala(files_by_lang['.scala'], self.get_parser('.scala')))
-        if '.sc' in files_by_lang:
-            from .languages import scala as scala_lang_module
-            imports_map.update(scala_lang_module.pre_scan_scala(files_by_lang['.sc'], self.get_parser('.sc')))
-        if '.swift' in files_by_lang:
-            from .languages import swift as swift_lang_module
-            imports_map.update(swift_lang_module.pre_scan_swift(files_by_lang['.swift'], self.get_parser('.swift')))
-        if '.dart' in files_by_lang:
-            from .languages import dart as dart_lang_module
-            imports_map.update(dart_lang_module.pre_scan_dart(files_by_lang['.dart'], self.get_parser('.dart')))
-        if '.pl' in files_by_lang:
-            from .languages import perl as perl_lang_module
-            imports_map.update(perl_lang_module.pre_scan_perl(files_by_lang['.pl'], self.get_parser('.pl')))
-        if '.pm' in files_by_lang:
-            from .languages import perl as perl_lang_module
-            imports_map.update(perl_lang_module.pre_scan_perl(files_by_lang['.pm'], self.get_parser('.pm')))
-        if '.ex' in files_by_lang:
-            from .languages import elixir as elixir_lang_module
-            imports_map.update(elixir_lang_module.pre_scan_elixir(files_by_lang['.ex'], self.get_parser('.ex')))
-        if '.exs' in files_by_lang:
-            from .languages import elixir as elixir_lang_module
-            imports_map.update(elixir_lang_module.pre_scan_elixir(files_by_lang['.exs'], self.get_parser('.exs')))
-
-        return imports_map
+        return pre_scan_for_imports(files, self.parsers, self.get_parser)
 
     # Language-agnostic method
     def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False):
@@ -486,27 +401,30 @@ class GraphBuilder:
                     other_imports.append(imp)
 
             if js_imports:
+                js_imports = _canonical_import_rows(js_imports, ("module_name",))
                 session.run("""
                     UNWIND $batch AS row
                     MATCH (f:File {path: $file_path})
                     MERGE (m:Module {name: row.module_name})
+                    SET m.full_import_name = row.module_name
                     MERGE (f)-[r:IMPORTS]->(m)
-                    SET r.imported_name = row.imported_name,
-                        r.alias = row.alias,
-                        r.line_number = row.line_number
+                    SET r.imported_name = coalesce(r.imported_name, row.imported_name),
+                        r.alias = coalesce(r.alias, row.alias),
+                        r.line_number = coalesce(r.line_number, row.line_number)
                 """, batch=js_imports, file_path=file_path_str)
 
             if other_imports:
+                other_imports = _canonical_import_rows(other_imports, ("name",))
                 # Non-JS languages share the same shape: name, alias, full_import_name
                 session.run("""
                     UNWIND $batch AS row
                     MATCH (f:File {path: $file_path})
                     MERGE (m:Module {name: row.name})
                     SET m.alias = row.alias,
-                        m.full_import_name = coalesce(row.full_import_name, m.full_import_name)
+                        m.full_import_name = row.name
                     MERGE (f)-[r:IMPORTS]->(m)
-                    SET r.line_number = row.line_number,
-                        r.alias = row.alias
+                    SET r.line_number = coalesce(r.line_number, row.line_number),
+                        r.alias = coalesce(r.alias, row.alias)
                 """, batch=other_imports, file_path=file_path_str)
 
             # ── Batch: Ruby Class INCLUDES Module ─────────────────────────────
@@ -882,8 +800,33 @@ class GraphBuilder:
 
         parser = self.get_parser(ext)
         if not parser:
-            warning_logger(f"No parser found for file extension {ext}. Skipping {path}")
-            return {"path": str(path), "error": f"No parser for {ext}", "unsupported": True}
+            warning_logger(
+                f"No parser available for {ext}. Indexing {path} as a file node without symbol extraction."
+            )
+            return {
+                "path": str(path.resolve()),
+                "repo_path": str(repo_path.resolve()),
+                "lang": self.parsers.get(ext),
+                "functions": [],
+                "classes": [],
+                "traits": [],
+                "interfaces": [],
+                "macros": [],
+                "structs": [],
+                "enums": [],
+                "unions": [],
+                "records": [],
+                "properties": [],
+                "variables": [],
+                "modules": [],
+                "module_inclusions": [],
+                "imports": [],
+                "function_calls": [],
+                "calls": [],
+                "inheritances": [],
+                "implements": [],
+                "is_dependency": is_dependency,
+            }
 
         debug_log(f"[parse_file] Starting parsing for: {path} with {parser.language_name} parser")
         try:

@@ -1,3 +1,4 @@
+import pytest
 from tree_sitter import Parser
 
 from codegraphcontext.utils.tree_sitter_manager import get_tree_sitter_manager
@@ -13,6 +14,10 @@ class _DummyGenericParserWrapper:
 
 
 def test_go_cyclomatic_complexity_increases_for_control_flow():
+    manager = get_tree_sitter_manager()
+    if not manager.is_language_available("go"):
+        pytest.skip("Go tree-sitter grammar is not available in this environment")
+
     wrapper = _DummyGenericParserWrapper()
     parser = GoTreeSitterParser(wrapper)
 
@@ -65,4 +70,3 @@ def test_go_cyclomatic_complexity_increases_for_control_flow():
 
     assert by_name["SimpleHelper"]["cyclomatic_complexity"] <= 2
     assert by_name["SomeComplexFunction"]["cyclomatic_complexity"] > 10
-

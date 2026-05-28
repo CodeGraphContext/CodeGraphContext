@@ -111,6 +111,9 @@ def pre_scan_for_imports(
     for ext, file_list in files_by_ext.items():
         scanner = registry.get(ext)
         if scanner:
-            imports_map.update(scanner(file_list, get_parser))
+            parser = get_parser(ext)
+            if parser is None:
+                continue
+            imports_map.update(scanner(file_list, lambda _ext, parser=parser: parser))
 
     return imports_map

@@ -18,6 +18,33 @@ def _is_binder_exception(e: Exception) -> bool:
     return "binder" in err_str or "cannot find a valid label" in err_str
 
 
+def _canonical_import_rows(rows: List[Dict[str, Any]], key_fields: Tuple[str, ...]) -> List[Dict[str, Any]]:
+    """Choose stable representative rows for collapsed File->Module import edges."""
+    best_by_key: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+    for row in rows:
+        key = tuple(row.get(field) for field in key_fields)
+        current = best_by_key.get(key)
+        if current is None or _import_row_sort_key(row) < _import_row_sort_key(current):
+            best_by_key[key] = row
+    return [best_by_key[key] for key in sorted(best_by_key)]
+
+
+def _import_row_sort_key(row: Dict[str, Any]) -> Tuple[int, str, str, str]:
+    line_number = row.get("line_number")
+    try:
+        line = int(line_number)
+    except (TypeError, ValueError):
+        line = 0
+    if line <= 0:
+        line = 2**31 - 1
+    return (
+        line,
+        str(row.get("full_import_name") or row.get("module_name") or row.get("name") or ""),
+        str(row.get("imported_name") or ""),
+        str(row.get("alias") or ""),
+    )
+
+
 
 class GraphWriter:
     """Persists repository/file/symbol nodes and relationships via the Neo4j-like driver API."""
@@ -364,33 +391,36 @@ class GraphWriter:
                     )
 
             if js_imports:
+                js_imports = _canonical_import_rows(js_imports, ("module_name",))
                 session.run(
                     """
                     UNWIND $batch AS row
                     MATCH (f:File {path: $file_path})
                     MERGE (m:Module {name: row.module_name})
+                    SET m.full_import_name = row.module_name
                     MERGE (f)-[r:IMPORTS]->(m)
-                    SET r.imported_name = row.imported_name,
-                        r.alias = row.alias,
-                        r.line_number = row.line_number
+                    SET r.imported_name = coalesce(r.imported_name, row.imported_name),
+                        r.alias = coalesce(r.alias, row.alias),
+                        r.line_number = coalesce(r.line_number, row.line_number)
                 """,
                     batch=js_imports,
                     file_path=file_path_str,
                 )
 
             if other_imports:
+                other_imports = _canonical_import_rows(other_imports, ("name",))
                 session.run(
                     """
                     UNWIND $batch AS row
                     MATCH (f:File {path: $file_path})
                     MERGE (m:Module {name: row.name})
                     SET m.lang = coalesce(row.lang, m.lang),
-                        m.full_import_name = coalesce(row.full_import_name, m.full_import_name)
+                        m.full_import_name = row.name
                     MERGE (f)-[r:IMPORTS]->(m)
-                    SET r.line_number = row.line_number,
-                        r.alias = coalesce(row.alias, ""),
-                        r.imported_name = row.imported_name,
-                        r.full_import_name = row.full_import_name
+                    SET r.line_number = coalesce(r.line_number, row.line_number),
+                        r.alias = coalesce(r.alias, coalesce(row.alias, "")),
+                        r.imported_name = coalesce(r.imported_name, row.imported_name),
+                        r.full_import_name = coalesce(r.full_import_name, row.full_import_name)
                 """,
                     batch=other_imports,
                     file_path=file_path_str,
