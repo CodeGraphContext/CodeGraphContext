@@ -59,6 +59,7 @@ IGNORED_NODE_FIELDS = {
     "initializer_member_name",
     "initializer_receiver_name",
     "initializer_candidate_names",
+    "receiver_type",
 }
 
 def _is_effectively_empty_list(value):
