@@ -219,13 +219,20 @@ class TestKuzuGraphNameIgnored:
         self._reset()
 
     def test_get_driver_accepts_and_ignores_graph_name(self):
+        import queue
         from codegraphcontext.core.database_kuzu import KuzuDBManager
 
         mgr = KuzuDBManager(db_path="/tmp/ignored_kuzu_test_path")
-        mgr._conn = MagicMock()  # Pre-warm so get_driver skips the kuzu import path.
+        # Pre-warm _db/_pool (a real Queue — not a MagicMock, whose auto-created
+        # .acquire would make KuzuDriverWrapper mistake the pool for a lock) so
+        # get_driver skips the real kuzu import/init path.
+        mgr._db = object()
+        mgr._pool = queue.Queue()
 
-        # Both calls must succeed and produce equivalent behavior — Kuzu has no
-        # per-graph namespace, so graph_name is a no-op.
+        # Both calls must succeed and produce equivalent wrappers — Kuzu has no
+        # per-graph namespace, so graph_name is a no-op: both wrap the same
+        # underlying db and connection pool.
         w_none = mgr.get_driver()
         w_named = mgr.get_driver(graph_name="irrelevant")
-        assert w_none.conn is w_named.conn
+        assert w_none.db is w_named.db
+        assert w_none._pool is w_named._pool

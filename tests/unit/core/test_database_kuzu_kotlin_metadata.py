@@ -92,7 +92,7 @@ def test_calls_metadata_updates_do_not_duplicate_kuzu_relationships(tmp_path):
                 line_number=5,
             )
 
-        writer = GraphWriter(driver)
+        writer = GraphWriter(manager)
         call = {
             "caller_name": "caller",
             "caller_file_path": "/repo/Sample.kt",
@@ -158,7 +158,7 @@ def test_class_calls_use_target_line_in_kuzu(tmp_path):
                     line_number=line_number,
                 )
 
-        writer = GraphWriter(driver)
+        writer = GraphWriter(manager)
         writer.write_function_call_groups(
             [],
             [
@@ -201,7 +201,7 @@ def test_class_function_containment_uses_owner_line_in_kuzu(tmp_path):
     manager = _fresh_kuzu_manager(tmp_path / "contains-db")
     try:
         driver = manager.get_driver()
-        writer = GraphWriter(driver)
+        writer = GraphWriter(manager)
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
         file_path = repo_path / "Sample.kt"
