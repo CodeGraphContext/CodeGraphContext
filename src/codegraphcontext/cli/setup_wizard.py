@@ -256,7 +256,7 @@ def _configure_ide(mcp_config):
     questions = [
         {
             "type": "confirm",
-            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Goose, Antigravity, OpenCode)?",
+            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Zed, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Goose, Antigravity, OpenCode)?",
             "name": "configure_ide",
             "default": True,
         }
@@ -270,7 +270,7 @@ def _configure_ide(mcp_config):
         {
             "type": "list",
             "message": "Choose your IDE/CLI to configure:",
-            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity", "OpenCode", "None of the above"],
+            "choices": ["VS Code", "Cursor", "Windsurf", "Zed", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity", "OpenCode", "None of the above"],
             "name": "ide_choice",
         }
     ]
@@ -289,7 +289,7 @@ def _configure_ide(mcp_config):
         )
         return
 
-    if ide_choice in ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity"]:
+    if ide_choice in ["VS Code", "Cursor", "Windsurf", "Zed", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity"]:
         console.print(f"\n[bold cyan]Configuring for {ide_choice}...[/bold cyan]")
 
         if ide_choice == "Amazon Q Developer":
@@ -319,6 +319,10 @@ def _configure_ide(mcp_config):
                 Path.home() / "Library" / "Application Support" / "windsurf" / "settings.json",
                 Path.home() / "AppData" / "Roaming" / "windsurf" / "settings.json",
                 Path.home() / ".config" / "Windsurf" / "User" / "settings.json",
+            ],
+            "Zed": [
+                Path.home() / ".config" / "zed" / "settings.json",
+                Path.home() / "AppData" / "Roaming" / "Zed" / "settings.json"
             ],
             "Claude code": [
                 Path.home() / ".claude.json"
@@ -398,10 +402,14 @@ def _configure_ide(mcp_config):
             console.print(f"[red]Error: Configuration file at {target_path} is not a valid JSON object.[/red]")
             return
 
-        if "mcpServers" not in settings:
-            settings["mcpServers"] = {}
-        
-        settings["mcpServers"].update(mcp_config["mcpServers"])
+        if ide_choice == "Zed":
+            if "context_servers" not in settings:
+                settings["context_servers"] = {}
+            settings["context_servers"].update(mcp_config["mcpServers"])
+        else:
+            if "mcpServers" not in settings:
+                settings["mcpServers"] = {}
+            settings["mcpServers"].update(mcp_config["mcpServers"])
 
         try:
             with open(target_path, "w") as f:

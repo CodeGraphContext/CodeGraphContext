@@ -107,7 +107,7 @@ def mcp_setup():
     Configure MCP Client (IDE/CLI Integration).
     
     Sets up CodeGraphContext integration with your IDE or CLI tool:
-    - VS Code, Cursor, Windsurf
+    - VS Code, Cursor, Windsurf, Zed
     - Claude Desktop, Gemini CLI
     - Cline, RooCode, Amazon Q Developer, Goose
     - OpenCode (prints stdio config + link to vendor docs)
@@ -124,7 +124,7 @@ def mcp_start():
     Start the CodeGraphContext MCP server.
     
     Starts the server which listens for JSON-RPC requests from stdin.
-    This is used by IDE integrations (VS Code, Cursor, etc.).
+    This is used by IDE integrations (VS Code, Cursor, Zed, etc.).
     """
     console.print("[bold green]Starting CodeGraphContext Server...[/bold green]")
     _load_credentials()
