@@ -22,7 +22,6 @@ from pathlib import Path
 from importlib.metadata import version as pkg_version, PackageNotFoundError
 
 from codegraphcontext.server import MCPServer
-from codegraphcontext.core.database import DatabaseManager
 from .setup_wizard import run_neo4j_setup_wizard, configure_mcp_client
 from . import config_manager
 # Import the new helper functions
@@ -250,7 +249,7 @@ def context_list():
 @context_app.command("create")
 def context_create(
     name: str = typer.Argument(..., help="Name of the new context"),
-    database: str = typer.Option(None, "--database", "-d", help="Database backend (falkordb, kuzudb, neo4j). Defaults to DEFAULT_DATABASE from config."),
+    database: str = typer.Option(None, "--database", "--db", "-db", "-d", help="Database backend (falkordb, kuzudb, neo4j). Defaults to DEFAULT_DATABASE from config."),
     db_path: str = typer.Option(None, "--db-path", help="Explicit path for the DB (defaults to ~/.codegraphcontext/contexts/<name>/db)"),
 ):
     """Create a new logical context."""
@@ -291,17 +290,14 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
     Uses per-variable precedence - each variable is loaded from the highest priority source.
     Priority order (highest to lowest):
     1. Runtime environment variables (shell/CI)
-    2. Local `.env` in project directory (project-specific overrides)
+    2. Local `.codegraphcontext/.env` and `.env` in the current project directory (project-specific overrides)
     3. Global `~/.codegraphcontext/.env` (user defaults, including `cgc config set`)
     4. Local `mcp.json` env vars (project defaults)
-    1. Local `mcp.json` env vars (highest - explicit MCP server config)
-    2. ``<cwd>/.codegraphcontext/.env`` only (no parent-directory walk)
-    3. Global `~/.codegraphcontext/.env` (lowest - user defaults)
 
-    Step 2 skips duplicate loading when that file is the same path as the global file.
-    Arbitrary repo-root `.env` files are not loaded—only CodeGraphContext config paths.
+    Duplicate loading is skipped when the local file resolves to the same path as the global file.
+    Arbitrary parent directory `.env` files are not loaded—ensuring isolation.
     """
-    from dotenv import dotenv_values, find_dotenv
+    from dotenv import dotenv_values
     from codegraphcontext.cli.config_manager import (
         ensure_config_dir,
         codegraphcontext_dotenv_at_cwd,
@@ -360,12 +356,12 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load global .env: {e}[/yellow]")
     
-    # 2. Local project .env (project-specific overrides)
+    # 2. Local project .env (project-specific overrides - restricted to CWD only, no parent walk)
     try:
-        dotenv_path = find_dotenv(usecwd=True, raise_error_if_not_found=False)
-        if dotenv_path:
-            with open(dotenv_path, "r", encoding="utf-8", errors="replace") as f:
-                _append_source(str(dotenv_path), dotenv_values(stream=f))
+        local_dot_env = Path.cwd() / ".env"
+        if local_dot_env.exists() and local_dot_env.resolve() != global_env_path.resolve():
+            with open(local_dot_env, "r", encoding="utf-8", errors="replace") as f:
+                _append_source(str(local_dot_env), dotenv_values(stream=f))
     except Exception as e:
         console.print(f"[yellow]Warning: Could not load .env from current directory: {e}[/yellow]")
 
@@ -637,7 +633,7 @@ def bundle_export(
         if repo_path:
             console.print(f"[dim]Repository: {repo_path}[/dim]")
         else:
-            console.print(f"[dim]Exporting all repositories[/dim]")
+            console.print("[dim]Exporting all repositories[/dim]")
         
         bundle = CGCBundle(db_manager)
         success, message = bundle.export_to_bundle(
@@ -748,7 +744,7 @@ def bundle_load(
     
     # Try to download from registry
     console.print(f"[yellow]Bundle '{bundle_name}' not found locally.[/yellow]")
-    console.print(f"[cyan]Attempting to download from registry...[/cyan]")
+    console.print("[cyan]Attempting to download from registry...[/cyan]")
     
     try:
         from .registry_commands import download_bundle
@@ -768,7 +764,7 @@ def bundle_load(
     
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")
-        console.print(f"[dim]Use 'cgc registry list' to see available bundles[/dim]")
+        console.print("[dim]Use 'cgc registry list' to see available bundles[/dim]")
         raise typer.Exit(code=1)
 
 # Shortcut commands at root level
@@ -888,7 +884,7 @@ def registry_download(
     bundle_path = download_bundle(name, output_dir, auto_load=load)
     
     if load and bundle_path:
-        console.print(f"\n[cyan]Loading bundle...[/cyan]")
+        console.print("\n[cyan]Loading bundle...[/cyan]")
         bundle_import(bundle_path, clear=False)
 
 @registry_app.command("request")
@@ -941,13 +937,13 @@ def doctor():
         if config_manager.CONFIG_FILE.exists():
             console.print(f"   [green]✓[/green] Config loaded from {config_manager.CONFIG_FILE}")
         else:
-            console.print(f"   [yellow]ℹ[/yellow] No .env config found, using defaults")
+            console.print("   [yellow]ℹ[/yellow] No .env config found, using defaults")
             console.print(f"   [dim]Config will be created at: {config_manager.CONFIG_FILE}[/dim]")
             
         if config_manager.CONTEXT_CONFIG_FILE.exists():
             console.print(f"   [green]✓[/green] Context config loaded from {config_manager.CONTEXT_CONFIG_FILE}")
         else:
-            console.print(f"   [yellow]ℹ[/yellow] No Context config found")
+            console.print("   [yellow]ℹ[/yellow] No Context config found")
             console.print(f"   [dim]Context config will be auto-generated at: {config_manager.CONTEXT_CONFIG_FILE}[/dim]")
         
         # Validate each config value
@@ -958,12 +954,12 @@ def doctor():
                 invalid_configs.append(f"{key}: {error_msg}")
         
         if invalid_configs:
-            console.print(f"   [red]✗[/red] Invalid configuration values found:")
+            console.print("   [red]✗[/red] Invalid configuration values found:")
             for err in invalid_configs:
                 console.print(f"     - {err}")
             all_checks_passed = False
         else:
-            console.print(f"   [green]✓[/green] All configuration values are valid")
+            console.print("   [green]✓[/green] All configuration values are valid")
     except Exception as e:
         console.print(f"   [red]✗[/red] Configuration error: {e}")
         all_checks_passed = False
@@ -982,6 +978,7 @@ def doctor():
             password = os.environ.get("NEO4J_PASSWORD")
             database_name = os.environ.get("NEO4J_DATABASE")
 
+            from codegraphcontext.core.database import DatabaseManager
             missing = DatabaseManager.get_missing_credentials(uri, username, password)
             console.print(f"   [cyan]Credential check:[/cyan] {'OK' if not missing else 'Missing ' + ', '.join(missing)}")
             if missing:
@@ -1003,10 +1000,10 @@ def doctor():
                     console.print("       Start Neo4j Desktop or run: docker run -d -p 7687:7687 -p 7474:7474 neo4j")
                     all_checks_passed = False
 
-                console.print(f"   [cyan]Testing Neo4j authentication/query...[/cyan]")
+                console.print("   [cyan]Testing Neo4j authentication/query...[/cyan]")
                 is_connected, error_msg = DatabaseManager.test_connection(uri, username, password, database=database_name)
                 if is_connected:
-                    console.print(f"   [green]✓[/green] Neo4j connection successful")
+                    console.print("   [green]✓[/green] Neo4j connection successful")
                 else:
                     console.print(f"   [red]✗[/red] Neo4j connection failed (source: {db_source})")
                     console.print(f"       Reason: {error_msg}")
@@ -1015,28 +1012,28 @@ def doctor():
             from importlib.util import find_spec
 
             if find_spec("kuzu") is not None:
-                console.print(f"   [green]✓[/green] KuzuDB is installed")
+                console.print("   [green]✓[/green] KuzuDB is installed")
             else:
-                console.print(f"   [red]✗[/red] KuzuDB is not installed")
-                console.print(f"       Run: pip install kuzu")
+                console.print("   [red]✗[/red] KuzuDB is not installed")
+                console.print("       Run: pip install kuzu")
                 all_checks_passed = False
         elif default_db == "ladybugdb":
             from importlib.util import find_spec
 
             if find_spec("ladybug") is not None:
-                console.print(f"   [green]✓[/green] LadybugDB core (ladybug) is installed")
+                console.print("   [green]✓[/green] LadybugDB core (ladybug) is installed")
             else:
-                console.print(f"   [red]✗[/red] LadybugDB core (ladybug) is not installed")
-                console.print(f"       Run: pip install ladybug")
+                console.print("   [red]✗[/red] LadybugDB core (ladybug) is not installed")
+                console.print("       Run: pip install ladybug")
                 all_checks_passed = False
         else:
             # FalkorDB
             try:
                 import falkordb
-                console.print(f"   [green]✓[/green] FalkorDB Lite is installed")
+                console.print("   [green]✓[/green] FalkorDB Lite is installed")
             except ImportError:
-                console.print(f"   [yellow]⚠[/yellow] FalkorDB Lite not installed (Python 3.12+ only)")
-                console.print(f"       Run: pip install falkordblite")
+                console.print("   [yellow]⚠[/yellow] FalkorDB Lite not installed (Python 3.12+ only)")
+                console.print("       Run: pip install falkordblite")
     except Exception as e:
         console.print(f"   [red]✗[/red] Database check error: {e}")
         all_checks_passed = False
@@ -1045,11 +1042,11 @@ def doctor():
     console.print("\n[bold]3. Checking Tree-Sitter Installation...[/bold]")
     try:
         from tree_sitter import Language, Parser
-        console.print(f"   [green]✓[/green] tree-sitter is installed")
+        console.print("   [green]✓[/green] tree-sitter is installed")
         
         try:
             from tree_sitter_language_pack import get_language
-            console.print(f"   [green]✓[/green] tree-sitter-language-pack is installed")
+            console.print("   [green]✓[/green] tree-sitter-language-pack is installed")
             
             from codegraphcontext.utils.tree_sitter_manager import LANGUAGE_ALIASES, LANGUAGE_PACK_NAMES
             all_langs = sorted(set(LANGUAGE_ALIASES.values()))
@@ -1067,7 +1064,7 @@ def doctor():
             if unavailable:
                 console.print(f"   [yellow]⚠[/yellow] Unavailable: {', '.join(unavailable)}")
         except ImportError:
-            console.print(f"   [red]✗[/red] tree-sitter-language-pack not installed")
+            console.print("   [red]✗[/red] tree-sitter-language-pack not installed")
             all_checks_passed = False
     except ImportError as e:
         console.print(f"   [red]✗[/red] tree-sitter not installed: {e}")
@@ -1085,12 +1082,12 @@ def doctor():
             try:
                 test_file.touch()
                 test_file.unlink()
-                console.print(f"   [green]✓[/green] Config directory is writable")
+                console.print("   [green]✓[/green] Config directory is writable")
             except Exception as e:
                 console.print(f"   [red]✗[/red] Config directory not writable: {e}")
                 all_checks_passed = False
         else:
-            console.print(f"   [yellow]⚠[/yellow] Config directory doesn't exist, will be created on first use")
+            console.print("   [yellow]⚠[/yellow] Config directory doesn't exist, will be created on first use")
     except Exception as e:
         console.print(f"   [red]✗[/red] Permission check error: {e}")
         all_checks_passed = False
@@ -1102,7 +1099,7 @@ def doctor():
     if cgc_path:
         console.print(f"   [green]✓[/green] cgc command found at: {cgc_path}")
     else:
-        console.print(f"   [yellow]⚠[/yellow] cgc command not in PATH (using python -m cgc)")
+        console.print("   [yellow]⚠[/yellow] cgc command not in PATH (using python -m cgc)")
     
     # Final summary
     console.print("\n" + "=" * 60)
@@ -2393,7 +2390,7 @@ def analyze_dead_code(
                 location_str
             )
         
-        console.print(f"\n[bold yellow]⚠️  Potentially Unused Functions:[/bold yellow]")
+        console.print("\n[bold yellow]⚠️  Potentially Unused Functions:[/bold yellow]")
         console.print(table)
         console.print(f"\n[dim]Total: {len(unused_funcs)} function(s)[/dim]")
         console.print(f"[dim]Note: {results.get('note', '')}[/dim]")

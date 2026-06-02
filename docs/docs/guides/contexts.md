@@ -118,7 +118,7 @@ cgc stats
 ### Create a Named Context
 Create a context and optionally specify its target database driver and storage path:
 ```bash
-cgc context create mobile-app --database kuzudb
+cgc context create mobile-app --database kuzudb   # Or use shorthand aliases: --db, -db, -d
 cgc context create mobile-app --db-path /mnt/fast/cgc
 ```
 

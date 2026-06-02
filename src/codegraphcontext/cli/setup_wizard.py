@@ -92,8 +92,8 @@ def _generate_mcp_json(creds):
                     "disabledTools": [],
                     "disabled": False
                 },
-                "disabled": False,
-                "alwaysAllow": []
+                "disabled": False 
+        
             }
         }
     }
@@ -677,6 +677,7 @@ def setup_existing_db():
             
             # Validate the user input
             console.print("\n[cyan]🔍 Validating configuration...[/cyan]")
+            from codegraphcontext.core.database import DatabaseManager
             is_valid, validation_error = DatabaseManager.validate_config(
                 manual_creds.get("uri", ""),
                 manual_creds.get("username", ""),
@@ -795,6 +796,7 @@ def setup_hosted_db():
             
             # Validate the user input
             console.print("\n[cyan]🔍 Validating configuration...[/cyan]")
+            from codegraphcontext.core.database import DatabaseManager
             is_valid, validation_error = DatabaseManager.validate_config(
                 manual_creds.get("uri", ""),
                 manual_creds.get("username", ""),
@@ -913,6 +915,7 @@ volumes:
 
     # Validate configuration format before attempting Docker operations
     console.print("\n[cyan]🔍 Validating configuration...[/cyan]")
+    from codegraphcontext.core.database import DatabaseManager
     is_valid, validation_error = DatabaseManager.validate_config(
         DEFAULT_NEO4J_URI, 
         DEFAULT_NEO4J_USERNAME, 
@@ -972,6 +975,7 @@ volumes:
                 
                 # updated test_connection method
                 console.print(f"[yellow]Testing connection... (attempt {attempt + 1}/{max_attempts})[/yellow]")
+                from codegraphcontext.core.database import DatabaseManager
                 is_connected, error_msg = DatabaseManager.test_connection(DEFAULT_NEO4J_URI, DEFAULT_NEO4J_USERNAME, password)
                 
                 if is_connected:

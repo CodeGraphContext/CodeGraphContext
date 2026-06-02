@@ -53,7 +53,8 @@ _SUFFIX_TO_LANG = {
     ".pl": "perl", ".pm": "perl",
     ".lua": "lua",
     ".hs": "haskell",
-    ".ex": "elixir", ".exs": "elixir"
+    ".ex": "elixir", ".exs": "elixir",
+    ".el": "elisp",
 }
 
 def detect_lang_from_path(path: str) -> Optional[str]:

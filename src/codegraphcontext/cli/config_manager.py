@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
     "FALKORDB_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb"),
     "FALKORDB_SOCKET_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb.sock"),
     "LADYBUGDB_PATH": str(CONFIG_DIR / "global" / "db" / "ladybugdb"),
+    "KUZUDB_PATH": str(CONFIG_DIR / "global" / "db" / "kuzudb"),
     "INDEX_VARIABLES": "true",
     "ALLOW_DB_DELETION": "false",
     "DEBUG_LOGS": "false",
@@ -72,6 +73,7 @@ CONFIG_DESCRIPTIONS = {
     "FALKORDB_PATH": "Path to FalkorDB database file",
     "FALKORDB_SOCKET_PATH": "Path to FalkorDB Unix socket",
     "LADYBUGDB_PATH": "Path to LadybugDB database directory",
+    "KUZUDB_PATH": "Path to KuzuDB database directory",
     "INDEX_VARIABLES": "Index variable nodes in the graph (lighter graph if false)",
     "ALLOW_DB_DELETION": "Allow full database deletion commands",
     "DEBUG_LOGS": "Enable debug logging (for development/troubleshooting)",
@@ -454,7 +456,7 @@ def validate_config_value(key: str, value: str) -> tuple[bool, Optional[str]]:
         except Exception as e:
             return False, f"Cannot create log directory: {e}"
     
-    if key in ("FALKORDB_PATH", "FALKORDB_SOCKET_PATH", "LADYBUGDB_PATH"):
+    if key in ("FALKORDB_PATH", "FALKORDB_SOCKET_PATH", "LADYBUGDB_PATH", "KUZUDB_PATH"):
         # Validate path is writable
         db_path = Path(normalize_config_path(value, absolute=True))
         try:

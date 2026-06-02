@@ -103,6 +103,9 @@ Manage logical database contexts and isolation levels.
   - `context list`: Lists all contexts and modes.
   - `context mode <global|per-repo|named>`: Switches active context isolation mode.
   - `context create <name>`: Creates a named context.
+    - **Options**:
+      - `--database`, `--db`, `-db`, `-d`: Specify the database backend engine (`falkordb`, `ladybugdb`, `neo4j`, or `kuzudb`).
+      - `--db-path`: Custom database file storage location path.
   - `context delete <name>`: Deletes a named context from registry.
   - `context default <name>`: Sets the default named context workspace.
 

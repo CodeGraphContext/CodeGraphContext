@@ -23,17 +23,51 @@ from typing import Optional, Tuple
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 
 # ---------------------------------------------------------------------------
-# Compatibility patch: redis-py >= 5.x added OpenTelemetry error telemetry that
-# accesses conn.port inside its error handler. UnixDomainSocketConnection never
-# had a 'port' attribute, so any exception raised during a Unix-socket connection
-# (e.g. the sentinel-detection INFO call inside FalkorDB.__init__) would produce
-# a secondary AttributeError masking the real problem.
-# Patching the class at import time costs nothing and fixes all call-sites.
+# Compatibility patch: newer redis-py releases assume every Connection exposes
+# ``host`` and ``port`` attributes, but ``UnixDomainSocketConnection`` historically
+# has neither. Two failure modes have been observed in the wild:
+#
+#   1. redis-py >= 5.x added OpenTelemetry error telemetry that reads ``conn.port``
+#      inside its error handler. The missing attribute raised a secondary
+#      ``AttributeError`` that masked the real connection error.
+#   2. redis-py >= 6.x added a maintenance-notifications handshake
+#      (``activate_maint_notifications_handling_if_enabled`` →
+#      ``_enable_maintenance_notifications``) that raises ``ValueError`` on any
+#      connection without a ``host`` attribute — breaking FalkorDB Lite's
+#      Unix-socket connection entirely (upstream issue #1035).
+#
+# Patching the class at import time is cheap and fixes every call-site. The
+# values themselves are inert sentinels: FalkorDB Lite never uses TCP, so no
+# code path will dereference them as a real ``(host, port)`` pair.
 # ---------------------------------------------------------------------------
 try:
     from redis.connection import UnixDomainSocketConnection as _UDSC
+
+    # ``port`` was never an attribute on UDSC; if it is missing, install a sentinel.
     if not hasattr(_UDSC, 'port'):
         _UDSC.port = 0  # type: ignore[attr-defined]
+
+    # ``host`` is trickier. On redis-py >= 6 ``UDSC`` inherits an *abstract*
+    # ``host`` property (from ``MaintNotificationsAbstractConnection``) whose
+    # default body just returns ``None``. The maintenance-notifications
+    # handshake then does ``getattr(self, "host", None)``; because the property
+    # *exists* on the class, ``getattr`` returns ``None`` instead of falling
+    # through to its default — and the handshake raises ValueError.
+    #
+    # ``hasattr(_UDSC, 'host')`` is therefore the wrong check: we must inspect
+    # an instance. We probe a bare instance (``object.__new__`` skips
+    # ``__init__``, so we don't need a path) and override the class attribute
+    # with an inert string whenever the inherited property would yield ``None``.
+    try:
+        _probe = object.__new__(_UDSC)
+        if getattr(_probe, 'host', None) is None:
+            _UDSC.host = 'localhost'  # type: ignore[attr-defined]
+        del _probe
+    except Exception:
+        # Probing failed for an unrelated reason; do the safe thing and
+        # install the sentinel anyway. Worst case we shadow a working property
+        # with a constant, which is still preferable to a crash.
+        _UDSC.host = 'localhost'  # type: ignore[attr-defined]
 except Exception:
     pass  # redis not installed or class structure changed — safe to ignore
 
@@ -154,9 +188,22 @@ class FalkorDBManager:
                         from falkordb import FalkorDB
 
                         info_logger(f"Connecting to FalkorDB Lite at {self.socket_path}")
-                        self._driver = FalkorDB(unix_socket_path=self.socket_path)
 
-                        # Warm-up ping against the default graph to fail fast on misconfig.
+                        try:
+                            self._driver = FalkorDB(unix_socket_path=self.socket_path)
+                            self._graph = self._driver.select_graph(self.graph_name)
+                        except ValueError as ve:
+                            # redis-py >= 6 raises ValueError on Unix-socket connections that
+                            # lack a 'host' attribute (see upstream issue #1035). Even with the
+                            # import-time shim above, newer redis-py revisions may shift the
+                            # check. Convert to FalkorDBUnavailableError so the caller can fall
+                            # back to KùzuDB instead of crashing the whole MCP server.
+                            raise FalkorDBUnavailableError(
+                                f"FalkorDB Lite client refused the Unix-socket connection: {ve}. "
+                                "This typically indicates a redis-py / falkordblite version mismatch."
+                            ) from ve
+                        
+                        # Test the connection
                         try:
                             self._driver.select_graph(self.graph_name).query("RETURN 1")
                             info_logger(f"FalkorDB Lite connection established successfully")
@@ -170,6 +217,10 @@ class FalkorDBManager:
                             "  pip install falkordblite"
                         )
                         raise ValueError("FalkorDB client missing.") from e
+                    except FalkorDBUnavailableError:
+                        # Propagate as-is so get_database_manager() can trigger the
+                        # documented KùzuDB fallback.
+                        raise
                     except Exception as e:
                         error_logger(f"Failed to initialize FalkorDB: {e}")
                         raise
@@ -201,6 +252,13 @@ class FalkorDBManager:
                 test_graph.query("RETURN 1")
                 info_logger("Connected to existing (functional) FalkorDB Lite process.")
                 return
+            except ValueError as ve:
+                # redis-py >= 6 maintenance-notifications handshake (issue #1035) — this
+                # backend cannot work in the current environment regardless of socket state.
+                raise FalkorDBUnavailableError(
+                    f"FalkorDB Lite client refused the Unix-socket connection: {ve}. "
+                    "This typically indicates a redis-py / falkordblite version mismatch."
+                ) from ve
             except Exception as e:
                 # Stale socket, unresponsive, or "brainless" (unknown command GRAPH.QUERY)
                 info_logger(f"Existing FalkorDB process at {self.socket_path} is stale or non-functional: {e}")
@@ -238,16 +296,30 @@ class FalkorDBManager:
         info_logger("Starting FalkorDB Lite worker subprocess...")
         self._process = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
-        # 3. Wait for Readiness
+        # 3. Wait for Readiness. The Unix socket can appear before Redis has
+        # loaded the FalkorDB module, so validate GRAPH.QUERY instead of
+        # treating socket creation alone as ready.
         start_time = time.time()
         timeout = 20 # seconds
+        last_error = None
         
         while time.time() - start_time < timeout:
             if os.path.exists(self.socket_path):
-                # Socket created!
-                # Give it a tiny sleep to ensure listening
-                time.sleep(0.2)
-                return
+                try:
+                    from falkordb import FalkorDB
+                    d = FalkorDB(unix_socket_path=self.socket_path)
+                    test_graph = d.select_graph('__cgc_health_check')
+                    test_graph.query("RETURN 1")
+                    return
+                except ValueError as ve:
+                    # redis-py version mismatch — no point retrying, the handshake
+                    # will keep failing the same way until the user fixes deps.
+                    raise FalkorDBUnavailableError(
+                        f"FalkorDB Lite client refused the Unix-socket connection: {ve}. "
+                        "This typically indicates a redis-py / falkordblite version mismatch."
+                    ) from ve
+                except Exception as e:
+                    last_error = e
             
             # Check if process died
             if self._process.poll() is not None:
@@ -264,7 +336,11 @@ class FalkorDBManager:
             
             time.sleep(0.5)
             
-        raise RuntimeError("Timed out waiting for FalkorDB Lite to start.")
+        # Timeout is also a "backend not usable here" signal — raise the typed
+        # exception so the documented KùzuDB fallback fires instead of crashing.
+        raise FalkorDBUnavailableError(
+            f"Timed out waiting for FalkorDB Lite to start. Last error: {last_error}"
+        )
 
     def close_driver(self):
         """Closes the connection."""

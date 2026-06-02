@@ -92,7 +92,7 @@ async function getLanguageForFile(path: string) {
     return lang;
   }
 
-  // Set CACHE_LIMIT to accommodate all supported languages (we support 16 languages).
+  // Set CACHE_LIMIT to accommodate all supported languages (we support 15 languages in the web app).
   // CRITICAL MEMORY NOTE: Keeping this limit high (e.g., 20) prevents fatal WebAssembly compilation memory leaks.
   // In V8/Chromium, deleting a JS reference to a compiled WASM Language does not free the native WASM machine code.
   // If this limit is low (e.g., 3) and we index a multi-language repo (like the tests folder), the LRU cache will

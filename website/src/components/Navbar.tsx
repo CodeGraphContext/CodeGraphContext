@@ -103,7 +103,7 @@ const Navbar: React.FC = () => {
                 href="https://github.com/CodeGraphContext/CodeGraphContext"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-2 rounded-full hover:bg-white/5 text-muted-foreground hover:text-white transition-colors duration-200 hidden sm:flex"
+                className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 text-muted-foreground hover:text-foreground transition-colors duration-200 hidden sm:flex"
                 title="View GitHub Repository"
               >
                 <Github className="w-5 h-5" />

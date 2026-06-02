@@ -354,8 +354,18 @@ class MCPServer:
 
     def generate_report_tool(self, **args) -> Dict[str, Any]:
         from .tools.report_generator import generate_report
+
         output_path_raw = args.get("output_path")
         output_path = Path(output_path_raw) if output_path_raw else self.cwd / "CGC_REPORT.md"
+
+        base_dir = self.cwd.resolve()
+        output_path = output_path.resolve()
+
+        try:
+            output_path.relative_to(base_dir)
+        except ValueError:
+            return {"error": "Invalid output_path: path traversal is not allowed"}
+
         try:
             report = generate_report(
                 self.db_manager,

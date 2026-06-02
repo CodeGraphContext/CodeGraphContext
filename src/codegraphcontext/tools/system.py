@@ -1,12 +1,17 @@
 # src/codegraphcontext/tools/system.py
+from __future__ import annotations
 import logging
 from dataclasses import asdict
-from typing import Any, Dict
+from typing import Any, Dict, TYPE_CHECKING
 from datetime import datetime, timedelta
 
-from neo4j.exceptions import CypherSyntaxError
+try:
+    from neo4j.exceptions import CypherSyntaxError
+except ImportError:
+    CypherSyntaxError = type('CypherSyntaxError', (Exception,), {})
 
-from ..core.database import DatabaseManager
+if TYPE_CHECKING:
+    from ..core.database import DatabaseManager
 from ..core.jobs import JobManager, JobStatus
 from ..utils.debug_log import debug_log
 

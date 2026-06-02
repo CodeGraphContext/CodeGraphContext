@@ -11,7 +11,6 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-import time
 
 console = Console()
 
@@ -34,17 +33,27 @@ def _get_base_package_name(bundle_name: str) -> str:
         'flask-main-abc123' -> 'flask'
         'requests' -> 'requests'
     """
+    import re
     # Remove .cgc extension if present
     name = bundle_name.replace('.cgc', '')
     
-    # Split by hyphen and take the first part
-    # This assumes package names don't contain hyphens (may need refinement)
-    parts = name.split('-')
-    
-    # For multi-word package names like 'python-bitcoin-utils',
-    # we need smarter logic. For now, take first part.
-    # TODO: Improve this with a known package list or better heuristics
-    return parts[0]
+    # If the bundle name contains '-main-' or '-master-', split on that
+    for branch_indicator in ('-main-', '-master-'):
+        if branch_indicator in name:
+            return name.split(branch_indicator)[0]
+            
+    # Try matching standard trailing branch and commit hash pattern
+    # e.g., -[branch]-[commit_hash] where commit_hash is a hex string
+    match = re.search(r'-(?:main|master|dev|development|release)-[a-fA-F0-9]{7,40}$', name)
+    if match:
+        return name[:match.start()]
+        
+    # Try matching generic trailing branch and 7-8 char hex commit hash
+    match_generic = re.search(r'-([a-zA-Z0-9_]+)-([a-fA-F0-9]{7,8})$', name)
+    if match_generic:
+        return name[:match_generic.start()]
+        
+    return name
 
 
 def list_bundles(verbose: bool = False, unique: bool = False):
@@ -200,7 +209,7 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
             console.print(f"[cyan]  → {bundle.get('full_name')}[/cyan]")
             
             if len(matching_bundles) > 1:
-                console.print(f"\n[dim]Other available versions:[/dim]")
+                console.print("\n[dim]Other available versions:[/dim]")
                 for b in matching_bundles[1:4]:  # Show up to 3 alternatives
                     console.print(f"[dim]  • {b.get('full_name')}[/dim]")
                 if len(matching_bundles) > 4:
@@ -253,7 +262,7 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
         if not typer.confirm("Overwrite?", default=False):
             console.print("[yellow]Download cancelled[/yellow]")
             if auto_load:
-                console.print(f"[cyan]Using existing bundle for loading...[/cyan]")
+                console.print("[cyan]Using existing bundle for loading...[/cyan]")
                 return str(output_path)
             return
         output_path.unlink()
@@ -324,14 +333,14 @@ def request_bundle(repo_url: str, wait: bool = False):
     console.print("[cyan]Please use one of these methods:[/cyan]\n")
     
     console.print("1. [bold]Via Website (Recommended):[/bold]")
-    console.print(f"   Visit: https://codegraphcontext.vercel.app")
+    console.print("   Visit: https://codegraphcontext.vercel.app")
     console.print(f"   Enter: {repo_url}")
-    console.print(f"   Click 'Generate Bundle'\n")
+    console.print("   Click 'Generate Bundle'\n")
     
     console.print("2. [bold]Via GitHub Actions (Manual):[/bold]")
     console.print(f"   Go to: https://github.com/{GITHUB_ORG}/{GITHUB_REPO}/actions")
-    console.print(f"   Select: 'Generate Bundle On-Demand'")
-    console.print(f"   Click: 'Run workflow'")
+    console.print("   Select: 'Generate Bundle On-Demand'")
+    console.print("   Click: 'Run workflow'")
     console.print(f"   Enter: {repo_url}\n")
     
     console.print("[dim]Bundle generation typically takes 5-10 minutes.[/dim]")

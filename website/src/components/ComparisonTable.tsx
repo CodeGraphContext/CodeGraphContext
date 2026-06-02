@@ -200,8 +200,8 @@ export default function ComparisonTable() {
             <div className="overflow-x-auto rounded-3xl">
               <table className="w-full min-w-[600px] md:min-w-full table-auto">
                 <thead>
-                  <tr className="border-b border-border/20 bg-gradient-to-r from-secondary/10 via-secondary/5 to-secondary/10 backdrop-blur-sm">
-                    <th className="p-2 sm:p-4 text-left font-bold text-foreground text-[0.65rem] sm:text-sm">
+                  <tr className="border-b border-border/20 bg-gradient-to-r from-secondary/10 via-secondary/5 to-secondary/10">
+                    <th className="sticky top-[75px] z-20 bg-background/80 backdrop-blur-md p-2 sm:p-4 text-left font-bold text-foreground text-[0.65rem] sm:text-sm">
                       <motion.span
                         initial={{ opacity: 0, x: -20 }}
                         animate={isInView ? { opacity: 1, x: 0 } : {}}
@@ -210,7 +210,7 @@ export default function ComparisonTable() {
                         Feature
                       </motion.span>
                     </th>
-                    <th className="p-2 sm:p-4 text-center font-bold text-foreground text-[0.65rem] sm:text-sm min-w-[120px]">
+                    <th className="sticky top-[75px] z-20 bg-background/80 backdrop-blur-md p-2 sm:p-4 text-center font-bold text-foreground text-[0.65rem] sm:text-sm min-w-[120px]">
                       <motion.span
                         initial={{ opacity: 0, y: -20 }}
                         animate={isInView ? { opacity: 1, y: 0 } : {}}
@@ -219,7 +219,7 @@ export default function ComparisonTable() {
                         GitHub Copilot
                       </motion.span>
                     </th>
-                    <th className="p-2 sm:p-4 text-center font-bold text-foreground text-[0.65rem] sm:text-sm min-w-[120px]">
+                    <th className="sticky top-[75px] z-20 bg-background/80 backdrop-blur-md p-2 sm:p-4 text-center font-bold text-foreground text-[0.65rem] sm:text-sm min-w-[120px]">
                       <motion.span
                         initial={{ opacity: 0, y: -20 }}
                         animate={isInView ? { opacity: 1, y: 0 } : {}}
@@ -228,7 +228,7 @@ export default function ComparisonTable() {
                         Cursor
                       </motion.span>
                     </th>
-                    <th className="p-2 sm:p-4 text-center font-bold text-foreground text-[0.65rem] sm:text-sm min-w-[120px]">
+                    <th className="sticky top-[75px] z-20 bg-background/80 backdrop-blur-md p-2 sm:p-4 text-center font-bold text-foreground text-[0.65rem] sm:text-sm min-w-[120px]">
                       <motion.span
                         initial={{ opacity: 0, y: -20 }}
                         animate={isInView ? { opacity: 1, y: 0 } : {}}

@@ -1,6 +1,8 @@
+from __future__ import annotations
 # src/codegraphcontext/tools/advanced_language_query_tool.py
 import re
 import logging
+from typing import TYPE_CHECKING
 #importing all the language toolkits
 from ..tools.query_tool_languages.c_toolkit import CToolkit
 from ..tools.query_tool_languages.cpp_toolkit import CppToolkit
@@ -13,17 +15,20 @@ from ..tools.query_tool_languages.rust_toolkit import RustToolkit
 from ..tools.query_tool_languages.typescript_toolkit import TypescriptToolkit
 from ..tools.query_tool_languages.csharp_toolkit import CSharpToolkit
 from ..tools.query_tool_languages.dart_toolkit import DartToolkit
+from ..tools.query_tool_languages.elisp_toolkit import ElispToolkit
 from ..tools.query_tool_languages.perl_toolkit import PerlToolkit
 
-from ..core.database import DatabaseManager
+if TYPE_CHECKING:
+    from ..core.database import DatabaseManager
 from ..utils.debug_log import debug_log
 
 logger = logging.getLogger(__name__)
 
+
 class Advanced_language_query:
     """
     Tool implementation for executing a read-only language specific Cypher query.
-    
+
     Important: Includes a safety check to prevent any database modification
     by disallowing keywords like CREATE, MERGE, DELETE, etc.
     """
@@ -40,7 +45,8 @@ class Advanced_language_query:
         "typescript": TypescriptToolkit,
         "c_sharp": CSharpToolkit,
         "dart": DartToolkit,
-        "perl": PerlToolkit
+        "elisp": ElispToolkit,
+        "perl": PerlToolkit,
     }
     Supported_queries = {
         "repository": "Repository",
@@ -53,9 +59,8 @@ class Advanced_language_query:
         "enum": "Enum",
         "union": "Union",
         "macro": "Macro",
-        "variable": "Variable"
+        "variable": "Variable",
     }
-
 
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
@@ -87,18 +92,14 @@ class Advanced_language_query:
                 records = [record.data() for record in result]
 
                 return {
-                    "success": True, 
+                    "success": True,
                     "language": language,
                     "query": cypher_query,
-                    "results": records 
+                    "results": records,
                 }
         except Exception as e:
             debug_log(f"Error executing Cypher query: {str(e)}")
             return {
                 "error": "An unexpected error occurred while executing the query.",
-                "details": str(e)
+                "details": str(e),
             }
-
-
-
-

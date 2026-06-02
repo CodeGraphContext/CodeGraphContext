@@ -8,7 +8,7 @@
 - 🇰🇷 [한국어](README.kor.md)
 - 🇺🇦 [Українська](README.uk.md)
 - 🇷🇺 [Русский](README.ru-RU.md)
-- 🇯🇵 日本語 (준비 중)
+- 🇯🇵 [日本語](README.ja.md)
 - 🇪🇸 Español (준비 중)
 
 🌍 **CodeGraphContext를 여러분의 언어로 번역하는 데 도움을 주세요! https://github.com/Shashankss1205/CodeGraphContext/issues 에서 이슈와 PR을 생성해 주세요!**
@@ -97,7 +97,7 @@
 ---
 
 ## 프로젝트 세부 정보
-- **버전:** 0.4.12
+- **버전:** 0.4.13
 - **저자:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **라이선스:** MIT License (자세한 내용은 [LICENSE](LICENSE) 참조)
 - **웹사이트:** [CodeGraphContext](http://codegraphcontext.vercel.app/)

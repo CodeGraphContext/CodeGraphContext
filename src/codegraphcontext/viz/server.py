@@ -1,3 +1,4 @@
+from __future__ import annotations
 # src/codegraphcontext/viz/server.py
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
@@ -9,9 +10,10 @@ import uvicorn
 import json
 import os
 import sys
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
-from ..core.database import DatabaseManager
+if TYPE_CHECKING:
+    from ..core.database import DatabaseManager
 from ..utils.debug_log import debug_log
 
 app = FastAPI()

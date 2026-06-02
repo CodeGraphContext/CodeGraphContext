@@ -28,7 +28,7 @@ CGC scans source code using AST parser engines:
 
 ### Tree-sitter Grammar Parsing
 By default, CGC uses **Tree-sitter** parsers. Tree-sitter generates concrete syntax trees (CSTs) for files:
-- CGC registers grammar definitions for 19 target programming languages.
+- CGC registers grammar definitions for 22 target programming languages.
 - Language-specific Tree-sitter query files (e.g., `queries/python/tags.scm`) scan the AST to isolate definitions: functions, method names, class structures, parameters, variables, and decorators.
 - It records source coordinates (start line, start column, end line, end column) and docstrings.
 

@@ -89,6 +89,16 @@ Required when `DEFAULT_DATABASE` is set to `neo4j`.
 | **`NEO4J_PASSWORD`** | None | Database connection password. |
 | **`NEO4J_DATABASE`** | `neo4j` | Logical database partition name. |
 
+### Nornic Connection Properties
+Required when `DEFAULT_DATABASE` is set to `nornic`.
+
+| Config Key | Default | Description |
+| :--- | :--- | :--- |
+| **`NORNIC_URI`** | `bolt://localhost:7687` | Server connection URI (supports `nornic://` and `bolt://` schemes). |
+| **`NORNIC_USERNAME`** | `nornic` | Database user name. |
+| **`NORNIC_PASSWORD`** | None | Database connection password. |
+| **`NORNIC_DATABASE`** | None | Logical database partition name. |
+
 ### FalkorDB Remote Connection Properties
 Required when `DEFAULT_DATABASE` is set to `falkordb-remote`.
 
@@ -106,6 +116,7 @@ Local embedded database instances are stored on disk. Use the settings below to 
 | Config Key | Default | Description |
 | :--- | :--- | :--- |
 | **`KUZUDB_PATH`** | `~/.codegraphcontext/global/db/kuzudb/` | Root storage directory for KuzuDB files. |
+| **`LADYBUGDB_PATH`** | `~/.codegraphcontext/global/db/ladybugdb/` | Root storage directory for LadybugDB files. |
 | **`FALKORDB_PATH`** | `~/.codegraphcontext/global/db/falkordb/` | Storage path for FalkorDB Lite database. |
 
 ---
@@ -115,7 +126,7 @@ Local embedded database instances are stored on disk. Use the settings below to 
 CGC resolves configuration keys in the following hierarchical priority (highest level overrides lower levels):
 
 1. **CLI Flag Parameters**: Overrides passed during execution (e.g., `cgc index --db falkordb`).
-2. **Local Repository Variables**: Values defined in `<workspace_root>/.codegraphcontext/.env`.
-3. **User Global Settings**: Configurations stored in `~/.codegraphcontext/.env`.
-4. **Environment Shell Exports**: System environment variables (e.g., `export DEFAULT_DATABASE=neo4j`).
+2. **Runtime Environment Variables**: System environment variables (shell/CI, e.g., `export DEFAULT_DATABASE=neo4j`).
+3. **Local Project Variables**: Values defined in `.codegraphcontext/.env` and `.env` in the current project directory.
+4. **User Global Settings**: Configurations stored in `~/.codegraphcontext/.env` (including settings persisted by `cgc config set`).
 5. **System Defaults**: Hardcoded fallback values defined within the Python package.

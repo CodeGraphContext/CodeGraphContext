@@ -95,12 +95,18 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
                 info_logger("FalkorDB Lite is not supported or not installed. Falling back to KùzuDB.")
                 if _is_kuzudb_available():
                     from .database_kuzu import KuzuDBManager
-                    return KuzuDBManager()
+                    return KuzuDBManager(db_path=db_path)
                 raise ValueError("Database set to 'falkordb' but FalkorDB Lite is not installed or not supported on this OS.\nRun 'pip install falkordblite'")
             
             from .database_falkordb import FalkorDBManager, FalkorDBUnavailableError
             try:
                 mgr = FalkorDBManager(db_path=db_path)
+                # Eagerly probe the connection so any FalkorDBUnavailableError
+                # (e.g. redis-py/falkordblite version mismatch — issue #1035)
+                # surfaces *here*, while we can still fall back to KùzuDB.
+                # ``get_driver`` is idempotent (singleton-guarded), so the
+                # subsequent real call from server.py costs nothing.
+                mgr.get_driver()
                 info_logger(f"Using FalkorDB Lite (explicit) at {db_path or 'default path'}")
                 return mgr
             except FalkorDBUnavailableError as falkor_err:
@@ -153,6 +159,9 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
         from .database_falkordb import FalkorDBManager, FalkorDBUnavailableError
         try:
             mgr = FalkorDBManager(db_path=db_path)
+            # Eagerly probe so dep/version failures (issue #1035) surface here
+            # while we can still fall through to KùzuDB below.
+            mgr.get_driver()
             info_logger(f"Using FalkorDB Lite (default) at {db_path or 'default path'}")
             return mgr
         except FalkorDBUnavailableError as falkor_err:
@@ -167,6 +176,12 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
         from .database_kuzu import KuzuDBManager
         info_logger(f"Using KùzuDB (default) at {db_path or 'default path'}")
         return KuzuDBManager(db_path=db_path)
+
+    # Implicit: LadybugDB when available
+    if _is_ladybugdb_available():
+        from .database_ladybug import LadybugDBManager
+        info_logger(f"Using LadybugDB (default) at {db_path or 'default path'}")
+        return LadybugDBManager(db_path=db_path)
 
     # Implicit: Neo4j when configured
     if _is_neo4j_configured():
@@ -190,6 +205,25 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
 
     raise ValueError(error_msg)
 
+# Lazy backward-compatibility exports — avoids crashing when optional
+# database drivers (neo4j, falkordb, real_ladybug, …) are not installed.
+# Uses PEP 562 module-level __getattr__ so that:
+#   from codegraphcontext.core import DatabaseManager
+# still works, but only triggers the real import when actually accessed.
+_LAZY_IMPORTS = {
+    'DatabaseManager': '.database',
+    'FalkorDBManager': '.database_falkordb',
+    'FalkorDBRemoteManager': '.database_falkordb_remote',
+    'KuzuDBManager': '.database_kuzu',
+    'NornicDBManager': '.database_nornic',
+}
+
+def __getattr__(name: str):
+    if name in _LAZY_IMPORTS:
+        import importlib
+        module = importlib.import_module(_LAZY_IMPORTS[name], __package__)
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 # For backward compatibility, export managers
 from .database import DatabaseManager
 from .database_falkordb import FalkorDBManager

@@ -8,7 +8,7 @@
 - 🇰🇷 [한국어](README.kor.md)
 - 🇺🇦 [Українська](README.uk.md)
 - 🇷🇺 [Русский](README.ru-RU.md)
-- 🇯🇵 日本語 (即将推出)
+- 🇯🇵 [日本語](README.ja.md)
 - 🇪🇸 Español (即将推出)
 
 🌍 **帮助我们将 CodeGraphContext 翻译成您的语言！**
@@ -97,7 +97,7 @@
 ---
 
 ## 项目详情
-- **版本:** 0.4.12
+- **版本:** 0.4.13
 - **作者:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **许可证:** MIT License (详见 [LICENSE](LICENSE))
 - **网站:** [CodeGraphContext](http://codegraphcontext.vercel.app/)

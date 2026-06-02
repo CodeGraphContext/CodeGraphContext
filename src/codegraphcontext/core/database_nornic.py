@@ -9,7 +9,7 @@ import threading
 from typing import Optional, Tuple
 from neo4j import GraphDatabase, Driver
 
-from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
+from codegraphcontext.utils.debug_log import info_logger, error_logger
 
 class NornicDriverWrapper:
     """
@@ -90,8 +90,12 @@ class NornicDBManager:
                         raise ValueError(validation_error)
 
                     info_logger(f"Creating Nornic driver connection to {self.nornic_uri}")
+                    uri_to_use = self.nornic_uri
+                    if uri_to_use.startswith('nornic'):
+                        uri_to_use = uri_to_use.replace('nornic', 'bolt', 1)
+                    
                     self._driver = GraphDatabase.driver(
-                        self.nornic_uri,
+                        uri_to_use,
                         auth=(self.nornic_username, self.nornic_password)
                     )
                     try:
@@ -188,7 +192,11 @@ class NornicDBManager:
             except Exception as e:
                 return False, f"Error parsing URI or checking connectivity: {str(e)}"
             
-            driver = GraphDatabase.driver(uri, auth=(username, password))
+            uri_to_use = uri
+            if uri_to_use.startswith('nornic'):
+                uri_to_use = uri_to_use.replace('nornic', 'bolt', 1)
+            
+            driver = GraphDatabase.driver(uri_to_use, auth=(username, password))
             
             session_kwargs = {}
             if database:

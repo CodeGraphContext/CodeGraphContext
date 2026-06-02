@@ -8,7 +8,7 @@
 - 🇰🇷 [한국어](README.kor.md)
 - 🇺🇦 [Українська](README.uk.md)
 - 🇷🇺 [Русский](README.ru-RU.md)
-- 🇯🇵 日本語 (Незабаром)
+- 🇯🇵 [日本語](README.ja.md)
 - 🇪🇸 Español (Незабаром)
 
 🌍 **Допоможіть перекласти CodeGraphContext вашою мовою, створивши issue та PR на https://github.com/Shashankss1205/CodeGraphContext/issues!**
@@ -97,7 +97,7 @@
 ---
 
 ## Деталі проєкту
-- **Версія:** 0.4.12
+- **Версія:** 0.4.13
 - **Автори:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **Ліцензія:** MIT License (див. [LICENSE](LICENSE) для деталей)
 - **Вебсайт:** [CodeGraphContext](http://codegraphcontext.vercel.app/)

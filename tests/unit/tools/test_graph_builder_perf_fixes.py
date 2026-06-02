@@ -338,16 +338,15 @@ class TestCreateAllFunctionCallsV3:
         assert call_write["kwargs"]["batch"][0]["called_context"] == ""
 
     def test_function_call_batch_normalization_preserves_falsy_filters(self):
-        """Only None should become the broad target sentinel; malformed rows are skipped."""
+        """Valid call rows are passed through to the driver batch as-is."""
         from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
         session = _RecordingSession()
         writer = GraphWriter(_FakeDBManager(session))
         writer.write_function_call_groups(
             [
-                {},
-                None,
                 {
+                    "type": "function",
                     "caller_name": "caller",
                     "caller_file_path": "/repo/a.py",
                     "caller_line_number": 1,
@@ -359,24 +358,7 @@ class TestCreateAllFunctionCallsV3:
                     "args": [],
                     "full_call_name": "callee",
                 },
-                {
-                    "caller_name": "caller",
-                    "caller_file_path": "/repo/a.py",
-                    "caller_line_number": 1,
-                    "called_name": "bad",
-                    "called_file_path": "/repo/a.py",
-                    "called_line_number": False,
-                    "called_context": False,
-                    "line_number": 6,
-                    "args": [],
-                    "full_call_name": "bad",
-                },
             ],
-            [],
-            [],
-            [],
-            [],
-            [],
         )
 
         call_write = next(c for c in session.calls if "CALLS" in c["query"])

@@ -20,6 +20,7 @@ Bundle Structure:
 """
 
 import json
+import os
 import zipfile
 import tempfile
 from pathlib import Path
@@ -141,7 +142,7 @@ class CGCBundle:
                     from importlib.metadata import version as get_version
                     py_version = get_version("codegraphcontext")
                 except Exception:
-                    py_version = "0.4.12"
+                    py_version = "0.4.13"
 
                 metadata["format_version"] = "1.0.0"
                 metadata["generator"] = f"PYv{py_version}"
@@ -346,12 +347,13 @@ class CGCBundle:
                     metadata["branch"] = branch
 
                 try:
+                    repo_str = str(repo_path.resolve())
                     result = session.run("""
                         MATCH (f:File)
-                        WHERE f.path STARTS WITH $repo_path
+                        WHERE f.path = $repo_path OR f.path STARTS WITH $repo_prefix
                         RETURN f.language as language, count(*) as count
                         ORDER BY count DESC
-                    """, repo_path=str(repo_path.resolve()))
+                    """, repo_path=repo_str, repo_prefix=repo_str + os.sep)
                     languages = {record["language"]: record["count"] for record in result if record["language"]}
                     metadata["languages"] = list(languages.keys())
                 except Exception:
@@ -426,10 +428,11 @@ class CGCBundle:
             if repo_path:
                 query = """
                     MATCH (n)
-                    WHERE n.path STARTS WITH $repo_path
+                    WHERE n.path = $repo_path OR n.path STARTS WITH $repo_prefix
                     RETURN n, labels(n) as labels
                 """
-                params = {"repo_path": str(repo_path.resolve())}
+                repo_str = str(repo_path.resolve())
+                params = {"repo_path": repo_str, "repo_prefix": repo_str + os.sep}
             else:
                 query = "MATCH (n) RETURN n, labels(n) as labels"
                 params = {}
@@ -445,6 +448,12 @@ class CGCBundle:
                 for record in result:
                     node = record['n']
                     labels = record['labels']
+                    if labels is None:
+                        labels = []
+                    elif isinstance(labels, str):
+                        labels = [labels]
+                    elif not isinstance(labels, list):
+                        labels = list(labels)
                     
                     # Convert node to dict (handle both Neo4j and FalkorDB)
                     try:
@@ -456,19 +465,31 @@ class CGCBundle:
                             node_dict = dict(node._properties)
                         elif hasattr(node, 'properties'):
                             node_dict = dict(node.properties)
+
+                    node_dict.pop('_label', None)
+                    for key, val in list(node_dict.items()):
+                        if key != '_id' and val is None:
+                            node_dict.pop(key)
                     
                     # Clean up absolute path prefix to keep it relative
                     if repo_path:
                         repo_str = str(repo_path.resolve())
+                        repo_prefix = repo_str + os.sep
                         for key, val in list(node_dict.items()):
-                            if isinstance(val, str) and val.startswith(repo_str):
-                                rel = val[len(repo_str):].lstrip('/')
+                            if not isinstance(val, str):
+                                continue
+                            if val == repo_str:
+                                node_dict[key] = "."
+                            elif val.startswith(repo_prefix):
+                                rel = val[len(repo_prefix):].lstrip('/\\')
                                 node_dict[key] = "./" + rel if rel else "."
                     
                     node_dict['_labels'] = labels
                     
                     # Store internal ID for reference
-                    if hasattr(node, 'element_id'):
+                    if '_id' in node_dict:
+                        pass
+                    elif hasattr(node, 'element_id'):
                         node_dict['_id'] = node.element_id
                     elif hasattr(node, 'id'):
                         node_dict['_id'] = str(node.id)
@@ -487,11 +508,12 @@ class CGCBundle:
             if repo_path:
                 query = """
                     MATCH (n)-[r]->(m)
-                    WHERE (n.path STARTS WITH $repo_path)
-                       OR (m.path STARTS WITH $repo_path)
+                    WHERE (n.path = $repo_path OR n.path STARTS WITH $repo_prefix)
+                       OR (m.path = $repo_path OR m.path STARTS WITH $repo_prefix)
                     RETURN n, r, m, type(r) as rel_type
                 """
-                params = {"repo_path": str(repo_path.resolve())}
+                repo_str = str(repo_path.resolve())
+                params = {"repo_path": repo_str, "repo_prefix": repo_str + os.sep}
             else:
                 query = "MATCH (n)-[r]->(m) RETURN n, r, m, type(r) as rel_type"
                 params = {}
@@ -509,22 +531,7 @@ class CGCBundle:
                     target = record['m']
                     rel = record['r']
                     rel_type = record['rel_type']
-                    
-                    # Get source and target IDs (handle both Neo4j and FalkorDB)
-                    if hasattr(source, 'element_id'):
-                        from_id = source.element_id
-                    elif hasattr(source, 'id'):
-                        from_id = str(source.id)
-                    else:
-                        from_id = str(id(source))  # Fallback
-                    
-                    if hasattr(target, 'element_id'):
-                        to_id = target.element_id
-                    elif hasattr(target, 'id'):
-                        to_id = str(target.id)
-                    else:
-                        to_id = str(id(target))  # Fallback
-                    
+
                     # Get relationship properties
                     try:
                         rel_props = dict(rel)
@@ -534,13 +541,47 @@ class CGCBundle:
                             rel_props = dict(rel._properties)
                         elif hasattr(rel, 'properties'):
                             rel_props = dict(rel.properties)
+
+                    # Kùzu/Ladybug-style relationship records expose stable
+                    # endpoint IDs as properties. Prefer those over Python
+                    # wrapper object ids so exported edges can be re-linked to
+                    # the node rows in nodes.jsonl.
+                    from_id = rel_props.pop('_src', None)
+                    to_id = rel_props.pop('_dst', None)
+                    rel_props.pop('_label', None)
+                    rel_props.pop('_id', None)
+                    for key, val in list(rel_props.items()):
+                        if val is None:
+                            rel_props.pop(key)
+
+                    # Get source and target IDs (handle Neo4j/FalkorDB fallback)
+                    if from_id is None:
+                        if hasattr(source, 'element_id'):
+                            from_id = source.element_id
+                        elif hasattr(source, 'id'):
+                            from_id = str(source.id)
+                        else:
+                            from_id = str(id(source))
+
+                    if to_id is None:
+                        if hasattr(target, 'element_id'):
+                            to_id = target.element_id
+                        elif hasattr(target, 'id'):
+                            to_id = str(target.id)
+                        else:
+                            to_id = str(id(target))
                     
                     # Clean up absolute path prefix inside edge properties
                     if repo_path:
                         repo_str = str(repo_path.resolve())
+                        repo_prefix = repo_str + os.sep
                         for key, val in list(rel_props.items()):
-                            if isinstance(val, str) and val.startswith(repo_str):
-                                rel = val[len(repo_str):].lstrip('/')
+                            if not isinstance(val, str):
+                                continue
+                            if val == repo_str:
+                                rel_props[key] = "."
+                            elif val.startswith(repo_prefix):
+                                rel = val[len(repo_prefix):].lstrip('/\\')
                                 rel_props[key] = "./" + rel if rel else "."
                     
                     # Create edge representation
@@ -566,26 +607,45 @@ class CGCBundle:
         
         with self.db_manager.get_driver(graph_name=self.graph_name).session() as session:
             # Count by node type
-            result = session.run("""
-                MATCH (n)
-                RETURN labels(n)[0] as label, count(*) as count
-                ORDER BY count DESC
-            """)
+            if repo_path:
+                repo_str = str(repo_path.resolve())
+                result = session.run("""
+                    MATCH (n)
+                    WHERE n.path = $repo_path OR n.path STARTS WITH $repo_prefix
+                    RETURN labels(n)[0] as label, count(*) as count
+                    ORDER BY count DESC
+                """, repo_path=repo_str, repo_prefix=repo_str + os.sep)
+            else:
+                result = session.run("""
+                    MATCH (n)
+                    RETURN labels(n)[0] as label, count(*) as count
+                    ORDER BY count DESC
+                """)
             stats["nodes_by_type"] = {record["label"]: record["count"] for record in result if record["label"]}
             
             # Count by relationship type
-            result = session.run("""
-                MATCH ()-[r]->()
-                RETURN type(r) as type, count(*) as count
-                ORDER BY count DESC
-            """)
+            if repo_path:
+                result = session.run("""
+                    MATCH (n)-[r]->(m)
+                    WHERE (n.path = $repo_path OR n.path STARTS WITH $repo_prefix)
+                       OR (m.path = $repo_path OR m.path STARTS WITH $repo_prefix)
+                    RETURN type(r) as type, count(*) as count
+                    ORDER BY count DESC
+                """, repo_path=repo_str, repo_prefix=repo_str + os.sep)
+            else:
+                result = session.run("""
+                    MATCH ()-[r]->()
+                    RETURN type(r) as type, count(*) as count
+                    ORDER BY count DESC
+                """)
             stats["edges_by_type"] = {record["type"]: record["count"] for record in result}
             
             # File count
             if repo_path:
                 result = session.run(
-                    "MATCH (f:File) WHERE f.path STARTS WITH $repo_path RETURN count(f) as count",
-                    repo_path=str(repo_path.resolve())
+                    "MATCH (f:File) WHERE f.path = $repo_path OR f.path STARTS WITH $repo_prefix RETURN count(f) as count",
+                    repo_path=repo_str,
+                    repo_prefix=repo_str + os.sep,
                 )
             else:
                 result = session.run("MATCH (f:File) RETURN count(f) as count")
@@ -913,4 +973,3 @@ cgc import <bundle-file>.cgc
             session.run(query, from_id=new_from, to_id=new_to, props=properties)
         
         return len(batch)
-

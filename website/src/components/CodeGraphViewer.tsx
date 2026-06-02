@@ -16,6 +16,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
 import FlowchartSVG from "./FlowchartSVG";
 import { packageCgcBundle, downloadBlob, publishCgcBundle } from "../lib/cgc-exporter";
+import { exportSvg } from "../lib/svg-exporter";
+import { packageInteractiveExport } from "../lib/html-exporter";
 import { toast } from "sonner";
 import { getOrCreateSessionId } from "../lib/utils";
 import {
@@ -367,6 +369,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [focusSet, setFocusSet] = useState<{ nodes: Set<number>, links: Set<any> } | null>(null);
+  const [simulationReady, setSimulationReady] = useState(false);
 
   // Publish and Export parameters
   const { owner, repo } = useParams();
@@ -438,6 +441,49 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     } catch (err: any) {
       console.error(err);
       toast.error("Failed to export bundle: " + err.message);
+    }
+  };
+
+  const handleSvgExport = async () => {
+    try {
+      if (graphMode === 'mermaid') {
+        const svgEl = document.getElementById('flowchart-svg');
+        if (svgEl) {
+          const svgString = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n` + svgEl.outerHTML;
+          const blob = new Blob([svgString], { type: 'image/svg+xml' });
+          downloadBlob(blob, 'flowchart-export.svg');
+          toast.success("Flowchart SVG exported successfully!");
+          return;
+        }
+      }
+
+      await exportSvg(filteredData, nodeColors, edgeColors, isDark);
+      toast.success("SVG exported successfully!");
+    } catch (err: any) {
+      toast.error("Failed to export SVG: " + err.message);
+    }
+  };
+
+  const handleHtmlExport = async () => {
+    try {
+      let filename = "interactive-graph.zip";
+      if (data.metadata?.repo) {
+         filename = `${data.metadata.repo.replace(/\//g, '_')}_interactive.zip`;
+      }
+      
+      const exportMode = graphMode === 'mermaid' ? 'mermaid' : 'classic';
+      const blob = await packageInteractiveExport(
+        filteredData.nodes, 
+        filteredData.links, 
+        data.metadata || {}, 
+        nodeColors,
+        edgeColors,
+        exportMode
+      );
+      downloadBlob(blob, filename);
+      toast.success("Interactive HTML exported successfully!");
+    } catch (err: any) {
+      toast.error("Failed to export Interactive HTML: " + err.message);
     }
   };
 
@@ -549,6 +595,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const [graphMode, setGraphMode] = useState<VisualizationMode>('classic');
   const [showModeMenu, setShowModeMenu] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   // Sidebar resize / collapse
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_W);
@@ -579,6 +627,9 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     const handler = (e: MouseEvent) => {
       if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) {
         setShowModeMenu(false);
+      }
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -640,6 +691,10 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     let max = 0;
     for (const v of dm.values()) { if (v > max) max = v; }
     return { degreeMap: dm, maxDegree: max };
+  }, [filteredData]);
+
+  useEffect(() => {
+    setSimulationReady(false);
   }, [filteredData]);
 
   const nodeCanvasObject = useCallback((node: any, ctx: any, globalScale: number) => {
@@ -1557,15 +1612,69 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
 
           {/* Desktop Top Right Badges */}
           <div className="hidden md:flex items-center gap-3">
-            {/* Export Button */}
-            <button
-              onClick={handleExport}
-              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
-              title="Download code graph as a .cgc file"
-            >
-              <Download className="w-3.5 h-3.5 text-blue-400" />
-              Export
-            </button>
+            {/* Export Menu Dropdown */}
+            <div ref={exportMenuRef} className="relative">
+              <button
+                onClick={() => setShowExportMenu(v => !v)}
+                className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+                title="Export graph data and visualizations"
+              >
+                <Download className="w-3.5 h-3.5 text-blue-400" />
+                Export
+                <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} />
+              </button>
+              <AnimatePresence>
+                {showExportMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                    transition={{ duration: 0.15 }}
+                    className={`absolute right-0 top-full mt-2 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden min-w-[200px] py-1.5 z-[100] flex flex-col ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
+                  >
+                    {/* Export HTML Button */}
+                    <button
+                      onClick={() => { handleHtmlExport(); setShowExportMenu(false); }}
+                      className={`flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-gray-800'}`}
+                      title="Download interactive HTML graph"
+                    >
+                      <Download className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-bold">Interactive HTML</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Self-contained browser view</span>
+                      </div>
+                    </button>
+
+                    {/* Export SVG Button */}
+                    <button
+                      onClick={() => { handleSvgExport(); setShowExportMenu(false); }}
+                      disabled={!simulationReady}
+                      className={`flex items-center gap-3 px-4 py-2.5 transition-all text-left w-full ${!simulationReady ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isDark ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-gray-800'}`}
+                      title={simulationReady ? "Download SVG snapshot" : "Waiting for simulation to stabilize..."}
+                    >
+                      <Download className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-bold">Vector SVG</span>
+                        <span className="text-[10px] text-gray-500 font-normal">High-res 2D snapshot</span>
+                      </div>
+                    </button>
+
+                    {/* Export CGC Button */}
+                    <button
+                      onClick={() => { handleExport(); setShowExportMenu(false); }}
+                      className={`flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-gray-800'}`}
+                      title="Download code graph as a .cgc file"
+                    >
+                      <Download className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-bold">CGC Bundle</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Raw graph context bundle</span>
+                      </div>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
             {/* Publish Button */}
             <button
@@ -1671,6 +1780,25 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                 transition={{ duration: 0.15 }}
                 className={`absolute right-0 top-full mt-2 backdrop-blur-2xl border rounded-2xl shadow-2xl overflow-hidden min-w-[200px] p-3 z-[100] flex flex-col gap-2.5 ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
               >
+                {/* Mobile Export HTML */}
+                <button
+                  onClick={() => { handleHtmlExport(); setShowMobileMenu(false); }}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                >
+                  <Download className="w-3.5 h-3.5 text-green-400" />
+                  Export HTML
+                </button>
+
+                {/* Mobile Export SVG */}
+                <button
+                  onClick={() => { handleSvgExport(); setShowMobileMenu(false); }}
+                  disabled={!simulationReady}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all text-left w-full ${!simulationReady ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                >
+                  <Download className="w-3.5 h-3.5 text-purple-400" />
+                  Export SVG
+                </button>
+
                 {/* Mobile Export */}
                 <button
                   onClick={() => { handleExport(); setShowMobileMenu(false); }}
@@ -1850,6 +1978,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
         ) : (
           <ForceGraph2D
             ref={fgRef}
+            onEngineStop={() => setSimulationReady(true)}
             graphData={filteredData}
             width={dimensions.width - effectiveSidebarW - effectiveCodePanelW}
             height={dimensions.height}

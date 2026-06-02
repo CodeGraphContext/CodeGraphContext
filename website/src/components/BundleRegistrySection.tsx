@@ -326,7 +326,7 @@ const BundleRegistrySection = () => {
                                 <TabsTrigger 
                                     key={category.id} 
                                     value={category.id}
-                                    className="py-2 px-4 text-xs font-semibold rounded-lg transition-all duration-300 data-[state=active]:bg-gradient-to-br data-[state=active]:from-purple-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:shadow-md text-gray-400 hover:text-white"
+                                    className="py-2 px-4 text-xs font-semibold rounded-lg transition-all duration-300 data-[state=active]:bg-gradient-to-br data-[state=active]:from-purple-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:shadow-md text-gray-600 dark:text-gray-400 hover:text-white"
                                 >
                                     {category.label}
                                 </TabsTrigger>
@@ -382,7 +382,7 @@ const BundleRegistrySection = () => {
                                                             href={`https://github.com/${bundle.repo}`}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
-                                                            className="inline-flex items-center gap-1 text-gray-400 hover:text-purple-400 transition-colors underline underline-offset-2"
+                                                            className="inline-flex items-center gap-1 text-gray-600 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 transition-colors underline underline-offset-2"
                                                         >
                                                             {bundle.repo}
                                                             <ExternalLink className="h-3 w-3 shrink-0" />
@@ -399,7 +399,7 @@ const BundleRegistrySection = () => {
                                         <CardContent className="space-y-4 pt-0">
                                             {/* Description */}
                                             {bundle.description ? (
-                                                <p className="text-xs text-gray-400 line-clamp-2 h-8">
+                                                <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 h-8">
                                                     {bundle.description}
                                                 </p>
                                             ) : (
@@ -407,7 +407,7 @@ const BundleRegistrySection = () => {
                                             )}
 
                                             {/* Stats */}
-                                            <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-400 font-mono">
+                                            <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-600 dark:text-gray-400 font-mono">
                                                 {bundle.stars ? (
                                                     <div className="flex items-center gap-1">
                                                         <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400/20" />
@@ -471,7 +471,7 @@ const BundleRegistrySection = () => {
 
                                             {/* Usage Hint */}
                                             <div className="bg-black/40 border border-white/5 p-2 rounded-lg text-[10px] font-mono flex items-center justify-between gap-2 group/code">
-                                                <span className="flex-1 truncate text-gray-400">
+                                                <span className="flex-1 truncate text-gray-600 dark:text-gray-400">
                                                     cgc load {bundle.bundle_name || `${bundle.name}-${bundle.version || 'latest'}.cgc`}
                                                 </span>
                                                 <button
@@ -486,7 +486,7 @@ const BundleRegistrySection = () => {
                                                     {copiedBundleIndex === index ? (
                                                         <Check className="w-3.5 h-3.5 text-green-400" />
                                                     ) : (
-                                                        <Copy className="w-3.5 h-3.5 text-gray-500 group-hover/code:text-white" />
+                                                        <Copy className="w-3.5 h-3.5 text-gray-600 dark:text-gray-500 group-hover/code:text-white" />
                                                     )}
                                                 </button>
                                             </div>

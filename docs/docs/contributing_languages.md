@@ -105,3 +105,35 @@ Once the parser is registered, verify graph extraction using sample source files
      ```bash
      cgc query "MATCH (caller:Function)-[:CALLS]->(callee:Function) RETURN caller.name, callee.name"
      ```
+
+### Emacs Lisp smoke check
+
+Emacs Lisp support uses the `elisp` grammar already distributed by `tree-sitter-language-pack`; no external Emacs process or manual grammar compilation is required for the Tree-sitter path.
+
+To smoke-test the checked-in two-file fixture against an isolated Kuzu database:
+
+```bash
+tmpdir=$(mktemp -d)
+export PYTHONPATH=src
+export DEFAULT_DATABASE=kuzudb
+export CGC_RUNTIME_DB_TYPE=kuzudb
+export CGC_RUNTIME_DB_PATH="$tmpdir/kuzu.db"
+
+uv run python -m codegraphcontext index tests/fixtures/sample_projects/sample_project_elisp --force
+
+uv run python -m codegraphcontext query "MATCH (f:File) WHERE f.path ENDS WITH '.el' RETURN f.name AS file ORDER BY file"
+uv run python -m codegraphcontext query "MATCH (fn:Function) WHERE fn.lang = 'elisp' RETURN fn.name AS function ORDER BY function"
+uv run python -m codegraphcontext query "MATCH (v:Variable) WHERE v.lang = 'elisp' RETURN v.name AS variable ORDER BY variable"
+uv run python -m codegraphcontext query "MATCH (f:File)-[:IMPORTS]->(m:Module) RETURN f.name AS file, m.name AS module ORDER BY file, module"
+uv run python -m codegraphcontext query "MATCH (caller:Function)-[:CALLS]->(callee:Function) WHERE caller.lang = 'elisp' RETURN caller.name AS caller_name, callee.name AS callee_name ORDER BY caller_name, callee_name"
+
+rm -rf "$tmpdir"
+```
+
+Expected results include `foo-core.el` and `foo-ui.el`, function nodes such as `foo-core-greet` and `foo-ui-render`, variable nodes such as `foo-core-count` and `foo-core-loud`, module nodes for `cl-lib`, `foo-core`, and `foo-ui`, and direct call edges including `foo-ui-render -> foo-core-greet` and `foo-core-greet -> foo-core-format`.
+
+### Emacs Lisp SCIP follow-up
+
+The initial Emacs Lisp implementation intentionally stays on the Tree-sitter pipeline. There is no standard `scip-elisp` indexer to register in `EXTENSION_TO_SCIP`, and the commonly used `elisp-refs` package is designed as an interactive Emacs reference finder rather than a batch indexer: it searches files recorded in the running Emacs `load-history`, renders results in a special buffer instead of emitting JSON or SCIP data, and exposes useful Lisp-2 function/variable heuristics only through internal APIs.
+
+A future semantic indexer could reuse those heuristics in a dedicated batch wrapper, but it would still need directory discovery, side-effect-safe loading or buffer creation, line/column conversion from character offsets, structured output, and explicit handling for macro expansion and indirect calls. Until that exists, `.el` files should continue to use Tree-sitter indexing with documented limitations around arbitrary macro semantics and dynamic dispatch.

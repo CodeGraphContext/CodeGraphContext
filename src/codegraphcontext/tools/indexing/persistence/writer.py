@@ -530,13 +530,13 @@ class GraphWriter:
             for batch_data, caller_label, called_label in queries:
                 if not batch_data:
                     continue
-                
+
                 # Ensure all rows have the required keys with correct types for KuzuDB
                 sanitized_batch = []
                 for row in batch_data:
                     if not isinstance(row, dict) or not row.get("caller_file_path") or not row.get("called_name"):
                         continue
-                    
+
                     # Skip rows with explicitly False filters (considered malformed in #885)
                     if row.get("called_line_number") is False or row.get("called_context") is False:
                         continue
@@ -548,7 +548,7 @@ class GraphWriter:
                         row["resolution_tier"] = -1
                     if "confidence_label" not in row or row["confidence_label"] is None:
                         row["confidence_label"] = "EXTRACTED"
-                    
+
                     val = row.get("called_line_number")
                     if "called_line_number" not in row or not isinstance(val, int):
                         # Force int for KuzuDB matching, handle None/0 (#885)
@@ -556,12 +556,12 @@ class GraphWriter:
                             row["called_line_number"] = int(val or 0)
                         except (ValueError, TypeError):
                             row["called_line_number"] = 0
-                    
+
                     if "called_context" not in row or row["called_context"] is None:
                         row["called_context"] = ""
                     if "line_number" not in row or row["line_number"] is None:
                         row["line_number"] = 0
-                    
+
                     # Serialize args to a deterministic string for the MERGE key.
                     # FalkorDB can't match list-typed properties in MERGE (creates
                     # duplicates), but removing args entirely caused Neo4j to
@@ -573,7 +573,7 @@ class GraphWriter:
                         row["args_key"] = _json.dumps(raw_args, sort_keys=False)
                     else:
                         row["args_key"] = str(raw_args)
-                    
+
                     sanitized_batch.append(row)
 
                 if not sanitized_batch:
@@ -881,7 +881,7 @@ class GraphWriter:
         """
         _cpp_exts = ('.cpp', '.cc', '.cxx', '.c++', '.C')
         ext_conditions = ' OR '.join(f'fn.path ENDS WITH "{ext}"' for ext in _cpp_exts)
-        
+
         container_labels = ("Class", "Struct", "Module")
         with self._session() as session:
             for clab in container_labels:

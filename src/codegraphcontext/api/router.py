@@ -87,7 +87,7 @@ async def execute_query(
     server: MCPServer = Depends(get_server)
 ):
     result = await server.handle_tool_call("execute_cypher_query", {
-        "query": request.query,
+        "cypher_query": request.query,
         "params": request.params
     })
     

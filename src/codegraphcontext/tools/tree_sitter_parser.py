@@ -101,6 +101,10 @@ class TreeSitterParser:
             from .languages.elixir import ElixirTreeSitterParser
 
             self.language_specific_parser = ElixirTreeSitterParser(self)
+        elif self.language_name == "elisp":
+            from .languages.elisp import ElispTreeSitterParser
+
+            self.language_specific_parser = ElispTreeSitterParser(self)
         elif self.language_name == "html":
             from .languages.html import HTMLTreeSitterParser
 

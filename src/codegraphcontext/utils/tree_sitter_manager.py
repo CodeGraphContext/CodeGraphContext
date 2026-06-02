@@ -118,6 +118,11 @@ LANGUAGE_ALIASES = {
     "elixir": "elixir",
     "ex": "elixir",
     "exs": "elixir",
+    "elisp": "elisp",
+    "el": "elisp",
+    ".el": "elisp",
+    "emacs-lisp": "elisp",
+    "emacs_lisp": "elisp",
     "html": "html",
     "css": "css",
 }

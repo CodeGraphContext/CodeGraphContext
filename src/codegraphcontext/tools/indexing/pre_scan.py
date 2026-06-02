@@ -29,6 +29,7 @@ def _register_prescans() -> Dict[str, _PreScanFn]:
     from ..languages import lua as lua_lang_module
     from ..languages import haskell as haskell_lang_module
     from ..languages import elixir as elixir_lang_module
+    from ..languages import elisp as elisp_lang_module
     from ..languages import html as html_lang_module
     from ..languages import css as css_lang_module
 
@@ -76,6 +77,7 @@ def _register_prescans() -> Dict[str, _PreScanFn]:
         ".hs": lambda files, gp: haskell_lang_module.pre_scan_haskell(files, gp(".hs")),
         ".ex": lambda files, gp: elixir_lang_module.pre_scan_elixir(files, gp(".ex")),
         ".exs": lambda files, gp: elixir_lang_module.pre_scan_elixir(files, gp(".exs")),
+        ".el": lambda files, gp: elisp_lang_module.pre_scan_elisp(files, gp(".el")),
         ".html": lambda files, gp: html_lang_module.pre_scan_html(files, gp(".html")),
         ".css": lambda files, gp: css_lang_module.pre_scan_css(files, gp(".css")),
     }

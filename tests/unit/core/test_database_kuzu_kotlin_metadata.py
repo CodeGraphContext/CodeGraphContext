@@ -105,20 +105,10 @@ def test_calls_metadata_updates_do_not_duplicate_kuzu_relationships(tmp_path):
             "full_call_name": "target",
         }
         writer.write_function_call_groups(
-            [{**call, "confidence": 0.25, "resolution_tier": 5}],
-            [],
-            [],
-            [],
-            [],
-            [],
+            [{**call, "type": "function", "confidence": 0.25, "resolution_tier": 5}],
         )
         writer.write_function_call_groups(
-            [{**call, "confidence": 0.95, "resolution_tier": 1}],
-            [],
-            [],
-            [],
-            [],
-            [],
+            [{**call, "type": "function", "confidence": 0.95, "resolution_tier": 1}],
         )
 
         with driver.session() as session:
@@ -173,6 +163,7 @@ def test_class_calls_use_target_line_in_kuzu(tmp_path):
             [],
             [
                 {
+                    "type": "function",
                     "caller_name": "make",
                     "caller_file_path": "/repo/Sample.kt",
                     "caller_line_number": 3,
@@ -184,10 +175,6 @@ def test_class_calls_use_target_line_in_kuzu(tmp_path):
                     "full_call_name": "Inner",
                 }
             ],
-            [],
-            [],
-            [],
-            [],
         )
 
         with driver.session() as session:
