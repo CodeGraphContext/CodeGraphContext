@@ -12,7 +12,7 @@ consumer to special-case a one-element list holding an empty string.
 
 The issue asked whether the `else [""]` branch was working around a
 backend that rejects empty lists, in which case the fix would belong at
-the read boundary instead. It is not: Kùzu accepts `[]` for a `STRING[]`
+the read boundary instead. It is not: Ladybug accepts `[]` for a `STRING[]`
 column in every shape the writer uses -- inside `UNWIND $rows`, as a
 single-row parameter, and when *every* row in the batch is empty (so
 there is no element type to infer from a sibling row). `test_all_empty_*`
@@ -30,7 +30,7 @@ from codegraphcontext.utils.tree_sitter_manager import get_tree_sitter_manager
 
 kuzu = pytest.importorskip("kuzu")
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager  # noqa: E402
+from codegraphcontext.core.database_ladybug import LadybugDBManager  # noqa: E402
 from codegraphcontext.tools.languages.kotlin import (  # noqa: E402
     KotlinTreeSitterParser,
 )
@@ -74,7 +74,7 @@ def _kotlin_parser() -> KotlinTreeSitterParser:
 
 def _store_and_read(tmp_path, source: str):
     """Run the real parser -> writer chain, return {name: {prop: value}}."""
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     try:
         driver = manager.get_driver()
         writer = GraphWriter(driver)

@@ -391,7 +391,7 @@ class TestFactoryFalkorDBRemote:
                      and not k.startswith('FALKORDB_')
                      and not k.startswith('NEO4J_')}
         clean_env.update({
-            'DEFAULT_DATABASE': 'kuzudb',
+            'DEFAULT_DATABASE': 'ladybugdb',
             'CGC_RUNTIME_DB_TYPE': 'falkordb-remote',
             'FALKORDB_HOST': 'override-host',
         })

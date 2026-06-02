@@ -142,8 +142,8 @@
           "enum": [
             "auto",
             "neo4j",
-            "kuzudb",
-            "falkordb"
+            "falkordb",
+            "ladybugdb"
           ],
           "enumDescriptions": [
             "Pick per platform: kuzudb on Windows (no extra setup), falkordb elsewhere.",

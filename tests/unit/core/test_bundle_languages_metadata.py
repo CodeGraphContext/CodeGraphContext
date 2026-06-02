@@ -16,17 +16,17 @@ import pytest
 
 pytest.importorskip("kuzu")
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager
+from codegraphcontext.core.database_ladybug import LadybugDBManager
 from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
 
-def _fresh_kuzu_manager(db_path: Path) -> KuzuDBManager:
-    if KuzuDBManager._instance is not None:
-        KuzuDBManager._instance.close_driver()
-    KuzuDBManager._instance = None
-    KuzuDBManager._db = None
-    KuzuDBManager._conn = None
-    return KuzuDBManager(db_path=str(db_path))
+def _fresh_ladybug_manager(db_path: Path) -> LadybugDBManager:
+    if LadybugDBManager._instance is not None:
+        LadybugDBManager._instance.close_driver()
+    LadybugDBManager._instance = None
+    LadybugDBManager._db = None
+    LadybugDBManager._conn = None
+    return LadybugDBManager(db_path=str(db_path))
 
 
 def _file_data(path: str, lang: str):
@@ -44,7 +44,7 @@ def _file_data(path: str, lang: str):
 
 
 def test_file_node_records_its_language(tmp_path):
-    manager = _fresh_kuzu_manager(tmp_path / "lang-db")
+    manager = _fresh_ladybug_manager(tmp_path / "lang-db")
     try:
         driver = manager.get_driver()
         GraphWriter(driver).add_file_to_graph(
@@ -63,7 +63,7 @@ def test_file_node_records_its_language(tmp_path):
 
 def test_languages_are_distinct_across_a_mixed_repository(tmp_path):
     """The export groups File nodes by language; each should appear once."""
-    manager = _fresh_kuzu_manager(tmp_path / "lang-multi-db")
+    manager = _fresh_ladybug_manager(tmp_path / "lang-multi-db")
     try:
         driver = manager.get_driver()
         writer = GraphWriter(driver)
@@ -92,12 +92,12 @@ def test_languages_are_distinct_across_a_mixed_repository(tmp_path):
 def test_language_survives_the_kuzu_property_allow_list(tmp_path):
     """`language` must be in SCHEMA_MAP['File'].
 
-    The Kùzu backend filters node properties against an allow-list and drops
+    The Ladybug backend filters node properties against an allow-list and drops
     unknown ones silently, so a schema column alone is not sufficient -- this is
     the step that would fail without the allow-list entry, and it would fail
     quietly.
     """
-    manager = _fresh_kuzu_manager(tmp_path / "lang-allowlist-db")
+    manager = _fresh_ladybug_manager(tmp_path / "lang-allowlist-db")
     try:
         driver = manager.get_driver()
         GraphWriter(driver).add_file_to_graph(

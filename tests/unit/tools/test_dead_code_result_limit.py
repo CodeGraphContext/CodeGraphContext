@@ -30,7 +30,7 @@ from codegraphcontext.utils.tree_sitter_manager import get_tree_sitter_manager
 
 kuzu = pytest.importorskip("kuzu")
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager  # noqa: E402
+from codegraphcontext.core.database_ladybug import LadybugDBManager  # noqa: E402
 from codegraphcontext.tools.handlers.analysis_handlers import (  # noqa: E402
     find_dead_code as find_dead_code_handler,
 )
@@ -67,7 +67,7 @@ def _kotlin_parser() -> KotlinTreeSitterParser:
 
 @pytest.fixture
 def finder(tmp_path):
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     try:
         driver = manager.get_driver()
         writer = GraphWriter(driver)

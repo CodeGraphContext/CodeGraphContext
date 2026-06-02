@@ -3,14 +3,14 @@ import json
 from pathlib import Path
 import pytest
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager
+from codegraphcontext.core.database_ladybug import LadybugDBManager
 from codegraphcontext.tools.code_finder import CodeFinder
 from codegraphcontext.tools.handlers import analysis_handlers
 
 kuzu = pytest.importorskip("kuzu")
 
 
-class _KuzuDBAdapter:
+class _LadybugDBAdapter:
     def __init__(self, driver):
         self._driver = driver
 
@@ -18,11 +18,11 @@ class _KuzuDBAdapter:
         return self._driver
 
     def get_backend_type(self) -> str:
-        return "kuzudb"
+        return "ladybugdb"
 
 
 def test_find_callers_truncation(tmp_path, monkeypatch):
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     driver = manager.get_driver()
     try:
         with driver.session() as session:
@@ -46,7 +46,7 @@ def test_find_callers_truncation(tmp_path, monkeypatch):
                     line=i + 10,
                 )
 
-        finder = CodeFinder(_KuzuDBAdapter(driver))
+        finder = CodeFinder(_LadybugDBAdapter(driver))
 
         # Default limit 20
         res = finder.analyze_code_relationships("find_callers", "target_fn")
@@ -72,7 +72,7 @@ def test_find_callers_truncation(tmp_path, monkeypatch):
 
 
 def test_find_callees_truncation(tmp_path):
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     driver = manager.get_driver()
     try:
         with driver.session() as session:
@@ -96,7 +96,7 @@ def test_find_callees_truncation(tmp_path):
                     line=i + 10,
                 )
 
-        finder = CodeFinder(_KuzuDBAdapter(driver))
+        finder = CodeFinder(_LadybugDBAdapter(driver))
         res = finder.analyze_code_relationships("find_callees", "caller_fn")
         assert len(res["results"]) == 20
         assert res["truncated"] is True
@@ -107,7 +107,7 @@ def test_find_callees_truncation(tmp_path):
 
 
 def test_find_importers_truncation(tmp_path):
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     driver = manager.get_driver()
     try:
         with driver.session() as session:
@@ -125,7 +125,7 @@ def test_find_importers_truncation(tmp_path):
                     path=file_path,
                 )
 
-        finder = CodeFinder(_KuzuDBAdapter(driver))
+        finder = CodeFinder(_LadybugDBAdapter(driver))
         res = finder.analyze_code_relationships("find_importers", "mod_a")
         assert len(res["results"]) == 20
         assert res["truncated"] is True
@@ -136,7 +136,7 @@ def test_find_importers_truncation(tmp_path):
 
 
 def test_regression_untruncated_results(tmp_path):
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     driver = manager.get_driver()
     try:
         with driver.session() as session:
@@ -160,7 +160,7 @@ def test_regression_untruncated_results(tmp_path):
                     line=i + 10,
                 )
 
-        finder = CodeFinder(_KuzuDBAdapter(driver))
+        finder = CodeFinder(_LadybugDBAdapter(driver))
         res = finder.analyze_code_relationships("find_callers", "target_fn")
         assert len(res["results"]) == 5
         assert res["truncated"] is False

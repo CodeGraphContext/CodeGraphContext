@@ -56,7 +56,7 @@ def _test_env():
     # DEFAULT_DATABASE=falkordb silently fell back anyway (#1387), and the
     # Neo4j-reachability gate left these tests permanently skipped on
     # machines without a local bolt endpoint.
-    env["DEFAULT_DATABASE"] = "kuzudb"
+    env["DEFAULT_DATABASE"] = "ladybugdb"
     env["CGC_CONTEXT_MODE"] = "global"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     # Ensure all current sys.path entries are in PYTHONPATH so dependencies and -m work

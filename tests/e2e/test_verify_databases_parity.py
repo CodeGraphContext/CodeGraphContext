@@ -171,27 +171,27 @@ def test_database_parity_e2e(temp_test_dir):
 
 async def _run_database_parity_e2e(temp_test_dir):
     """
-    Run indexing against KuzuDB, LadybugDB, FalkorDB Lite, and Neo4j
+    Run indexing against LadybugDB, FalkorDB Lite, and Neo4j
     and verify 100% mathematical parity across all extracted nodes and relationships.
     """
     os.environ.setdefault('NEO4J_URI', 'bolt://localhost:7687')
     os.environ.setdefault('NEO4J_USERNAME', 'neo4j')
     os.environ.setdefault('NEO4J_PASSWORD', '12345678')
-    
+
     import importlib.util
     project_path = Path("tests/fixtures/sample_projects").resolve()
-    
+
     db_types_to_run = []
-    pkg_map = {"kuzudb": "kuzu", "ladybugdb": "ladybug", "falkordb": "falkordb", "neo4j": "neo4j"}
-    for db in ["kuzudb", "ladybugdb", "falkordb", "neo4j"]:
+    pkg_map = {"ladybugdb": "ladybug", "falkordb": "falkordb", "neo4j": "neo4j"}
+    for db in ["ladybugdb", "falkordb", "neo4j"]:
         if importlib.util.find_spec(pkg_map[db]) is None:
             print(f"Skipping {db}: {pkg_map[db]} driver not installed.")
             continue
         db_types_to_run.append(db)
-        
+
     db_types = db_types_to_run
     results = {}
-    
+
     for db_type in db_types:
         try:
             duration, stats, calls_edges = await run_indexing_in_process(db_type, project_path, temp_test_dir)
@@ -204,7 +204,7 @@ async def _run_database_parity_e2e(temp_test_dir):
             if db_type == "neo4j" and "failed to connect" in str(e).lower():
                 pytest.skip("Neo4j server is not running/available.")
             raise e
-            
+
     # Compile comparison and assert parity
     print("\n================= E2E PARITY TEST REPORT =================")
     header_dbs = "".join(f"{db.title():<10} | " for db in db_types)
@@ -221,25 +221,25 @@ async def _run_database_parity_e2e(temp_test_dir):
         k for k in ref_db["stats"].keys() if k != "REL_CALLS_DISTINCT"
     )
     # Some relationship resolvers dedupe differently across embedded backends.
-    # REL_CALLS: KuzuDB/LadybugDB may drop ≤1 edge when the Neo4j fast/slow MATCH
-    # split cannot bind an exact called_line_number (binder/UNWIND fallback).
+    # REL_CALLS can vary by <=1 edge when the Neo4j fast/slow MATCH split
+    # cannot bind an exact called_line_number (binder/UNWIND fallback).
     allowed_spread = {"REL_IMPORTS": 6, "REL_CALLS": 1}
     all_match = True
-    
+
     for key in keys_to_compare:
         vals = [results[db]["stats"].get(key, 0) for db in db_types if db in results]
-        
+
         spread = max(vals) - min(vals) if vals else 0
         matches = spread <= allowed_spread.get(key, 0)
         match_str = "YES" if matches else "NO"
         if not matches:
             all_match = False
-            
+
         vals_str = "".join(f"{v:<10} | " for v in vals)
         print(f"{key:<25} | {vals_str}{match_str}")
-        
+
     print("-" * (35 + 13 * len(db_types)))
-    
+
     dur_str = "".join(f"{results[db]['duration']:<10.2f} | " for db in db_types if db in results)
     print(f"{'Indexing Duration (s)':<25} | {dur_str}-")
 

@@ -1,6 +1,6 @@
 """#1605: relationship-only UNWIND MERGEs batch; node-MERGE shapes fall back.
 
-Kùzu 0.11.3's MERGE pipeline mis-binds when a merged node's key repeats
+Ladybug 0.11.3's MERGE pipeline mis-binds when a merged node's key repeats
 non-adjacently in one UNWIND batch: in [(A,P), (B,X), (C,P)] the C row binds
 to X's node instead of re-matching P. Relationship-only MERGEs do not exhibit
 the bug, so the forced per-row fallback is now scoped to queries that MERGE a
@@ -11,14 +11,14 @@ from pathlib import Path
 
 import pytest
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager
+from codegraphcontext.core.database_ladybug import LadybugDBManager
 
 kuzu = pytest.importorskip("kuzu")
 
 
 @pytest.fixture()
 def driver(tmp_path: Path):
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     yield manager.get_driver()
     manager.close_driver()
 

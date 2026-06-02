@@ -178,7 +178,7 @@ class CGCBundle:
 
     def _uses_pk_edge_matching(self) -> bool:
         """Kùzu/Ladybug internal IDs are not comparable via id() in MATCH."""
-        return self.db_manager.get_backend_type() in {'kuzudb', 'ladybugdb'}
+        return self.db_manager.get_backend_type() == 'ladybugdb'
 
     def _node_lookup_key(self, labels, properties: Dict) -> Optional[tuple]:
         if not labels:
@@ -535,7 +535,7 @@ class CGCBundle:
 
         with self.db_manager.get_driver(self._active_graph).session() as session:
             try:
-                if backend in ("kuzudb", "ladybugdb"):
+                if backend == "ladybugdb":
                     result = session.run("MATCH (n) RETURN DISTINCT label(n) AS lbl")
                     labels = sorted({record[0] for record in result if record[0] is not None})
                 elif backend == "neo4j":
@@ -557,7 +557,7 @@ class CGCBundle:
                 schema["node_labels"] = []
 
             try:
-                if backend in ("kuzudb", "ladybugdb"):
+                if backend == "ladybugdb":
                     result = session.run("MATCH ()-[r]->() RETURN DISTINCT label(r) AS rel")
                     rel_types = sorted({record[0] for record in result if record[0] is not None})
                 elif backend == "neo4j":
@@ -1490,7 +1490,7 @@ cgc import <bundle-file>.cgc
                 for line in f:
                     node_data = json.loads(line)
                     
-                    # Extract labels and old ID (handle both Neo4j and KuzuDB formats)
+                    # Extract labels and old ID (handle both Neo4j and embedded DB formats)
                     labels = node_data.pop('_labels', None) or node_data.pop('_label', None) or []
                     if isinstance(labels, str):
                         labels = [labels]

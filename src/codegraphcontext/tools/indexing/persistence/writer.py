@@ -148,7 +148,7 @@ def _assign_occurrence_indices(
 
 def _cypher_label(label: str, backend: str) -> str:
     """Format a node label for Cypher; Kùzu reserves some identifiers and needs backticks."""
-    if backend in ("kuzudb", "ladybugdb") and label in ("Union", "Macro", "Property"):
+    if backend == "ladybugdb" and label in ("Union", "Macro", "Property"):
         return f"`{label}`"
     return label
 
@@ -203,8 +203,7 @@ class GraphWriter:
         """Discover all node labels in the database, backend-aware.
 
         Neo4j / Nornic use ``CALL db.labels()``.
-        KuzuDB / LadybugDB use ``MATCH (n) RETURN DISTINCT label(n)``
-        (``SHOW TABLES`` is not supported in KuzuDB Python bindings ≤ 0.11).
+        LadybugDB uses ``MATCH (n) RETURN DISTINCT label(n)``.
         FalkorDB uses ``CALL db.labels()`` without YIELD.
         All backends fall back to :data:`schema_contract.NODE_LABELS`
         plus supplementary labels on failure.
@@ -212,9 +211,9 @@ class GraphWriter:
         # Prefer db_manager.get_backend_type(); fall back to driver, then neo4j
         backend = get_backend_type(self.driver, self._db_manager)
 
-        if backend in ("kuzudb", "ladybugdb"):
+        if backend == "ladybugdb":
             # NOTE: Full node scan required because SHOW TABLES is unavailable
-            # in KuzuDB ≤ 0.11. Acceptable for delete_repository (low-frequency).
+            # in the embedded dialect. Acceptable for delete_repository (low-frequency).
             try:
                 backend = get_backend_type(self.driver, self._db_manager)
                 def _work(session):

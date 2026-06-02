@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager
+from codegraphcontext.core.database_ladybug import LadybugDBManager
 from codegraphcontext.tools.code_finder import CodeFinder
 from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
@@ -18,12 +18,12 @@ class _DBM:
         return self._driver
 
     def get_backend_type(self):
-        return "kuzudb"
+        return "ladybugdb"
 
 
 @pytest.fixture()
 def finder(tmp_path: Path):
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     driver = manager.get_driver()
     repo = tmp_path / "repo"
     repo.mkdir()

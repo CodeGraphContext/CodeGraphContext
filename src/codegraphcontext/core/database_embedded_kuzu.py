@@ -2,7 +2,7 @@
 """
 Shared embedded graph-database layer for Kùzu-dialect engines (KùzuDB, LadybugDB).
 
-Backend-specific modules (``database_kuzu``, ``database_ladybug``) supply an
+The backend-specific ``database_ladybug`` module supplies an
 ``EmbeddedBackendSpec`` and thin manager subclass; all Cypher translation,
 connection pooling, and schema logic lives here.
 """

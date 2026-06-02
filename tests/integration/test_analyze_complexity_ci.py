@@ -35,7 +35,7 @@ def indexed_repo(tmp_path: Path):
     )
     env = os.environ.copy()
     env["HOME"] = str(home)
-    env["DEFAULT_DATABASE"] = "kuzudb"
+    env["DEFAULT_DATABASE"] = "ladybugdb"
     env["CGC_CONTEXT_MODE"] = "global"
     env["PYTHONPATH"] = os.pathsep.join(sys.path)
     r = subprocess.run(f"{CGC} index {shlex.quote(str(repo))}", shell=True,

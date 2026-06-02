@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import JSZip from "jszip";
 import { parseFilesIntoGraph } from "../lib/parser";
-import { KuzuCoordinator } from "../lib/kuzu-coordinator";
+import { CGCCoordinator } from "../lib/cgc-coordinator";
 import { getOrCreateSessionId } from "../lib/utils";
 import {
   RepoRef,
@@ -709,8 +709,8 @@ const Explore = () => {
       }
     };
 
-    // 6. Instantiating KuzuCoordinator signaling tunnels
-    const coordinator = new KuzuCoordinator(
+    // 6. Instantiating CGCCoordinator signaling tunnels
+    const coordinator = new CGCCoordinator(
       supabaseUrl,
       supabaseAnonKey,
       channelName,

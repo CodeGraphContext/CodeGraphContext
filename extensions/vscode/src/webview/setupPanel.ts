@@ -193,9 +193,8 @@ export class SetupPanel {
             <div class="field">
                 <label>Database Mode</label>
                 <select id="dbMode">
-                    <option value="auto" ${dbMode === "auto" || dbMode === "" ? "selected" : ""}>Auto (KuzuDB on Windows, FalkorDB elsewhere)</option>
-                    <option value="kuzudb" ${dbMode === "kuzudb" ? "selected" : ""}>KuzuDB (Embedded)</option>
                     <option value="falkordb" ${dbMode === "falkordb" ? "selected" : ""}>FalkorDB (Redis-based)</option>
+                    <option value="ladybugdb" ${dbMode === "ladybugdb" ? "selected" : ""}>LadybugDB (Embedded)</option>
                     <option value="neo4j" ${dbMode === "neo4j" ? "selected" : ""}>Neo4j</option>
                 </select>
                 <div class="hint">Target database for storing the code graph.</div>

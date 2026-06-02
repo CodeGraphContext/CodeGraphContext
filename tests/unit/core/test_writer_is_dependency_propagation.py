@@ -17,17 +17,17 @@ import pytest
 
 pytest.importorskip("kuzu")
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager
+from codegraphcontext.core.database_ladybug import LadybugDBManager
 from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
 
-def _fresh_kuzu_manager(db_path: Path) -> KuzuDBManager:
-    if KuzuDBManager._instance is not None:
-        KuzuDBManager._instance.close_driver()
-    KuzuDBManager._instance = None
-    KuzuDBManager._db = None
-    KuzuDBManager._conn = None
-    return KuzuDBManager(db_path=str(db_path))
+def _fresh_ladybug_manager(db_path: Path) -> LadybugDBManager:
+    if LadybugDBManager._instance is not None:
+        LadybugDBManager._instance.close_driver()
+    LadybugDBManager._instance = None
+    LadybugDBManager._db = None
+    LadybugDBManager._conn = None
+    return LadybugDBManager(db_path=str(db_path))
 
 
 def _file_data(path: str, *, is_dependency: bool):
@@ -50,7 +50,7 @@ def _file_data(path: str, *, is_dependency: bool):
 
 
 def test_project_items_inherit_is_dependency_false(tmp_path):
-    manager = _fresh_kuzu_manager(tmp_path / "isdep-project-db")
+    manager = _fresh_ladybug_manager(tmp_path / "isdep-project-db")
     try:
         driver = manager.get_driver()
         GraphWriter(driver).add_file_to_graph(
@@ -78,7 +78,7 @@ def test_project_items_inherit_is_dependency_false(tmp_path):
 
 def test_dependency_items_inherit_is_dependency_true(tmp_path):
     """Items inside a dependency file must be marked as dependencies."""
-    manager = _fresh_kuzu_manager(tmp_path / "isdep-dependency-db")
+    manager = _fresh_ladybug_manager(tmp_path / "isdep-dependency-db")
     try:
         driver = manager.get_driver()
         GraphWriter(driver).add_file_to_graph(
@@ -104,7 +104,7 @@ def test_extractor_supplied_is_dependency_is_not_overwritten(tmp_path):
     The writer uses setdefault, so an extractor that already computes this
     per item (python.py and c.py among others) keeps its own answer.
     """
-    manager = _fresh_kuzu_manager(tmp_path / "isdep-explicit-db")
+    manager = _fresh_ladybug_manager(tmp_path / "isdep-explicit-db")
     try:
         data = _file_data("/repo/Mixed.kt", is_dependency=False)
         data["functions"][0]["is_dependency"] = True

@@ -90,7 +90,6 @@ DEFAULT_CONFIG = {
     # Empty selects a deterministic port derived from each embedded DB socket.
     "FALKORDB_PORT": "",
     "LADYBUGDB_PATH": str(CONFIG_DIR / "global" / "db" / "ladybugdb"),
-    "KUZUDB_PATH": str(CONFIG_DIR / "global" / "db" / "kuzudb"),
     "INDEX_VARIABLES": "true",
     "ALLOW_DB_DELETION": "false",
     "DEBUG_LOGS": "false",
@@ -142,12 +141,11 @@ DEFAULT_CONFIG = {
 
 # Configuration key descriptions
 CONFIG_DESCRIPTIONS = {
-    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|falkordb-remote|kuzudb|nornic|ladybugdb)",
+    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|falkordb-remote|nornic|ladybugdb)",
     "FALKORDB_PATH": "Path to FalkorDB database file",
     "FALKORDB_SOCKET_PATH": "Path to FalkorDB Unix socket",
     "FALKORDB_PORT": "Optional FalkorDB port override (empty = per-database port)",
     "LADYBUGDB_PATH": "Path to LadybugDB database directory",
-    "KUZUDB_PATH": "Path to KuzuDB database directory",
     "INDEX_VARIABLES": "Index variable nodes in the graph (lighter graph if false)",
     "ALLOW_DB_DELETION": "Allow full database deletion commands",
     "DEBUG_LOGS": "Enable debug logging (for development/troubleshooting)",
@@ -188,7 +186,7 @@ CONFIG_DESCRIPTIONS = {
         "WHEN TO ENABLE: large codebases (>10K functions) where inheritance alone leaves many ambiguous calls "
         "(tier-7 fallbacks still high after ENABLE_INHERIT_RESOLVE). Also useful for cross-language repos. "
         "PREREQUISITES: (1) fastembed must be installed — run 'pip install fastembed'. "
-        "(2) Neo4j must be the active database (vector index not supported on FalkorDB/KuzuDB). "
+        "(2) Neo4j must be the active database (vector index not supported on FalkorDB/LadybugDB). "
         "(3) ENABLE_INHERIT_RESOLVE should also be true — vector is a tiebreaker for Phase 5, not a replacement. "
         "COST: Phase 4 takes ~15 min per 50K functions on CPU (first run only; incremental updates are fast). "
         "Embedding model (~40 MB) is downloaded automatically on first use from HuggingFace."
@@ -233,7 +231,7 @@ CONFIG_DESCRIPTIONS = {
 
 # Valid values for each config key
 CONFIG_VALIDATORS = {
-    "DEFAULT_DATABASE": ["neo4j", "falkordb", "falkordb-remote", "kuzudb", "nornic", "ladybugdb"],
+    "DEFAULT_DATABASE": ["neo4j", "falkordb", "falkordb-remote", "nornic", "ladybugdb"],
     "INDEX_VARIABLES": ["true", "false"],
     "ALLOW_DB_DELETION": ["true", "false"],
     "DEBUG_LOGS": ["true", "false"],
@@ -844,7 +842,7 @@ VALID_MODES = ["global", "per-repo", "named"]
 class ContextInfo:
     """Metadata for a single named context."""
     name: str
-    database: str = "falkordb"          # neo4j | falkordb | kuzudb
+    database: str = "falkordb"          # neo4j | falkordb | ladybugdb
     db_path: str = ""                    # resolved at init if empty
     repos: List[str] = field(default_factory=list)
     cgcignore_path: str = ""            # resolved at init if empty
@@ -991,7 +989,7 @@ class ResolvedContext:
     """Result of resolve_context() — everything needed to instantiate the DB."""
     mode: str             # global | per-repo | named
     context_name: str     # empty for global / per-repo
-    database: str         # neo4j | falkordb | kuzudb
+    database: str         # neo4j | falkordb | ladybugdb
     db_path: str          # absolute path to the DB directory
     cgcignore_path: str   # path to the applicable .cgcignore
     is_local: bool = False  # True when a local .codegraphcontext/ was found

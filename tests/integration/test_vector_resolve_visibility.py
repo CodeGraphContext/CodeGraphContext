@@ -15,7 +15,7 @@ import pytest
 def _env(home: Path):
     env = os.environ.copy()
     env["HOME"] = str(home)
-    env["DEFAULT_DATABASE"] = "kuzudb"
+    env["DEFAULT_DATABASE"] = "ladybugdb"
     env["CGC_CONTEXT_MODE"] = "global"
     env["CGC_EMBEDDING_MODEL"] = "openai"
     env.pop("OPENAI_API_KEY", None)

@@ -1,7 +1,7 @@
 """
 TC-01 to TC-09: pipx runner support tests for setup_wizard.py
 
-Tests that _generate_mcp_json() and kuzu setup block correctly detect
+Tests that _generate_mcp_json() and MCP setup block correctly detect
 and use cgc / pipx / python as the MCP server runner.
 """
 
@@ -160,14 +160,14 @@ class TestTC03_PythonFallback:
 
 
 # ---------------------------------------------------------------------------
-# TC-04: kuzu setup block (configure_mcp_client) follows same runner logic
-# The kuzu/falkordb setup block at line ~405 in setup_wizard.py must detect
-# cgc, pipx, and python fallback in the same order as _generate_mcp_json().
+# TC-04: configure_mcp_client setup block follows same runner logic
+# The MCP setup block in setup_wizard.py must detect cgc, pipx, and python
+# fallback in the same order as _generate_mcp_json().
 # ---------------------------------------------------------------------------
 
-class TestTC04_KuzuSetupBlock:
+class TestTC04_McpSetupBlock:
 
-    def _run_kuzu_block(self, cgc_val, pipx_val, python_val="/usr/bin/python3"):
+    def _run_mcp_block(self, cgc_val, pipx_val, python_val="/usr/bin/python3"):
         if cgc_val:
             command = cgc_val
             args = ["mcp", "start"]
@@ -179,18 +179,18 @@ class TestTC04_KuzuSetupBlock:
             args = ["-m", "codegraphcontext", "mcp", "start"]
         return command, args
 
-    def test_kuzu_block_pipx_detected(self):
-        command, args = self._run_kuzu_block(None, "/usr/bin/pipx")
+    def test_mcp_block_pipx_detected(self):
+        command, args = self._run_mcp_block(None, "/usr/bin/pipx")
         assert command == "/usr/bin/pipx"
         assert args == ["run", "codegraphcontext", "mcp", "start"]
 
-    def test_kuzu_block_cgc_takes_priority_over_pipx(self):
-        command, args = self._run_kuzu_block("/usr/local/bin/cgc", "/usr/bin/pipx")
+    def test_mcp_block_cgc_takes_priority_over_pipx(self):
+        command, args = self._run_mcp_block("/usr/local/bin/cgc", "/usr/bin/pipx")
         assert command == "/usr/local/bin/cgc"
         assert args == ["mcp", "start"]
 
-    def test_kuzu_block_python_fallback(self):
-        command, args = self._run_kuzu_block(None, None)
+    def test_mcp_block_python_fallback(self):
+        command, args = self._run_mcp_block(None, None)
         assert "python" in command.lower()
         assert "-m" in args
 

@@ -1,4 +1,4 @@
-// website/src/lib/kuzu-coordinator.ts
+// website/src/lib/cgc-coordinator.ts
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabaseClient } from "./supabase-client";
 
@@ -18,7 +18,7 @@ function isChannelJoined(channel: RealtimeChannel | null): boolean {
   return channel?.state === "joined";
 }
 
-export class KuzuCoordinator {
+export class CGCCoordinator {
   private channelName: string;
   private channel: RealtimeChannel | null = null;
 
@@ -67,7 +67,7 @@ export class KuzuCoordinator {
     if (this.isTunnelHealthy()) return;
 
     console.log(
-      "[KuzuCoordinator] Tunnel not joined after tab became visible — reconnecting once..."
+      "[CGCCoordinator] Tunnel not joined after tab became visible — reconnecting once..."
     );
     this.isReconnecting = true;
     try {
@@ -95,13 +95,13 @@ export class KuzuCoordinator {
     const supabase = getSupabaseClient();
 
     if (!this.channel) {
-      console.log(`[KuzuCoordinator] Subscribing to query channel: ${this.channelName}`);
+      console.log(`[CGCCoordinator] Subscribing to query channel: ${this.channelName}`);
       this.channel = supabase.channel(this.channelName);
       this.setupChannelListeners(this.channel, this.channelName);
       this.channel.subscribe((status: string) => {
         if (status === "SUBSCRIBED") {
           console.log(
-            `[KuzuCoordinator] ✅ Subscribed to query channel: ${this.channelName}`
+            `[CGCCoordinator] ✅ Subscribed to query channel: ${this.channelName}`
           );
         }
       });
@@ -132,7 +132,7 @@ export class KuzuCoordinator {
           const { id, queryType, target, params } = payload || {};
           if (!id) return;
           console.log(
-            `[KuzuCoordinator] 📥 Query request received on [${name}]: id=${id}, type=${queryType}`
+            `[CGCCoordinator] 📥 Query request received on [${name}]: id=${id}, type=${queryType}`
           );
           try {
             const result = await this.executeQueryCallback(queryType, target, params);
@@ -143,7 +143,7 @@ export class KuzuCoordinator {
             });
           } catch (err: any) {
             if (err?.message?.startsWith("SILENT_IGNORE")) {
-              console.log(`[KuzuCoordinator] 🔌 Bypassing query: ${err.message}`);
+              console.log(`[CGCCoordinator] 🔌 Bypassing query: ${err.message}`);
               return;
             }
             await channel.send({
@@ -161,7 +161,7 @@ export class KuzuCoordinator {
           const { id, toolName, args } = payload || {};
           if (!id || !toolName) return;
           console.log(
-            `[KuzuCoordinator] 📥 MCP Tool Call request received on [${name}]: id=${id}, name=${toolName}`
+            `[CGCCoordinator] 📥 MCP Tool Call request received on [${name}]: id=${id}, name=${toolName}`
           );
           try {
             const result = await this.executeToolCallback(toolName, args);
@@ -172,7 +172,7 @@ export class KuzuCoordinator {
             });
           } catch (err: any) {
             if (err?.message?.startsWith("SILENT_IGNORE")) {
-              console.log(`[KuzuCoordinator] 🔌 Bypassing tool call: ${err.message}`);
+              console.log(`[CGCCoordinator] 🔌 Bypassing tool call: ${err.message}`);
               return;
             }
             await channel.send({
@@ -201,7 +201,7 @@ export class KuzuCoordinator {
     const supabase = getSupabaseClient();
 
     if (this.channel) {
-      console.log(`[KuzuCoordinator] Unsubscribing from query tunnel: ${this.channelName}`);
+      console.log(`[CGCCoordinator] Unsubscribing from query tunnel: ${this.channelName}`);
       try {
         await supabase.removeChannel(this.channel);
       } catch {

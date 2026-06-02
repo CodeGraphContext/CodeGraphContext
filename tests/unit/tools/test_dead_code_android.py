@@ -12,7 +12,7 @@ nothing:
     Android entry-point exemption is scoped to JVM languages, not global.
     It also exercises the `modifiers IS NOT NULL` guard: the Python function
     is written with no `modifiers` key at all (the real Python parser never
-    emits one), so `func.modifiers` is genuinely NULL in Kuzu -- the exact
+    emits one), so `func.modifiers` is genuinely NULL in Ladybug -- the exact
     condition the guard exists to handle. Without the guard,
     `'override' IN NULL` is NULL rather than FALSE, which makes the whole
     WHERE predicate NULL and silently drops the row from the results.
@@ -23,18 +23,18 @@ import pytest
 
 pytest.importorskip("kuzu")
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager
+from codegraphcontext.core.database_ladybug import LadybugDBManager
 from codegraphcontext.tools.code_finder import ANDROID_DECORATOR_PRESET, CodeFinder
 from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
 
-def _fresh_kuzu_manager(db_path: Path) -> KuzuDBManager:
-    if KuzuDBManager._instance is not None:
-        KuzuDBManager._instance.close_driver()
-    KuzuDBManager._instance = None
-    KuzuDBManager._db = None
-    KuzuDBManager._conn = None
-    return KuzuDBManager(db_path=str(db_path))
+def _fresh_ladybug_manager(db_path: Path) -> LadybugDBManager:
+    if LadybugDBManager._instance is not None:
+        LadybugDBManager._instance.close_driver()
+    LadybugDBManager._instance = None
+    LadybugDBManager._db = None
+    LadybugDBManager._conn = None
+    return LadybugDBManager(db_path=str(db_path))
 
 
 def _write_functions(writer: GraphWriter, repo_path: Path, file_path: Path, *, lang: str, functions) -> None:
@@ -46,7 +46,7 @@ def _write_functions(writer: GraphWriter, repo_path: Path, file_path: Path, *, l
 
     Each entry in ``functions`` is a dict with ``name`` and ``line_number``,
     and optionally ``modifiers`` and/or ``decorators``. Omitting either key
-    entirely (rather than passing ``[]``) leaves the corresponding Kuzu
+    entirely (rather than passing ``[]``) leaves the corresponding Ladybug
     column truly NULL for that function -- matching what real non-Kotlin
     parsers (e.g. Python) and functions indexed before the column existed
     actually produce. Passing ``[]`` gets coerced by the writer to ``[""]``,
@@ -95,7 +95,7 @@ def test_override_function_is_not_dead_code(tmp_path):
     function in the same file proves the query still ran and found
     something, rather than returning nothing at all.
     """
-    manager = _fresh_kuzu_manager(tmp_path / "override-db")
+    manager = _fresh_ladybug_manager(tmp_path / "override-db")
     try:
         driver = manager.get_driver()
         writer = GraphWriter(driver)
@@ -131,7 +131,7 @@ def test_non_override_uncalled_function_is_still_dead_code(tmp_path):
     modifiers=[]. If this fails, the change disabled dead-code detection
     entirely rather than narrowing it.
     """
-    manager = _fresh_kuzu_manager(tmp_path / "non-override-db")
+    manager = _fresh_ladybug_manager(tmp_path / "non-override-db")
     try:
         driver = manager.get_driver()
         writer = GraphWriter(driver)
@@ -164,7 +164,7 @@ def test_android_lifecycle_name_is_not_dead_code_for_kotlin(tmp_path):
     own call graph needs to. A sibling, genuinely-unused function in the same
     file proves the query still ran and found something.
     """
-    manager = _fresh_kuzu_manager(tmp_path / "lifecycle-kotlin-db")
+    manager = _fresh_ladybug_manager(tmp_path / "lifecycle-kotlin-db")
     try:
         driver = manager.get_driver()
         writer = GraphWriter(driver)
@@ -202,11 +202,11 @@ def test_android_lifecycle_name_is_still_dead_code_for_python(tmp_path):
 
     The function is written with no `modifiers` key at all -- the real
     Python parser never emits one -- so `func.modifiers` is genuinely NULL
-    in Kuzu. This is what exercises the `modifiers IS NOT NULL` guard: an
+    in Ladybug. This is what exercises the `modifiers IS NOT NULL` guard: an
     unguarded `'override' IN NULL` evaluates to NULL, which makes the whole
     WHERE predicate NULL and would silently drop this row from the results.
     """
-    manager = _fresh_kuzu_manager(tmp_path / "lifecycle-python-db")
+    manager = _fresh_ladybug_manager(tmp_path / "lifecycle-python-db")
     try:
         driver = manager.get_driver()
         writer = GraphWriter(driver)
@@ -240,7 +240,7 @@ def test_android_preset_excludes_annotated_functions(tmp_path):
     must return exactly the plain one -- not a subset check ("the composable
     is absent"), which would also pass if the query returned nothing at all.
     """
-    manager = _fresh_kuzu_manager(tmp_path / "android-preset-db")
+    manager = _fresh_ladybug_manager(tmp_path / "android-preset-db")
     try:
         driver = manager.get_driver()
         writer = GraphWriter(driver)

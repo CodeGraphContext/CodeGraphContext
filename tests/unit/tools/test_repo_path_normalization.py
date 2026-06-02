@@ -16,7 +16,7 @@ def _make_code_finder(indexed_repos):
     """CodeFinder wired to a stub db_manager; list_indexed_repositories() is
     monkeypatched directly so we don't need a fake Cypher session."""
     db_manager = MagicMock()
-    db_manager.get_backend_type.return_value = "kuzudb"
+    db_manager.get_backend_type.return_value = "ladybugdb"
     finder = CodeFinder(db_manager)
     finder.list_indexed_repositories = MagicMock(return_value=indexed_repos)
     return finder

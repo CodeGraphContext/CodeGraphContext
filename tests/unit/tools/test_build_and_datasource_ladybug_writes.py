@@ -1,9 +1,9 @@
-"""The Gradle/Maven build graph and datasource graph must write on KuzuDB.
+"""The Gradle/Maven build graph and datasource graph must write on LadybugDB.
 
 Regression tests for the embedded-backend gaps behind #1603: none of
 GradleModule / MavenModule / ExternalLibrary / DbColumn / RedisKeyPattern
-was declared in the Kùzu schema (DbColumn and RedisKeyPattern used composite
-PRIMARY KEYs, which Kùzu cannot parse), so every one of these writes either
+was declared in the Ladybug schema (DbColumn and RedisKeyPattern used composite
+PRIMARY KEYs, which Ladybug cannot parse), so every one of these writes either
 binder-errored or silently dropped all rows. The UNWIND per-row fallback also
 left the bare row variable in `WITH node, row` clauses, which binder-errored
 and skipped each row one at a time.
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager
+from codegraphcontext.core.database_ladybug import LadybugDBManager
 from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
 kuzu = pytest.importorskip("kuzu")
@@ -20,7 +20,7 @@ kuzu = pytest.importorskip("kuzu")
 
 @pytest.fixture()
 def driver(tmp_path: Path):
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     yield manager.get_driver()
     manager.close_driver()
 

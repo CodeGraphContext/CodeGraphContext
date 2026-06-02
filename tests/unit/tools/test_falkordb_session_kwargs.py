@@ -1,12 +1,13 @@
 """
-Regression test for: execute_cypher_query returns MCP error -32000 on FalkorDB/KuzuDB setups.
+Regression test for: execute_cypher_query returns MCP error -32000 on FalkorDB setups.
 
 Root cause: execute_cypher_query (query_handlers.py) calls
     db_manager.get_driver().session(default_access_mode="READ")
-but FalkorDBDriverWrapper.session() and KuzuDriverWrapper.session() did not
-accept **kwargs, causing a TypeError that the MCP JSON-RPC layer converts to -32000.
+but FalkorDBDriverWrapper.session() did not accept **kwargs, causing a TypeError
+that the MCP JSON-RPC layer converts to -32000.
 
-Fix: Both wrappers now accept **kwargs and silently ignore Neo4j-specific args.
+Fix: FalkorDBDriverWrapper.session() now accepts **kwargs and silently ignores
+Neo4j-specific args.
 
 Repro queries from user report (v4.8.0):
   - MATCH (n) RETURN labels(n) AS labels, count(n) AS count ORDER BY count DESC LIMIT 20
@@ -14,7 +15,6 @@ Repro queries from user report (v4.8.0):
   - RETURN 1 AS test
 """
 
-import threading
 import pytest
 
 
@@ -42,7 +42,6 @@ class TestFalkorDBDriverWrapperSessionKwargs:
     def test_session_accepts_default_access_mode(self):
         """Calling .session(default_access_mode='READ') must not raise TypeError."""
         wrapper, FalkorDBSessionWrapper = self._make_wrapper()
-        # This was the exact call that caused -32000 before the fix
         session = wrapper.session(default_access_mode="READ")
         assert isinstance(session, FalkorDBSessionWrapper)
 
@@ -102,51 +101,3 @@ class TestFalkorDBDriverWrapperSessionKwargs:
         )
         assert result.get("success") is True, f"Expected success, got: {result}"
         assert result["record_count"] == 2
-
-
-# ---------------------------------------------------------------------------
-# KuzuDriverWrapper — session(**kwargs) fix
-# ---------------------------------------------------------------------------
-
-class TestKuzuDriverWrapperSessionKwargs:
-    """session() must accept and ignore Neo4j-specific kwargs."""
-
-    def _make_wrapper(self):
-        from codegraphcontext.core.database_kuzu import KuzuDriverWrapper
-        import inspect
-        return KuzuDriverWrapper, inspect
-
-    def test_session_signature_accepts_kwargs(self):
-        """KuzuDriverWrapper.session must have **kwargs in its signature."""
-        from codegraphcontext.core.database_kuzu import KuzuDriverWrapper
-        import inspect
-        sig = inspect.signature(KuzuDriverWrapper.session)
-        has_var_keyword = any(
-            p.kind == inspect.Parameter.VAR_KEYWORD
-            for p in sig.parameters.values()
-        )
-        assert has_var_keyword, (
-            f"KuzuDriverWrapper.session() is missing **kwargs. "
-            f"Calling it with default_access_mode='READ' will raise TypeError → MCP -32000. "
-            f"Actual signature: {sig}"
-        )
-
-    def test_session_call_with_default_access_mode_does_not_raise(self):
-        """session(default_access_mode='READ') must not raise TypeError."""
-        from codegraphcontext.core.database_kuzu import KuzuDriverWrapper
-        from unittest.mock import MagicMock
-
-        mock_conn = MagicMock()
-        lock = threading.RLock()
-        wrapper = KuzuDriverWrapper.__new__(KuzuDriverWrapper)
-        wrapper.conn = mock_conn
-        wrapper._query_lock = lock
-
-        # Must not raise TypeError
-        try:
-            session = wrapper.session(default_access_mode="READ")
-        except TypeError as e:
-            pytest.fail(
-                f"KuzuDriverWrapper.session(default_access_mode='READ') raised TypeError: {e}\n"
-                "This causes MCP -32000 for all execute_cypher_query calls on KuzuDB backends."
-            )

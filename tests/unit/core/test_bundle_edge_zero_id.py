@@ -73,7 +73,7 @@ def test_edge_with_unmapped_endpoint_is_still_skipped():
     "backend,mapping",
     [
         ("neo4j", {"0": "4:9f:0", "1": "4:9f:1"}),
-        ("kuzudb", {"0": ("Repository", "path", "/r"), "1": ("File", "path", "/r/a")}),
+        ("ladybugdb", {"0": ("Repository", "path", "/r"), "1": ("File", "path", "/r/a")}),
     ],
 )
 def test_other_backends_are_unaffected(backend, mapping):

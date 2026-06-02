@@ -295,8 +295,8 @@ class TestCreateAllFunctionCallsV3:
             assert "CREATE" not in q, \
                 f"Unexpected CREATE in CALLS query on Neo4j, got: {q[:160]}"
 
-    def test_uses_merge_for_calls_rel_on_kuzudb(self):
-        """CALLS relationships should keep MERGE on KuzuDB — its UNWIND fallback
+    def test_uses_merge_for_calls_rel_on_ladybugdb(self):
+        """CALLS relationships should keep MERGE on LadybugDB — its UNWIND fallback
         path can re-execute rows individually, making CREATE unsafe there."""
         file_data = [{
             "path": "/repo/a.py",
@@ -312,13 +312,13 @@ class TestCreateAllFunctionCallsV3:
             }],
         }]
         session = _RecordingSession()
-        gb, _ = _make_graph_builder(session, backend="kuzudb")
+        gb, _ = _make_graph_builder(session, backend="ladybugdb")
         with patch("codegraphcontext.tools.indexing.resolution.calls.get_config_value",
                    return_value="false"):
             gb._create_all_function_calls(file_data, {})
         call_rels = [c["query"] for c in session.calls if "CALLS" in c["query"]]
         for q in call_rels:
-            assert "MERGE" in q, f"Expected MERGE in CALLS query on KuzuDB, got: {q[:120]}"
+            assert "MERGE" in q, f"Expected MERGE in CALLS query on LadybugDB, got: {q[:120]}"
 
     def test_uses_merge_for_calls_rel_on_falkordb(self):
         """CALLS relationships should keep MERGE on FalkorDB."""
@@ -596,7 +596,7 @@ class TestAddFileToGraph:
         ]
 
     def test_non_javascript_import_rows_are_schema_complete(self):
-        """Imports without full_import_name/source parity should not break Kuzu UNWIND."""
+        """Imports without full_import_name/source parity should not break Ladybug UNWIND."""
         session = _RecordingSession(responses=[_FakeResult()])
         gb, _ = _make_graph_builder(session)
         file_data = {
@@ -870,7 +870,7 @@ class _DeleteRepoSession(_RecordingSession):
     queue, so positional fixtures stay focused on deletion counts and
     aren't disturbed by the label-discovery query in the implementation.
 
-    Supports both Neo4j (``CALL db.labels()``) and KuzuDB/LadybugDB
+    Supports both Neo4j (``CALL db.labels()``) and LadybugDB/LadybugDB
     (``MATCH (n) RETURN DISTINCT label(n)``) discovery patterns."""
 
     def __init__(self, labels, responses=None):
