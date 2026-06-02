@@ -236,3 +236,36 @@ class TestKuzuGraphNameIgnored:
         w_named = mgr.get_driver(graph_name="irrelevant")
         assert w_none.db is w_named.db
         assert w_none._pool is w_named._pool
+
+
+# ---------------------------------------------------------------------------
+# Contract: every backend manager's get_driver must accept graph_name
+# ---------------------------------------------------------------------------
+
+
+# Guards against a backend silently omitting the kwarg — the bug that crashed
+# ladybugdb/nornic indexing in db-parity because every call site now passes
+# get_driver(graph_name=...). Signature-only check, so no backend deps/connect.
+@pytest.mark.parametrize(
+    "module_name,class_name",
+    [
+        ("database", "DatabaseManager"),
+        ("database_kuzu", "KuzuDBManager"),
+        ("database_ladybug", "LadybugDBManager"),
+        ("database_nornic", "NornicDBManager"),
+        ("database_falkordb", "FalkorDBManager"),
+        ("database_falkordb_remote", "FalkorDBRemoteManager"),
+    ],
+)
+def test_get_driver_accepts_graph_name_kwarg(module_name, class_name):
+    import importlib
+    import inspect
+
+    module = importlib.import_module(f"codegraphcontext.core.{module_name}")
+    manager_cls = getattr(module, class_name)
+    params = inspect.signature(manager_cls.get_driver).parameters
+    assert "graph_name" in params, (
+        f"{class_name}.get_driver must accept a 'graph_name' kwarg; every "
+        f"call site passes get_driver(graph_name=...)."
+    )
+    assert params["graph_name"].default is None

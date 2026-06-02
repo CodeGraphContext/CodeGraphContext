@@ -62,9 +62,14 @@ class LadybugDBManager:
         
         self._initialized = True
 
-    def get_driver(self):
+    def get_driver(self, graph_name: Optional[str] = None):
         """
         Gets the LadybugDB driver. Initialises the database and connection pool.
+
+        Args:
+            graph_name: Accepted for API parity with other managers and ignored.
+                LadybugDB has no per-connection graph/database namespace concept;
+                callers pass a name only to keep the MCP tool surface uniform.
         """
         if self._db is None:
             with self._lock:

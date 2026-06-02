@@ -60,10 +60,14 @@ class NornicDBManager:
         self.nornic_database = os.getenv('NORNIC_DATABASE') 
         self._initialized = True
 
-    def get_driver(self) -> Driver:
+    def get_driver(self, graph_name: Optional[str] = None) -> Driver:
         """
         Gets the Nornic driver instance, creating it if it doesn't exist.
         This method is thread-safe.
+
+        Args:
+            graph_name: Optional per-call override for the Nornic database name.
+                When None, falls back to ``NORNIC_DATABASE`` from env.
 
         Returns:
             The a wrapper for Nornic Driver instance.
@@ -113,7 +117,7 @@ class NornicDBManager:
                             self._driver.close()
                         self._driver = None
                         raise
-        return NornicDriverWrapper(self._driver, database=self.nornic_database)
+        return NornicDriverWrapper(self._driver, database=graph_name or self.nornic_database)
 
     def close_driver(self):
         """Closes the Nornic driver connection if it exists."""
