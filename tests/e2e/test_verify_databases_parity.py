@@ -109,7 +109,13 @@ asyncio.run(main())
         print(f"[{db_type} STDERR]:\n{stderr.decode()}", file=sys.stderr)
         
     if proc.returncode != 0:
-        raise RuntimeError(f"Indexing process failed for {db_type} with exit code {proc.returncode}")
+        # Include the subprocess stderr so the caller's skip-guard can inspect
+        # the real failure reason (e.g. Neo4j unavailable). Without this, str(e)
+        # is just the generic wrapper and the guard can never match.
+        err_detail = stderr.decode() if stderr else ""
+        raise RuntimeError(
+            f"Indexing process failed for {db_type} with exit code {proc.returncode}\n{err_detail}"
+        )
         
     # Extract stats from stdout
     stats = {}
@@ -144,7 +150,19 @@ async def test_database_parity_e2e(temp_test_dir):
                 "stats": stats
             }
         except Exception as e:
-            if db_type == "neo4j" and "failed to connect" in str(e).lower():
+            # Skip gracefully when Neo4j simply isn't available in this job
+            # (the dedicated db-parity-check workflow runs a real Neo4j service
+            # and verifies neo4j parity there). The connection error originates
+            # in the indexing subprocess, so match the markers it emits.
+            err = str(e).lower()
+            neo4j_unavailable_markers = (
+                "failed to connect",
+                "neo4j is not running",
+                "neo4j connection failed",
+                "serviceunavailable",
+                "unable to retrieve routing information",
+            )
+            if db_type == "neo4j" and any(m in err for m in neo4j_unavailable_markers):
                 pytest.skip("Neo4j server is not running/available.")
             raise e
             
