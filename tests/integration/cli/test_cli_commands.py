@@ -110,7 +110,7 @@ class _FakeDriver:
 
 
 class _FakeDBManager:
-    def get_driver(self):
+    def get_driver(self, graph_name=None):
         return _FakeDriver()
 
     def close_driver(self):
@@ -261,7 +261,11 @@ def cli_test_stubs(monkeypatch, tmp_path):
 
     fake_db = _FakeDBManager()
     monkeypatch.setattr(cli_main, "_initialize_services", lambda *_args, **_kwargs: (fake_db, _FakeGraphBuilder(), _FakeCodeFinder(), MagicMock()))
-    monkeypatch.setattr(cli_main.DatabaseManager, "test_connection", staticmethod(lambda *_args, **_kwargs: (True, None)))
+    # DatabaseManager is now imported lazily inside cli.main (to avoid an
+    # unconditional neo4j import), so it's no longer a module attribute. Patch
+    # the class where it's defined — the inline import binds the same object.
+    from codegraphcontext.core.database import DatabaseManager as _RealDatabaseManager
+    monkeypatch.setattr(_RealDatabaseManager, "test_connection", staticmethod(lambda *_args, **_kwargs: (True, None)))
     monkeypatch.setattr(cli_main.typer, "confirm", lambda *_args, **_kwargs: True)
 
     class _FakeMCPServer:
@@ -547,7 +551,7 @@ def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):
             return _FakeSession()
 
     class _FakeManager:
-        def get_driver(self):
+        def get_driver(self, graph_name=None):
             return _FakeDriver()
 
         def close_driver(self):
