@@ -398,7 +398,7 @@ class FalkorDBManager:
                         last_error = e
 
                 # Any other exit code during startup means this backend is toast.
-                # Raise FalkorDBUnavailableError to trigger the automatic KùzuDB fallback.
+                # Raise FalkorDBUnavailableError to trigger LadybugDB fallback.
                 raise FalkorDBUnavailableError(
                     f"FalkorDB Lite worker failed to start (Exit Code {returncode}).\n"
                     f"STDOUT: {out.decode().strip()}\n"
