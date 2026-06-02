@@ -813,6 +813,51 @@ class TestWatcherIncrementalHandleModification:
 
         mock_gb.link_function_calls.assert_called_once()
 
+    def test_incremental_parse_workers_uses_parallel_workers_config(self, monkeypatch):
+        """PARALLEL_WORKERS controls bounded affected-file parse parallelism."""
+        from codegraphcontext.core.watcher import RepositoryEventHandler
+
+        watcher = RepositoryEventHandler.__new__(RepositoryEventHandler)
+
+        monkeypatch.setenv("PARALLEL_WORKERS", "7")
+        assert watcher._incremental_parse_workers() == 7
+
+        monkeypatch.setenv("PARALLEL_WORKERS", "99")
+        assert watcher._incremental_parse_workers() == 32
+
+        monkeypatch.setenv("PARALLEL_WORKERS", "bad")
+        assert watcher._incremental_parse_workers() == 4
+
+    def test_handle_modification_reuses_changed_file_parse_result(self, tmp_path):
+        """The changed file is parsed by update_file_in_graph and should not be parsed again."""
+        from codegraphcontext.core.watcher import RepositoryEventHandler
+
+        changed = tmp_path / "module.py"
+        changed.write_text("def changed():\n    return 1\n")
+        changed_data = {"path": str(changed), "functions": [], "classes": []}
+
+        watcher = RepositoryEventHandler.__new__(RepositoryEventHandler)
+        watcher.all_file_data = []
+        watcher.imports_map = {}
+        watcher.repo_path = tmp_path
+
+        mock_gb = MagicMock()
+        mock_gb.parsers = {".py": None}
+        mock_gb.get_caller_file_paths.return_value = set()
+        mock_gb.get_inheritance_neighbor_paths.return_value = set()
+        mock_gb.get_repo_class_lookup.return_value = {}
+        mock_gb.link_function_calls.return_value = None
+        mock_gb.link_inheritance.return_value = None
+        mock_gb.update_file_in_graph.return_value = changed_data
+        watcher.graph_builder = mock_gb
+
+        with patch.object(watcher, "_update_imports_map_for_file"):
+            watcher._handle_modification(str(changed))
+
+        mock_gb.parse_file.assert_not_called()
+        relink_file_data = mock_gb.link_function_calls.call_args.args[0]
+        assert relink_file_data == [changed_data]
+
 
 class TestWriteOrmMappingsDatasourceName:
     """Regression test for bug: DbTable.datasource_name is null when write_query_links
