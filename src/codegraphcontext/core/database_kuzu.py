@@ -621,6 +621,14 @@ class KuzuSessionWrapper:
             raise e
     def _translate_query(self, query: str, parameters: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         """Translates Neo4j Cypher to Kuzu Cypher."""
+        # KuzuDB has no `CALL db.labels()` (it raises a parser exception).
+        # Map it to the equivalent node-table listing so label-agnostic callers
+        # (e.g. delete_repository_from_graph) work identically across backends.
+        # `show_tables()` exposes a `name`/`type` per table; node tables become
+        # the `label` column the caller expects.
+        if "db.labels()" in query:
+            return ("CALL show_tables() WHERE type = 'NODE' RETURN name AS label", {})
+
         PK_MAP = {
             'Repository': 'path',
             'File': 'path',

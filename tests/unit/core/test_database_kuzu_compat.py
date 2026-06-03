@@ -218,3 +218,19 @@ def test_inheritance_queries_classified_but_not_failed_fast():
         "inheritance_resolution",
         Exception("Binder exception: Create rel  bound by multiple node labels is not supported."),
     )
+
+
+def test_db_labels_is_translated_to_kuzu_show_tables():
+    # KuzuDB raises a parser exception on `CALL db.labels()`. The wrapper must
+    # rewrite it to the node-table listing so label-agnostic callers (e.g.
+    # delete_repository_from_graph's dynamic label purge) work on Kuzu instead
+    # of aborting mid-delete and leaving the Repository node behind.
+    conn = _FakeConn()
+    session = KuzuSessionWrapper(conn)
+    session.run("CALL db.labels() YIELD label RETURN label")
+
+    translated, _params = conn.queries[0]
+    assert "db.labels()" not in translated
+    assert "show_tables()" in translated
+    assert "type = 'NODE'" in translated
+    assert "AS label" in translated
