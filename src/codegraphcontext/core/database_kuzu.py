@@ -754,13 +754,16 @@ class KuzuSessionWrapper:
                              )
                              if row_ref:
                                  val = item.get(row_ref.group(1))
-                                 if val is not None:
+                                 # Consider -1 as missing for line numbers to force fallback,
+                                 # ensuring uniqueness when the primary key is incomplete
+                                 if val is not None and not (part in ("line_number", "function_line_number", "end_line") and val == -1):
                                      uid_components.append(str(val))
                                  else:
                                      # Missing values are common in parser output for some
                                      # languages. Use a deterministic placeholder component
                                      # to keep UID generation stable and unique enough.
-                                     uid_components.append(f"__missing_{part}")
+                                     row_hash = hashlib.md5(str(sorted([(k, v) for k, v in item.items() if k != 'uid'])).encode()).hexdigest()[:8]
+                                     uid_components.append(f"__fallback_{row_hash}")
                              elif param_ref:
                                  val = parameters.get(param_ref.group(1))
                                  if val is not None:

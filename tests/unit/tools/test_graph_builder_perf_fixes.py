@@ -543,11 +543,41 @@ class TestAddFileToGraph:
 # 4. delete_repository_from_graph (Changes 9a/9b/9c)
 # ---------------------------------------------------------------------------
 
+class _DeleteRepoSession(_RecordingSession):
+    """RecordingSession that intercepts `CALL db.labels()` queries and
+    returns a fixed label list without consuming a slot in the responses
+    queue, so positional fixtures stay focused on deletion counts and
+    aren't disturbed by the new label-discovery query in the implementation."""
+
+    def __init__(self, labels, responses=None):
+        super().__init__(responses=responses)
+        self._labels = list(labels)
+
+    def run(self, query: str, **kwargs):
+        self.calls.append({"query": query, "kwargs": kwargs})
+        if "db.labels()" in query:
+            return _FakeResult([{"label": lbl} for lbl in self._labels])
+        if self._call_idx < len(self._responses):
+            result = self._responses[self._call_idx]
+        else:
+            result = _FakeResult()
+        self._call_idx += 1
+        return result
+
+
 class TestDeleteRepositoryFromGraph:
     """Tests for delete_repository_from_graph (batched, rels-first, orphan purge)."""
 
-    def _make_repo_exists_session(self, extra_responses=None):
+    # Default set of labels returned by the mocked `CALL db.labels()` --
+    # covers the labels the existing assertions still expect to see in
+    # node-deletion queries (Function, Class, File) while including one
+    # previously-leaking label (Variable) so the test reflects the bug
+    # this PR is closing.
+    _DEFAULT_DB_LABELS = ["Class", "File", "Function", "Variable"]
+
+    def _make_repo_exists_session(self, extra_responses=None, db_labels=None):
         """Session that reports the repo exists (cnt=1), then zero-counts to stop loops."""
+        labels = db_labels if db_labels is not None else self._DEFAULT_DB_LABELS
         responses = [
             _FakeResult([{"cnt": 1}]),  # repo existence check
         ]
@@ -557,7 +587,7 @@ class TestDeleteRepositoryFromGraph:
         else:
             # Enough zeros to drain all the while-True loops
             responses.extend([_FakeResult([{"deleted": 0}])] * 20)
-        return _RecordingSession(responses=responses)
+        return _DeleteRepoSession(labels=labels, responses=responses)
 
     def test_returns_false_when_repo_not_found(self):
         session = _RecordingSession(responses=[_FakeResult([{"cnt": 0}])])
@@ -610,6 +640,61 @@ class TestDeleteRepositoryFromGraph:
 
         queries = [c["query"] for c in session.calls]
         assert any("Repository" in q and ("DELETE" in q or "DETACH DELETE" in q) for q in queries)
+
+    def test_purges_labels_discovered_dynamically(self):
+        """Should DETACH DELETE every label that `CALL db.labels()` reports,
+        not a hardcoded subset -- otherwise nodes from any newly-added
+        indexer label leak as orphans on `delete_repository`.
+
+        Regression test for: pre-fix, the function iterated a fixed tuple
+        of (Function, Class, Interface, ..., DbTable). When the indexer
+        learned a new label, every `delete_repository` call against that
+        repo would leave the new label's nodes behind. The fix uses
+        `CALL db.labels()` so the per-label cleanup loop is self-
+        maintaining.
+        """
+        # Mock db.labels() returning a label that doesn't exist in any
+        # hardcoded list anywhere in this codebase -- proves the loop
+        # responds to whatever the running Neo4j actually contains.
+        session = self._make_repo_exists_session(
+            db_labels=["Function", "Class", "File", "SomeFutureLabelTheIndexerMightAdd"]
+        )
+        gb, _ = _make_graph_builder(session)
+        gb.delete_repository_from_graph("/my/repo")
+
+        queries = [c["query"] for c in session.calls]
+        assert any(
+            "SomeFutureLabelTheIndexerMightAdd" in q and "DETACH DELETE" in q
+            for q in queries
+        ), (
+            "Expected a DETACH DELETE query targeting every label returned by "
+            "`CALL db.labels()`, including labels not in any hardcoded list."
+        )
+
+    def test_calls_db_labels_after_existence_check(self):
+        """Label discovery should happen exactly once, after the repo
+        existence check passes, before any per-label deletion loops."""
+        session = self._make_repo_exists_session()
+        gb, _ = _make_graph_builder(session)
+        gb.delete_repository_from_graph("/my/repo")
+
+        queries = [c["query"] for c in session.calls]
+        labels_call_idx = next(
+            (i for i, q in enumerate(queries) if "db.labels()" in q), None
+        )
+        existence_idx = next(
+            (i for i, q in enumerate(queries) if "MATCH (r:Repository {path: $path})" in q and "count(r)" in q),
+            None,
+        )
+        node_delete_idx = next(
+            (i for i, q in enumerate(queries) if "DETACH DELETE n" in q), None
+        )
+        assert labels_call_idx is not None, "Expected exactly one `CALL db.labels()` query"
+        assert existence_idx is not None, "Expected the repo existence check"
+        assert node_delete_idx is not None, "Expected at least one DETACH DELETE for nodes"
+        assert existence_idx < labels_call_idx < node_delete_idx, (
+            "db.labels() must come after existence check and before per-label deletion"
+        )
 
 
 # ---------------------------------------------------------------------------

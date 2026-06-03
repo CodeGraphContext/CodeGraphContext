@@ -52,17 +52,20 @@ jobs:
           REPO="${{ github.event.repository.name }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
           
-          # The frontend dynamically generates the topology via GitHub APIs,
-          # so we just output a placeholder artifact to satisfy the workflow upload step.
+          # Run CGC indexing and export the graph
+          cgc index .
+
           mkdir -p "./pr-graph-output"
-          echo '{"info": "Graph is dynamically computed in the browser via GitHub API"}' > "./pr-graph-output/pr-${PR_NUMBER}-metadata.json"
+          # Export the bundle so it can be viewed in the PR reviewer
+          cgc bundle export "./pr-graph-output/pr-${PR_NUMBER}-graph.cgc" --repo .
+          echo '{"info": "Graph is dynamically computed in the browser via GitHub API, but here is the exported code graph bundle."}' > "./pr-graph-output/pr-${PR_NUMBER}-metadata.json"
 
       # ── 5. Upload the JSON as a build artifact ─────────────────────────
       - name: Upload PR Graph JSON
         uses: actions/upload-artifact@v4
         with:
           name: pr-code-graph-${{ github.event.pull_request.number }}
-          path: ./pr-graph-output/*.json
+          path: ./pr-graph-output/*
           retention-days: 30
 
       # ── 6. (Optional) Post a comment with the viewer link ──────────────
@@ -83,7 +86,7 @@ jobs:
               `**${context.payload.pull_request.title}** (#${pr})`,
               '',
               '### 📊 Interactive Visualization',
-              `View the blast radius graph: **[PR Reviewer Dashboard](https://codegraphcontext.dev/pr-reviewer/${owner}/${repo}/pull/${pr})**`,
+              `View the blast radius graph: **[PR Reviewer Dashboard](https://cgc.codes/pr-reviewer/${owner}/${repo}/pull/${pr})**`,
               '',
               '### 📦 Artifacts',
               `The graph JSON has been uploaded as a build artifact: \`pr-code-graph-${pr}\``,

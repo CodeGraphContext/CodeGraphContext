@@ -1359,8 +1359,23 @@ class GraphWriter:
                 break
             info_logger(f"[DELETE] Removed {deleted} CONTAINS rels for {repo_path_str}")
 
-        for label in ("Function", "Class", "Interface", "Trait", "Struct", "Enum", "Variable", "Macro", "Union", "Record", "Property", "File", "Module", "Mixin", "Extension", "Object", "Parameter", "Directory", "Repository", "ExternalClass", "DbTable"):
+        # Discover the labels currently in use rather than hardcoding the
+        # list. Every time the indexer learned a new node type (Variable,
+        # Parameter, Directory, ExternalClass, DbTable, ...) the hardcoded
+        # tuple here had to be kept in lockstep, and every miss leaked
+        # orphan nodes on `delete_repository`. `CALL db.labels()` returns
+        # exactly the set of labels that have at least one node in the
+        # current database -- per-label DETACH DELETE with the same path
+        # prefix is then label-agnostic and self-maintaining.
+        #
+        # Labels with no node matching the path prefix are cheap: the
+        # label-scoped scan returns 0 rows, the while-True loop exits
+        # immediately, and we move on.
+        with self._session() as session:
+            label_records = session.run("CALL db.labels() YIELD label RETURN label")
+            all_labels = sorted({record["label"] for record in label_records})
 
+        for label in all_labels:
             while True:
                 with self._session() as session:
                     result = session.run(

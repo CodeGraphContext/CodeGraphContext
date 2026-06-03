@@ -73,6 +73,47 @@ def test_registry_list_still_works():
     )
 
 
+@pytest.mark.parametrize("bundle_name", ["numpy", "numpy.cgc"])
+def test_registry_download_accepts_cgc_suffix(bundle_name, tmp_path):
+    """Running `cgc registry download` should accept names with an optional .cgc suffix."""
+    import importlib
+    import sys
+
+    fake_requests = MagicMock()
+
+    class DummyResponse:
+        status_code = 200
+        headers = {"content-length": "4"}
+        content = b"data"
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, chunk_size=8192):
+            yield b"data"
+
+    fake_requests.get.return_value = DummyResponse()
+    bundle = {
+        "name": "numpy",
+        "full_name": "numpy-main-abc123",
+        "bundle_name": "numpy-main-abc123.cgc",
+        "download_url": "https://example.com/numpy.cgc",
+        "generated_at": "2026-05-29T00:00:00Z",
+        "size": "1",
+        "repo": "numpy/numpy",
+        "source": "on-demand",
+    }
+
+    with patch.dict(sys.modules, {"requests": fake_requests}):
+        import codegraphcontext.cli.registry_commands as reg_cmds
+        importlib.reload(reg_cmds)
+        with patch.object(reg_cmds, "fetch_available_bundles", return_value=[bundle]), patch.object(reg_cmds.console, "print"):
+            result = reg_cmds.download_bundle(bundle_name, output_dir=str(tmp_path), auto_load=True)
+
+    assert result == str(tmp_path / "numpy-main-abc123.cgc")
+    assert (tmp_path / "numpy-main-abc123.cgc").read_bytes() == b"data"
+
+
 def test_registry_no_subcommand_no_error_message():
     """Running `cgc registry` should NOT produce an error about a missing command."""
     result = runner.invoke(app, ["registry"])

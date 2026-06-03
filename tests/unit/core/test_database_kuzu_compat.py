@@ -196,13 +196,14 @@ def test_unwind_uid_injection_uses_fallback_for_missing_pk_fields():
     assert "uid: row.uid" in translated
     assert "MERGE (n:Function {uid: row.uid})" in translated
     assert all("uid" in row for row in params["batch"])
-    # line_number is missing (None) → normalized to the -1 sentinel, so the
-    # fallback still yields a stable, deterministic uid for every row.
-    assert all(row["uid"].endswith("-1") for row in params["batch"])
-    # Both rows share identical primary-key fields (name/path/line_number), so
-    # they legitimately produce the same uid and MERGE to the same Function
-    # node. The differing 'source' field is not part of the primary key.
-    assert params["batch"][0]["uid"] == params["batch"][1]["uid"]
+    # line_number is missing (None) → the fallback injects a content-hash
+    # component (__fallback_<md5>) so an incomplete primary key still yields a
+    # stable uid for every row.
+    assert all("__fallback_" in row["uid"] for row in params["batch"])
+    # The rows differ (source x vs y), so the content-hash fallback gives them
+    # distinct uids — incomplete-PK rows are kept distinct rather than collapsed
+    # into a single Function node.
+    assert params["batch"][0]["uid"] != params["batch"][1]["uid"]
 
 
 def test_inheritance_queries_classified_but_not_failed_fast():

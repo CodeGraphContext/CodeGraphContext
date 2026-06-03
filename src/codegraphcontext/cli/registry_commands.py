@@ -177,6 +177,8 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
     and base names (e.g., 'python-bitcoin-utils' - picks most recent version).
     """
     console.print(f"[cyan]Looking for bundle '{name}'...[/cyan]")
+
+    lookup_name = name[:-4] if name.lower().endswith('.cgc') else name
     
     bundles = fetch_available_bundles()
     
@@ -187,7 +189,7 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
     # Strategy 1: Try exact match on full_name (with version)
     bundle = None
     for b in bundles:
-        if b.get('full_name', '').lower() == name.lower():
+        if b.get('full_name', '').lower() == lookup_name.lower():
             bundle = b
             console.print(f"[dim]Found exact match: {b.get('full_name')}[/dim]")
             break
@@ -197,7 +199,7 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
     if not bundle:
         matching_bundles = []
         for b in bundles:
-            if b.get('name', '').lower() == name.lower():
+            if b.get('name', '').lower() == lookup_name.lower():
                 matching_bundles.append(b)
         
         if matching_bundles:
@@ -220,7 +222,7 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
     if not bundle:
         # Find bundles with similar base names
         suggestions = []
-        name_lower = name.lower()
+        name_lower = lookup_name.lower()
         for b in bundles:
             base_name = b.get('name', '').lower()
             full_name = b.get('full_name', '').lower()

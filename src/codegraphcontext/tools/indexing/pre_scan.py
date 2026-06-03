@@ -54,6 +54,8 @@ def _register_prescans() -> Dict[str, _PreScanFn]:
         ".cjs": make_js(".cjs"),
         ".go": lambda files, gp: go_lang_module.pre_scan_go(files, gp(".go")),
         ".ts": lambda files, gp: ts_lang_module.pre_scan_typescript(files, gp(".ts")),
+        ".mts": lambda files, gp: ts_lang_module.pre_scan_typescript(files, gp(".mts")),
+        ".cts": lambda files, gp: ts_lang_module.pre_scan_typescript(files, gp(".cts")),
         ".d.ts": lambda files, gp: ts_lang_module.pre_scan_typescript(files, gp(".d.ts")),
         ".tsx": lambda files, gp: tsx_lang_module.pre_scan_typescript(files, gp(".tsx")),
         ".cpp": lambda files, gp: cpp_lang_module.pre_scan_cpp(files, gp(".cpp")),
