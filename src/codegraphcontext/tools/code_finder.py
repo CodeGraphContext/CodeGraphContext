@@ -166,7 +166,7 @@ class CodeFinder:
                    b.context as target_context,
                    r.args as args
         """
-        with self.driver.session() as session:
+        with self._open_session() as session:
             rows = session.run(query, repo_path=repo_path).data()
         return summarize_kotlin_call_ambiguity(rows, limit=limit)
 

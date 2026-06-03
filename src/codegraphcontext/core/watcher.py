@@ -270,7 +270,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
         if _vector_enabled:
             try:
                 from codegraphcontext.tools.indexing.embeddings import EmbeddingPipeline
-                embed_pipeline = EmbeddingPipeline(self.graph_builder.driver)
+                embed_pipeline = EmbeddingPipeline(self.graph_builder.db_manager.get_driver(graph_name=self.graph_name))
                 embed_pipeline.invalidate_for_file(changed_path_str)
                 embed_pipeline.run(str(self.repo_path))
                 info_logger(f"[EMBED] Incremental embedding complete for {changed_path_str}")
@@ -286,11 +286,11 @@ class RepositoryEventHandler(FileSystemEventHandler):
                 if _vector_enabled:
                     try:
                         from codegraphcontext.tools.indexing.vector_resolver import VectorResolver
-                        _vector_resolver = VectorResolver(self.graph_builder.driver)
+                        _vector_resolver = VectorResolver(self.graph_builder.db_manager.get_driver(graph_name=self.graph_name))
                     except Exception as _ve:
                         warning_logger(f"[VECTOR] Resolver unavailable for watcher: {_ve}")
                 n_improved = run_inheritance_reresolve(
-                    self.graph_builder.driver, str(self.repo_path), _vector_resolver
+                    self.graph_builder.db_manager.get_driver(graph_name=self.graph_name), str(self.repo_path), _vector_resolver
                 )
                 info_logger(f"[INHERIT-RESOLVE] Incremental: {n_improved} edges improved")
             except Exception as _e:

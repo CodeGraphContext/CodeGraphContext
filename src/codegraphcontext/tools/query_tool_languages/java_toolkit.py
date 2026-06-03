@@ -20,7 +20,7 @@ class JavaToolkit:
             code_finder: A ``CodeFinder`` instance (or compatible duck-type).
         """
         self._cf = code_finder
-        self._driver = code_finder.driver
+        self._driver = code_finder.db_manager.get_driver()
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
