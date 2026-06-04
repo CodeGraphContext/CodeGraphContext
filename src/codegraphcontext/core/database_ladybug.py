@@ -62,9 +62,13 @@ class LadybugDBManager:
         
         self._initialized = True
 
-    def get_driver(self):
+    def get_driver(self, graph_name: str = None):
         """
         Gets the LadybugDB driver. Initialises the database and connection pool.
+
+        The `graph_name` parameter is accepted for interface parity with
+        FalkorDB (which supports multiple graphs per instance); LadybugDB is
+        a single-graph embedded DB, so the argument is ignored.
         """
         if self._db is None:
             with self._lock:
