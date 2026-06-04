@@ -130,8 +130,12 @@ class TestUpdateFileInGraphGenericFiles:
         session = _RecordingSession()
         driver = _FakeDriver(session)
 
+        class _FakeDBManager:
+            def get_driver(self, graph_name=None):
+                return driver
+
         gb = GraphBuilder.__new__(GraphBuilder)
-        gb.driver = driver
+        gb.db_manager = _FakeDBManager()
         gb._writer = GraphWriter(driver)
         gb.parsers = {}
         gb.generic_extensions = {".md", ".yml", ".yaml", ".json", ".toml", ".cfg", ".txt"}
