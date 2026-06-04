@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/sanitize.py
 """Property coercion for graph backends (shared helpers for dialects / writers)."""
 
 from typing import Any, Dict

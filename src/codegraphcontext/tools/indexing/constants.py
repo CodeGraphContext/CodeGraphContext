@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/constants.py
 """Shared constants for the indexing pipeline."""
 
 DEFAULT_IGNORE_PATTERNS = [

@@ -1,0 +1,66 @@
+{"from": "1599", "to": "1605", "type": "CONTAINS", "properties": {}}
+{"from": "1599", "to": "1615", "type": "CONTAINS", "properties": {}}
+{"from": "1599", "to": "1628", "type": "CONTAINS", "properties": {}}
+{"from": "1600", "to": "1640", "type": "CONTAINS", "properties": {}}
+{"from": "1600", "to": "1646", "type": "CONTAINS", "properties": {}}
+{"from": "1607", "to": "1644", "type": "CALLS", "properties": {"line_number": 4, "args": [], "full_call_name": "User", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "1608", "to": "1606", "type": "CONTAINS", "properties": {}}
+{"from": "1608", "to": "1607", "type": "CONTAINS", "properties": {}}
+{"from": "1608", "to": "1643", "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "models.dart", "full_import_name": "models.dart"}}
+{"from": "1610", "to": "1611", "type": "CONTAINS", "properties": {}}
+{"from": "1610", "to": "1612", "type": "CONTAINS", "properties": {}}
+{"from": "1615", "to": "1602", "type": "CONTAINS", "properties": {}}
+{"from": "1615", "to": "1614", "type": "CONTAINS", "properties": {}}
+{"from": "1623", "to": "1620", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "1623", "to": "1621", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "1623", "to": "1633", "type": "CONTAINS", "properties": {}}
+{"from": "1624", "to": "1635", "type": "CONTAINS", "properties": {}}
+{"from": "1624", "to": "1636", "type": "CONTAINS", "properties": {}}
+{"from": "1627", "to": "1609", "type": "CONTAINS", "properties": {}}
+{"from": "1627", "to": "1610", "type": "CONTAINS", "properties": {}}
+{"from": "1627", "to": "1611", "type": "CONTAINS", "properties": {}}
+{"from": "1627", "to": "1612", "type": "CONTAINS", "properties": {}}
+{"from": "1627", "to": "1618", "type": "CONTAINS", "properties": {}}
+{"from": "1627", "to": "1626", "type": "CONTAINS", "properties": {}}
+{"from": "1627", "to": "1629", "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "imported_name": "dart:math", "full_import_name": "dart:math"}}
+{"from": "1627", "to": "1638", "type": "CONTAINS", "properties": {}}
+{"from": "1627", "to": "1639", "type": "CONTAINS", "properties": {}}
+{"from": "1627", "to": "1645", "type": "CONTAINS", "properties": {}}
+{"from": "1628", "to": "1600", "type": "CONTAINS", "properties": {}}
+{"from": "1628", "to": "1608", "type": "CONTAINS", "properties": {}}
+{"from": "1628", "to": "1627", "type": "CONTAINS", "properties": {}}
+{"from": "1628", "to": "1637", "type": "CONTAINS", "properties": {}}
+{"from": "1628", "to": "1643", "type": "CONTAINS", "properties": {}}
+{"from": "1631", "to": "1634", "type": "CALLS", "properties": {"line_number": 39, "args": [], "full_call_name": "toSlug", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "1633", "to": "1625", "type": "CALLS", "properties": {"line_number": 24, "args": [], "full_call_name": "log", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "1637", "to": "1617", "type": "CONTAINS", "properties": {}}
+{"from": "1637", "to": "1620", "type": "CONTAINS", "properties": {}}
+{"from": "1637", "to": "1621", "type": "CONTAINS", "properties": {}}
+{"from": "1637", "to": "1622", "type": "CONTAINS", "properties": {}}
+{"from": "1637", "to": "1623", "type": "CONTAINS", "properties": {}}
+{"from": "1637", "to": "1624", "type": "CONTAINS", "properties": {}}
+{"from": "1637", "to": "1625", "type": "CONTAINS", "properties": {}}
+{"from": "1637", "to": "1631", "type": "CONTAINS", "properties": {}}
+{"from": "1637", "to": "1632", "type": "CONTAINS", "properties": {}}
+{"from": "1637", "to": "1633", "type": "CONTAINS", "properties": {}}
+{"from": "1637", "to": "1634", "type": "CONTAINS", "properties": {}}
+{"from": "1637", "to": "1635", "type": "CONTAINS", "properties": {}}
+{"from": "1637", "to": "1636", "type": "CONTAINS", "properties": {}}
+{"from": "1640", "to": "1646", "type": "CONTAINS", "properties": {}}
+{"from": "1641", "to": "1613", "type": "CALLS", "properties": {"line_number": 19, "args": [], "full_call_name": "log", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "1642", "to": "1601", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "1642", "to": "1603", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "1643", "to": "1604", "type": "CONTAINS", "properties": {}}
+{"from": "1643", "to": "1613", "type": "CONTAINS", "properties": {}}
+{"from": "1643", "to": "1616", "type": "CONTAINS", "properties": {}}
+{"from": "1643", "to": "1619", "type": "CONTAINS", "properties": {}}
+{"from": "1643", "to": "1630", "type": "CONTAINS", "properties": {}}
+{"from": "1643", "to": "1641", "type": "CONTAINS", "properties": {}}
+{"from": "1643", "to": "1642", "type": "CONTAINS", "properties": {}}
+{"from": "1643", "to": "1644", "type": "CONTAINS", "properties": {}}
+{"from": "1644", "to": "1604", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "1644", "to": "1630", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": "1644", "to": "1641", "type": "CONTAINS", "properties": {}}
+{"from": "1644", "to": "1642", "type": "CONTAINS", "properties": {}}
+{"from": "1600", "to": "1637", "type": "PART_OF", "properties": {}}
+{"from": "1607", "to": "1641", "type": "CALLS", "properties": {"line_number": 5}}

@@ -26,6 +26,13 @@ def _is_kuzudb_available() -> bool:
     except ImportError:
         return False
 
+def _is_ladybugdb_available() -> bool:
+    """Check if LadybugDB is installed."""
+    try:
+        return importlib.util.find_spec("ladybug") is not None
+    except ImportError:
+        return False
+
 def _is_falkordb_available() -> bool:
     """Check if FalkorDB Lite is installed (Unix only)."""
     if platform.system() == "Windows":
@@ -52,7 +59,15 @@ def _is_neo4j_configured() -> bool:
         os.getenv('NEO4J_PASSWORD')
     ])
 
-def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager']:
+def _is_nornic_configured() -> bool:
+    """Check if Nornic is configured with credentials."""
+    return all([
+        os.getenv('NORNIC_URI'),
+        os.getenv('NORNIC_USERNAME'),
+        os.getenv('NORNIC_PASSWORD')
+    ])
+
+def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager', 'NornicDBManager', 'LadybugDBManager']:
     """
     Factory function to get the appropriate database manager based on configuration.
 
@@ -80,12 +95,18 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
                 info_logger("FalkorDB Lite is not supported or not installed. Falling back to KùzuDB.")
                 if _is_kuzudb_available():
                     from .database_kuzu import KuzuDBManager
-                    return KuzuDBManager()
+                    return KuzuDBManager(db_path=db_path)
                 raise ValueError("Database set to 'falkordb' but FalkorDB Lite is not installed or not supported on this OS.\nRun 'pip install falkordblite'")
             
             from .database_falkordb import FalkorDBManager, FalkorDBUnavailableError
             try:
                 mgr = FalkorDBManager(db_path=db_path)
+                # Eagerly probe the connection so any FalkorDBUnavailableError
+                # (e.g. redis-py/falkordblite version mismatch — issue #1035)
+                # surfaces *here*, while we can still fall back to KùzuDB.
+                # ``get_driver`` is idempotent (singleton-guarded), so the
+                # subsequent real call from server.py costs nothing.
+                mgr.get_driver()
                 info_logger(f"Using FalkorDB Lite (explicit) at {db_path or 'default path'}")
                 return mgr
             except FalkorDBUnavailableError as falkor_err:
@@ -111,8 +132,21 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
             from .database import DatabaseManager
             info_logger("Using Neo4j Server (explicit)")
             return DatabaseManager()
+
+        elif db_type == 'nornic':
+            if not _is_nornic_configured():
+                raise ValueError("Database set to 'nornic' but it is not configured.")
+            from .database_nornic import NornicDBManager
+            info_logger("Using Nornic DB (explicit)")
+            return NornicDBManager()
+        elif db_type == 'ladybugdb':
+            if not _is_ladybugdb_available():
+                raise ValueError("Database set to 'ladybugdb' but LadybugDB is not installed.\nRun 'pip install ladybug'")
+            from .database_ladybug import LadybugDBManager
+            info_logger(f"Using LadybugDB (explicit) at {db_path or 'default path'}")
+            return LadybugDBManager(db_path=db_path)
         else:
-            raise ValueError(f"Unknown database type: '{db_type}'. Use 'kuzudb', 'falkordb', 'falkordb-remote', or 'neo4j'.")
+            raise ValueError(f"Unknown database type: '{db_type}'. Use 'kuzudb', 'ladybugdb', 'falkordb', 'falkordb-remote', 'neo4j', or 'nornic'.")
 
     # Implicit: remote FalkorDB when FALKORDB_HOST is set (explicit infra signal)
     if _is_falkordb_remote_configured():
@@ -125,6 +159,9 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
         from .database_falkordb import FalkorDBManager, FalkorDBUnavailableError
         try:
             mgr = FalkorDBManager(db_path=db_path)
+            # Eagerly probe so dep/version failures (issue #1035) surface here
+            # while we can still fall through to KùzuDB below.
+            mgr.get_driver()
             info_logger(f"Using FalkorDB Lite (default) at {db_path or 'default path'}")
             return mgr
         except FalkorDBUnavailableError as falkor_err:
@@ -140,11 +177,23 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
         info_logger(f"Using KùzuDB (default) at {db_path or 'default path'}")
         return KuzuDBManager(db_path=db_path)
 
+    # Implicit: LadybugDB when available
+    if _is_ladybugdb_available():
+        from .database_ladybug import LadybugDBManager
+        info_logger(f"Using LadybugDB (default) at {db_path or 'default path'}")
+        return LadybugDBManager(db_path=db_path)
+
     # Implicit: Neo4j when configured
     if _is_neo4j_configured():
         from .database import DatabaseManager
         info_logger("Using Neo4j Server (auto-detected)")
         return DatabaseManager()
+
+    # Implicit: Nornic when configured
+    if _is_nornic_configured():
+        from .database_nornic import NornicDBManager
+        info_logger("Using Nornic DB (auto-detected)")
+        return NornicDBManager()
 
     error_msg = "No database backend available.\n"
     error_msg += "Recommended: Install KùzuDB for zero-config ('pip install kuzu')\n"
@@ -156,10 +205,31 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
 
     raise ValueError(error_msg)
 
+# Lazy backward-compatibility exports — avoids crashing when optional
+# database drivers (neo4j, falkordb, real_ladybug, …) are not installed.
+# Uses PEP 562 module-level __getattr__ so that:
+#   from codegraphcontext.core import DatabaseManager
+# still works, but only triggers the real import when actually accessed.
+_LAZY_IMPORTS = {
+    'DatabaseManager': '.database',
+    'FalkorDBManager': '.database_falkordb',
+    'FalkorDBRemoteManager': '.database_falkordb_remote',
+    'KuzuDBManager': '.database_kuzu',
+    'NornicDBManager': '.database_nornic',
+}
+
+def __getattr__(name: str):
+    if name in _LAZY_IMPORTS:
+        import importlib
+        module = importlib.import_module(_LAZY_IMPORTS[name], __package__)
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 # For backward compatibility, export managers
 from .database import DatabaseManager
 from .database_falkordb import FalkorDBManager
 from .database_falkordb_remote import FalkorDBRemoteManager
 from .database_kuzu import KuzuDBManager
+from .database_ladybug import LadybugDBManager
+from .database_nornic import NornicDBManager
 
-__all__ = ['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager', 'get_database_manager']
+__all__ = ['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager', 'LadybugDBManager', 'NornicDBManager', 'get_database_manager']

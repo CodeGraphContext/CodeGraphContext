@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/query_tool_languages/go_toolkit.py
 class GoToolkit:
     """Template placeholder for future implementation."""
 

@@ -6,7 +6,12 @@ import JSZip from "jszip";
  */
 export function parseFilesIntoGraph(
   files: { path: string, content: string }[], 
-  onProgressTracker?: (progressMsg: string, percentage: number) => void
+  onProgressTracker?: (progressMsg: string, percentage: number, diagnosticLog?: string) => void,
+  options: { 
+    indexVariables?: boolean;
+    maxNodes?: number;
+    maxEdges?: number;
+  } = { indexVariables: true }
 ): Promise<{ nodes: any[], links: any[], files: string[] }> {
   return new Promise((resolve, reject) => {
     // Vite built-in worker support
@@ -16,6 +21,8 @@ export function parseFilesIntoGraph(
       const { type, payload } = e.data;
       if (type === 'PROGRESS') {
         if (onProgressTracker) onProgressTracker(payload.msg, payload.percent);
+      } else if (type === 'DIAGNOSTIC_LOG') {
+        if (onProgressTracker) onProgressTracker("", -1, payload);
       } else if (type === 'DONE') {
         resolve(payload);
         worker.terminate();
@@ -37,7 +44,7 @@ export function parseFilesIntoGraph(
       worker.postMessage({ type: 'ADD_FILES', files: chunk });
     }
     
-    worker.postMessage({ type: 'START' });
+    worker.postMessage({ type: 'START', options });
   });
 }
 

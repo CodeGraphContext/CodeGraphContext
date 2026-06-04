@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/resolution/inheritance.py
 """Resolve class inheritance into INHERITS row payloads (no DB I/O for non-C# batch)."""
 
 from pathlib import Path
@@ -13,8 +14,14 @@ def resolve_inheritance_link(
     imports_map: dict,
 ) -> Optional[Dict[str, Any]]:
     """Resolve a single inheritance link. Returns row dict or None."""
+    import re
     if base_class_str == "object":
         return None
+
+    # Unwrap JS/TS mixins like Swimmable(Flyable(Person)) -> Person
+    m = re.search(r'([A-Za-z0-9_.]+)(?:\s*\))*$', base_class_str)
+    if m:
+        base_class_str = m.group(1)
 
     resolved_path = None
     target_class_name = base_class_str.split(".")[-1]
@@ -50,8 +57,16 @@ def resolve_inheritance_link(
             "path": caller_file_path,
             "parent_name": target_class_name,
             "resolved_parent_file_path": resolved_path,
+            "confidence_label": "EXTRACTED",
         }
-    return None
+    return {
+        "child_name": class_item["name"],
+        "path": caller_file_path,
+        "parent_name": target_class_name,
+        "resolved_parent_file_path": "__external__",
+        "confidence_label": "INFERRED",
+    }
+
 
 
 def build_inheritance_and_csharp_files(
@@ -67,25 +82,30 @@ def build_inheritance_and_csharp_files(
             continue
 
         caller_file_path = str(Path(file_data["path"]).resolve())
-        local_class_names = {c["name"] for c in file_data.get("classes", [])}
+        local_class_names = set()
+        for key in ["classes", "structs", "traits", "interfaces", "mixins", "enums", "extensions"]:
+            for item in file_data.get(key, []):
+                local_class_names.add(item["name"])
+
         local_imports = {
             imp.get("alias") or imp["name"].split(".")[-1]: imp["name"]
             for imp in file_data.get("imports", [])
         }
 
-        for class_item in file_data.get("classes", []):
-            if not class_item.get("bases"):
-                continue
-            for base_class_str in class_item["bases"]:
-                resolved = resolve_inheritance_link(
-                    class_item,
-                    base_class_str,
-                    caller_file_path,
-                    local_class_names,
-                    local_imports,
-                    imports_map,
-                )
-                if resolved:
-                    inheritance_batch.append(resolved)
+        for key in ["classes", "structs", "traits", "interfaces", "mixins", "enums", "extensions"]:
+            for class_item in file_data.get(key, []):
+                if not class_item.get("bases"):
+                    continue
+                for base_class_str in class_item["bases"]:
+                    resolved = resolve_inheritance_link(
+                        class_item,
+                        base_class_str,
+                        caller_file_path,
+                        local_class_names,
+                        local_imports,
+                        imports_map,
+                    )
+                    if resolved:
+                        inheritance_batch.append(resolved)
 
     return inheritance_batch, csharp_files

@@ -156,6 +156,29 @@ class TestResolveFunctionCall:
         assert result is not None
         assert result["called_file_path"] == "/repo/parser.py"
 
+    def test_resolves_aliased_import_to_original_symbol(self):
+        gb, _ = _make_graph_builder()
+        call_dict = {
+            "name": "bar",
+            "line_number": 4,
+            "full_name": "bar",
+            "args": [],
+            "context": ("caller", None, 3),
+        }
+        imports_map = {"foo": ["/repo/module.ts"]}
+        local_imports = {"bar": "foo"}
+
+        result = self._call(
+            gb,
+            call_dict,
+            local_imports=local_imports,
+            imports_map=imports_map,
+        )
+
+        assert result is not None
+        assert result["called_name"] == "foo"
+        assert result["called_file_path"] == "/repo/module.ts"
+
     def test_skip_external_suppresses_unresolved(self):
         """When skip_external=True, calls that cannot be resolved should return None."""
         gb, _ = _make_graph_builder()
@@ -255,6 +278,89 @@ class TestCreateAllFunctionCallsV3:
         for q in call_rels:
             assert "MERGE" in q, f"Expected MERGE in CALLS query, got: {q[:120]}"
 
+    def test_calls_merge_identity_excludes_mutable_metadata(self):
+        """CALLS confidence/tier should update without becoming relationship identity."""
+        file_data = [{
+            "path": "/repo/a.py",
+            "functions": [{"name": "foo", "line_number": 1}],
+            "classes": [],
+            "imports": [],
+            "function_calls": [{
+                "name": "foo",
+                "line_number": 5,
+                "full_name": "foo",
+                "args": [],
+                "context": ("bar", None, 4),
+                "confidence": 0.9,
+                "resolution_tier": 1,
+            }],
+        }]
+        calls = self._run(file_data)
+        call_write = next(c for c in calls if "CALLS" in c["query"])
+        merge_clause = call_write["query"].split("MERGE", 1)[1].split("SET", 1)[0]
+
+        assert "confidence" not in merge_clause
+        assert "resolution_tier" not in merge_clause
+        assert "SET call.confidence = row.confidence" in call_write["query"]
+        assert "call.resolution_tier = row.resolution_tier" in call_write["query"]
+
+    def test_function_call_writes_use_precise_target_filters(self):
+        """CALLS writes should use target line/context hints when resolution provides them."""
+        file_data = [{
+            "path": "/repo/a.py",
+            "functions": [
+                {"name": "caller_fn", "line_number": 1, "args": []},
+                {"name": "callee", "line_number": 10, "args": ["value"]},
+                {"name": "callee", "line_number": 20, "args": ["value", "flag"]},
+            ],
+            "classes": [],
+            "imports": [],
+            "function_calls": [{
+                "name": "callee",
+                "line_number": 5,
+                "full_name": "callee",
+                "args": ["value", "true"],
+                "context": ("caller_fn", None, 1),
+            }],
+        }]
+
+        calls = self._run(file_data)
+        call_write = next(c for c in calls if "CALLS" in c["query"])
+
+        assert "called.line_number = row.called_line_number" in call_write["query"]
+        assert "called.context = row.called_context" in call_write["query"]
+        assert call_write["kwargs"]["batch"][0]["called_line_number"] == 20
+        assert call_write["kwargs"]["batch"][0]["called_context"] == ""
+
+    def test_function_call_batch_normalization_preserves_falsy_filters(self):
+        """Valid call rows are passed through to the driver batch as-is."""
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+
+        session = _RecordingSession()
+        writer = GraphWriter(_FakeDriver(session))
+        writer.write_function_call_groups(
+            [
+                {
+                    "type": "function",
+                    "caller_name": "caller",
+                    "caller_file_path": "/repo/a.py",
+                    "caller_line_number": 1,
+                    "called_name": "callee",
+                    "called_file_path": "/repo/a.py",
+                    "called_line_number": 0,
+                    "called_context": "",
+                    "line_number": 5,
+                    "args": [],
+                    "full_call_name": "callee",
+                },
+            ],
+        )
+
+        call_write = next(c for c in session.calls if "CALLS" in c["query"])
+        assert len(call_write["kwargs"]["batch"]) == 1
+        assert call_write["kwargs"]["batch"][0]["called_line_number"] == 0
+        assert call_write["kwargs"]["batch"][0]["called_context"] == ""
+
     def test_empty_file_data_writes_nothing(self):
         calls = self._run([])
         call_rels = [c for c in calls if "CALLS" in c.get("query", "")]
@@ -341,16 +447,132 @@ class TestAddFileToGraph:
         queries = [c["query"] for c in session.calls]
         assert any("UNWIND" in q for q in queries), "Expected UNWIND batch writes"
 
+    def test_class_function_contains_uses_class_context_line(self):
+        """Same-named nested classes in one file should not all own every method."""
+        session = _RecordingSession(responses=[_FakeResult()])
+        gb, _ = _make_graph_builder(session)
+        file_data = {
+            "path": "/repo/A.kt",
+            "lang": "kotlin",
+            "is_dependency": False,
+            "functions": [
+                {
+                    "name": "run",
+                    "line_number": 3,
+                    "args": [],
+                    "class_context": "Worker",
+                    "class_context_line": 2,
+                },
+                {
+                    "name": "run",
+                    "line_number": 8,
+                    "args": [],
+                    "class_context": "Worker",
+                    "class_context_line": 7,
+                },
+            ],
+            "classes": [
+                {"name": "Worker", "line_number": 2},
+                {"name": "Worker", "line_number": 7},
+            ],
+            "variables": [],
+            "imports": [],
+            "function_calls": [],
+        }
+        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str="/repo")
+
+        class_fn_call = next(
+            c
+            for c in session.calls
+            if "MATCH (c:Class" in c["query"] and "MERGE (c)-[:CONTAINS]->(fn)" in c["query"]
+        )
+        assert "c.line_number = row.class_line" in class_fn_call["query"]
+        assert class_fn_call["kwargs"]["batch"] == [
+            {"class_name": "Worker", "class_line": 2, "func_name": "run", "func_line": 3},
+            {"class_name": "Worker", "class_line": 7, "func_name": "run", "func_line": 8},
+        ]
+
+    def test_non_javascript_import_rows_are_schema_complete(self):
+        """Imports without full_import_name/source parity should not break Kuzu UNWIND."""
+        session = _RecordingSession(responses=[_FakeResult()])
+        gb, _ = _make_graph_builder(session)
+        file_data = {
+            "path": "/repo/main.go",
+            "lang": "go",
+            "is_dependency": False,
+            "functions": [],
+            "classes": [],
+            "variables": [],
+            "imports": [
+                {
+                    "name": "fmt",
+                    "source": "fmt",
+                    "alias": None,
+                    "line_number": 3,
+                    "lang": "go",
+                }
+            ],
+            "function_calls": [],
+        }
+
+        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str="/repo")
+
+        import_call = next(
+            c for c in session.calls
+            if "MERGE (f)-[r:IMPORTS]->(m)" in c["query"]
+        )
+        assert "m.alias" not in import_call["query"]
+        assert import_call["kwargs"]["batch"] == [
+            {
+                "name": "fmt",
+                "full_import_name": "fmt",
+                "imported_name": "fmt",
+                "alias": None,
+                "line_number": 3,
+                "lang": "go",
+            }
+        ]
+
 
 # ---------------------------------------------------------------------------
 # 4. delete_repository_from_graph (Changes 9a/9b/9c)
 # ---------------------------------------------------------------------------
 
+class _DeleteRepoSession(_RecordingSession):
+    """RecordingSession that intercepts `CALL db.labels()` queries and
+    returns a fixed label list without consuming a slot in the responses
+    queue, so positional fixtures stay focused on deletion counts and
+    aren't disturbed by the new label-discovery query in the implementation."""
+
+    def __init__(self, labels, responses=None):
+        super().__init__(responses=responses)
+        self._labels = list(labels)
+
+    def run(self, query: str, **kwargs):
+        self.calls.append({"query": query, "kwargs": kwargs})
+        if "db.labels()" in query:
+            return _FakeResult([{"label": lbl} for lbl in self._labels])
+        if self._call_idx < len(self._responses):
+            result = self._responses[self._call_idx]
+        else:
+            result = _FakeResult()
+        self._call_idx += 1
+        return result
+
+
 class TestDeleteRepositoryFromGraph:
     """Tests for delete_repository_from_graph (batched, rels-first, orphan purge)."""
 
-    def _make_repo_exists_session(self, extra_responses=None):
+    # Default set of labels returned by the mocked `CALL db.labels()` --
+    # covers the labels the existing assertions still expect to see in
+    # node-deletion queries (Function, Class, File) while including one
+    # previously-leaking label (Variable) so the test reflects the bug
+    # this PR is closing.
+    _DEFAULT_DB_LABELS = ["Class", "File", "Function", "Variable"]
+
+    def _make_repo_exists_session(self, extra_responses=None, db_labels=None):
         """Session that reports the repo exists (cnt=1), then zero-counts to stop loops."""
+        labels = db_labels if db_labels is not None else self._DEFAULT_DB_LABELS
         responses = [
             _FakeResult([{"cnt": 1}]),  # repo existence check
         ]
@@ -360,7 +582,7 @@ class TestDeleteRepositoryFromGraph:
         else:
             # Enough zeros to drain all the while-True loops
             responses.extend([_FakeResult([{"deleted": 0}])] * 20)
-        return _RecordingSession(responses=responses)
+        return _DeleteRepoSession(labels=labels, responses=responses)
 
     def test_returns_false_when_repo_not_found(self):
         session = _RecordingSession(responses=[_FakeResult([{"cnt": 0}])])
@@ -413,6 +635,61 @@ class TestDeleteRepositoryFromGraph:
 
         queries = [c["query"] for c in session.calls]
         assert any("Repository" in q and ("DELETE" in q or "DETACH DELETE" in q) for q in queries)
+
+    def test_purges_labels_discovered_dynamically(self):
+        """Should DETACH DELETE every label that `CALL db.labels()` reports,
+        not a hardcoded subset -- otherwise nodes from any newly-added
+        indexer label leak as orphans on `delete_repository`.
+
+        Regression test for: pre-fix, the function iterated a fixed tuple
+        of (Function, Class, Interface, ..., DbTable). When the indexer
+        learned a new label, every `delete_repository` call against that
+        repo would leave the new label's nodes behind. The fix uses
+        `CALL db.labels()` so the per-label cleanup loop is self-
+        maintaining.
+        """
+        # Mock db.labels() returning a label that doesn't exist in any
+        # hardcoded list anywhere in this codebase -- proves the loop
+        # responds to whatever the running Neo4j actually contains.
+        session = self._make_repo_exists_session(
+            db_labels=["Function", "Class", "File", "SomeFutureLabelTheIndexerMightAdd"]
+        )
+        gb, _ = _make_graph_builder(session)
+        gb.delete_repository_from_graph("/my/repo")
+
+        queries = [c["query"] for c in session.calls]
+        assert any(
+            "SomeFutureLabelTheIndexerMightAdd" in q and "DETACH DELETE" in q
+            for q in queries
+        ), (
+            "Expected a DETACH DELETE query targeting every label returned by "
+            "`CALL db.labels()`, including labels not in any hardcoded list."
+        )
+
+    def test_calls_db_labels_after_existence_check(self):
+        """Label discovery should happen exactly once, after the repo
+        existence check passes, before any per-label deletion loops."""
+        session = self._make_repo_exists_session()
+        gb, _ = _make_graph_builder(session)
+        gb.delete_repository_from_graph("/my/repo")
+
+        queries = [c["query"] for c in session.calls]
+        labels_call_idx = next(
+            (i for i, q in enumerate(queries) if "db.labels()" in q), None
+        )
+        existence_idx = next(
+            (i for i, q in enumerate(queries) if "MATCH (r:Repository {path: $path})" in q and "count(r)" in q),
+            None,
+        )
+        node_delete_idx = next(
+            (i for i, q in enumerate(queries) if "DETACH DELETE n" in q), None
+        )
+        assert labels_call_idx is not None, "Expected exactly one `CALL db.labels()` query"
+        assert existence_idx is not None, "Expected the repo existence check"
+        assert node_delete_idx is not None, "Expected at least one DETACH DELETE for nodes"
+        assert existence_idx < labels_call_idx < node_delete_idx, (
+            "db.labels() must come after existence check and before per-label deletion"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -632,3 +909,52 @@ class TestWatcherIncrementalHandleModification:
             watcher._handle_modification("/fake/module.py")
 
         mock_gb.link_function_calls.assert_called_once()
+
+
+class TestWriteOrmMappingsDatasourceName:
+    """Regression test for bug: DbTable.datasource_name is null when write_query_links
+    creates the DbTable node before write_orm_mappings runs (ON CREATE SET is a no-op
+    on an existing node). Fix: add ON MATCH SET with COALESCE guard.
+    """
+
+    def _make_writer(self):
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+        mock_driver = MagicMock()
+        mock_session = MagicMock()
+        mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+        writer = GraphWriter.__new__(GraphWriter)
+        writer.driver = mock_driver
+        return writer, mock_session
+
+    def test_on_match_set_present_in_write_orm_mappings(self):
+        """write_orm_mappings Cypher must include ON MATCH SET so datasource_name
+        is back-filled on DbTable nodes created by write_query_links."""
+        import inspect
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+        src = inspect.getsource(GraphWriter.write_orm_mappings)
+        assert "ON MATCH SET" in src, (
+            "write_orm_mappings is missing ON MATCH SET — DbTable.datasource_name will be "
+            "null when the node was created by write_query_links before write_orm_mappings runs"
+        )
+        assert "COALESCE" in src, (
+            "ON MATCH SET must use COALESCE to avoid overwriting a datasource_name already set"
+        )
+
+    def test_orm_batch_sets_datasource_name_on_existing_node(self):
+        """write_orm_mappings must emit an ON MATCH SET clause that populates
+        datasource_name even when the DbTable node pre-exists."""
+        writer, mock_session = self._make_writer()
+        orm_batch = [{
+            "kind": "class_table",
+            "class_name": "WhiteListDB",
+            "class_path": "/repo/WhiteListDB.java",
+            "orm_table": "whitelist",
+            "datastore": "cassandra",
+            "line_number": 9,
+        }]
+        writer.write_orm_mappings(orm_batch)
+        assert mock_session.run.called
+        query = mock_session.run.call_args[0][0]
+        assert "ON MATCH SET" in query
+        assert "COALESCE" in query

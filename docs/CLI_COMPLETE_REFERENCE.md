@@ -62,7 +62,7 @@
 
 | Command | Arguments | Description |
 |---------|-----------|-------------|
-| `cgc find name` | `<name>` `--type` | Find code elements by exact name. |
+| `cgc find name` | `<name>` `--type` `--fuzzy/--no-fuzzy` | Find code elements by name. Fuzzy matching is on by default (configurable via `FUZZY_SEARCH`). |
 | `cgc find pattern` | `<pattern>` `--case-sensitive` | Find elements using fuzzy substring matching. |
 | `cgc find type` | `<type>` `--limit` | List all nodes of a specific type (function, class, module). |
 | `cgc find variable` | `<name>` `--file` | Find variables by name across the codebase. |
@@ -83,7 +83,7 @@
 | `cgc config show` | None | Display current configuration values. |
 | `cgc config set` | `<key> <value>` | Set a configuration value. |
 | `cgc config reset` | None | Reset configuration to defaults. |
-| `cgc config db` | `<backend>` | Quick switch between `neo4j` and `falkordb`. |
+| `cgc config db` | `<backend>` | Quick switch between `kuzudb`, `ladybugdb`, `falkordb`, or `neo4j`. |
 
 ---
 
@@ -127,7 +127,7 @@ These work with any command:
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--database` | `-db` | Override database backend (`falkordb` or `neo4j`). |
+| `--database` | `-db` | Override database backend (`kuzudb`, `ladybugdb`, `falkordb`, or `neo4j`). |
 | `--visual` / `--viz` | `-V` | Show results as interactive graph visualization. |
 | `--help` | `-h` | Show help for any command. |
 | `--version` | `-v` | Show version (root level only). |

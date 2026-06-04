@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/query_tool_languages/typescript_toolkit.py
 class TypescriptToolkit:
     """Template placeholder for future implementation."""
 

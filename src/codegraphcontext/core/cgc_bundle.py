@@ -20,6 +20,7 @@ Bundle Structure:
 """
 
 import json
+import os
 import zipfile
 import tempfile
 from pathlib import Path
@@ -28,6 +29,7 @@ from datetime import datetime, date
 import subprocess
 
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
+from codegraphcontext.utils.git_utils import get_repo_commit_hash, get_repo_branch_name
 
 
 class _BundleEncoder(json.JSONEncoder):
@@ -106,11 +108,9 @@ class CGCBundle:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 
-                # Step 1: Extract metadata
+                # Step 1: Extract metadata base
                 info_logger("Extracting metadata...")
                 metadata = self._extract_metadata(repo_path)
-                with open(temp_path / "metadata.json", 'w') as f:
-                    json.dump(metadata, f, indent=2, cls=_BundleEncoder)
                 
                 # Step 2: Extract schema
                 info_logger("Extracting schema...")
@@ -126,12 +126,48 @@ class CGCBundle:
                 info_logger("Extracting edges...")
                 edge_count = self._extract_edges(temp_path / "edges.jsonl", repo_path)
                 
-                # Step 5: Generate statistics
+                # Step 5: Generate statistics and assemble standardized metadata
                 if include_stats:
                     info_logger("Generating statistics...")
                     stats = self._generate_stats(repo_path, node_count, edge_count)
                     with open(temp_path / "stats.json", 'w') as f:
                         json.dump(stats, f, indent=2, cls=_BundleEncoder)
+                else:
+                    stats = None
+
+                # Compile dynamic standardized metadata
+                try:
+                    from importlib.metadata import version as get_version
+                    py_version = get_version("codegraphcontext")
+                except Exception:
+                    py_version = "0.4.13"
+
+                metadata["format_version"] = "1.0.0"
+                metadata["generator"] = f"PYv{py_version}"
+                
+                # Timestamp format: YYYY-MM-DDTHH:MM:SSZ (UTC ISO String format)
+                # datetime.utcnow() was deprecated, using timezone-aware or simple UTC strftime
+                from datetime import timezone
+                metadata["exported_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+                # Build name
+                if metadata.get("repo") and "/" in metadata["repo"]:
+                    owner, repo_name = metadata["repo"].split("/", 1)
+                    branch = metadata.get("branch", "main")
+                    commit = metadata.get("commit", "latest")
+                    metadata["name"] = f"{owner}__{repo_name}__{branch}__{commit}.cgc"
+                else:
+                    foldername = metadata.get("repo", "unknown")
+                    metadata["name"] = f"{foldername}.cgc"
+
+                metadata["graph_metrics"] = {
+                    "total_nodes": node_count,
+                    "total_edges": edge_count
+                }
+
+                # Save final metadata.json
+                with open(temp_path / "metadata.json", 'w') as f:
+                    json.dump(metadata, f, indent=2, cls=_BundleEncoder)
                 
                 # Step 6: Create README
                 self._create_readme(temp_path / "README.md", metadata, stats if include_stats else None)
@@ -282,8 +318,15 @@ class CGCBundle:
                                 if hasattr(node, attr):
                                     repo[attr] = getattr(node, attr)
                     
-                    metadata["repo"] = repo.get('name', str(repo_path))
-                    metadata["repo_path"] = repo.get('path')
+                    metadata["repo"] = repo.get('name', str(repo_path.name if repo_path else 'unknown'))
+                    # Clean up absolute path prefix to keep it relative
+                    meta_path = repo.get('path', '')
+                    if repo_path and meta_path.startswith(str(repo_path.resolve())):
+                        repo_str = str(repo_path.resolve())
+                        rel = meta_path[len(repo_str):].lstrip('/')
+                        metadata["repo_path"] = "./" + rel if rel else "."
+                    else:
+                        metadata["repo_path"] = meta_path
                     metadata["is_dependency"] = repo.get('is_dependency', False)
             else:
                 # All repositories
@@ -296,23 +339,21 @@ class CGCBundle:
             
             # Try to get git information if available
             if repo_path and repo_path.exists():
-                try:
-                    commit = subprocess.check_output(
-                        ['git', 'rev-parse', 'HEAD'],
-                        cwd=repo_path,
-                        stderr=subprocess.DEVNULL
-                    ).decode().strip()
+                commit = get_repo_commit_hash(repo_path)
+                if commit:
                     metadata["commit"] = commit[:8]
-                except (subprocess.CalledProcessError, FileNotFoundError):
-                    pass
+                branch = get_repo_branch_name(repo_path)
+                if branch:
+                    metadata["branch"] = branch
 
                 try:
+                    repo_str = str(repo_path.resolve())
                     result = session.run("""
                         MATCH (f:File)
-                        WHERE f.path STARTS WITH $repo_path
+                        WHERE f.path = $repo_path OR f.path STARTS WITH $repo_prefix
                         RETURN f.language as language, count(*) as count
                         ORDER BY count DESC
-                    """, repo_path=str(repo_path.resolve()))
+                    """, repo_path=repo_str, repo_prefix=repo_str + os.sep)
                     languages = {record["language"]: record["count"] for record in result if record["language"]}
                     metadata["languages"] = list(languages.keys())
                 except Exception:
@@ -387,10 +428,11 @@ class CGCBundle:
             if repo_path:
                 query = """
                     MATCH (n)
-                    WHERE n.path STARTS WITH $repo_path
+                    WHERE n.path = $repo_path OR n.path STARTS WITH $repo_prefix
                     RETURN n, labels(n) as labels
                 """
-                params = {"repo_path": str(repo_path.resolve())}
+                repo_str = str(repo_path.resolve())
+                params = {"repo_path": repo_str, "repo_prefix": repo_str + os.sep}
             else:
                 query = "MATCH (n) RETURN n, labels(n) as labels"
                 params = {}
@@ -406,6 +448,12 @@ class CGCBundle:
                 for record in result:
                     node = record['n']
                     labels = record['labels']
+                    if labels is None:
+                        labels = []
+                    elif isinstance(labels, str):
+                        labels = [labels]
+                    elif not isinstance(labels, list):
+                        labels = list(labels)
                     
                     # Convert node to dict (handle both Neo4j and FalkorDB)
                     try:
@@ -417,11 +465,31 @@ class CGCBundle:
                             node_dict = dict(node._properties)
                         elif hasattr(node, 'properties'):
                             node_dict = dict(node.properties)
+
+                    node_dict.pop('_label', None)
+                    for key, val in list(node_dict.items()):
+                        if key != '_id' and val is None:
+                            node_dict.pop(key)
+                    
+                    # Clean up absolute path prefix to keep it relative
+                    if repo_path:
+                        repo_str = str(repo_path.resolve())
+                        repo_prefix = repo_str + os.sep
+                        for key, val in list(node_dict.items()):
+                            if not isinstance(val, str):
+                                continue
+                            if val == repo_str:
+                                node_dict[key] = "."
+                            elif val.startswith(repo_prefix):
+                                rel = val[len(repo_prefix):].lstrip('/\\')
+                                node_dict[key] = "./" + rel if rel else "."
                     
                     node_dict['_labels'] = labels
                     
                     # Store internal ID for reference
-                    if hasattr(node, 'element_id'):
+                    if '_id' in node_dict:
+                        pass
+                    elif hasattr(node, 'element_id'):
                         node_dict['_id'] = node.element_id
                     elif hasattr(node, 'id'):
                         node_dict['_id'] = str(node.id)
@@ -440,11 +508,12 @@ class CGCBundle:
             if repo_path:
                 query = """
                     MATCH (n)-[r]->(m)
-                    WHERE (n.path STARTS WITH $repo_path)
-                       OR (m.path STARTS WITH $repo_path)
+                    WHERE (n.path = $repo_path OR n.path STARTS WITH $repo_prefix)
+                       OR (m.path = $repo_path OR m.path STARTS WITH $repo_prefix)
                     RETURN n, r, m, type(r) as rel_type
                 """
-                params = {"repo_path": str(repo_path.resolve())}
+                repo_str = str(repo_path.resolve())
+                params = {"repo_path": repo_str, "repo_prefix": repo_str + os.sep}
             else:
                 query = "MATCH (n)-[r]->(m) RETURN n, r, m, type(r) as rel_type"
                 params = {}
@@ -462,22 +531,7 @@ class CGCBundle:
                     target = record['m']
                     rel = record['r']
                     rel_type = record['rel_type']
-                    
-                    # Get source and target IDs (handle both Neo4j and FalkorDB)
-                    if hasattr(source, 'element_id'):
-                        from_id = source.element_id
-                    elif hasattr(source, 'id'):
-                        from_id = str(source.id)
-                    else:
-                        from_id = str(id(source))  # Fallback
-                    
-                    if hasattr(target, 'element_id'):
-                        to_id = target.element_id
-                    elif hasattr(target, 'id'):
-                        to_id = str(target.id)
-                    else:
-                        to_id = str(id(target))  # Fallback
-                    
+
                     # Get relationship properties
                     try:
                         rel_props = dict(rel)
@@ -487,6 +541,48 @@ class CGCBundle:
                             rel_props = dict(rel._properties)
                         elif hasattr(rel, 'properties'):
                             rel_props = dict(rel.properties)
+
+                    # Kùzu/Ladybug-style relationship records expose stable
+                    # endpoint IDs as properties. Prefer those over Python
+                    # wrapper object ids so exported edges can be re-linked to
+                    # the node rows in nodes.jsonl.
+                    from_id = rel_props.pop('_src', None)
+                    to_id = rel_props.pop('_dst', None)
+                    rel_props.pop('_label', None)
+                    rel_props.pop('_id', None)
+                    for key, val in list(rel_props.items()):
+                        if val is None:
+                            rel_props.pop(key)
+
+                    # Get source and target IDs (handle Neo4j/FalkorDB fallback)
+                    if from_id is None:
+                        if hasattr(source, 'element_id'):
+                            from_id = source.element_id
+                        elif hasattr(source, 'id'):
+                            from_id = str(source.id)
+                        else:
+                            from_id = str(id(source))
+
+                    if to_id is None:
+                        if hasattr(target, 'element_id'):
+                            to_id = target.element_id
+                        elif hasattr(target, 'id'):
+                            to_id = str(target.id)
+                        else:
+                            to_id = str(id(target))
+                    
+                    # Clean up absolute path prefix inside edge properties
+                    if repo_path:
+                        repo_str = str(repo_path.resolve())
+                        repo_prefix = repo_str + os.sep
+                        for key, val in list(rel_props.items()):
+                            if not isinstance(val, str):
+                                continue
+                            if val == repo_str:
+                                rel_props[key] = "."
+                            elif val.startswith(repo_prefix):
+                                rel = val[len(repo_prefix):].lstrip('/\\')
+                                rel_props[key] = "./" + rel if rel else "."
                     
                     # Create edge representation
                     edge_dict = {
@@ -511,26 +607,45 @@ class CGCBundle:
         
         with self.db_manager.get_driver(self._active_graph).session() as session:
             # Count by node type
-            result = session.run("""
-                MATCH (n)
-                RETURN labels(n)[0] as label, count(*) as count
-                ORDER BY count DESC
-            """)
+            if repo_path:
+                repo_str = str(repo_path.resolve())
+                result = session.run("""
+                    MATCH (n)
+                    WHERE n.path = $repo_path OR n.path STARTS WITH $repo_prefix
+                    RETURN labels(n)[0] as label, count(*) as count
+                    ORDER BY count DESC
+                """, repo_path=repo_str, repo_prefix=repo_str + os.sep)
+            else:
+                result = session.run("""
+                    MATCH (n)
+                    RETURN labels(n)[0] as label, count(*) as count
+                    ORDER BY count DESC
+                """)
             stats["nodes_by_type"] = {record["label"]: record["count"] for record in result if record["label"]}
             
             # Count by relationship type
-            result = session.run("""
-                MATCH ()-[r]->()
-                RETURN type(r) as type, count(*) as count
-                ORDER BY count DESC
-            """)
+            if repo_path:
+                result = session.run("""
+                    MATCH (n)-[r]->(m)
+                    WHERE (n.path = $repo_path OR n.path STARTS WITH $repo_prefix)
+                       OR (m.path = $repo_path OR m.path STARTS WITH $repo_prefix)
+                    RETURN type(r) as type, count(*) as count
+                    ORDER BY count DESC
+                """, repo_path=repo_str, repo_prefix=repo_str + os.sep)
+            else:
+                result = session.run("""
+                    MATCH ()-[r]->()
+                    RETURN type(r) as type, count(*) as count
+                    ORDER BY count DESC
+                """)
             stats["edges_by_type"] = {record["type"]: record["count"] for record in result}
             
             # File count
             if repo_path:
                 result = session.run(
-                    "MATCH (f:File) WHERE f.path STARTS WITH $repo_path RETURN count(f) as count",
-                    repo_path=str(repo_path.resolve())
+                    "MATCH (f:File) WHERE f.path = $repo_path OR f.path STARTS WITH $repo_prefix RETURN count(f) as count",
+                    repo_path=repo_str,
+                    repo_prefix=repo_str + os.sep,
                 )
             else:
                 result = session.run("MATCH (f:File) RETURN count(f) as count")
@@ -858,4 +973,3 @@ cgc import <bundle-file>.cgc
             session.run(query, from_id=new_from, to_id=new_to, props=properties)
         
         return len(batch)
-

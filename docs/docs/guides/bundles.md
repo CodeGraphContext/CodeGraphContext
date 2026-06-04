@@ -1,64 +1,67 @@
-# Using On-Demand Bundles
+# Portable CGC Bundles & Registries
 
-Don't index everything yourself. Use pre-built graphs for popular libraries.
+CodeGraphContext (CGC) supports **Portable Graph Bundles** (`.cgc` files)—serialized snapshots of an indexed codebase. Bundles allow teams to distribute pre-parsed code structures so that other developers or CI runners can load them without re-parsing the original source code.
 
-## What is a Bundle?
+---
 
-A `.cgc` bundle is a snapshot of a graph. It allows you to "import" the knowledge of `flask`, `pandas`, or `react` without parsing it yourself.
+## 1. Exporting a Graph Bundle
 
-## Registry (shipped)
-
-The **bundle registry** is live: you can discover, search, and download bundles from the CLI without building graphs from source every time.
-
-### CLI: list, search, download
+To package your current database graph into a single `.cgc` file, use the `bundle export` command:
 
 ```bash
-# Everything available (add -v / --verbose for URLs)
-cgc registry list
+# Export the entire active database graph
+cgc bundle export my-app-v1.cgc
 
-# Find bundles by name or keyword
-cgc registry search react
-cgc registry search "web framework"
-
-# Download a bundle file (optionally --load / -l to import after download)
-cgc registry download fastapi
-cgc registry download fastapi -o ./bundles
+# Export only a specific repository path from the database
+cgc bundle export my-app-v1.cgc --repo /path/to/project
 ```
 
-`cgc load <name>` still **auto-downloads** from the registry when the bundle is not already local—see [QUICK_REFERENCE.md](../../QUICK_REFERENCE.md) for a full cheat sheet.
+The exported file contains compressed serialization of all nodes, relationships, and ingestion metadata.
 
-## How to use bundles
+---
 
-### 1. Search the registry
+## 2. Importing a Graph Bundle
+
+To import a local `.cgc` bundle file into your active database context:
 
 ```bash
-cgc registry search react
+# Append bundle contents into the current database
+cgc bundle import ./my-app-v1.cgc
+
+# Clear existing data in the active context before importing
+cgc bundle import ./my-app-v1.cgc --clear
 ```
 
-### 2. Load a bundle
+The database is populated immediately and is ready for CLI query operations or MCP server sessions.
+
+---
+
+## 3. The Public Bundle Registry
+
+CGC hosts a remote repository of pre-indexed graph bundles for popular libraries and frameworks, allowing developers to query third-party code structures.
+
+### Searching the Registry
+Search for public graph packages matching a specific keyword (e.g., `flask`):
 
 ```bash
-cgc load react
+cgc registry search flask
 ```
 
-*(This downloads on the order of megabytes instead of parsing tens of megabytes of source code.)*
-
-### 3. Query it
-
-Now your AI knows about the library's structure.
-
-*"How does `useEffect` work internally in React?"* → The assistant can traverse the imported graph nodes (via MCP tools or `cgc query` / `cgc find` on the CLI).
-
-## On-demand generation (website)
-
-You can also generate a bundle **on demand** from the website: open **[codegraphcontext.vercel.app](https://codegraphcontext.vercel.app)**, use **Generate Custom Bundle** (or the equivalent flow), paste a GitHub repository URL, wait for the build to finish, then download the `.cgc` file and `cgc load` it locally.
-
-## Requesting a bundle from the CLI
-
-If a library is not listed yet, you can queue a request:
+### Loading Registry Bundles
+To download and load a package from the registry directly into your local database:
 
 ```bash
-cgc registry request https://github.com/fastapi/fastapi
+cgc bundle load flask
 ```
 
-Build servers index the repo and publish it to the registry when ready (typically within minutes, depending on queue and repo size).
+If the package is not found locally, the engine contacts the remote registry API, downloads the matching version, and runs the import process automatically.
+
+### Registry Command Suite
+- **List All Available Registry Packages**:
+  ```bash
+  cgc registry list
+  ```
+- **Request On-Demand Generation**: If a specific library is missing, submit a request for the registry build server to generate a bundle from a public GitHub repository URL:
+  ```bash
+  cgc registry request https://github.com/pallets/click --wait
+  ```

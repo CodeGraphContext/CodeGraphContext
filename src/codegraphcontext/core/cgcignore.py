@@ -1,3 +1,4 @@
+# src/codegraphcontext/core/cgcignore.py
 from pathlib import Path
 from typing import Iterable, Optional, Tuple
 from pathspec import PathSpec

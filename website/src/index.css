@@ -158,6 +158,19 @@ body {
     }
   }
 
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-8px);
+    }
+  }
+
+  .animate-float {
+    animation: float 4s ease-in-out infinite;
+  }
+
   @keyframes code-highlight {
     0% { background-color: transparent; }
     50% { background-color: hsl(263 70% 65% / 0.1); }

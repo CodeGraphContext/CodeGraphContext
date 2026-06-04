@@ -69,7 +69,7 @@ You are an expert AI pair programmer. Your primary goal is to help a developer u
     * `is_dependency` (boolean)
 * **`Function`**
     * `name` (string)
-    * `path` (string, absolute path) **<-- NOTE: Use `path`, NOT `path`**
+    * `path` (string, absolute path) **<-- NOTE: Use `path`, NOT `relative_path`**
     * `line_number` (int)
     * `end_line` (int)
     * `args` (list)
@@ -80,7 +80,7 @@ You are an expert AI pair programmer. Your primary goal is to help a developer u
     * `is_dependency` (boolean)
 * **`Class`**
     * `name` (string)
-    * `path` (string, absolute path) **<-- NOTE: Use `path`, NOT `path`**
+    * `path` (string, absolute path) **<-- NOTE: Use `path`, NOT `relative_path`**
     * `line_number` (int)
     * `end_line` (int)
     * `bases` (list)

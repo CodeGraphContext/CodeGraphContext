@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from dataclasses import asdict
 
-from typing import Any, Dict, Coroutine, Optional, List
+from typing import Any, Dict, Coroutine, Optional, List, Set
 
 from .prompts import LLM_SYSTEM_PROMPT
 from .core import get_database_manager
@@ -27,6 +27,9 @@ from .cli.config_manager import (
     discover_child_contexts,
     save_workspace_mapping,
     get_workspace_mapping,
+    _default_global_db_path,
+    CONFIG_DIR,
+    load_config,
 )
 
 # Import Tool Definitions and Handlers
@@ -75,6 +78,44 @@ def _strip_workspace_prefix(obj):
     return obj
 
 
+# Approximate chars-per-token used for budget conversion.
+# GPT-family tokenizers average ~4 chars/token; using 4 is a safe conservative estimate.
+_CHARS_PER_TOKEN = 4
+
+
+def _apply_response_token_limit(tool_name: str, text: str) -> str:
+    """Truncate *text* to the configured token budget and append a notice.
+
+    Reads ``MAX_TOOL_RESPONSE_TOKENS`` from the CGC config at call time so
+    that live config changes are respected without a server restart.
+    Returns *text* unchanged when the limit is 0 (unlimited) or not set.
+    """
+    from .cli.config_manager import get_config_value
+
+    raw = get_config_value("MAX_TOOL_RESPONSE_TOKENS") or "0"
+    try:
+        max_tokens = int(raw)
+    except ValueError:
+        max_tokens = 0
+
+    if max_tokens <= 0:
+        return text  # unlimited
+
+    max_chars = max_tokens * _CHARS_PER_TOKEN
+    if len(text) <= max_chars:
+        return text
+
+    notice = (
+        f"\n\n[CGC] Response truncated: output exceeded the MAX_TOOL_RESPONSE_TOKENS "
+        f"limit of {max_tokens} tokens (tool: {tool_name}). "
+        "Increase MAX_TOOL_RESPONSE_TOKENS or narrow your query for full results."
+    )
+    # Reserve space for the notice inside the budget
+    budget = max_chars - len(notice)
+    if budget < 0:
+        budget = 0
+    return text[:budget] + notice
+
 
 class MCPServer:
     """
@@ -100,6 +141,7 @@ class MCPServer:
         self.cwd = (cwd or Path.cwd()).resolve()
         self.discovered_child_contexts: List[dict] = []
         self._context_note_pending = False
+        self.disabled_tools: Set[str] = set()
 
         try:
             ctx = resolve_context(cwd=self.cwd)
@@ -146,7 +188,76 @@ class MCPServer:
         """
         Defines the complete tool manifest for the LLM.
         """
-        self.tools = TOOLS
+        self.disabled_tools = self._load_disabled_tools()
+        self.tools = {
+            name: definition
+            for name, definition in TOOLS.items()
+            if name not in self.disabled_tools
+        }
+
+    def _normalize_tool_name(self, name: Any) -> Optional[str]:
+        """Normalize tool names from mcp.json to internal tool identifiers."""
+        if not isinstance(name, str):
+            return None
+
+        normalized = name.strip()
+        if not normalized:
+            return None
+
+        if normalized.startswith("codegraphcontext_"):
+            normalized = normalized[len("codegraphcontext_"):]
+
+        aliases = {
+            "add_code_to_folder": "add_code_to_graph",
+        }
+
+        return aliases.get(normalized, normalized)
+
+    def _load_disabled_tools(self) -> Set[str]:
+        """Load disabled tool names from `<cwd>/mcp.json` config."""
+        mcp_file = self.cwd / "mcp.json"
+        if not mcp_file.exists():
+            return set()
+
+        try:
+            with open(mcp_file, "r", encoding="utf-8") as f:
+                mcp_config = json.load(f)
+        except Exception as exc:
+            warning_logger(f"Failed to read {mcp_file}: {exc}")
+            return set()
+
+        disabled_tools = (
+            mcp_config
+            .get("mcpServers", {})
+            .get("CodeGraphContext", {})
+            .get("tools", {})
+            .get("disabledTools", [])
+        )
+
+        if not isinstance(disabled_tools, list):
+            warning_logger("mcp.json tools.disabledTools must be a list; ignoring invalid value.")
+            return set()
+
+        normalized_disabled: Set[str] = set()
+        unknown_tools: List[str] = []
+
+        for name in disabled_tools:
+            normalized_name = self._normalize_tool_name(name)
+            if not normalized_name:
+                continue
+
+            if normalized_name in TOOLS:
+                normalized_disabled.add(normalized_name)
+            else:
+                unknown_tools.append(str(name))
+
+        if unknown_tools:
+            warning_logger(
+                "Ignoring unknown tools in mcp.json tools.disabledTools: "
+                + ", ".join(sorted(set(unknown_tools)))
+            )
+
+        return normalized_disabled
 
     def _get_version(self) -> str:
         try:
@@ -241,6 +352,42 @@ class MCPServer:
     def list_graphs_tool(self, **args) -> Dict[str, Any]:
         return management_handlers.list_graphs(self.db_manager, **args)
 
+    def generate_report_tool(self, **args) -> Dict[str, Any]:
+        from .tools.report_generator import generate_report
+
+        output_path_raw = args.get("output_path")
+        output_path = Path(output_path_raw) if output_path_raw else self.cwd / "CGC_REPORT.md"
+
+        base_dir = self.cwd.resolve()
+        output_path = output_path.resolve()
+
+        try:
+            output_path.relative_to(base_dir)
+        except ValueError:
+            return {"error": "Invalid output_path: path traversal is not allowed"}
+
+        try:
+            report = generate_report(
+                self.db_manager,
+                output_path=output_path,
+                include_java=bool(args.get("include_java", False)),
+                god_node_limit=int(args.get("god_node_limit", 15)),
+                complexity_limit=int(args.get("complexity_limit", 15)),
+                cross_module_limit=int(args.get("cross_module_limit", 20)),
+                )
+            return {"status": "ok", "output_path": str(output_path), "report": report}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def find_java_spring_endpoints_tool(self, **args) -> Dict[str, Any]:
+        return analysis_handlers.find_java_spring_endpoints(self.code_finder, **args)
+
+    def find_java_spring_beans_tool(self, **args) -> Dict[str, Any]:
+        return analysis_handlers.find_java_spring_beans(self.code_finder, **args)
+
+    def find_datasource_nodes_tool(self, **args) -> Dict[str, Any]:
+        return analysis_handlers.find_datasource_nodes(self.code_finder, **args)
+
     def discover_codegraph_contexts_tool(self, **args) -> Dict[str, Any]:
         scan_path = Path(args.get("path", str(self.cwd))).resolve()
         max_depth = int(args.get("max_depth", 1))
@@ -267,6 +414,48 @@ class MCPServer:
         if not raw_path:
             return {"error": "context_path is required."}
 
+        # --- Special case: switch back to the global context ---
+        if raw_path == "global":
+            try:
+                try:
+                    self.db_manager.close_driver()
+                except Exception:
+                    pass
+
+                # Resolve global DB path directly — do NOT use resolve_context()
+                # because that checks CWD for local .codegraphcontext/ and may
+                # return per-repo instead of global.
+                db = os.getenv("CGC_RUNTIME_DB_TYPE") or load_config().get("DEFAULT_DATABASE", "falkordb")
+                global_db_path = _default_global_db_path(db)
+                new_manager = get_database_manager(db_path=global_db_path)
+                new_manager.get_driver()
+
+                self.db_manager = new_manager
+                self.resolved_context = type(self.resolved_context)(
+                    mode="global",
+                    context_name="",
+                    database=db,
+                    db_path=global_db_path,
+                    cgcignore_path=str(CONFIG_DIR / "global" / ".cgcignore"),
+                    is_local=False,
+                )
+
+                # Rebuild dependent components
+                self.graph_builder = GraphBuilder(self.db_manager, self.job_manager, self.loop)
+                self.code_finder = CodeFinder(self.db_manager)
+                self.code_watcher = CodeWatcher(self.graph_builder, self.job_manager)
+                self._context_note_pending = False
+
+                return {
+                    "status": "ok",
+                    "message": f"Switched back to global context at {global_db_path}.",
+                    "database": db,
+                    "db_path": global_db_path,
+                }
+            except Exception as e:
+                return {"error": f"Failed to switch to global context: {e}"}
+
+        # --- Normal path-based switch ---
         target = Path(raw_path).resolve()
         # Accept either the repo dir or the .codegraphcontext dir directly
         if target.name == ".codegraphcontext":
@@ -336,6 +525,9 @@ class MCPServer:
         """
         Routes a tool call from the AI assistant to the appropriate handler function. 
         """
+        if tool_name in self.disabled_tools:
+            return {"error": f"Unknown tool: {tool_name}"}
+
         tool_map: Dict[str, Coroutine] = {
             "add_package_to_graph": self.add_package_to_graph_tool,
             "find_dead_code": self.find_dead_code_tool,
@@ -359,6 +551,10 @@ class MCPServer:
             "list_graphs": self.list_graphs_tool,
             "discover_codegraph_contexts": self.discover_codegraph_contexts_tool,
             "switch_context": self.switch_context_tool,
+            "generate_report": self.generate_report_tool,
+            "find_java_spring_endpoints": self.find_java_spring_endpoints_tool,
+            "find_java_spring_beans": self.find_java_spring_beans_tool,
+            "find_datasource_nodes": self.find_datasource_nodes_tool,
         }
         handler = tool_map.get(tool_name)
         if handler:
@@ -437,9 +633,11 @@ class MCPServer:
                             "error": {"code": -32000, "message": "Tool execution error", "data": result}
                         }
                     else:
+                        response_text = json.dumps(result, indent=2)
+                        response_text = _apply_response_token_limit(tool_name, response_text)
                         response = {
                             "jsonrpc": "2.0", "id": request_id,
-                            "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
+                            "result": {"content": [{"type": "text", "text": response_text}]}
                         }
                 elif method == 'notifications/initialized':
                     # This is a notification, no response needed.

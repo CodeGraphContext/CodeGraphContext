@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/csharp.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 import re
@@ -64,7 +65,7 @@ CSHARP_QUERIES = {
                 (identifier) @name
                 (member_access_expression
                     name: (identifier) @name
-                )
+                ) @full_name
             ]
         )
         
@@ -75,6 +76,7 @@ CSHARP_QUERIES = {
             ]
         )
     """,
+
 }
 
 class CSharpTreeSitterParser:
@@ -109,6 +111,10 @@ class CSharpTreeSitterParser:
                 }
 
             tree = self.parser.parse(bytes(source_code, "utf8"))
+
+            # Extract namespace declaration for package_name (e.g. "com.ea.nucleus.billing")
+            namespace_match = re.search(r'\bnamespace\s+([\w.]+)', source_code)
+            package_name = namespace_match.group(1) if namespace_match else None
 
             parsed_functions = []
             parsed_classes = []
@@ -156,6 +162,7 @@ class CSharpTreeSitterParser:
                 "function_calls": parsed_calls,
                 "is_dependency": is_dependency,
                 "lang": self.language_name,
+                "package_name": package_name,
             }
 
         except Exception as e:
@@ -283,7 +290,13 @@ class CSharpTreeSitterParser:
                             # Parse base list: ": BaseClass, IInterface1, IInterface2"
                             bases_text = bases_text.strip().lstrip(':').strip()
                             if bases_text:
-                                bases = [b.strip() for b in bases_text.split(',')]
+                                raw_bases = [b.strip() for b in bases_text.split(',')]
+                                # records might have base calls like : Person(name, age)
+                                # we want just Person
+                                for rb in raw_bases:
+                                    base_name = rb.split('(')[0].strip()
+                                    if base_name:
+                                        bases.append(base_name)
                         
                         source_text = self._get_node_text(node)
                         
@@ -368,17 +381,28 @@ class CSharpTreeSitterParser:
         calls = []
         seen_calls = set()
         
+        # Build a map of node id to its full_name text
+        full_names = {}
+        for node, capture_name in captures:
+            if capture_name == "full_name":
+                full_names[node.id] = self._get_node_text(node)
+
         for node, capture_name in captures:
             if capture_name == "name":
                 try:
                     call_name = self._get_node_text(node)
                     line_number = node.start_point[0] + 1
                     
-                    # Avoid duplicates
+                    # Avoid duplicates at the same line for the same name
                     call_key = f"{call_name}_{line_number}"
                     if call_key in seen_calls:
                         continue
                     seen_calls.add(call_key)
+                    
+                    # Check if this name is part of a member_access_expression
+                    full_call_name = call_name
+                    if node.parent and node.parent.id in full_names:
+                        full_call_name = full_names[node.parent.id]
                     
                     # Get context
                     context_name, context_type, context_line = self._get_parent_context(node)
@@ -386,7 +410,7 @@ class CSharpTreeSitterParser:
 
                     call_data = {
                         "name": call_name,
-                        "full_name": call_name,
+                        "full_name": full_call_name,
                         "line_number": line_number,
                         "args": [],
                         "inferred_obj_type": None,
@@ -401,6 +425,7 @@ class CSharpTreeSitterParser:
                     continue
 
         return calls
+
     
 
     def _extract_parameters(self, params_node) -> list[str]:

@@ -2,9 +2,13 @@ import subprocess
 import shutil
 import os
 import json
+import shlex
+import sys
 import pytest
 import uuid
 import time
+import socket
+import re
 from pathlib import Path
 from pathspec import PathSpec
 
@@ -13,6 +17,20 @@ from codegraphcontext.tools.graph_builder import DEFAULT_IGNORE_PATTERNS
 
 # Use unique directory for EACH test run to avoid conflicts
 BASE_TEST_DIR = Path("/tmp/cgc_test")
+TEST_HOME = BASE_TEST_DIR / "_home"
+CGC_CMD = f"{shlex.quote(sys.executable)} -m codegraphcontext.cli.main"
+
+
+def _test_env():
+    """Run shell-based CGC tests against the current interpreter in an isolated HOME."""
+    TEST_HOME.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env["HOME"] = str(TEST_HOME)
+    env["DEFAULT_DATABASE"] = "falkordb"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # Ensure all current sys.path entries are in PYTHONPATH so dependencies and -m work
+    env["PYTHONPATH"] = os.pathsep.join(sys.path)
+    return env
 
 def get_unique_test_dir():
     """Generate unique test directory"""
@@ -21,8 +39,17 @@ def get_unique_test_dir():
 
 def run(cmd):
     """Run command and return output"""
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, env=_test_env())
     return result.stdout + result.stderr
+
+
+def _is_neo4j_reachable(host: str = "localhost", port: int = 7687, timeout: float = 1.0) -> bool:
+    """Return True when a local Neo4j bolt endpoint is reachable."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 def setup_test_dir(test_dir: Path):
     """Create clean test directory"""
@@ -34,7 +61,7 @@ def setup_test_dir(test_dir: Path):
 def clean_db_completely():
     """Completely clean the database"""
     # Delete ALL nodes
-    run('cgc query "MATCH (n) DETACH DELETE n"')
+    run(f'{CGC_CMD} query "MATCH (n) DETACH DELETE n"')
     time.sleep(1)  # Wait for DB to sync
 
 def delete_repo_from_db(repo_path: Path):
@@ -42,25 +69,25 @@ def delete_repo_from_db(repo_path: Path):
     path_str = str(repo_path.resolve())
     # Escape quotes properly for shell
     escaped_path = path_str.replace('"', '\\"')
-    run(f'cgc query "MATCH (r:Repository {{path: \\"{escaped_path}\\"}})-[:CONTAINS*]->(n) DETACH DELETE r, n"')
-    run(f'cgc query "MATCH (r:Repository {{path: \\"{escaped_path}\\"}}) DETACH DELETE r"')
+    run(f'{CGC_CMD} query "MATCH (r:Repository {{path: \\"{escaped_path}\\"}})-[:CONTAINS*]->(n) DETACH DELETE r, n"')
+    run(f'{CGC_CMD} query "MATCH (r:Repository {{path: \\"{escaped_path}\\"}}) DETACH DELETE r"')
 
 def index_repo(test_dir: Path):
     """Index the test repository"""
-    output = run(f"cgc index {test_dir}")
-    print(f"INDEX OUTPUT: {output[:500]}")  # Debug
+    output = run(f"{CGC_CMD} index {shlex.quote(str(test_dir))}")
+    print(f"INDEX OUTPUT: {output}")  # Show FULL output
     time.sleep(0.5)  # Wait for indexing to complete
     return output
 
 def query_all_files():
     """Query ALL files in database for debugging"""
-    output = run('cgc query "MATCH (f:File) RETURN f.name, f.path LIMIT 20"')
+    output = run(f'{CGC_CMD} query "MATCH (f:File) RETURN f.name, f.path LIMIT 20"')
     print(f"ALL FILES IN DB: {output}")
     return output
 
 def query_all_repos():
     """Query ALL repositories in database for debugging"""
-    output = run('cgc query "MATCH (r:Repository) RETURN r.name, r.path"')
+    output = run(f'{CGC_CMD} query "MATCH (r:Repository) RETURN r.name, r.path"')
     print(f"ALL REPOS IN DB: {output}")
     return output
 
@@ -73,7 +100,7 @@ def query_files_for_repo(test_dir: Path):
     
     # Use simpler query - match by repository name (folder name)
     repo_name = test_dir.name
-    output = run(f'cgc query "MATCH (r:Repository)-[:CONTAINS*]->(f:File) WHERE r.path CONTAINS \\"{repo_name}\\" RETURN f.name"')
+    output = run(f'{CGC_CMD} query "MATCH (r:Repository)-[:CONTAINS*]->(f:File) WHERE r.path CONTAINS \\"{repo_name}\\" RETURN f.name"')
     
     print(f"QUERY OUTPUT for {repo_name}: {output}")
     
@@ -176,8 +203,20 @@ def test_tc11_match_files_in_subdirectories():
 # ============================================================
 
 @pytest.fixture(autouse=True)
-def clean_before_integration_test():
-    """Clean database before each integration test"""
+def clean_before_integration_test(request):
+    """Prepare DB only for integration-style cases that require live cgc DB access."""
+    name = request.node.name
+    match = re.match(r"test_tc(\d+)_", name)
+    case_id = int(match.group(1)) if match else 0
+
+    # TC-12+ are integration tests that execute live `cgc` commands.
+    if case_id < 12:
+        yield
+        return
+
+    if not _is_neo4j_reachable():
+        pytest.skip("Neo4j is not reachable on localhost:7687; skipping live DB integration cases.")
+
     clean_db_completely()
     yield
     # Cleanup after test

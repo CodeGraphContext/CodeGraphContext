@@ -1,5 +1,26 @@
 {
+  "functions": {
+    "api/v1/query.ts": {
+      "maxDuration": 10
+    }
+  },
   "rewrites": [
+    {
+      "source": "/api/v1/query/:toolName",
+      "destination": "/api/v1/query?query_type=:toolName"
+    },
+    {
+      "source": "/api/v1/openapi.json",
+      "destination": "/api/v1/openapi.json"
+    },
+    {
+      "source": "/api/v1/mcp/:path*",
+      "destination": "/api/v1/mcp/:path*"
+    },
+    {
+      "source": "/api/github-zip/:owner/:repo/:branch",
+      "destination": "https://codeload.github.com/:owner/:repo/legacy.zip/:branch"
+    },
     {
       "source": "/api/pypi/:path*",
       "destination": "/api/pypi"

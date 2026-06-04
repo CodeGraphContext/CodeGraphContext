@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/ruby.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger, debug_logger
@@ -196,6 +197,19 @@ class RubyTreeSitterParser:
         modules = self._find_modules(root_node)
         module_inclusions = self._find_module_inclusions(root_node)
 
+        # Merge module inclusions into class bases for inheritance resolution
+        for inclusion in module_inclusions:
+            class_name = inclusion.get("class")
+            module_name = inclusion.get("module")
+            if class_name and module_name:
+                for cls in classes:
+                    if cls["name"] == class_name:
+                        if "bases" not in cls:
+                            cls["bases"] = []
+                        if module_name not in cls["bases"]:
+                            cls["bases"].append(module_name)
+                        break
+
         return {
             "path": str(path),
             "functions": functions,
@@ -253,6 +267,7 @@ class RubyTreeSitterParser:
                     "line_number": func_node.start_point[0] + 1,
                     "end_line": func_node.end_point[0] + 1,
                     "args": args,
+                    "class_context": class_context,
                     "lang": self.language_name,
                     "is_dependency": False,
                 }
@@ -296,8 +311,13 @@ class RubyTreeSitterParser:
             name = class_data['name']
             
             if name:
-                # Get superclass for inheritance (simplified)
+                # Get superclass for inheritance
                 bases = []
+                superclass_node = next((child for child in class_node.children if child.type == 'superclass'), None)
+                if superclass_node:
+                    for sub in superclass_node.children:
+                        if sub.type == 'constant':
+                            bases.append(self._get_node_text(sub))
 
                 # Get context and docstring
                 context, context_type, _ = self._get_parent_context(class_node)

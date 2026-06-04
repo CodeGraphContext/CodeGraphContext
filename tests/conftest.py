@@ -5,6 +5,18 @@ import os
 import shutil
 import tempfile
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--update-goldens",
+        action="store_true",
+        default=False,
+        help="Update the golden files with the new exported results."
+    )
+
+@pytest.fixture
+def update_goldens(request):
+    return request.config.getoption("--update-goldens")
+
 # Root of the test folder
 TEST_ROOT = Path(__file__).parent.absolute()
 FIXTURES_DIR = TEST_ROOT / "fixtures"

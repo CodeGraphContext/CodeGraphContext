@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/python.py
 import os
 import tempfile
 import nbformat
@@ -145,6 +146,7 @@ class PythonTreeSitterParser:
             classes = self._find_classes(root_node)
             imports = self._find_imports(root_node)
             function_calls = self._find_calls(root_node)
+            self._attach_module_context(functions, function_calls, root_node, index_source)
             variables = self._find_variables(root_node)
 
             return {
@@ -164,6 +166,41 @@ class PythonTreeSitterParser:
             if temp_py_file and temp_py_file.exists():
                 os.remove(temp_py_file)
                 info_logger(f"Removed temporary file: {temp_py_file}")
+
+    def _attach_module_context(self, functions, function_calls, root_node, index_source: bool = False):
+        """Represent module-level executable code as Python's <module> frame."""
+        module_level_calls = [
+            call for call in function_calls
+            if not call.get("context") or call["context"][0] is None
+        ]
+        if not module_level_calls:
+            return
+
+        has_module_frame = any(
+            func.get("name") == "<module>" and func.get("line_number") == 1
+            for func in functions
+        )
+        if not has_module_frame:
+            module_func = {
+                "name": "<module>",
+                "line_number": 1,
+                "end_line": root_node.end_point[0] + 1,
+                "args": [],
+                "cyclomatic_complexity": 1,
+                "context": None,
+                "context_type": "module",
+                "class_context": None,
+                "decorators": [],
+                "lang": self.language_name,
+                "is_dependency": False,
+            }
+            if index_source:
+                module_func["source"] = self._get_node_text(root_node)
+                module_func["docstring"] = self._get_docstring(root_node)
+            functions.append(module_func)
+
+        for call in module_level_calls:
+            call["context"] = ("<module>", "module", 1)
 
     def _find_lambda_assignments(self, root_node, index_source: bool = False):
         functions = []
@@ -216,7 +253,13 @@ class PythonTreeSitterParser:
                 params_node = func_node.child_by_field_name('parameters')
                 body_node = func_node.child_by_field_name('body')
                 
-                decorators = [self._get_node_text(child) for child in func_node.children if child.type == 'decorator']
+                # In tree-sitter-python, decorators are children of decorated_definition, which is the parent of function_definition
+                decorators = []
+                if func_node.parent and func_node.parent.type == 'decorated_definition':
+                    decorators = [self._get_node_text(child) for child in func_node.parent.children if child.type == 'decorator']
+                else:
+                    decorators = [self._get_node_text(child) for child in func_node.children if child.type == 'decorator']
+
 
                 context, context_type, _ = self._get_parent_context(func_node)
                 class_context, _, _ = self._get_parent_context(func_node, types=('class_definition',))

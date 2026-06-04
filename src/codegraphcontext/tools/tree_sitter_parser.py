@@ -1,9 +1,11 @@
+# src/codegraphcontext/tools/tree_sitter_parser.py
 """Tree-sitter parser dispatch by language name."""
 
 from pathlib import Path
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict
 
-from tree_sitter import Language, Parser
+if TYPE_CHECKING:
+    from tree_sitter import Language
 
 from ..utils.tree_sitter_manager import get_tree_sitter_manager
 
@@ -15,8 +17,8 @@ class TreeSitterParser:
         self.language_name = language_name
         self.ts_manager = get_tree_sitter_manager()
 
-        self.language: Language = self.ts_manager.get_language_safe(language_name)
-        self.parser = Parser(self.language)
+        self.language: "Language" = self.ts_manager.get_language_safe(language_name)
+        self.parser = self.ts_manager.create_parser(language_name)
 
         self.language_specific_parser = None
         if self.language_name == "python":
@@ -67,6 +69,10 @@ class TreeSitterParser:
             from .languages.php import PhpTreeSitterParser
 
             self.language_specific_parser = PhpTreeSitterParser(self)
+        elif self.language_name == "lua":
+            from .languages.lua import LuaTreeSitterParser
+
+            self.language_specific_parser = LuaTreeSitterParser(self)
         elif self.language_name == "kotlin":
             from .languages.kotlin import KotlinTreeSitterParser
 
@@ -95,6 +101,18 @@ class TreeSitterParser:
             from .languages.elixir import ElixirTreeSitterParser
 
             self.language_specific_parser = ElixirTreeSitterParser(self)
+        elif self.language_name == "elisp":
+            from .languages.elisp import ElispTreeSitterParser
+
+            self.language_specific_parser = ElispTreeSitterParser(self)
+        elif self.language_name == "html":
+            from .languages.html import HTMLTreeSitterParser
+
+            self.language_specific_parser = HTMLTreeSitterParser(self)
+        elif self.language_name == "css":
+            from .languages.css import CSSTreeSitterParser
+
+            self.language_specific_parser = CSSTreeSitterParser(self)
 
     def parse(self, path: Path, is_dependency: bool = False, **kwargs) -> Dict:
         """Dispatches parsing to the language-specific parser."""

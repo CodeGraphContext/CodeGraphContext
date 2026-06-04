@@ -1,0 +1,10 @@
+{
+  "cgc_version": "0.1.0",
+  "exported_at": "2026-05-19T02:33:29.921892",
+  "format_version": "1.0",
+  "repo": "sample_project_csharp",
+  "repo_path": "/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project_csharp",
+  "is_dependency": false,
+  "commit": "0c6be239",
+  "languages": []
+}

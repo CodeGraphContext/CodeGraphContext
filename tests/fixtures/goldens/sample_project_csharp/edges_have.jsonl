@@ -1,0 +1,212 @@
+{"from": "0", "to": "1", "type": "CONTAINS", "properties": {}}
+{"from": "0", "to": "5", "type": "CONTAINS", "properties": {}}
+{"from": "0", "to": "47", "type": "CONTAINS", "properties": {}}
+{"from": "0", "to": "110", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "2", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "3", "type": "CONTAINS", "properties": {}}
+{"from": "1", "to": "9", "type": "CONTAINS", "properties": {}}
+{"from": "2", "to": "3", "type": "CALLS", "properties": {"line_number": 14, "args": [], "full_call_name": "PartialDefinition", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "4", "to": "11", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "12", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "13", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "14", "type": "CONTAINS", "properties": {}}
+{"from": "4", "to": "48", "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "imported_name": "System.Collections.Generic", "full_import_name": "System.Collections.Generic"}}
+{"from": "4", "to": "49", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "System.Linq", "full_import_name": "System.Linq"}}
+{"from": "4", "to": "50", "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "System", "full_import_name": "System"}}
+{"from": "5", "to": "6", "type": "CONTAINS", "properties": {}}
+{"from": "6", "to": "7", "type": "CONTAINS", "properties": {}}
+{"from": "6", "to": "8", "type": "CONTAINS", "properties": {}}
+{"from": "6", "to": "15", "type": "CONTAINS", "properties": {}}
+{"from": "6", "to": "25", "type": "CONTAINS", "properties": {}}
+{"from": "6", "to": "30", "type": "CONTAINS", "properties": {}}
+{"from": "6", "to": "54", "type": "CONTAINS", "properties": {}}
+{"from": "6", "to": "81", "type": "CONTAINS", "properties": {}}
+{"from": "7", "to": "16", "type": "CONTAINS", "properties": {}}
+{"from": "7", "to": "17", "type": "CONTAINS", "properties": {}}
+{"from": "7", "to": "18", "type": "CONTAINS", "properties": {}}
+{"from": "7", "to": "19", "type": "CONTAINS", "properties": {}}
+{"from": "7", "to": "28", "type": "CONTAINS", "properties": {}}
+{"from": "7", "to": "29", "type": "CONTAINS", "properties": {}}
+{"from": "8", "to": "4", "type": "CONTAINS", "properties": {}}
+{"from": "8", "to": "41", "type": "CONTAINS", "properties": {}}
+{"from": "9", "to": "2", "type": "CONTAINS", "properties": {}}
+{"from": "9", "to": "3", "type": "CONTAINS", "properties": {}}
+{"from": "10", "to": "26", "type": "CONTAINS", "properties": {}}
+{"from": "10", "to": "27", "type": "CONTAINS", "properties": {}}
+{"from": "10", "to": "31", "type": "CONTAINS", "properties": {}}
+{"from": "10", "to": "32", "type": "CONTAINS", "properties": {}}
+{"from": "10", "to": "38", "type": "CONTAINS", "properties": {}}
+{"from": "10", "to": "39", "type": "CONTAINS", "properties": {}}
+{"from": "10", "to": "40", "type": "CONTAINS", "properties": {}}
+{"from": "10", "to": "50", "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "System", "full_import_name": "System"}}
+{"from": "11", "to": "20", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "12", "to": "21", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "13", "to": "22", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "14", "to": "11", "type": "CONTAINS", "properties": {}}
+{"from": "14", "to": "12", "type": "CONTAINS", "properties": {}}
+{"from": "14", "to": "13", "type": "CONTAINS", "properties": {}}
+{"from": "15", "to": "10", "type": "CONTAINS", "properties": {}}
+{"from": "16", "to": "34", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "16", "to": "35", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "17", "to": "28", "type": "CALLS", "properties": {"line_number": 17, "args": [], "full_call_name": "InnerClass", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "17", "to": "36", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "19", "to": "37", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "25", "to": "33", "type": "CONTAINS", "properties": {}}
+{"from": "25", "to": "42", "type": "CONTAINS", "properties": {}}
+{"from": "25", "to": "48", "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "imported_name": "System.Collections.Generic", "full_import_name": "System.Collections.Generic"}}
+{"from": "25", "to": "50", "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "System", "full_import_name": "System"}}
+{"from": "25", "to": "67", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "Example.App.Models", "full_import_name": "Example.App.Models"}}
+{"from": "25", "to": "68", "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "imported_name": "Example.App.Utils", "full_import_name": "Example.App.Utils"}}
+{"from": "25", "to": "69", "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "imported_name": "Example.App.Services", "full_import_name": "Example.App.Services"}}
+{"from": "26", "to": "43", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "27", "to": "44", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "28", "to": "16", "type": "CONTAINS", "properties": {}}
+{"from": "28", "to": "18", "type": "CONTAINS", "properties": {}}
+{"from": "29", "to": "17", "type": "CONTAINS", "properties": {}}
+{"from": "29", "to": "19", "type": "CONTAINS", "properties": {}}
+{"from": "30", "to": "23", "type": "CONTAINS", "properties": {}}
+{"from": "30", "to": "24", "type": "CONTAINS", "properties": {}}
+{"from": "30", "to": "97", "type": "CONTAINS", "properties": {}}
+{"from": "31", "to": "26", "type": "CONTAINS", "properties": {}}
+{"from": "32", "to": "27", "type": "CONTAINS", "properties": {}}
+{"from": "33", "to": "13", "type": "CALLS", "properties": {"line_number": 28, "args": [], "full_call_name": "CollectionHelper.SumOfSquares", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "33", "to": "29", "type": "CALLS", "properties": {"line_number": 43, "args": [], "full_call_name": "OuterClass", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "33", "to": "46", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "33", "to": "53", "type": "CALLS", "properties": {"line_number": 34, "args": [], "full_call_name": "FileHelper.ReadFirstLine", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "33", "to": "91", "type": "CALLS", "properties": {"line_number": 17, "args": [], "full_call_name": "GreetingService", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "33", "to": "128", "type": "CALLS", "properties": {"line_number": 20, "args": [], "full_call_name": "User", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": "41", "to": "50", "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "System", "full_import_name": "System"}}
+{"from": "41", "to": "51", "type": "CONTAINS", "properties": {}}
+{"from": "41", "to": "52", "type": "CONTAINS", "properties": {}}
+{"from": "41", "to": "53", "type": "CONTAINS", "properties": {}}
+{"from": "41", "to": "55", "type": "CONTAINS", "properties": {}}
+{"from": "41", "to": "78", "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "imported_name": "System.IO", "full_import_name": "System.IO"}}
+{"from": "42", "to": "33", "type": "CONTAINS", "properties": {}}
+{"from": "45", "to": "50", "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "System", "full_import_name": "System"}}
+{"from": "45", "to": "56", "type": "CONTAINS", "properties": {}}
+{"from": "45", "to": "57", "type": "CONTAINS", "properties": {}}
+{"from": "45", "to": "58", "type": "CONTAINS", "properties": {}}
+{"from": "45", "to": "59", "type": "CONTAINS", "properties": {}}
+{"from": "45", "to": "60", "type": "CONTAINS", "properties": {}}
+{"from": "45", "to": "65", "type": "CONTAINS", "properties": {}}
+{"from": "45", "to": "66", "type": "CONTAINS", "properties": {}}
+{"from": "45", "to": "70", "type": "CONTAINS", "properties": {}}
+{"from": "45", "to": "71", "type": "CONTAINS", "properties": {}}
+{"from": "45", "to": "72", "type": "CONTAINS", "properties": {}}
+{"from": "45", "to": "73", "type": "CONTAINS", "properties": {}}
+{"from": "51", "to": "61", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "51", "to": "62", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "52", "to": "63", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "53", "to": "64", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "54", "to": "45", "type": "CONTAINS", "properties": {}}
+{"from": "54", "to": "101", "type": "CONTAINS", "properties": {}}
+{"from": "54", "to": "104", "type": "CONTAINS", "properties": {}}
+{"from": "54", "to": "120", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "51", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "52", "type": "CONTAINS", "properties": {}}
+{"from": "55", "to": "53", "type": "CONTAINS", "properties": {}}
+{"from": "57", "to": "74", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "57", "to": "75", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "60", "to": "76", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "60", "to": "77", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "65", "to": "57", "type": "CONTAINS", "properties": {}}
+{"from": "65", "to": "58", "type": "CONTAINS", "properties": {}}
+{"from": "66", "to": "56", "type": "CONTAINS", "properties": {}}
+{"from": "66", "to": "59", "type": "CONTAINS", "properties": {}}
+{"from": "66", "to": "60", "type": "CONTAINS", "properties": {}}
+{"from": "79", "to": "50", "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "System", "full_import_name": "System"}}
+{"from": "79", "to": "83", "type": "CONTAINS", "properties": {}}
+{"from": "79", "to": "84", "type": "CONTAINS", "properties": {}}
+{"from": "79", "to": "85", "type": "CONTAINS", "properties": {}}
+{"from": "79", "to": "92", "type": "CONTAINS", "properties": {}}
+{"from": "79", "to": "102", "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "imported_name": "Example.App.Attributes", "full_import_name": "Example.App.Attributes"}}
+{"from": "80", "to": "50", "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "System", "full_import_name": "System"}}
+{"from": "80", "to": "67", "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "imported_name": "Example.App.Models", "full_import_name": "Example.App.Models"}}
+{"from": "80", "to": "86", "type": "CONTAINS", "properties": {}}
+{"from": "80", "to": "87", "type": "CONTAINS", "properties": {}}
+{"from": "80", "to": "88", "type": "CONTAINS", "properties": {}}
+{"from": "80", "to": "89", "type": "CONTAINS", "properties": {}}
+{"from": "80", "to": "90", "type": "CONTAINS", "properties": {}}
+{"from": "80", "to": "91", "type": "CONTAINS", "properties": {}}
+{"from": "81", "to": "79", "type": "CONTAINS", "properties": {}}
+{"from": "81", "to": "80", "type": "CONTAINS", "properties": {}}
+{"from": "81", "to": "109", "type": "CONTAINS", "properties": {}}
+{"from": "82", "to": "50", "type": "IMPORTS", "properties": {"line_number": 10, "alias": "", "imported_name": "System", "full_import_name": "System"}}
+{"from": "82", "to": "100", "type": "IMPORTS", "properties": {"line_number": 11, "alias": "", "imported_name": "System.Reflection", "full_import_name": "System.Reflection"}}
+{"from": "86", "to": "93", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "87", "to": "88", "type": "CALLS", "properties": {"line_number": 29, "args": [], "full_call_name": "FormatGreeting", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "87", "to": "94", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "88", "to": "89", "type": "CALLS", "properties": {"line_number": 34, "args": [], "full_call_name": "GetRolePrefix", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "88", "to": "95", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "89", "to": "96", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "91", "to": "86", "type": "CONTAINS", "properties": {}}
+{"from": "91", "to": "87", "type": "CONTAINS", "properties": {}}
+{"from": "91", "to": "88", "type": "CONTAINS", "properties": {}}
+{"from": "91", "to": "89", "type": "CONTAINS", "properties": {}}
+{"from": "91", "to": "90", "type": "CONTAINS", "properties": {}}
+{"from": "91", "to": "134", "type": "INHERITS", "properties": {}}
+{"from": "92", "to": "83", "type": "CONTAINS", "properties": {}}
+{"from": "92", "to": "84", "type": "CONTAINS", "properties": {}}
+{"from": "92", "to": "85", "type": "CONTAINS", "properties": {}}
+{"from": "97", "to": "98", "type": "CONTAINS", "properties": {}}
+{"from": "98", "to": "82", "type": "CONTAINS", "properties": {}}
+{"from": "98", "to": "99", "type": "CONTAINS", "properties": {}}
+{"from": "98", "to": "103", "type": "CONTAINS", "properties": {}}
+{"from": "99", "to": "50", "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "imported_name": "System", "full_import_name": "System"}}
+{"from": "99", "to": "100", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "System.Reflection", "full_import_name": "System.Reflection"}}
+{"from": "101", "to": "50", "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "System", "full_import_name": "System"}}
+{"from": "101", "to": "105", "type": "CONTAINS", "properties": {}}
+{"from": "101", "to": "106", "type": "CONTAINS", "properties": {}}
+{"from": "101", "to": "107", "type": "CONTAINS", "properties": {}}
+{"from": "101", "to": "108", "type": "CONTAINS", "properties": {}}
+{"from": "101", "to": "111", "type": "CONTAINS", "properties": {}}
+{"from": "103", "to": "48", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "System.Collections.Generic", "full_import_name": "System.Collections.Generic"}}
+{"from": "103", "to": "49", "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "imported_name": "System.Linq", "full_import_name": "System.Linq"}}
+{"from": "103", "to": "50", "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "imported_name": "System", "full_import_name": "System"}}
+{"from": "103", "to": "78", "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "imported_name": "System.IO", "full_import_name": "System.IO"}}
+{"from": "103", "to": "129", "type": "IMPORTS", "properties": {"line_number": 8, "alias": "", "imported_name": "System.Threading.Tasks", "full_import_name": "System.Threading.Tasks"}}
+{"from": "103", "to": "130", "type": "IMPORTS", "properties": {"line_number": 7, "alias": "", "imported_name": "System.Threading", "full_import_name": "System.Threading"}}
+{"from": "103", "to": "131", "type": "IMPORTS", "properties": {"line_number": 6, "alias": "", "imported_name": "System.Net.Http", "full_import_name": "System.Net.Http"}}
+{"from": "104", "to": "112", "type": "CONTAINS", "properties": {}}
+{"from": "104", "to": "113", "type": "CONTAINS", "properties": {}}
+{"from": "104", "to": "128", "type": "CONTAINS", "properties": {}}
+{"from": "104", "to": "136", "type": "CONTAINS", "properties": {}}
+{"from": "104", "to": "137", "type": "CONTAINS", "properties": {}}
+{"from": "107", "to": "105", "type": "CONTAINS", "properties": {}}
+{"from": "107", "to": "108", "type": "INHERITS", "properties": {}}
+{"from": "108", "to": "106", "type": "CONTAINS", "properties": {}}
+{"from": "109", "to": "67", "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "Example.App.Models", "full_import_name": "Example.App.Models"}}
+{"from": "109", "to": "127", "type": "CONTAINS", "properties": {}}
+{"from": "109", "to": "134", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "48", "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "imported_name": "System.Collections.Generic", "full_import_name": "System.Collections.Generic"}}
+{"from": "110", "to": "50", "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "System", "full_import_name": "System"}}
+{"from": "110", "to": "114", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "115", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "116", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "117", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "118", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "119", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "121", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "122", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "123", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "124", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "125", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "126", "type": "CONTAINS", "properties": {}}
+{"from": "110", "to": "129", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "System.Threading.Tasks", "full_import_name": "System.Threading.Tasks"}}
+{"from": "113", "to": "139", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "113", "to": "140", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "114", "to": "116", "type": "CALLS", "properties": {"line_number": 60, "args": [], "full_call_name": "FetchDataAsync", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "115", "to": "117", "type": "CALLS", "properties": {"line_number": 43, "args": [], "full_call_name": "i.ToSlug", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": "115", "to": "132", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "117", "to": "133", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "120", "to": "135", "type": "CONTAINS", "properties": {}}
+{"from": "122", "to": "115", "type": "CONTAINS", "properties": {}}
+{"from": "123", "to": "117", "type": "CONTAINS", "properties": {}}
+{"from": "125", "to": "114", "type": "CONTAINS", "properties": {}}
+{"from": "125", "to": "116", "type": "CONTAINS", "properties": {}}
+{"from": "126", "to": "118", "type": "CONTAINS", "properties": {}}
+{"from": "126", "to": "119", "type": "CONTAINS", "properties": {}}
+{"from": "127", "to": "138", "type": "HAS_PARAMETER", "properties": {}}
+{"from": "128", "to": "112", "type": "CONTAINS", "properties": {}}
+{"from": "128", "to": "113", "type": "CONTAINS", "properties": {}}
+{"from": "134", "to": "127", "type": "CONTAINS", "properties": {}}

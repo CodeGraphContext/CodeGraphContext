@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/perl.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, List
 import logging
@@ -126,6 +127,19 @@ class PerlTreeSitterParser:
         seen_nodes = set()
         query_str = PERL_QUERIES['functions']
         
+        # Pre-scan for package statements to associate functions with packages
+        packages = []
+        pkg_query = PERL_QUERIES['classes']
+        for pkg_node, _ in execute_query(self.language, pkg_query, root_node):
+            name_node = pkg_node.child_by_field_name('name')
+            if name_node:
+                packages.append({
+                    "name": self._get_node_text(name_node),
+                    "line": pkg_node.start_point[0] + 1
+                })
+        # Sort by line number
+        packages.sort(key=lambda x: x['line'])
+
         for node, capture_name in execute_query(self.language, query_str, root_node):
             if capture_name == "function_node":
                 node_id = (node.start_byte, node.end_byte)
@@ -137,17 +151,26 @@ class PerlTreeSitterParser:
                 
                 name = self._get_node_text(name_node)
                 body_node = node.child_by_field_name('body')
+                line_num = node.start_point[0] + 1
 
-                context, context_type, context_line = self._get_parent_context(node)
+                # Find the package that contains this function (last one before it)
+                current_package = None
+                current_package_line = -1
+                for pkg in packages:
+                    if pkg['line'] <= line_num:
+                        current_package = pkg['name']
+                        current_package_line = pkg['line']
+                    else:
+                        break
                 
                 func_data = {
                     "name": name,
-                    "line_number": node.start_point[0] + 1,
+                    "line_number": line_num,
                     "end_line": node.end_point[0] + 1,
                     "args": [], # Perl args are dynamic, usually @_ processing
                     "cyclomatic_complexity": self._calculate_complexity(body_node) if body_node else 1,
-                    "context": context,
-                    "context_type": context_type,
+                    "class_context": current_package,
+                    "class_context_line": current_package_line,
                     "lang": self.language_name,
                     "is_dependency": False,
                 }

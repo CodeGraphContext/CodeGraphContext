@@ -244,7 +244,7 @@ const InstallationSection = () => {
             <div className="mt-3 mb-6">
 
 
-              <a href="https://codegraphcontext.github.io/CodeGraphContext/cli/" target="_blank" rel="noopener noreferrer" className="underline text-primary font-medium">
+              <a href="https://codegraphcontext.github.io/cli/" target="_blank" rel="noopener noreferrer" className="underline text-primary font-medium">
                 See the full CLI Commands Guide for all available commands and usage scenarios.
               </a>
             </div>
@@ -296,7 +296,7 @@ const InstallationSection = () => {
                 </div>
               </CardContent>
               <div className="mt-3 mb-6">
-                <a href="https://codegraphcontext.github.io/CodeGraphContext/cookbook/" target="_blank" rel="noopener noreferrer" className="underline text-primary font-medium">
+                <a href="https://codegraphcontext.github.io/cookbook/" target="_blank" rel="noopener noreferrer" className="underline text-primary font-medium">
                   Now interact with your codebase through your AI assistant using natural language! See full cookbook.
                 </a>
               </div>

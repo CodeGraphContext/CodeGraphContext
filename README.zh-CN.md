@@ -8,7 +8,7 @@
 - 🇰🇷 [한국어](README.kor.md)
 - 🇺🇦 [Українська](README.uk.md)
 - 🇷🇺 [Русский](README.ru-RU.md)
-- 🇯🇵 日本語 (即将推出)
+- 🇯🇵 [日本語](README.ja.md)
 - 🇪🇸 Español (即将推出)
 
 🌍 **帮助我们将 CodeGraphContext 翻译成您的语言！**
@@ -97,7 +97,7 @@
 ---
 
 ## 项目详情
-- **版本:** 0.4.2
+- **版本:** 0.4.13
 - **作者:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **许可证:** MIT License (详见 [LICENSE](LICENSE))
 - **网站:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
@@ -180,12 +180,12 @@ _如果你正在项目中使用 CodeGraphContext，欢迎提交 PR 并添加到�
 - `neo4j>=5.15.0`
 - `watchdog>=3.0.0`
 - `stdlibs>=2023.11.18`
-- `typer[all]>=0.9.0`
+- `typer>=0.9.0`
 - `rich>=13.7.0`
 - `inquirerpy>=0.3.7`
 - `python-dotenv>=1.0.0`
-- `tree-sitter>=0.21.0`
-- `tree-sitter-language-pack>=0.6.0`
+- `tree-sitter>=0.21.0`（Python 3.13 不安装）
+- `tree-sitter-language-pack>=0.6.0`（Python 3.13 不安装）
 - `pyyaml`
 - `pytest`
 - `nbformat`

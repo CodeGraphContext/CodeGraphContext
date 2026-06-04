@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/go.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
@@ -165,14 +166,14 @@ class GoTreeSitterParser:
 
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict:
         """Parses a file and returns its structure in a standardized dictionary format."""
-        # This method orchestrates the parsing of a single file.
-        # It calls specialized `_find_*` methods for each language construct.
-        # The returned dictionary should map a specific key (e.g., 'functions', 'interfaces')
-        # to a list of dictionaries, where each dictionary represents a single code construct.
-        # The GraphBuilder will then use these keys to create nodes with corresponding labels.
         self.index_source = index_source
         with open(path, "r", encoding="utf-8") as f:
             source_code = f.read()
+
+        # Extract Go package declaration for package_name field on File nodes
+        import re as _re
+        pkg_match = _re.search(r'^\s*package\s+(\w+)', source_code, _re.MULTILINE)
+        package_name = pkg_match.group(1) if pkg_match else None
 
         tree = self.parser.parse(bytes(source_code, "utf8"))
         root_node = tree.root_node
@@ -187,13 +188,14 @@ class GoTreeSitterParser:
         return {
             "path": str(path),
             "functions": functions,
-            "classes": structs,
+            "structs": structs,
             "interfaces": interfaces,
             "variables": variables,
             "imports": imports,
             "function_calls": function_calls,
             "is_dependency": is_dependency,
             "lang": self.language_name,
+            "package_name": package_name,
         }
 
     def _find_functions(self, root_node):
@@ -338,11 +340,71 @@ class GoTreeSitterParser:
                 struct_node = self._find_type_declaration_for_name(node)
                 if struct_node:
                     name = self._get_node_text(node)
+                    
+                    # Find embedded fields as bases
+                    bases = []
+                    # In tree-sitter-go, type_declaration usually has a type_spec child
+                    type_spec = None
+                    for child in struct_node.children:
+                        if child.type == 'type_spec':
+                            type_spec = child
+                            break
+                    
+                    if type_spec:
+                        struct_body = None
+                        for child in type_spec.children:
+                            if child.type == 'struct_type':
+                                struct_body = child
+                                break
+                        
+                        if struct_body:
+                            # Find field_declaration_list
+                            field_list = None
+                            for child in struct_body.children:
+                                if child.type == 'field_declaration_list':
+                                    field_list = child
+                                    break
+                            
+                            if field_list:
+                                for field in field_list.children:
+                                    if field.type == 'field_declaration':
+                                        # Check if it's an embedded field (no name/identifier)
+                                        has_field_name = False
+                                        for fchild in field.children:
+                                            if fchild.type in ('field_identifier', 'field_identifier_list'):
+                                                has_field_name = True
+                                                break
+                                        
+                                        if not has_field_name:
+                                            # It's an embedded field. Find the type node.
+                                            type_node = None
+                                            for fchild in field.children:
+                                                if fchild.type in ('type_identifier', 'pointer_type', 'qualified_type'):
+                                                    type_node = fchild
+                                                    break
+                                            
+                                            if type_node:
+                                                if type_node.type == 'pointer_type':
+                                                    inner = type_node.child_by_field_name('content') or type_node.named_child(0)
+                                                    type_text = self._get_node_text(inner) if inner else self._get_node_text(type_node).strip('*')
+                                                elif type_node.type == 'qualified_type':
+                                                    name_child = type_node.child_by_field_name('name')
+                                                    type_text = self._get_node_text(name_child) if name_child else self._get_node_text(type_node).split('.')[-1]
+                                                else:
+                                                    type_text = self._get_node_text(type_node)
+                                                
+                                                bases.append(type_text)
+
+
+
+
+
+
                     class_data = {
                         "name": name,
                         "line_number": struct_node.start_point[0] + 1,
                         "end_line": struct_node.end_point[0] + 1,
-                        "bases": [],
+                        "bases": bases,
                         "decorators": [],
                         "lang": self.language_name,
                         "is_dependency": False,
@@ -353,6 +415,7 @@ class GoTreeSitterParser:
 
                     structs.append(class_data)
         return structs
+
 
     def _find_interfaces(self, root_node):
         interfaces = []

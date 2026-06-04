@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/scala.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, List
 import re
@@ -101,14 +102,14 @@ class ScalaTreeSitterParser:
             # Separate classes, traits, objects
             final_classes = []
             final_traits = []
+            final_objects = []
             
             for item in parsed_classes:
                 item_type = item.get('type', 'class')
                 if item_type == 'trait':
                      final_traits.append(item)
                 elif item_type == 'object':
-                     item['is_object'] = True
-                     final_classes.append(item)
+                     final_objects.append(item)
                 else:
                      final_classes.append(item)
 
@@ -117,6 +118,7 @@ class ScalaTreeSitterParser:
                 "functions": parsed_functions,
                 "classes": final_classes,
                 "traits": final_traits,
+                "objects": final_objects,
                 "variables": parsed_variables,
                 "imports": parsed_imports,
                 "function_calls": parsed_calls,
@@ -243,12 +245,23 @@ class ScalaTreeSitterParser:
                                 break
                         
                         if extends_clause:
+                             # The extends_clause can contain: extends (keyword), type_identifier, generic_type, with (keyword), etc.
+                             # We want all types mentioned here.
+                             def collect_types(node):
+                                 if node.type in ("type_identifier", "user_type", "simple_type"):
+                                     bases.append(self._get_node_text(node))
+                                 elif node.type == "generic_type":
+                                     # generic_type -> type_identifier, type_arguments
+                                     for sub in node.children:
+                                         if sub.type == "type_identifier":
+                                             bases.append(self._get_node_text(sub))
+                                             break
+                                 elif node.type == "template_invocation":
+                                      for sub in node.children:
+                                          collect_types(sub)
+                             
                              for child in extends_clause.children:
-                                 if child.type == "type_identifier" or child.type == "user_type": # specific to scala grammar
-                                     bases.append(self._get_node_text(child))
-                                 elif child.type == "template_invocation":
-                                      # template_invocation -> user_type
-                                      pass 
+                                 collect_types(child)
 
                         # Note: parsing bases in Scala can be complex (mixins with 'with' keyword).
                         # Using text based regex backup might be safer for now if tree query is hard.

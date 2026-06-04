@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/query_tool_languages/haskell_toolkit.py
 class HaskellToolkit:
     """ Template placeholder for future implementation."""
     

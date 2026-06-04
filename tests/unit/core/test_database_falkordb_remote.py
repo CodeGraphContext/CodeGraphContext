@@ -1,5 +1,7 @@
 
 import os
+import sys
+import types
 import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
 
@@ -117,7 +119,8 @@ class TestFalkorDBRemoteManager:
             mock_falkordb_cls.return_value = mock_db_instance
             mock_db_instance.select_graph.return_value = mock_graph
 
-            with patch('falkordb.FalkorDB', mock_falkordb_cls):
+            fake_falkordb_module = types.SimpleNamespace(FalkorDB=mock_falkordb_cls)
+            with patch.dict(sys.modules, {'falkordb': fake_falkordb_module}):
                 driver_wrapper = manager.get_driver()
 
             mock_falkordb_cls.assert_called_once_with(
@@ -151,7 +154,8 @@ class TestFalkorDBRemoteManager:
             mock_falkordb_cls.return_value = mock_db
             mock_db.select_graph.return_value = mock_graph
 
-            with patch('falkordb.FalkorDB', mock_falkordb_cls):
+            fake_falkordb_module = types.SimpleNamespace(FalkorDB=mock_falkordb_cls)
+            with patch.dict(sys.modules, {'falkordb': fake_falkordb_module}):
                 manager.get_driver()
 
             # Should NOT include password, username, or ssl
@@ -177,7 +181,8 @@ class TestFalkorDBRemoteManager:
             mock_falkordb_cls.return_value = mock_db
             mock_db.select_graph.return_value = mock_graph
 
-            with patch('falkordb.FalkorDB', mock_falkordb_cls):
+            fake_falkordb_module = types.SimpleNamespace(FalkorDB=mock_falkordb_cls)
+            with patch.dict(sys.modules, {'falkordb': fake_falkordb_module}):
                 d1 = manager.get_driver()
                 d2 = manager.get_driver()
 
