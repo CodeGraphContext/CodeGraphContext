@@ -548,7 +548,7 @@ def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):
             return _FakeSession()
 
     class _FakeManager:
-        def get_driver(self):
+        def get_driver(self, graph_name=None):
             return _FakeDriver()
 
         def close_driver(self):
