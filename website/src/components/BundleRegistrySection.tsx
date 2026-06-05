@@ -240,9 +240,9 @@ const BundleRegistrySection = () => {
                             <Package className="w-4 h-4 mr-2" />
                             Bundle Registry
                         </Badge>
-                        <h2 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
-                            Pre-indexed CGC Bundles
-                        </h2>
+                    <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold bg-gradient-to-r from-primary to-indigo-500 bg-clip-text text-transparent">
+                     Pre-indexed CGC Bundles
+                       </h2>
                         <p className="text-muted-foreground mt-2 max-w-xl">
                             Browse and download pre-compiled context bundles for popular repositories. Or search servers and community contributions.
                         </p>
@@ -252,7 +252,7 @@ const BundleRegistrySection = () => {
                         <Button 
                             variant="outline" 
                             size="sm" 
-                            className="w-full sm:w-auto border-white/10 text-white hover:bg-white/5 hover:border-white/20 transition-all duration-300"
+                            className="w-full sm:w-auto border-white/10 text-foreground hover:bg-white/5 hover:border-white/20 transition-all duration-300"
                             onClick={handleShareRegistry}
                         >
                             <Share2 className="w-4 h-4 mr-2 text-indigo-400" />
@@ -308,16 +308,16 @@ const BundleRegistrySection = () => {
                 )}
 
                 {/* Search and Filters */}
-                <div className="mb-8 space-y-4" data-aos="fade-up">
+                <div className="mb-10 space-y-5" data-aos="fade-up">
                     <div className="relative">
                         <Search className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
                         <Input
-                            placeholder="Search bundles by name, repository, or description..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-10"
-                        />
-                    </div>
+                           placeholder="Search bundles by name, repository, or description..."
+                           value={searchQuery}
+                           onChange={(e) => setSearchQuery(e.target.value)}
+                           className="pl-10 h-12 rounded-xl shadow-sm border-border/60 focus-visible:ring-2 focus-visible:ring-primary/30"
+/>
+</div>
 
                     {/* Category Tabs */}
                     <Tabs value={selectedCategory} onValueChange={setSelectedCategory}>
@@ -326,7 +326,7 @@ const BundleRegistrySection = () => {
                                 <TabsTrigger 
                                     key={category.id} 
                                     value={category.id}
-                                    className="py-2 px-4 text-xs font-semibold rounded-lg transition-all duration-300 data-[state=active]:bg-gradient-to-br data-[state=active]:from-purple-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:shadow-md text-gray-600 dark:text-gray-400 hover:text-white"
+                                    className="py-2 px-4 text-xs font-semibold rounded-lg transition-all duration-300 data-[state=active]:bg-gradient-to-br data-[state=active]:from-purple-500 data-[state=active]:to-indigo-600 data-[state=active] text-foreground data-[state=active]:shadow-md text-gray-600 dark:text-gray-400 hover:text-foreground"
                                 >
                                     {category.label}
                                 </TabsTrigger>
@@ -346,7 +346,7 @@ const BundleRegistrySection = () => {
                 {/* Bundle Grid */}
                 {!loading && filteredBundles.length === 0 && (
                     <div className="text-center py-20">
-                        <Package className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
+                        <Package className="h-20 w-20 mx-auto text-primary/60 mb-5" />
                         <p className="text-xl text-muted-foreground">No bundles found</p>
                         <p className="text-sm text-muted-foreground mt-2">
                             Try adjusting your search or filters
@@ -369,14 +369,13 @@ const BundleRegistrySection = () => {
                                 <div
                                     key={`${bundle.repo}-${index}`}
                                     className="h-full"
-                                >
-                                    <Card
-                                        className="h-full hover:shadow-lg transition-all duration-300 hover:scale-[1.01] border border-white/10 dark:border-white/20 bg-black/40 backdrop-blur-xl shadow-xl flex flex-col justify-between"
-                                    >
+                                ><Card
+                                 className="h-full hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 border border-white/10 dark:border-white/20 bg-card backdrop-blur-xl shadow-xl flex flex-col justify-between"
+                                  >
                                         <CardHeader className="pb-4">
                                             <div className="flex items-start justify-between">
                                                 <div className="flex-1 min-w-0">
-                                                    <CardTitle className="text-lg text-white font-bold truncate">{bundle.name}</CardTitle>
+                                                    <CardTitle className="text-lg text-foreground font-bold truncate">{bundle.name}</CardTitle>
                                                     <CardDescription className="text-xs mt-1 truncate">
                                                         <a
                                                             href={`https://github.com/${bundle.repo}`}
@@ -390,16 +389,19 @@ const BundleRegistrySection = () => {
                                                     </CardDescription>
                                                 </div>
                                                 {bundle.category && (
-                                                    <Badge variant="outline" className="ml-2 shrink-0 border-white/10 text-gray-300 bg-white/5">
-                                                        {bundle.category}
-                                                    </Badge>
+                                                    <Badge
+                                                     variant="outline"
+                                                     className="ml-2 shrink-0 border-border text-foreground bg-muted/40"
+                                                          >
+                                                             {bundle.category}
+                                                              </Badge>
                                                 )}
                                             </div>
                                         </CardHeader>
                                         <CardContent className="space-y-4 pt-0">
                                             {/* Description */}
                                             {bundle.description ? (
-                                                <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 h-8">
+                                             <p className="text-xs text-muted-foreground line-clamp-2 h-8">
                                                     {bundle.description}
                                                 </p>
                                             ) : (
@@ -407,7 +409,7 @@ const BundleRegistrySection = () => {
                                             )}
 
                                             {/* Stats */}
-                                            <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-600 dark:text-gray-400 font-mono">
+                                            <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground font-mono">
                                                 {bundle.stars ? (
                                                     <div className="flex items-center gap-1">
                                                         <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400/20" />
@@ -429,7 +431,12 @@ const BundleRegistrySection = () => {
                                             {/* Version Info */}
                                             <div className="flex gap-2 text-[10px]">
                                                 {bundle.version && (
-                                                    <Badge variant="secondary" className="bg-white/10 text-gray-300 hover:bg-white/20 border-0">v{bundle.version}</Badge>
+                                                     <Badge
+                                                     variant="secondary"
+                                                     className="bg-muted text-foreground border-0"
+                                                        >
+                                                        v{bundle.version}
+                                                        </Badge>
                                                 )}
                                                 <a href={`https://github.com/${bundle.repo}/commit/${bundle.commit}`}
                                                     target="_blank"
@@ -438,7 +445,7 @@ const BundleRegistrySection = () => {
                                                 >
                                                     <Badge
                                                         variant="secondary"
-                                                        className="font-mono cursor-pointer bg-white/10 text-gray-300 hover:bg-white/20 border-0"
+                                                             className="font-mono cursor-pointer bg-muted text-foreground hover:bg-muted/80 border-0"
                                                     >
                                                         {bundle.commit?.slice(0, 7) || 'unknown'}
                                                         <ExternalLink className="h-2.5 w-2.5 ml-1" />
@@ -448,7 +455,7 @@ const BundleRegistrySection = () => {
 
                                             {/* Action Buttons */}
                                             <div className="flex gap-2.5 w-full pt-2">
-                                                <Button className="flex-1 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white shadow-md border-0 text-xs py-2 rounded-lg" asChild>
+                                                <Button className="flex-1 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-foreground shadow-md border-0 text-xs py-2 rounded-lg" asChild>
                                                     <a href={`/explore?bundle_url=${encodeURIComponent(bundle.download_url)}`}>
                                                         <img src="/cgcIcon.png" alt="CGC" className="w-4 h-4 mr-1.5 shrink-0" />
                                                         Visualize
@@ -456,7 +463,7 @@ const BundleRegistrySection = () => {
                                                 </Button>
                                                 <Button 
                                                     variant="outline" 
-                                                    className="flex-1 text-xs py-2 rounded-lg bg-black/20 border-white/10 text-white hover:bg-white/5"
+                                                    className="flex-1 text-xs py-2 rounded-lg bg-muted border-border text-foreground hover:bg-white/5"
                                                     onClick={() => handleDownloadBundle(bundle.download_url, bundle.bundle_name || `${bundle.name}.cgc`)}
                                                     disabled={downloadingUrls[bundle.download_url]}
                                                 >
@@ -470,7 +477,7 @@ const BundleRegistrySection = () => {
                                             </div>
 
                                             {/* Usage Hint */}
-                                            <div className="bg-black/40 border border-white/5 p-2 rounded-lg text-[10px] font-mono flex items-center justify-between gap-2 group/code">
+                                            <div className="bg-muted/40 border border-border/40 p-2 rounded-lg text-[10px] font-mono flex items-center justify-between gap-2 group/code">
                                                 <span className="flex-1 truncate text-gray-600 dark:text-gray-400">
                                                     cgc load {bundle.bundle_name || `${bundle.name}-${bundle.version || 'latest'}.cgc`}
                                                 </span>
@@ -486,7 +493,7 @@ const BundleRegistrySection = () => {
                                                     {copiedBundleIndex === index ? (
                                                         <Check className="w-3.5 h-3.5 text-green-400" />
                                                     ) : (
-                                                        <Copy className="w-3.5 h-3.5 text-gray-600 dark:text-gray-500 group-hover/code:text-white" />
+                                                        <Copy className="w-3.5 h-3.5 text-gray-600 dark:text-gray-500 group-hover/code:text-foreground" />
                                                     )}
                                                 </button>
                                             </div>

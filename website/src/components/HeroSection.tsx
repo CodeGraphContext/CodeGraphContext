@@ -215,21 +215,21 @@ const HeroSection = () => {
                 placeholder="https://github.com/owner/repo"
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}
-                className="bg-black/40 border-white/10 text-white placeholder-gray-500 rounded-xl py-5"
+                className="bg-black/40 border-white/10 text-foreground placeholder-gray-500 rounded-xl py-5"
                 onKeyDown={(e) => e.key === "Enter" && handleGenerateBundle()}
               />
               {/* Live Completion Notification Notice */}
               <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3.5 flex items-start gap-2.5">
                 <Sparkles className="w-5 h-5 text-purple-400 shrink-0 mt-0.5 animate-pulse" />
-                <div className="text-[11px] text-gray-300 leading-relaxed">
-                  <span className="font-bold text-white block mb-0.5">Live Completion Alert</span>
+                <div className="text-[11px] text-gray-600 leading-relaxed">
+                  <span className="font-bold text-foreground block mb-0.5">Live Completion Alert</span>
                   If you wish to get a live browser alert for completion, keep this tab open. CodeGraphContext will notify you the moment your CodeGraph is generated successfully.
                 </div>
               </div>
 
               <Button
                 onClick={handleGenerateBundle}
-                className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-xl py-6 font-semibold"
+                className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-foreground rounded-xl py-6 font-semibold"
               >
                 <Package className="mr-2 h-4 w-4" />
                 Generate Bundle
@@ -254,7 +254,7 @@ const HeroSection = () => {
         return (
           <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-4 relative z-10">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
                 <Clock className="h-4 w-4 text-blue-400 animate-pulse" />
                 Generating Bundle
               </div>
@@ -300,7 +300,7 @@ const HeroSection = () => {
             )}
 
             <div className="flex gap-2">
-              <Button asChild size="sm" className="flex-1 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg">
+              <Button asChild size="sm" className="flex-1 bg-gradient-to-r from-blue-500 to-indigo-600 text-foreground rounded-lg">
                 <a href={`/explore?bundle_url=${encodeURIComponent(generationStatus.download_url)}`}>
                   <img src="/cgcIcon.png" alt="CGC" className="w-4 h-4 mr-2" />
                   Visualize
@@ -387,19 +387,19 @@ const HeroSection = () => {
             
             {/* LEFT COLUMN: Interactive Indexer Widget */}
             <div className="lg:col-span-6 w-full flex justify-center lg:justify-end animate-float-up" data-aos="fade-right">
-              <div className="w-full max-w-lg p-6 sm:p-8 border border-white/10 dark:border-white/20 rounded-[2rem] bg-black/40 backdrop-blur-xl shadow-2xl relative overflow-hidden flex flex-col min-h-[500px]">
+              <div className="w-full max-w-lg p-6 sm:p-8 border border-slate-200 dark:border-white/20 rounded-[2rem] bg-white/90 dark:bg-black/40 backdrop-blur-lg shadow-xl">
                 
                 {/* Segmented controls */}
                 <div className="grid grid-cols-2 bg-white/5 p-1.5 rounded-2xl mb-6 relative z-10 w-full shadow-inner border border-white/5 gap-1.5">
                   <button 
                     onClick={() => setActiveTab('client')} 
-                    className={`py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'client' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}
+                    className={`py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'client' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-foreground shadow-lg' : 'text-gray-400 hover:text-foreground hover:bg-white/10'}`}
                   >
                     Client-Based Indexer
                   </button>
                   <button 
                     onClick={() => setActiveTab('server')} 
-                    className={`py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'server' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}
+                    className={`py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'server' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-foreground shadow-lg' : 'text-gray-400 hover:text-foreground hover:bg-white/10'}`}
                   >
                     Server-Based Indexer
                   </button>
@@ -409,7 +409,9 @@ const HeroSection = () => {
                 {activeTab === 'client' ? (
                   <div className="w-full text-left flex-1 flex flex-col relative z-10">
                     <div className="mb-4">
-                      <h4 className="text-sm font-bold text-white mb-1">⚡ Fast & Local Indexing</h4>
+                    <h4 className="text-sm font-bold text-muted-foreground mb-1">
+                    ⚡ Fast & Local Indexing
+                        </h4>
                       <p className="text-[11px] text-gray-400">Instantly parse repository files directly in-browser. 100% private.</p>
                     </div>
                     <LocalUploader onComplete={setGraphData} plain={true} />
@@ -417,7 +419,7 @@ const HeroSection = () => {
                 ) : (
                   <div className="w-full text-left flex-1 flex flex-col justify-start relative z-10">
                     <div className="mb-4">
-                      <h4 className="text-sm font-bold text-white mb-1">🔮 Deep Cloud Indexing</h4>
+                      <h4 className="text-sm font-bold text-foreground mb-1">🔮 Deep Cloud Indexing</h4>
                       <p className="text-[11px] text-gray-400">Run a remote build via GitHub Actions for larger repositories.</p>
                     </div>
                     {renderServerStatusContent()}
@@ -431,8 +433,9 @@ const HeroSection = () => {
 
             {/* RIGHT COLUMN: Value Proposition & Commands */}
             <div className="lg:col-span-6 flex flex-col justify-center text-left" data-aos="fade-left">
+
               <div className="flex mb-6">
-                <Badge variant="secondary" className="text-sm font-medium px-4 py-1.5 shadow-sm bg-white/50 backdrop-blur dark:bg-white/10">
+                <Badge variant="secondary" className="text-sm font-medium px-4 py-1.5 shadow-sm bg-white border border-slate-200 shadow-sm dark:bg-white/10">
                   <div className="w-2.5 h-2.5 bg-accent rounded-full mr-2.5 animate-graph-pulse" />
                   Version {version} &bull; MIT License
                 </Badge>
@@ -440,11 +443,11 @@ const HeroSection = () => {
 
 
 
-              <h1 className="inline-block w-max whitespace-nowrap text-3xl sm:text-4xl md:text-5xl lg:text-5xl xl:text-6xl 2xl:text-7xl font-bold pr-2 mb-6 bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-900 dark:bg-gradient-primary bg-clip-text py-2 text-transparent leading-tight tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.15)]">
+              <h1 className="inline-block w-max whitespace-nowrap text-4xl sm:text-5xl md:text-6xl lg:text-6xl xl:text-7xl 2xl:text-7xl font-bold pr-2 mb-6 bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-900 dark:bg-gradient-primary bg-clip-text py-2 text-transparent leading-tight tracking-tight">
                 CodeGraphContext
               </h1>
 
-              <p className="text-xl md:text-2xl text-muted-foreground mb-3 leading-relaxed max-w-2xl">
+              <p className="text-lg md:text-xl lg:text-2xl text-slate-700 dark:text-slate-300">
                 A powerful CLI toolkit &amp; MCP server that indexes local code into a
               </p>
               <p className="text-xl md:text-2xl text-accent font-semibold mb-6 sm:mb-10">
@@ -454,7 +457,7 @@ const HeroSection = () => {
               <div className="flex flex-col sm:flex-row gap-4 items-start mb-6 sm:mb-12">
                 <Button 
                   size="lg" 
-                  className="bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-800 text-primary-foreground hover:opacity-90 transition-all duration-300 shadow-glow ring-1 ring-primary/20 dark:bg-gradient-primary cursor-pointer w-full sm:w-auto min-w-[280px] h-14 text-lg rounded-xl"
+                  className="bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-800 text-primary-foreground hover:scale-[1.02] hover:shadow-xl transition-all duration-300 shadow-glow ring-1 ring-primary/20 dark:bg-gradient-primary cursor-pointer w-full sm:w-auto min-w-[280px] h-14 text-lg rounded-xl"
                   onClick={handleCopy}
                   title="Click to copy install command"
                 >
@@ -471,7 +474,7 @@ const HeroSection = () => {
                     <a href="https://github.com/CodeGraphContext/CodeGraphContext" target="_blank" rel="noopener noreferrer">
                       <Github className="mr-2 h-5 w-5" />
                       GitHub
-                      <ExternalLink className="ml-2 h-4 w-4 text-muted-foreground" />
+                      <ExternalLink className="ml-2 h-4 w-4 " />
                     </a>
                   </Button>
                   <Button variant="outline" size="lg" asChild className={`${OUTLINE_BUTTON_CLASSES} h-14 rounded-xl`}>

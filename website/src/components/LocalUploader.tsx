@@ -453,14 +453,14 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
   };
 
   return (
-    <div className={plain ? "flex flex-col w-full h-full relative z-10" : "flex flex-col p-6 w-full h-full min-h-[400px] border border-white/10 dark:border-white/20 rounded-[2rem] bg-black/40 backdrop-blur-xl shadow-2xl relative overflow-hidden"}>
+    <div className={plain ? "flex flex-col w-full h-full relative z-10" : "flex flex-col p-6 w-full h-full min-h-[400px] border border-white/10 dark:border-white/20 rounded-[2rem] bg-card backdrop-blur-xl shadow-2xl relative overflow-hidden"}>
       
       {/* Tab Selectors */}
       <div className="grid grid-cols-2 sm:flex bg-white/5 p-1.5 rounded-2xl mb-6 relative z-10 w-full shadow-inner border border-white/5 gap-1.5 sm:gap-2">
-        <button onClick={() => setActiveTab('folder')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'folder' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>Folder</button>
-        <button onClick={() => setActiveTab('zip')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'zip' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>ZIP</button>
-        <button onClick={() => setActiveTab('cgc')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'cgc' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>CGC Bundle</button>
-        <button onClick={() => setActiveTab('github')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'github' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>GitHub</button>
+        <button onClick={() => setActiveTab('folder')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'folder' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-foreground shadow-lg' : 'text-gray-400 hover:text-foreground hover:bg-white/10'}`}>Folder</button>
+        <button onClick={() => setActiveTab('zip')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'zip' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-foreground shadow-lg' : 'text-gray-400 hover:text-foreground hover:bg-white/10'}`}>ZIP</button>
+        <button onClick={() => setActiveTab('cgc')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'cgc' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-foreground shadow-lg' : 'text-gray-400 hover:text-foreground hover:bg-white/10'}`}>CGC Bundle</button>
+        <button onClick={() => setActiveTab('github')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'github' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-foreground shadow-lg' : 'text-gray-400 hover:text-foreground hover:bg-white/10'}`}>GitHub</button>
       </div>
 
 
@@ -471,9 +471,9 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
           {activeTab === 'folder' && (
             <motion.div key="folder" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center w-full">
 
-              <h3 className="text-2xl font-bold mb-2 text-white">Select Directory</h3>
+              <h3 className="text-2xl font-bold mb-2 text-foreground">Select Directory</h3>
               <p className="text-gray-400 text-sm mb-8 max-w-[250px]">Select a local folder. Visualized locally in the browser.</p>
-              <Button onClick={handleFolderSelect} className="bg-white text-black hover:bg-gray-200 rounded-full px-10 py-6 text-lg w-full max-w-[280px] shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+              <Button onClick={handleFolderSelect} className="bg-white text-foreground hover:bg-gray-200 rounded-full px-10 py-6 text-lg w-full max-w-[280px] shadow-[0_0_20px_rgba(255,255,255,0.1)]">
                 Browse Files
               </Button>
             </motion.div>
@@ -482,10 +482,10 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
           {activeTab === 'zip' && (
             <motion.div key="zip" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center w-full">
 
-              <h3 className="text-2xl font-bold mb-2 text-white">Upload ZIP</h3>
+              <h3 className="text-2xl font-bold mb-2 text-foreground">Upload ZIP</h3>
               <p className="text-gray-400 text-sm mb-8 max-w-[250px]">Drop a compressed repository. Unzipped and parsed securely in memory.</p>
               <div className="relative w-full max-w-[280px]">
-                <Button className="bg-white text-black relative cursor-pointer hover:bg-gray-200 rounded-full px-10 py-6 text-lg w-full shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+                <Button className="bg-white text-foreground relative cursor-pointer hover:bg-gray-200 rounded-full px-10 py-6 text-lg w-full shadow-[0_0_20px_rgba(255,255,255,0.1)]">
                   Select ZIP Archive
                   <input type="file" accept=".zip" onChange={handleZipUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                 </Button>
@@ -496,10 +496,10 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
           {activeTab === 'cgc' && (
             <motion.div key="cgc" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center w-full">
 
-              <h3 className="text-2xl font-bold mb-2 text-white">Upload CGC Bundle</h3>
+              <h3 className="text-2xl font-bold mb-2 text-foreground">Upload CGC Bundle</h3>
               <p className="text-gray-400 text-sm mb-8 max-w-[250px]">Drop a .cgc pre-indexed bundle file. Loaded instantly in-memory.</p>
               <div className="relative w-full max-w-[280px]">
-                <Button className="bg-white text-black relative cursor-pointer hover:bg-gray-200 rounded-full px-10 py-6 text-lg w-full shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+                <Button className="bg-white text-foreground relative cursor-pointer hover:bg-gray-200 rounded-full px-10 py-6 text-lg w-full shadow-[0_0_20px_rgba(255,255,255,0.1)]">
                   Select CGC Bundle
                   <input type="file" accept=".cgc" onChange={handleCgcUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                 </Button>
@@ -510,7 +510,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
           {activeTab === 'github' && (
             <motion.div key="github" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center w-full">
 
-              <h3 className="text-2xl font-bold mb-2 text-white">Fetch Repository</h3>
+              <h3 className="text-2xl font-bold mb-2 text-foreground">Fetch Repository</h3>
               <p className="text-gray-400 text-sm mb-6 max-w-[250px]">Pull raw files from a GitHub repository.</p>
               
               <div className="w-full space-y-3 mb-4">
@@ -519,7 +519,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                   placeholder="https://github.com/facebook/react" 
                   value={githubUrl}
                   onChange={e => setGithubUrl(e.target.value)}
-                  className="w-full bg-black/40 border border-white/20 text-white placeholder-gray-500 px-5 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-sm"
+                  className="w-full bg-card border border-white/20 text-foreground placeholder-gray-500 px-5 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-sm"
                 />
                 
                 <input 
@@ -535,11 +535,11 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                       localStorage.removeItem('github_pat');
                     }
                   }}
-                  className="w-full bg-black/40 border border-white/20 text-white placeholder-gray-500 px-5 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-sm"
+                  className="w-full bg-card border border-white/20 text-foreground placeholder-gray-500 px-5 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-sm"
                 />
               </div>
               
-              <Button onClick={handleGithubFetch} className="bg-white hover:bg-gray-200 text-black w-full rounded-xl py-6 text-lg font-semibold shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+              <Button onClick={handleGithubFetch} className="bg-white hover:bg-gray-200 text-foreground w-full rounded-xl py-6 text-lg font-semibold shadow-[0_0_20px_rgba(255,255,255,0.1)]">
                 Scan & Visualize
               </Button>
             </motion.div>
@@ -549,7 +549,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
           <button 
             type="button"
             onClick={() => setIsConfigOpen(true)}
-            className="mt-8 flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-gray-400 hover:text-white transition-all cursor-pointer group"
+            className="mt-8 flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-gray-400 hover:text-foreground transition-all cursor-pointer group"
           >
             <Settings className="w-3.5 h-3.5 group-hover:rotate-45 transition-transform duration-300 text-purple-400" />
             <span>Configure Indexer Settings ⚙️</span>
@@ -558,8 +558,8 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
         </div>
       ) : (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center flex-1 w-full px-4 relative z-10">
-          <Loader2 className="w-14 h-14 text-white animate-spin mb-6 drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" />
-          <h3 className="text-lg font-medium text-white mb-4 text-center">{progress.text}</h3>
+          <Loader2 className="w-14 h-14 text-foreground animate-spin mb-6 drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" />
+          <h3 className="text-lg font-medium text-foreground mb-4 text-center">{progress.text}</h3>
           
           <div className="w-full bg-gray-800 rounded-full h-2 mt-2 overflow-hidden shadow-inner border border-white/5">
             <div 
@@ -599,11 +599,11 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                 <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
                   <div className="flex items-center gap-2">
                     <Settings className="w-5 h-5 text-purple-400 animate-pulse" />
-                    <h3 className="text-lg font-bold text-white tracking-wide">Indexer Configuration</h3>
+                    <h3 className="text-lg font-bold text-foreground tracking-wide">Indexer Configuration</h3>
                   </div>
                   <button 
                     onClick={() => setIsConfigOpen(false)} 
-                    className="p-1.5 rounded-full bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
+                    className="p-1.5 rounded-full bg-white/5 text-gray-400 hover:text-foreground hover:bg-white/10 transition-all cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -615,7 +615,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                   {/* 1. Index High-Fidelity Variables */}
                   <div className="flex items-start gap-3 justify-between">
                     <div className="flex-1">
-                      <label className="text-sm font-semibold text-white block mb-0.5">
+                      <label className="text-sm font-semibold text-foreground block mb-0.5">
                         Index High-Fidelity Variables
                       </label>
                       <span className="text-[11px] text-gray-400 leading-normal block">
@@ -633,7 +633,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                   {/* 2. Skip Tests & Configuration folders */}
                   <div className="flex items-start gap-3 justify-between">
                     <div className="flex-1">
-                      <label className="text-sm font-semibold text-white block mb-0.5">
+                      <label className="text-sm font-semibold text-foreground block mb-0.5">
                         Exclude Spec & Test Suites
                       </label>
                       <span className="text-[11px] text-gray-400 leading-normal block">
@@ -651,7 +651,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                   {/* 3. Max Graph Nodes */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center">
-                      <label className="text-sm font-semibold text-white">
+                      <label className="text-sm font-semibold text-foreground">
                         Maximum Graph Nodes
                       </label>
                       <span className="text-xs font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
@@ -675,7 +675,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                   {/* 4. Max Graph Edges */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center">
-                      <label className="text-sm font-semibold text-white">
+                      <label className="text-sm font-semibold text-foreground">
                         Maximum Call / Import Edges
                       </label>
                       <span className="text-xs font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
@@ -710,13 +710,13 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                       });
                     }} 
                     variant="outline"
-                    className="flex-1 bg-transparent hover:bg-white/5 text-gray-300 hover:text-white border-white/10 rounded-xl py-5 cursor-pointer"
+                    className="flex-1 bg-transparent hover:bg-white/5 text-muted-foreground hover:text-foreground border-white/10 rounded-xl py-5 cursor-pointer"
                   >
                     Reset Defaults
                   </Button>
                   <Button 
                     onClick={() => setIsConfigOpen(false)} 
-                    className="flex-1 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-xl py-5 shadow-lg cursor-pointer"
+                    className="flex-1 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-foreground rounded-xl py-5 shadow-lg cursor-pointer"
                   >
                     Apply Settings
                   </Button>

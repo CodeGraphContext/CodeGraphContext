@@ -109,7 +109,7 @@ const Navbar: React.FC = () => {
                 <Github className="w-5 h-5" />
               </a>
               <Link to="/explore">
-                <button className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-bold text-[10px] sm:text-xs md:text-sm px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-full flex items-center gap-1 shadow-[0_0_15px_rgba(59,130,246,0.35)] border-none transition-all duration-300 hover:scale-105">
+                <button className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-foreground font-bold text-[10px] sm:text-xs md:text-sm px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-full flex items-center gap-1 shadow-[0_0_15px_rgba(59,130,246,0.35)] border-none transition-all duration-300 hover:scale-105">
                   <span className="hidden sm:inline">Launch Explorer</span>
                   <span className="sm:hidden">Explore</span>
                   <Sparkles className="w-3.5 h-3.5" />
@@ -118,7 +118,7 @@ const Navbar: React.FC = () => {
             </>
           ) : (
             <Link to="/">
-              <button className="border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-white font-bold text-xs md:text-sm px-4 py-2 rounded-full flex items-center gap-1.5 transition-all duration-300">
+              <button className="border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-foreground font-bold text-xs md:text-sm px-4 py-2 rounded-full flex items-center gap-1.5 transition-all duration-300">
                 <ArrowLeft className="w-4 h-4" /> Back to Home
               </button>
             </Link>
@@ -128,7 +128,7 @@ const Navbar: React.FC = () => {
           {isLandingPage && (
             <button
               onClick={() => setIsOpen(!isOpen)}
-              className="lg:hidden p-2 rounded-full hover:bg-white/5 text-muted-foreground hover:text-white transition-colors duration-200 shrink-0"
+              className="lg:hidden p-2 rounded-full hover:bg-white/5 text-muted-foreground hover:text-foreground transition-colors duration-200 shrink-0"
               title="More Options"
             >
               {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -151,7 +151,7 @@ const Navbar: React.FC = () => {
               <li key={link.label}>
                 <a
                   href={link.href}
-                  className="block px-4 py-3 rounded-2xl hover:bg-white/5 hover:text-white transition-all duration-200"
+                  className="block px-4 py-3 rounded-2xl hover:bg-white/5 hover:text-foreground transition-all duration-200"
                   onClick={(e) => {
                     setIsOpen(false);
                     handleScroll(e);
