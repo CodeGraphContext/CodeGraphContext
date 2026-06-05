@@ -220,7 +220,25 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
 
 ---
 
+## 📋 Prerequisites
+
+Before installing CodeGraphContext, make sure you have:
+
+- Python 3.10 or higher
+- pip installed
+- Git installed (recommended)
+
+Verify installation:
+
+```bash
+python --version
+pip --version
+git --version
+```
+---
+
 ### 🚀 Installation & Quick Start
+
 
 1.  **Install the toolkit:**
     ```bash
@@ -240,9 +258,41 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
     - **Neo4j:** Run `codegraphcontext neo4j setup` to use an external server.
 
 ---
+## 🌱 How to Run CodeGraphContext Locally
+
+Follow these steps to start using CodeGraphContext:
+
+### Step 1: Install
+
+```bash
+pip install codegraphcontext
+```
+
+### Step 2: Move to your project
+
+```bash
+cd my-project
+```
+
+### Step 3: Index the project
+```bash
+codegraphcontext index .
+```
+
+### Step 4: List all indexed repositories
+```bash
+codegraphcontext list
+```
+
+### Step 5: Analyze who calls a function
+```bash
+codegraphcontext analyze callers my_function
+```
+You have successfully started using CodeGraphContext.
+
+---
 
 ### For CLI Toolkit Mode
-
 **Start using immediately with CLI commands:**
 ```bash
 # Index your current directory
