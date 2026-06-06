@@ -387,7 +387,7 @@ const HeroSection = () => {
             
             {/* LEFT COLUMN: Interactive Indexer Widget */}
             <div className="lg:col-span-6 w-full flex justify-center lg:justify-end animate-float-up" data-aos="fade-right">
-              <div className="w-full max-w-lg p-6 sm:p-8 border border-white/10 dark:border-white/20 rounded-[2rem] bg-black/40 backdrop-blur-xl shadow-2xl relative overflow-hidden flex flex-col min-h-[500px]">
+              <div className="w-full max-w-lg p-6 sm:p-8 border border-white/10 dark:border-white/20 rounded-[2rem] bg-black/40 backdrop-blur-md shadow-lg relative overflow-hidden flex flex-col min-h-[500px]">
                 
                 {/* Segmented controls */}
                 <div className="grid grid-cols-2 bg-white/5 p-1.5 rounded-2xl mb-6 relative z-10 w-full shadow-inner border border-white/5 gap-1.5">
@@ -425,7 +425,7 @@ const HeroSection = () => {
                 )}
 
                 {/* Decorative Blob */}
-                <div className="absolute -bottom-32 -right-32 w-80 h-80 bg-purple-600/15 blur-3xl rounded-full z-0 pointer-events-none"></div>
+                <div className="absolute -bottom-32 -right-32 w-80 h-80 bg-purple-600/15 blur-xl rounded-full z-0 pointer-events-none"></div>
               </div>
             </div>
 

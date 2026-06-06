@@ -23,7 +23,7 @@ const Navbar: React.FC = () => {
   return (
     <nav className="fixed top-3 md:top-5 left-1/2 transform -translate-x-1/2 z-50 w-[94vw] max-w-6xl select-none">
       <div
-        className="rounded-full backdrop-blur-2xl border px-4 md:px-6 py-2 flex items-center justify-between"
+        className="rounded-full backdrop-blur-2md border px-4 md:px-6 py-2 flex items-center justify-between"
         style={{
           background: 'linear-gradient(to bottom, hsl(var(--card) / 0.7), hsl(var(--graph-node-1) / 0.15))',
           borderColor: 'rgba(255, 255, 255, 0.08)',
@@ -139,7 +139,7 @@ const Navbar: React.FC = () => {
 
       {/* Mobile Menu Dropdown Panel */}
       {isOpen && isLandingPage && (
-        <div className="lg:hidden mt-2 w-full rounded-3xl border border-white/10 bg-black/85 backdrop-blur-2xl p-4 shadow-2xl flex flex-col gap-1.5 animate-in slide-in-from-top-3 duration-300">
+        <div className="lg:hidden mt-2 w-full rounded-3xl border border-white/10 bg-black/85 backdrop-blur-md p-4 shadow-lg flex flex-col gap-1.5 animate-in slide-in-from-top-3 duration-300">
           <ul className="flex flex-col gap-1.5 text-sm font-semibold text-gray-300">
             {[
               { label: "Features", href: "#features" },

@@ -178,7 +178,7 @@ body {
   }
 
   .animate-graph-pulse {
-    animation: graph-pulse 2s ease-in-out infinite;
+    animation: graph-pulse 8s ease-in-out infinite;
   }
 
   .animate-float-up {
@@ -186,7 +186,7 @@ body {
   }
 
   .animate-code-highlight {
-    animation: code-highlight 2s ease-in-out infinite;
+    animation: code-highlight 4s ease-in-out infinite;
   }
 
   /* Orbiting circles animation (Tailwind v3 friendly) */

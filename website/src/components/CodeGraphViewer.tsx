@@ -1630,7 +1630,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -8, scale: 0.96 }}
                     transition={{ duration: 0.15 }}
-                    className={`absolute right-0 top-full mt-2 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden min-w-[200px] py-1.5 z-[100] flex flex-col ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
+                    className={`absolute right-0 top-full mt-2 backdrop-blur-md border rounded-2xl shadow-lg overflow-hidden min-w-[200px] py-1.5 z-[100] flex flex-col ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
                   >
                     {/* Export HTML Button */}
                     <button
@@ -2443,7 +2443,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
 
       {/* Already Pre-indexed Bundle Warning Dialog */}
       <AlertDialog open={showWarningAlert} onOpenChange={setShowWarningAlert}>
-        <AlertDialogContent className="bg-zinc-950 border border-zinc-800 text-zinc-100 max-w-md rounded-3xl shadow-2xl p-6 relative overflow-hidden backdrop-blur-2xl">
+        <AlertDialogContent className="bg-zinc-950 border border-zinc-800 text-zinc-100 max-w-md rounded-3xl shadow-2xl p-6 relative overflow-hidden ">
           {/* Subtle top glow bar */}
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500" />
           
