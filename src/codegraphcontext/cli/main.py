@@ -22,6 +22,7 @@ from pathlib import Path
 from importlib.metadata import version as pkg_version, PackageNotFoundError
 
 from codegraphcontext.server import MCPServer
+from codegraphcontext.tools.agent_graph_builder import build_agent_graph
 from .setup_wizard import run_neo4j_setup_wizard, configure_mcp_client
 from . import config_manager
 # Import the new helper functions
@@ -81,6 +82,21 @@ app = typer.Typer(
     add_completion=True,
 )
 console = Console(stderr=True)
+
+# Agent graph command group for lightweight project-local context artifacts
+agent_graph_app = typer.Typer(help="Build lightweight .agent context graph artifacts")
+app.add_typer(agent_graph_app, name="agent-graph")
+
+
+@agent_graph_app.command("build")
+def agent_graph_build(
+    path: str = typer.Argument(".", help="Project root to scan for agent graph artifacts")
+):
+    """Build .agent graph outputs for safe agent task startup."""
+    root = Path(path).resolve()
+    code = build_agent_graph(root)
+    if code != 0:
+        raise typer.Exit(code=code)
 
 # Configure basic logging for the application.
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')

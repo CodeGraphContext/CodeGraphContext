@@ -478,3 +478,11 @@ Please see our [CONTRIBUTING.md](.github/CONTRIBUTING.md) for detailed guideline
 If you have ideas for new features, integrations, or improvements, open an [issue](https://github.com/CodeGraphContext/CodeGraphContext/issues) or submit a Pull Request.
 
 Join discussions and help shape the future of CodeGraphContext.
+
+## Agent Context Graph Command
+
+Build lightweight project-local agent context artifacts:
+
+- cgc agent-graph build`n- python scripts/build_agent_graph.py`n
+This command generates .agent/graph/code_graph.json, .agent/graph/code_graph.md, .agent/graph/code_graph.mmd, .agent/graph/code_graph.dot, .agent/context_index.md, .agent/README.md, and .agent/work_notes/README.md.
+
