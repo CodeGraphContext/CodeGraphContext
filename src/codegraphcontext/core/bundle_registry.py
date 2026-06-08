@@ -7,6 +7,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class RegistryUnavailableError(RuntimeError):
+    """Raised when the remote bundle registry cannot be reached."""
+
+
 def _github_headers() -> dict:
     """Return GitHub API headers, including auth token if available."""
     import os
@@ -35,8 +39,8 @@ class BundleRegistry:
         Preserves all versions - no deduplication.
         """
         all_bundles = []
-        
-        # 1. Fetch on-demand bundles from manifest
+        fetch_errors: list[str] = []
+
         try:
             response = requests.get(_get_manifest_url(), headers=_github_headers(), timeout=10)
             if response.status_code == 200:
@@ -44,12 +48,17 @@ class BundleRegistry:
                 if manifest.get('bundles'):
                     for bundle in manifest['bundles']:
                         bundle['source'] = 'on-demand'
-                        # Ensure bundle has a full_name field (with version info)
                         if 'bundle_name' in bundle:
-                            # Extract full name without .cgc extension
                             bundle['full_name'] = bundle['bundle_name'].replace('.cgc', '')
                         all_bundles.append(bundle)
+            else:
+                fetch_errors.append(
+                    f"registry manifest returned HTTP {response.status_code}"
+                )
+        except requests.RequestException as e:
+            fetch_errors.append(f"network error: {e}")
         except Exception as e:
+            fetch_errors.append(str(e))
             logger.warning(f"Could not fetch on-demand bundles from manifest: {e}")
         # Normalize all bundles to have required fields
         for bundle in all_bundles:
@@ -67,6 +76,11 @@ class BundleRegistry:
             if 'full_name' not in bundle:
                 bundle['full_name'] = bundle.get('bundle_name', bundle.get('name', 'unknown')).replace('.cgc', '')
         
+        if not all_bundles and fetch_errors:
+            raise RegistryUnavailableError(
+                "Bundle registry is unreachable (internet connection required). "
+                + "; ".join(fetch_errors)
+            )
         return all_bundles
 
     @staticmethod

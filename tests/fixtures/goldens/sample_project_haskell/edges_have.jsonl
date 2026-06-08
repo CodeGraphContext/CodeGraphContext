@@ -1,50 +1,50 @@
-{"from": "0", "to": "2", "type": "CONTAINS", "properties": {}}
-{"from": "0", "to": "10", "type": "CONTAINS", "properties": {}}
-{"from": "1", "to": "3", "type": "CONTAINS", "properties": {}}
-{"from": "1", "to": "4", "type": "CONTAINS", "properties": {}}
-{"from": "1", "to": "5", "type": "CONTAINS", "properties": {}}
-{"from": "1", "to": "8", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "Types", "full_import_name": "Types"}}
-{"from": "2", "to": "1", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "7", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "15", "type": "CONTAINS", "properties": {}}
-{"from": "3", "to": "6", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "7", "to": "9", "type": "CONTAINS", "properties": {}}
-{"from": "7", "to": "11", "type": "CONTAINS", "properties": {}}
-{"from": "7", "to": "12", "type": "CONTAINS", "properties": {}}
-{"from": "7", "to": "16", "type": "CONTAINS", "properties": {}}
-{"from": "7", "to": "17", "type": "CONTAINS", "properties": {}}
-{"from": "9", "to": "19", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "10", "to": "8", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "Types", "full_import_name": "Types"}}
-{"from": "10", "to": "13", "type": "CONTAINS", "properties": {}}
-{"from": "10", "to": "14", "type": "CONTAINS", "properties": {}}
-{"from": "10", "to": "18", "type": "CONTAINS", "properties": {}}
-{"from": "10", "to": "20", "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "imported_name": "Utils", "full_import_name": "Utils"}}
-{"from": "11", "to": "9", "type": "CONTAINS", "properties": {}}
-{"from": "14", "to": "3", "type": "CALLS", "properties": {"line_number": 9, "args": [], "full_call_name": "formatGreeting", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": "15", "to": "21", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "22", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "23", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "24", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "25", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "26", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "27", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "28", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "29", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "30", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "31", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "32", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "33", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "34", "type": "CONTAINS", "properties": {}}
-{"from": "15", "to": "35", "type": "CONTAINS", "properties": {}}
-{"from": "21", "to": "24", "type": "CALLS", "properties": {"line_number": 23, "args": [], "full_call_name": "add", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": "22", "to": "36", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "22", "to": "37", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "23", "to": "38", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "24", "to": "39", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "24", "to": "40", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "25", "to": "41", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "25", "to": "42", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "26", "to": "43", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "26", "to": "44", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "30", "to": "25", "type": "CONTAINS", "properties": {}}
-{"from": "30", "to": "26", "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 0, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 0, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 2, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 3, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 1, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 4}, "to": {"offset": 2, "table": 4}, "type": "CALLS", "properties": {"line_number": 9, "args": [], "full_call_name": "formatGreeting", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 9, "table": 4}, "to": {"offset": 6, "table": 4}, "type": "CALLS", "properties": {"line_number": 23, "args": [], "full_call_name": "add", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 2, "table": 4}, "to": {"offset": 0, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 3, "table": 4}, "to": {"offset": 1, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 4, "table": 4}, "to": {"offset": 2, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 4, "table": 4}, "to": {"offset": 3, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 5, "table": 4}, "to": {"offset": 4, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 5, "table": 4}, "to": {"offset": 5, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 6, "table": 4}, "to": {"offset": 6, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 6, "table": 4}, "to": {"offset": 7, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 7, "table": 4}, "to": {"offset": 8, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 8, "table": 4}, "to": {"offset": 9, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 8, "table": 4}, "to": {"offset": 10, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 0, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 1, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 4, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 5, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 6, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 7, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 8, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 9, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 2, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 3, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 2, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 3, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 4, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 5, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 0, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 1, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 2, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 5, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 6, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 7, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 8, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 9, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 0, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 1, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 3, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 4, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "Types", "imported_name": "Types"}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "Utils", "imported_name": "Utils"}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "Types", "imported_name": "Types"}}
+{"from": {"offset": 1, "table": 5}, "to": {"offset": 3, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 5}, "to": {"offset": 4, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 5}, "to": {"offset": 5, "table": 4}, "type": "CONTAINS", "properties": {}}

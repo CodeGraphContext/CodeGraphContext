@@ -19,10 +19,17 @@ console = Console()
 CONFIG_DIR = Path.home() / ".codegraphcontext"
 CONFIG_FILE = CONFIG_DIR / ".env"
 
+# Keys that pin embedded DB directories; must not bleed across profiles via local .env
+DB_PATH_ENV_KEYS = frozenset({
+    "FALKORDB_PATH", "FALKORDB_SOCKET_PATH", "KUZUDB_PATH", "LADYBUGDB_PATH",
+})
+
 # Database credential keys (stored in same .env file but not managed as config)
 DATABASE_CREDENTIAL_KEYS = {
     "NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE",
-    "NORNIC_URI", "NORNIC_USERNAME", "NORNIC_PASSWORD", "NORNIC_DATABASE"
+    "NORNIC_URI", "NORNIC_USERNAME", "NORNIC_PASSWORD", "NORNIC_DATABASE",
+    "FALKORDB_HOST", "FALKORDB_PORT", "FALKORDB_PASSWORD", "FALKORDB_SSL",
+    "FALKORDB_GRAPH_NAME",
 }
 
 # Default configuration values
@@ -197,11 +204,12 @@ def normalize_config_path(value: str, *, absolute: bool = False, base_dir: Optio
     return str(path_obj)
 
 
-def ensure_config_dir(path: Path = CONFIG_DIR):
+def ensure_config_dir(path: Optional[Path] = None):
     """
     Ensure that the configuration directory exists.
     Creates the directory and a logs subdirectory if they do not already exist.
     """
+    path = path or CONFIG_DIR
     path.mkdir(parents=True, exist_ok=True)
     (path / "logs").mkdir(parents=True, exist_ok=True)
 
@@ -234,7 +242,7 @@ def load_config() -> Dict[str, str]:
     # Load global config
     if CONFIG_FILE.exists():
         try:
-            with open(CONFIG_FILE, "r") as f:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
@@ -247,7 +255,7 @@ def load_config() -> Dict[str, str]:
     local_env = find_local_env()
     if local_env and local_env.exists():
         try:
-            with open(local_env, "r") as f:
+            with open(local_env, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
@@ -268,11 +276,31 @@ def load_config() -> Dict[str, str]:
     return config
 
 
+def should_apply_project_dotenv() -> bool:
+    """True when cwd-local ``.codegraphcontext/.env`` should merge with global config.
+
+    Skips project env when ``HOME`` is isolated (e.g. E2E) but ``cwd`` is an unrelated
+    checkout, unless ``CGC_LOAD_PROJECT_ENV=1``. Set ``CGC_IGNORE_PROJECT_ENV=1`` to force skip.
+    """
+    if os.getenv("CGC_IGNORE_PROJECT_ENV", "").strip().lower() in ("1", "true", "yes"):
+        return False
+    if os.getenv("CGC_LOAD_PROJECT_ENV", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    try:
+        Path.cwd().resolve().relative_to(Path.home().resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def find_local_env() -> Optional[Path]:
     """
     Find a local .env file by searching current directory and parents.
     Returns the first .env file found, or None.
     """
+    if not should_apply_project_dotenv():
+        return None
+
     current = Path.cwd()
     
     # Search up to 5 levels up
@@ -321,7 +349,7 @@ def save_config(config: Dict[str, str], preserve_db_credentials: bool = True):
     if preserve_db_credentials and CONFIG_FILE.exists():
         # Load existing credentials from file to preserve them
         try:
-            with open(CONFIG_FILE, "r") as f:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
@@ -342,7 +370,7 @@ def save_config(config: Dict[str, str], preserve_db_credentials: bool = True):
                 credentials_to_write[key] = config[key]
     
     try:
-        with open(CONFIG_FILE, "w") as f:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             f.write("# CodeGraphContext Configuration\n")
             f.write(f"# Location: {CONFIG_FILE}\n\n")
             
@@ -477,6 +505,11 @@ def get_config_value(key: str) -> Optional[str]:
     return config.get(key)
 
 
+def is_db_deletion_allowed() -> bool:
+    """True when destructive delete/clear operations are permitted."""
+    return str(get_config_value("ALLOW_DB_DELETION") or "false").strip().lower() == "true"
+
+
 def set_config_value(key: str, value: str) -> bool:
     """Set a configuration value. Returns True if successful.
 
@@ -506,7 +539,15 @@ def set_config_value(key: str, value: str) -> bool:
 
 def reset_config():
     """Reset configuration to defaults (preserves database credentials)."""
+    import shutil
+    from datetime import datetime
+
     ensure_config_dir()
+    if CONFIG_FILE.exists():
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup = CONFIG_FILE.with_name(f"{CONFIG_FILE.name}.{stamp}.bak")
+        shutil.copy2(CONFIG_FILE, backup)
+        console.print(f"[dim]Backed up current config to {backup}[/dim]")
     save_config(DEFAULT_CONFIG.copy(), preserve_db_credentials=True)
     console.print("[green]✅ Configuration reset to defaults[/green]")
     console.print("[cyan]Note: Database credentials were preserved[/cyan]")
@@ -531,22 +572,21 @@ def _print_welcome_banner() -> None:
     console.print()
 
 
-def ensure_first_run_bootstrap() -> bool:
+def ensure_first_run_bootstrap(show_welcome: bool = False) -> bool:
     """Run one-time setup for brand-new installs.
 
-    Creates default config files, the global .cgcignore, and prints a
-    welcome banner.  Returns True when bootstrap was performed.
+    Creates default config files and the global .cgcignore silently.
+    Returns True when bootstrap was performed.
     """
     if _FIRST_RUN_MARKER.exists():
         return False
 
     ensure_config_dir()
     ensure_global_cgcignore()
-    # Ensure config.yaml exists (triggers creation with defaults)
     load_context_config()
-    _print_welcome_banner()
+    if show_welcome:
+        _print_welcome_banner()
 
-    # Stamp so we don't repeat
     _FIRST_RUN_MARKER.parent.mkdir(parents=True, exist_ok=True)
     _FIRST_RUN_MARKER.write_text("1")
     return True
@@ -669,7 +709,10 @@ def _default_global_db_path(database: str) -> str:
     if database == "falkordb":
         custom_path = load_config().get("FALKORDB_PATH")
         if custom_path:
-            return str(Path(custom_path).resolve())
+            resolved = Path(custom_path).resolve()
+            # Ignore paths from another profile/repo that leaked via local .env
+            if str(resolved).startswith(str(CONFIG_DIR.resolve())):
+                return str(resolved)
         if _LEGACY_FALKORDB_PATH.exists():
             return str(_LEGACY_FALKORDB_PATH)
     return str(CONFIG_DIR / "global" / "db" / database)
@@ -696,7 +739,7 @@ def load_context_config() -> ContextConfig:
         return cfg
 
     try:
-        with open(CONTEXT_CONFIG_FILE, "r") as f:
+        with open(CONTEXT_CONFIG_FILE, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
 
         contexts: Dict[str, ContextInfo] = {}
@@ -746,7 +789,7 @@ def save_context_config(cfg: ContextConfig) -> None:
     }
 
     try:
-        with open(CONTEXT_CONFIG_FILE, "w") as f:
+        with open(CONTEXT_CONFIG_FILE, "w", encoding="utf-8") as f:
             yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
     except Exception as e:
         console.print(f"[red]Error saving config.yaml: {e}[/red]")
@@ -782,6 +825,10 @@ def find_local_cgc_dir(start: Optional[Path] = None) -> Optional[Path]:
     return None
 
 
+class ContextNotFoundError(ValueError):
+    """Raised when --context names an unregistered workspace."""
+
+
 def resolve_context(
     cli_context: Optional[str] = None,
     cwd: Optional[Path] = None,
@@ -801,23 +848,21 @@ def resolve_context(
     # --- 1. Explicit CLI flag ---
     if cli_context:
         ctx = cfg.contexts.get(cli_context)
-        db = ctx.database if ctx else "falkordb"
-        db_path = ctx.db_path if ctx else _default_db_path(cli_context, db)
-        cgcignore = (
-            ctx.cgcignore_path
-            if ctx
-            else str(CONFIG_DIR / "contexts" / cli_context / ".cgcignore")
-        )
+        if ctx is None:
+            raise ContextNotFoundError(
+                f"Context '{cli_context}' is not registered. "
+                f"Create it with: cgc context create {cli_context}"
+            )
         return ResolvedContext(
             mode="named",
             context_name=cli_context,
-            database=db,
-            db_path=db_path,
-            cgcignore_path=cgcignore,
+            database=ctx.database,
+            db_path=ctx.db_path,
+            cgcignore_path=ctx.cgcignore_path,
         )
 
-    # --- 2. Local .codegraphcontext/ in repo ---
-    local_cgc = find_local_cgc_dir(cwd)
+    # --- 2. Local .codegraphcontext/ in repo (per-repo mode only) ---
+    local_cgc = find_local_cgc_dir(cwd) if cfg.mode == "per-repo" else None
     
     # If we are in per-repo mode and no local folder was found, create it in CWD
     if local_cgc is None and cfg.mode == "per-repo":
@@ -838,7 +883,7 @@ def resolve_context(
         local_db = "falkordb"
         if local_yaml.exists():
             try:
-                with open(local_yaml) as f:
+                with open(local_yaml, encoding="utf-8") as f:
                     local_raw = yaml.safe_load(f) or {}
                 local_db = local_raw.get("database", "falkordb")
             except Exception:
@@ -854,8 +899,8 @@ def resolve_context(
             is_local=True,
         )
 
-    # --- 2b. Saved workspace mapping (CWD -> child .codegraphcontext/) ---
-    mapping = get_workspace_mapping(cwd)
+    # --- 2b. Saved workspace mapping (per-repo mode only) ---
+    mapping = get_workspace_mapping(cwd) if cfg.mode == "per-repo" else None
     if mapping:
         mapped_ctx_path = Path(mapping["context_path"])
         if mapped_ctx_path.exists() and mapped_ctx_path.is_dir():
@@ -1053,7 +1098,7 @@ def discover_child_contexts(
                 local_yaml = candidate / "config.yaml"
                 if local_yaml.exists():
                     try:
-                        with open(local_yaml) as f:
+                        with open(local_yaml, encoding="utf-8") as f:
                             raw = yaml.safe_load(f) or {}
                         local_db = raw.get("database", "falkordb")
                     except Exception:
@@ -1082,7 +1127,7 @@ def _load_workspace_mappings() -> Dict[str, Dict[str, str]]:
     if not CONTEXT_CONFIG_FILE.exists():
         return {}
     try:
-        with open(CONTEXT_CONFIG_FILE, "r") as f:
+        with open(CONTEXT_CONFIG_FILE, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         return raw.get("workspace_mappings", {}) or {}
     except Exception:
@@ -1096,13 +1141,13 @@ def _save_workspace_mappings(mappings: Dict[str, Dict[str, str]]) -> None:
     raw: Dict[str, Any] = {}
     if CONTEXT_CONFIG_FILE.exists():
         try:
-            with open(CONTEXT_CONFIG_FILE, "r") as f:
+            with open(CONTEXT_CONFIG_FILE, "r", encoding="utf-8") as f:
                 raw = yaml.safe_load(f) or {}
         except Exception:
             raw = {}
     raw["workspace_mappings"] = mappings
     try:
-        with open(CONTEXT_CONFIG_FILE, "w") as f:
+        with open(CONTEXT_CONFIG_FILE, "w", encoding="utf-8") as f:
             yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
     except Exception as e:
         console.print(f"[red]Error saving workspace mappings: {e}[/red]")
@@ -1124,7 +1169,7 @@ def save_workspace_mapping(cwd: Path, context_path: Path) -> None:
     local_yaml = context_path / "config.yaml"
     if local_yaml.exists():
         try:
-            with open(local_yaml) as f:
+            with open(local_yaml, encoding="utf-8") as f:
                 raw = yaml.safe_load(f) or {}
             local_db = raw.get("database", "falkordb")
         except Exception:

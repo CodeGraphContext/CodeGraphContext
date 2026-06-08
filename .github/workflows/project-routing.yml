@@ -1,0 +1,268 @@
+name: Route Issues
+
+on:
+  issues:
+    types: [labeled]
+  pull_request:
+    types: [labeled]
+
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      repository-projects: write
+
+    steps:
+      - name: Route issue based on labels
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.ROUTE_ISSUES_PAT || github.token }}
+          script: |
+            const labelName = context.payload.label.name;
+            const label = labelName.toLowerCase();
+            const contentId = context.payload.issue?.node_id || context.payload.pull_request?.node_id;
+
+            console.log(`Processing label: "${labelName}"`);
+
+            // Resilient helper to fetch Project V2 metadata by number
+            async function getProjectMetadata(org, number) {
+              try {
+                const query = `
+                  query($org: String!, $number: Int!) {
+                    organization(login: $org) {
+                      projectV2(number: $number) {
+                        id
+                        title
+                        fields(first: 50) {
+                          nodes {
+                            ... on ProjectV2FieldCommon {
+                              id
+                              name
+                              dataType
+                            }
+                            ... on ProjectV2SingleSelectField {
+                              id
+                              name
+                              options {
+                                id
+                                name
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
+                const result = await github.graphql(query, { org, number });
+                return result.organization?.projectV2;
+              } catch (e) {
+                console.log(`Failed to fetch project as organization, trying as user: ${e.message}`);
+                try {
+                  const query = `
+                    query($user: String!, $number: Int!) {
+                      user(login: $user) {
+                        projectV2(number: $number) {
+                          id
+                          title
+                          fields(first: 50) {
+                            nodes {
+                              ... on ProjectV2FieldCommon {
+                                id
+                                name
+                                dataType
+                              }
+                              ... on ProjectV2SingleSelectField {
+                                id
+                                name
+                                options {
+                                  id
+                                  name
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  `;
+                  const result = await github.graphql(query, { user: org, number });
+                  return result.user?.projectV2;
+                } catch (userError) {
+                  console.error(`Failed to fetch project as user: ${userError.message}`);
+                  return null;
+                }
+              }
+            }
+
+            // Consolidated helper function to update project status, adding the issue/PR to the project if not present
+            async function updateProjectStatus(targetStatusName) {
+              const projectNumber = 3;
+              const org = context.repo.owner;
+
+              console.log(`Attempting to update project #${projectNumber} Status field to "${targetStatusName}"...`);
+              try {
+                // 1. Fetch project metadata
+                const project = await getProjectMetadata(org, projectNumber);
+                if (!project) {
+                  console.warn(`Could not find project #${projectNumber} under "${org}".`);
+                  return false;
+                }
+                console.log(`Successfully fetched project details for "${project.title}" (ID: ${project.id})`);
+
+                // 2. Find the Status field and the target option
+                const statusField = project.fields.nodes.find(
+                  f => f.name.toLowerCase() === 'status' && f.options
+                );
+                if (!statusField) {
+                  console.warn(`No single-select field named "Status" found in project #${projectNumber}.`);
+                  return false;
+                }
+                const targetOption = statusField.options.find(
+                  opt => opt.name.toLowerCase() === targetStatusName.toLowerCase()
+                );
+                if (!targetOption) {
+                  console.warn(`No option named "${targetStatusName}" found in the Status field of project #${projectNumber}.`);
+                  return false;
+                }
+                console.log(`Found Status option: "${targetOption.name}" (ID: ${targetOption.id})`);
+
+                // 3. Get the item ID — try addProjectV2ItemById first (idempotent: returns existing item if already present)
+                let itemId = null;
+                try {
+                  console.log('Attempting addProjectV2ItemById (idempotent)...');
+                  const addMutation = `
+                    mutation($projectId: ID!, $contentId: ID!) {
+                      addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+                        item {
+                          id
+                        }
+                      }
+                    }
+                  `;
+                  const addResult = await github.graphql(addMutation, { projectId: project.id, contentId });
+                  itemId = addResult.addProjectV2ItemById?.item?.id;
+                  if (itemId) {
+                    console.log(`Got item ID via addProjectV2ItemById: ${itemId}`);
+                  }
+                } catch (addError) {
+                  console.warn(`addProjectV2ItemById failed (likely permissions): ${addError.message}`);
+                  console.log('Falling back to scanning project items...');
+                }
+
+                // Fallback: scan the project's items to find the one matching our content
+                if (!itemId) {
+                  const itemsQuery = `
+                    query($projectId: ID!, $cursor: String) {
+                      node(id: $projectId) {
+                        ... on ProjectV2 {
+                          items(first: 100, after: $cursor) {
+                            pageInfo {
+                              hasNextPage
+                              endCursor
+                            }
+                            nodes {
+                              id
+                              content {
+                                ... on Issue {
+                                  id
+                                }
+                                ... on PullRequest {
+                                  id
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  `;
+
+                  let cursor = null;
+                  let found = false;
+                  for (let page = 0; page < 10 && !found; page++) {
+                    const result = await github.graphql(itemsQuery, { projectId: project.id, cursor });
+                    const items = result.node?.items?.nodes || [];
+                    for (const item of items) {
+                      if (item.content?.id === contentId) {
+                        itemId = item.id;
+                        found = true;
+                        console.log(`Found existing item in project by scanning: ${itemId}`);
+                        break;
+                      }
+                    }
+                    if (!found && result.node?.items?.pageInfo?.hasNextPage) {
+                      cursor = result.node.items.pageInfo.endCursor;
+                    } else {
+                      break;
+                    }
+                  }
+                }
+
+                if (!itemId) {
+                  console.error('Could not find or add item to project board.');
+                  return false;
+                }
+
+                // 4. Update the Status field value
+                const updateMutation = `
+                  mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                    updateProjectV2ItemFieldValue(
+                      input: {
+                        projectId: $projectId
+                        itemId: $itemId
+                        fieldId: $fieldId
+                        value: {
+                          singleSelectOptionId: $optionId
+                        }
+                      }
+                    ) {
+                      projectV2Item {
+                        id
+                      }
+                    }
+                  }
+                `;
+                await github.graphql(updateMutation, {
+                  projectId: project.id,
+                  itemId,
+                  fieldId: statusField.id,
+                  optionId: targetOption.id
+                });
+                console.log(`Successfully updated project Status to "${targetOption.name}".`);
+                return true;
+
+              } catch (error) {
+                console.error(`Error in updateProjectStatus: ${error.message}`);
+                return false;
+              }
+            }
+
+            // Map the lowercase label to the exact Status column name
+            let projectStatusName = null;
+
+            if (label === 'adminarchs') {
+              projectStatusName = 'AdminArchs';
+            } else if (label === 'devops') {
+              projectStatusName = 'DevOps';
+            } else if (label === 'pythondevs') {
+              projectStatusName = 'PythonDevs';
+            } else if (label === 'aidevs') {
+              projectStatusName = 'AIDevs';
+            } else if (label === 'webdevs') {
+              projectStatusName = 'WebDevs';
+            } else if (label === 'extensiondevs') {
+              projectStatusName = 'ExtensionDevs';
+            } else if (label === 'docsexperts') {
+              projectStatusName = 'DocsExperts';
+            } else if (label === 'testers') {
+              projectStatusName = 'Testers';
+            } else if (label === 'blocked') {
+              projectStatusName = 'Blocked';
+            }
+
+            if (projectStatusName) {
+              await updateProjectStatus(projectStatusName);
+            }

@@ -28,7 +28,7 @@ Supported SCIP indexers and their install commands:
   rust       → cargo install scip-rust (or rustup component add rust-analyzer)
   java       → https://github.com/sourcegraph/scip-java
   c / c++    → scip-clang (JSON compilation database: compile_commands.json)
-  csharp     → scip-dotnet (dotnet tool install -g Microsoft.CodeAnalysis.ScipDotnet)
+  csharp     → scip-dotnet (dotnet tool install --global scip-dotnet)
 
 JavaScript indexing notes:
   - Pure JS projects (no tsconfig.json): scip-typescript index --infer-tsconfig
@@ -71,7 +71,7 @@ EXTENSION_TO_SCIP: Dict[str, Tuple[str, str, str, str]] = {
     ".hh":    ("cpp",        "scip-clang",      "brew install llvm", "sourcegraph/scip-clang:sha-1704d3d"),
     ".c":     ("c",          "scip-clang",      "brew install llvm", "sourcegraph/scip-clang:sha-1704d3d"),
     ".h":     ("cpp",        "scip-clang",      "brew install llvm", "sourcegraph/scip-clang:sha-1704d3d"),
-    ".cs":    ("csharp",     "scip-dotnet",     "dotnet tool install -g Microsoft.CodeAnalysis.ScipDotnet", "sourcegraph/scip-dotnet"),
+    ".cs":    ("csharp",     "scip-dotnet",     "dotnet tool install --global scip-dotnet", "sourcegraph/scip-dotnet"),
     ".php":   ("php",        "scip-php",        "composer global require davidrjenni/scip-php", "davidrjenni/scip-php"),
     ".rb":    ("ruby",       "scip-ruby",       "gem install scip-ruby", ""),
     ".swift": ("swift",      "scip-swift",      "brew install scip-swift", ""),

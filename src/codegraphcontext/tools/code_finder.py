@@ -920,17 +920,16 @@ class CodeFinder:
             start_props = "{name: $start_function" + (", path: $start_file}" if start_file else "}")
             end_props = "{name: $end_function" + (", path: $end_file}" if end_file else "}")
 
-            # KùzuDB-compatible: Use anonymous end node and filter
-            repo_filter = "WHERE 1=1 AND (start.path IS NULL OR start.path STARTS WITH $repo_path) AND (end_target.path IS NULL OR end_target.path STARTS WITH $repo_path)" if repo_path else ""
+            repo_clauses = []
+            if repo_path:
+                repo_clauses.append("start.path STARTS WITH $repo_path")
+                repo_clauses.append("end_target.path STARTS WITH $repo_path")
+            repo_where = ("WHERE " + " AND ".join(repo_clauses)) if repo_clauses else ""
             query = f"""
                 MATCH (start:Function {start_props}), (end_target:Function {end_props})
-                {repo_filter}
-                WITH start as start, end_target as end_target
-                MATCH path = (start)-[:CALLS*1..{max_depth}]->()
-                WITH path as path, end_target as end_target, nodes(path) as func_nodes, relationships(path) as call_rels
-                WITH path as path, func_nodes as func_nodes, call_rels as call_rels, end_target as end_target, func_nodes[size(func_nodes)-1] as path_end
-                WHERE path_end.name = end_target.name AND (end_target.path IS NULL OR path_end.path = end_target.path)
-                RETURN func_nodes as function_nodes, call_rels as call_nodes, size(call_rels) as chain_length
+                {repo_where}
+                MATCH path = (start)-[:CALLS*1..{max_depth}]->(end_target)
+                RETURN nodes(path) AS function_nodes, relationships(path) AS call_nodes, length(path) AS chain_length
                 ORDER BY chain_length ASC
                 LIMIT 20
             """

@@ -97,7 +97,7 @@
 ---
 
 ## 프로젝트 세부 정보
-- **버전:** 0.4.13
+- **버전:** 0.4.16
 - **저자:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **라이선스:** MIT License (자세한 내용은 [LICENSE](LICENSE) 참조)
 - **웹사이트:** [CodeGraphContext](http://codegraphcontext.vercel.app/)

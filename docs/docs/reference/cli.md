@@ -60,7 +60,7 @@ Downloads (if needed) and indexes a third-party package.
 Locates code symbols or contents matching a query pattern.
 - **Usage**: `cgc find <subcommand> [args]`
 - **Subcommands**:
-  - `find content <text>`: Searches source file contents for matching text strings.
+  - `find content <text>`: Searches source and docstrings for matching text (Neo4j full-text index; substring match on FalkorDB, KuzuDB, and LadybugDB).
   - `find decorator <name>`: Finds functions decorated with the target decorator (e.g., `@app.route`).
   - `find argument <name>`: Finds functions declaring the specified parameter name.
   - `find variable <name>`: Finds variable references.

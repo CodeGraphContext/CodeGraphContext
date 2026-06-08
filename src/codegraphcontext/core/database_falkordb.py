@@ -80,6 +80,8 @@ class FalkorDBManager:
     _process = None
     _driver = None
     _lock = threading.Lock()
+    _startup_failed = False
+    _STARTUP_TIMEOUT_SEC = 5
 
     def __new__(cls, *args, **kwargs):
         """Standard singleton pattern implementation."""
@@ -94,14 +96,6 @@ class FalkorDBManager:
         Initializes the manager with default database path or explicit overrides.
         The `_initialized` flag prevents re-initialization on subsequent calls.
         """
-        # If we have an existing instance but are being asked to connect to a different path
-        # we need to be careful — it's a singleton. For the new context system, we ensure
-        # the singleton instance gets re-initialized if the path changes.
-        if hasattr(self, '_initialized') and self.db_path == db_path:
-            return
-
-        self._initialized = False
-
         # Configuration priority:
         # 1. Environment variable (highest priority)
         # 2. Config manager (supports project-local .env)
@@ -118,11 +112,22 @@ class FalkorDBManager:
             config_socket_path = None
         
         # Database path with fallback chain (Explicit > Env > Config/Default)
-        self.db_path = db_path or os.getenv(
+        new_db_path = db_path or os.getenv(
             'FALKORDB_PATH',
             config_db_path or str(Path.home() / '.codegraphcontext' / 'global' / 'falkordb.db')
         )
-        self.db_path = os.path.abspath(self.db_path)
+        new_db_path = os.path.abspath(new_db_path)
+
+        if hasattr(self, '_initialized') and getattr(self, 'db_path', None) == new_db_path:
+            return
+
+        if hasattr(self, '_initialized') and getattr(self, 'db_path', None) != new_db_path:
+            self.shutdown()
+            self._driver = None
+            self._graph = None
+
+        self._initialized = False
+        self.db_path = new_db_path
         
         # Socket path with fallback chain
         if socket_path:
@@ -141,9 +146,10 @@ class FalkorDBManager:
         
         self.graph_name = os.getenv('FALKORDB_GRAPH_NAME', 'codegraph')
         self._initialized = True
-        
-        # Register cleanup on exit
-        atexit.register(self.shutdown)
+
+        if not getattr(self, "_atexit_registered", False):
+            atexit.register(self.shutdown)
+            self._atexit_registered = True
 
     def get_driver(self, graph_name: Optional[str] = None):
         """
@@ -160,6 +166,11 @@ class FalkorDBManager:
             bound to the graph selected for this call.
         """
         import platform
+
+        if FalkorDBManager._startup_failed:
+            raise FalkorDBUnavailableError(
+                "FalkorDB Lite previously failed to start in this process."
+            )
 
         if platform.system() == "Windows":
             raise RuntimeError(
@@ -218,10 +229,10 @@ class FalkorDBManager:
                         )
                         raise ValueError("FalkorDB client missing.") from e
                     except FalkorDBUnavailableError:
-                        # Propagate as-is so get_database_manager() can trigger the
-                        # documented KùzuDB fallback.
+                        FalkorDBManager._startup_failed = True
                         raise
                     except Exception as e:
+                        FalkorDBManager._startup_failed = True
                         error_logger(f"Failed to initialize FalkorDB: {e}")
                         raise
 
@@ -300,7 +311,7 @@ class FalkorDBManager:
         # loaded the FalkorDB module, so validate GRAPH.QUERY instead of
         # treating socket creation alone as ready.
         start_time = time.time()
-        timeout = 20 # seconds
+        timeout = self._STARTUP_TIMEOUT_SEC
         last_error = None
         
         while time.time() - start_time < timeout:
@@ -342,11 +353,14 @@ class FalkorDBManager:
             f"Timed out waiting for FalkorDB Lite to start. Last error: {last_error}"
         )
 
-    def close_driver(self):
-        """Closes the connection."""
+    def close_driver(self, *, teardown: bool = False):
+        """Closes the connection. Pass teardown=True to stop the worker subprocess."""
         if self._driver is not None:
             info_logger("Closing FalkorDB Lite connection")
             self._driver = None
+            self._graph = None
+        if teardown:
+            self.shutdown()
 
     def shutdown(self):
         """Kills the subprocess on exit."""

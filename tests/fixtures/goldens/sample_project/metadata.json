@@ -1,10 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-05-19T02:33:18.336284",
-  "format_version": "1.0",
+  "exported_at": "2026-06-08T22:18:19Z",
+  "format_version": "1.0.0",
   "repo": "sample_project",
-  "repo_path": "/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project",
+  "repo_path": ".",
   "is_dependency": false,
-  "commit": "0c6be239",
-  "languages": []
+  "commit": "a77ff10b",
+  "branch": "map-database-switch",
+  "generator": "PYv0.4.2",
+  "name": "sample_project.cgc",
+  "graph_metrics": {
+    "total_nodes": 482,
+    "total_edges": 621
+  }
 }

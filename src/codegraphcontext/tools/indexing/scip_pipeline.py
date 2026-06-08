@@ -77,7 +77,7 @@ async def run_scip_index_async(
         index_root = path.resolve() if path.is_dir() else path.parent.resolve()
         for abs_path_str, file_data in files_data.items():
             file_path = Path(abs_path_str)
-            if file_path.is_file() and file_path_has_ignore_dir_segment(file_path, index_root):
+            if file_path_has_ignore_dir_segment(file_path, index_root):
                 continue
             file_data["repo_path"] = str(index_root)
             if job_id:

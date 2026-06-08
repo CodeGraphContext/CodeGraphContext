@@ -269,7 +269,7 @@ function TreeItem({
       <div>
         <button
           onClick={() => setOpen(o => !o)}
-          className="w-full flex items-center gap-1 py-[3px] px-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors group"
+          className="w-full flex items-center gap-1 py-[3px] px-2 rounded-lg text-gray-400 hover:text-white hover:bg-purple-500/10 transition-colors group"
           style={{ paddingLeft: `${indent + 8}px` }}
         >
           {open
@@ -318,8 +318,8 @@ function TreeItem({
     <button
       onClick={() => onFileClick(node.path)}
       className={`w-full flex items-center gap-2 py-[3px] px-2 rounded-lg text-[13px] transition-all group ${isSelected
-        ? 'bg-blue-500/20 text-blue-200 border border-blue-500/20'
-        : 'text-gray-400 hover:text-gray-200 hover:bg-white/5 border border-transparent'
+        ? 'bg-purple-500/20 text-purple-200 border border-purple-500/20'
+        : 'text-gray-400 hover:text-gray-200 hover:bg-purple-500/10 border border-transparent'
         }`}
       style={{ paddingLeft: `${indent + 20}px` }}
     >
@@ -341,6 +341,12 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function getNodeDisplayName(node: any): string {
+  const fallback = node?.name ?? node?.label ?? node?.uid ?? node?.node_type ?? node?.type ?? node?.id ?? 'Unknown';
+  const displayName = String(fallback).trim();
+  return displayName || 'Unknown';
+}
+
 function getGraphAwareNodeScale(totalNodes: number): number {
   const safeNodeCount = Math.max(totalNodes, 1);
   // High node count = smaller nodes to prevent overlap and visual clutter
@@ -348,10 +354,20 @@ function getGraphAwareNodeScale(totalNodes: number): number {
   return clamp(2.5 / (1 + Math.log10(safeNodeCount) * 0.95), 0.45, 2.5);
 }
 
-export default function PRReviewer({ data, onClose }: { data: any, onClose: () => void }) {
+export default function PRReviewer({ data: rawData, onClose }: { data: any, onClose: () => void }) {
   const { theme, setTheme } = useTheme();
   const isDark = theme !== 'light';
   const pal = isDark ? PALETTE.dark : PALETTE.light;
+
+  const data = useMemo(() => ({
+    ...rawData,
+    nodes: (rawData?.nodes || []).map((node: any) => ({
+      ...node,
+      name: getNodeDisplayName(node),
+    })),
+    links: rawData?.links || [],
+    files: rawData?.files || [],
+  }), [rawData]);
 
   const fgRef = useRef<any>();
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -1475,7 +1491,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                 <Button
                   onClick={() => window.location.href = "/"}
                   variant="ghost"
-                  className={`w-full justify-start mb-4 rounded-xl transition-colors text-sm ${isDark ? 'text-gray-400 hover:text-white hover:bg-white/5 border border-white/5' : 'text-gray-600 hover:text-black hover:bg-black/5 border border-black/10'}`}
+                  className={`w-full justify-start mb-4 rounded-xl transition-colors text-sm ${isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10 border border-white/5' : 'text-gray-600 hover:text-black hover:bg-black/5 border border-black/10'}`}
                 >
                   <X className="w-4 h-4 mr-2 text-red-400" />
                   Exit to Homepage
@@ -1489,7 +1505,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                   <button
                     onClick={() => setCollapsed(true)}
                     title="Collapse sidebar"
-                    className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-white/5 transition-colors"
+                    className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-purple-500/10 transition-colors"
                   >
                     <PanelLeftClose className="w-4 h-4" />
                   </button>
@@ -1499,28 +1515,28 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                 <div className="grid grid-cols-4 bg-white/5 p-1 rounded-xl mb-3 border border-white/5 gap-1 select-none flex-shrink-0">
                   <button
                     onClick={() => setSidebarTab('pr')}
-                    className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg transition-all ${sidebarTab === 'pr' ? 'bg-indigo-500 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg transition-all ${sidebarTab === 'pr' ? 'bg-purple-500 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-purple-500/10'}`}
                     title="PR Review Summary"
                   >
                     PR Review
                   </button>
                   <button
                     onClick={() => setSidebarTab('tree')}
-                    className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg transition-all ${sidebarTab === 'tree' ? 'bg-indigo-500 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg transition-all ${sidebarTab === 'tree' ? 'bg-purple-500 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-purple-500/10'}`}
                     title="File Explorer Tree"
                   >
                     Files
                   </button>
                   <button
                     onClick={() => setSidebarTab('path')}
-                    className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg transition-all ${sidebarTab === 'path' ? 'bg-indigo-500 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg transition-all ${sidebarTab === 'path' ? 'bg-purple-500 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-purple-500/10'}`}
                     title="Path Finder Traversal"
                   >
                     Paths
                   </button>
                   <button
                     onClick={() => setSidebarTab('config')}
-                    className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg transition-all ${sidebarTab === 'config' ? 'bg-indigo-500 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg transition-all ${sidebarTab === 'config' ? 'bg-purple-500 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-purple-500/10'}`}
                     title="Settings & Filter Config"
                   >
                     Config
@@ -1535,7 +1551,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                       placeholder="Filter files..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className={`w-full rounded-lg py-1.5 pl-9 pr-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-all ${isDark ? 'bg-white/5 border border-white/8 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
+                      className={`w-full rounded-lg py-1.5 pl-9 pr-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all ${isDark ? 'bg-white/5 border border-white/8 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
                     />
                   </div>
                 )}
@@ -1565,10 +1581,10 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                     </div>
 
                     {/* Review Insights — decision-oriented summary */}
-                    <div className="p-3 rounded-xl border border-indigo-500/20 bg-indigo-500/5">
+                    <div className="p-3 rounded-xl border border-purple-500/20 bg-purple-500/5">
                       <div className="flex items-center gap-2 mb-2">
-                        <Lightbulb className="w-4 h-4 text-indigo-400" />
-                        <span className="text-[11px] font-bold text-indigo-300 uppercase tracking-wider">Review Insights</span>
+                        <Lightbulb className="w-4 h-4 text-purple-400" />
+                        <span className="text-[11px] font-bold text-purple-300 uppercase tracking-wider">Review Insights</span>
                         <span className={`ml-auto text-[9px] font-bold uppercase px-2 py-0.5 rounded-full ${
                           prInsights.riskLevel === "high"
                             ? "bg-red-500/20 text-red-300"
@@ -1599,7 +1615,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                                 key={sym.id}
                                 type="button"
                                 onClick={() => handleHighlightNode(sym.id)}
-                                className="w-full text-left px-2 py-1.5 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 transition-colors"
+                                className="w-full text-left px-2 py-1.5 rounded-lg bg-white/5 border border-white/5 hover:bg-purple-500/20 transition-colors"
                               >
                                 <code className="text-[10px] text-white block truncate">{sym.name}</code>
                                 <span className="text-[9px] text-gray-500 truncate block">{sym.reason}</span>
@@ -1630,7 +1646,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                       <ul className="space-y-1">
                         {prInsights.recommendations.slice(0, 3).map((rec, i) => (
                           <li key={i} className="text-[10px] text-gray-400 leading-snug flex gap-1.5">
-                            <span className="text-indigo-400 shrink-0">•</span>
+                            <span className="text-purple-400 shrink-0">•</span>
                             <span>{rec}</span>
                           </li>
                         ))}
@@ -1676,7 +1692,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                           <div className="flex gap-2 mt-1">
                             <Button
                               size="sm"
-                              className="w-full text-[10px] h-7 py-0 rounded bg-white/5 border border-white/10 text-white hover:bg-white/10"
+                              className="w-full text-[10px] h-7 py-0 rounded bg-white/5 border border-white/10 text-white hover:bg-purple-500/20"
                               onClick={() => {
                                 const l = data.links.find((l: any) => l.isViolation);
                                 if (l) handleHighlightPath(l.source, l.target);
@@ -1686,7 +1702,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                             </Button>
                             <Button
                               size="sm"
-                              className="w-full text-[10px] h-7 py-0 rounded bg-white/5 border border-white/10 text-white hover:bg-white/10"
+                              className="w-full text-[10px] h-7 py-0 rounded bg-white/5 border border-white/10 text-white hover:bg-purple-500/20"
                               onClick={() => {
                                 const l = data.links.find((l: any) => l.isViolation);
                                 if (l) handleHighlightNode(l.source);
@@ -1710,7 +1726,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                           </div>
                           <Button
                             size="sm"
-                            className="w-full text-[10px] h-7 py-0 rounded bg-indigo-600 hover:bg-indigo-700 text-white"
+                            className="w-full text-[10px] h-7 py-0 rounded bg-purple-600 hover:bg-purple-700 text-white"
                             onClick={() => {
                               const n = data.nodes.find((n: any) => n.isOrphan && !n.name.startsWith("test_") && n.type !== "Variable");
                               if (n) handleHighlightNode(n.id);
@@ -1739,7 +1755,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                           </div>
                           <Button
                             size="sm"
-                            className="w-full text-[10px] h-7 py-0 rounded bg-indigo-600 hover:bg-indigo-700 text-white"
+                            className="w-full text-[10px] h-7 py-0 rounded bg-purple-600 hover:bg-purple-700 text-white"
                             onClick={() => {
                               const n = data.nodes.find((n: any) => n.complexityDelta && n.complexityDelta >= 10);
                               if (n) handleHighlightNode(n.id);
@@ -1762,7 +1778,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                           </div>
                           <Button
                             size="sm"
-                            className="w-full text-[10px] h-7 py-0 rounded bg-indigo-600 hover:bg-indigo-700 text-white"
+                            className="w-full text-[10px] h-7 py-0 rounded bg-purple-600 hover:bg-purple-700 text-white"
                             onClick={() => {
                               const n = data.nodes.find((n: any) => n.signatureChanged);
                               if (n) handleHighlightNode(n.id);
@@ -1821,7 +1837,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                       </Button>
                       <Button
                         size="sm"
-                        className="w-full text-xs bg-indigo-500 hover:bg-indigo-600 text-white"
+                        className="w-full text-xs bg-purple-500 hover:bg-purple-600 text-white"
                         disabled={!pathSource || !pathTarget}
                         onClick={calculatePath}
                       >
@@ -1852,7 +1868,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                         <input
                           type="range" min="0.05" max="3.0" step="0.05" value={lineWidth}
                           onChange={(e) => setLineWidth(parseFloat(e.target.value))}
-                          className="w-full accent-blue-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                          className="w-full accent-purple-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
                         />
                       </div>
 
@@ -1862,7 +1878,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                             <div className="flex items-center gap-3">
                               <button
                                 onClick={() => toggleNodeType(type)}
-                                className={`p-1 rounded transition-colors ${visibleNodeTypes.has(type) ? 'text-blue-400 bg-blue-500/10' : 'text-gray-600'}`}
+                                className={`p-1 rounded transition-colors ${visibleNodeTypes.has(type) ? 'text-purple-400 bg-purple-500/10' : 'text-gray-600'}`}
                               >
                                 {visibleNodeTypes.has(type) ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                               </button>
@@ -1931,7 +1947,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
             className="absolute right-0 top-0 h-full w-1 cursor-col-resize z-[80] group flex items-center justify-center"
             title="Drag to resize"
           >
-            <div className="w-0.5 h-full bg-white/5 group-hover:bg-blue-500/50 transition-colors duration-150" />
+            <div className="w-0.5 h-full bg-white/5 group-hover:bg-purple-500/50 transition-colors duration-150" />
           </div>
         )}
       </div>
@@ -1941,7 +1957,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
         <button
           onClick={() => setCollapsed(false)}
           title="Expand sidebar"
-          className={`absolute left-0 top-1/2 -translate-y-1/2 z-[80] transition-all rounded-r-xl p-2 shadow-2xl ${isDark ? 'bg-[#0d0d0d] border border-white/10 hover:border-blue-500/40 hover:bg-white/5 text-gray-400 hover:text-white' : 'bg-white border border-black/10 hover:border-blue-500/40 hover:bg-black/5 text-gray-500 hover:text-black'}`}
+          className={`absolute left-0 top-1/2 -translate-y-1/2 z-[80] transition-all rounded-r-xl p-2 shadow-2xl ${isDark ? 'bg-[#0d0d0d] border border-white/10 hover:border-purple-500/40 hover:bg-purple-500/10 text-gray-400 hover:text-white' : 'bg-white border border-black/10 hover:border-purple-500/40 hover:bg-black/5 text-gray-500 hover:text-black'}`}
         >
           <PanelLeftOpen className="w-4 h-4" />
         </button>
@@ -1955,7 +1971,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
           {/* Theme Toggle (Always Visible) */}
           <button
             onClick={() => setTheme(isDark ? 'light' : 'dark')}
-            className={`flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-white/10 border-white/10 text-yellow-300' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
+            className={`flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-purple-500/20 border-white/10 text-yellow-300' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -1966,10 +1982,10 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
             {/* Export Button */}
             <button
               onClick={handleExport}
-              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
               title="Download code graph as a .cgc file"
             >
-              <Download className="w-3.5 h-3.5 text-blue-400" />
+              <Download className="w-3.5 h-3.5 text-purple-400" />
               Export
             </button>
 
@@ -1980,7 +1996,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                 setPublishVersion(data.metadata?.version || "1.0.0");
                 setShowPublishModal(true);
               }}
-              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
               title="Publish this graph to the public registry"
             >
               <UploadCloud className="w-3.5 h-3.5 text-green-400" />
@@ -1990,7 +2006,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
             {/* ChatGPT Tunnel Button */}
             <button
               onClick={handleConnectChatGPT}
-              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
               title="Open the CGC ChatGPT GPT. Keep this cgc.codes tab focused (not behind ChatGPT) so the signaling tunnel stays online."
             >
               <div className="w-2 h-2 rounded-full bg-amber-500/80 shadow-[0_0_6px_#f59e0b]" title="Tunnel status is not shown here — keep this tab active while using ChatGPT" />
@@ -2002,7 +2018,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
             <div ref={modeMenuRef} className="relative">
               <button
                 onClick={() => setShowModeMenu(v => !v)}
-                className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+                className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
               >
                 <Layers className="w-3.5 h-3.5 text-purple-400" />
                 {VISUALIZATION_MODES.find(m => m.id === graphMode)?.name}
@@ -2023,7 +2039,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                         onClick={() => { setGraphMode(mode.id); setShowModeMenu(false); }}
                         className={`w-full flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer ${graphMode === mode.id
                             ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
-                            : (isDark ? 'text-gray-400 hover:text-white hover:bg-white/5' : 'text-gray-500 hover:text-black hover:bg-black/5')
+                            : (isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10' : 'text-gray-500 hover:text-black hover:bg-black/5')
                           }`}
                       >
                         <div
@@ -2035,7 +2051,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                           <div className="text-[10px] text-gray-500">{mode.description}</div>
                         </div>
                         {graphMode === mode.id && (
-                          <Check className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                          <Check className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
                         )}
                       </button>
                     ))}
@@ -2048,20 +2064,20 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
               href="https://github.com/CodeGraphContext/CodeGraphContext"
               target="_blank"
               rel="noopener noreferrer"
-              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
             >
               <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
               Star on GitHub
             </a>
             <div className={`text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 text-gray-400 border-white/10' : 'bg-white/80 text-gray-500 border-black/10'}`}>
-              Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 transition-colors">shashankss1205</a>
+              Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 transition-colors">shashankss1205</a>
             </div>
           </div>
 
           {/* Mobile Hamburger Menu Toggle */}
           <button
             onClick={() => setShowMobileMenu(prev => !prev)}
-            className={`md:hidden flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-white/10 border-white/10 text-white' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
+            className={`md:hidden flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-purple-500/20 border-white/10 text-white' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
             title="Toggle Menu"
           >
             {showMobileMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
@@ -2080,9 +2096,9 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                 {/* Mobile Export */}
                 <button
                   onClick={() => { handleExport(); setShowMobileMenu(false); }}
-                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
                 >
-                  <Download className="w-3.5 h-3.5 text-blue-400" />
+                  <Download className="w-3.5 h-3.5 text-purple-400" />
                   Export CGC
                 </button>
 
@@ -2094,7 +2110,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                     setShowPublishModal(true);
                     setShowMobileMenu(false);
                   }}
-                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
                 >
                   <UploadCloud className="w-3.5 h-3.5 text-green-400" />
                   Publish Graph
@@ -2106,7 +2122,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                     handleConnectChatGPT();
                     setShowMobileMenu(false);
                   }}
-                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all text-left w-full ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all text-left w-full ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
                 >
                   <div className="w-2 h-2 rounded-full bg-amber-500/80 shadow-[0_0_6px_#f59e0b]" />
                   <MessageSquare className="w-3.5 h-3.5 text-purple-400" />
@@ -2122,7 +2138,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                     onClick={() => { setGraphMode(mode.id); setShowMobileMenu(false); }}
                     className={`flex items-center gap-3 px-3 py-1.5 rounded-lg transition-all text-left cursor-pointer ${graphMode === mode.id
                         ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
-                        : (isDark ? 'text-gray-400 hover:text-white hover:bg-white/5' : 'text-gray-500 hover:text-black hover:bg-black/5')
+                        : (isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10' : 'text-gray-500 hover:text-black hover:bg-black/5')
                       }`}
                   >
                     <div
@@ -2139,7 +2155,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                   href="https://github.com/CodeGraphContext/CodeGraphContext"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-850'}`}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-850'}`}
                   onClick={() => setShowMobileMenu(false)}
                 >
                   <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
@@ -2148,7 +2164,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
 
                 {/* Mobile Made By */}
                 <div className="text-[9px] uppercase tracking-widest text-center mt-1 text-gray-500 py-1 border-t border-white/5">
-                  Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 font-bold transition-colors">shashankss1205</a>
+                  Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 font-bold transition-colors">shashankss1205</a>
                 </div>
               </motion.div>
             )}
@@ -2158,9 +2174,9 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
         {/* Zoom Controls */}
         <div className="absolute top-6 left-6 z-[60] flex flex-col gap-4">
           <div className={`flex flex-col border backdrop-blur-xl rounded-2xl overflow-hidden shadow-2xl ${isDark ? 'bg-black/60 border-white/10' : 'bg-white/80 border-black/10'}`}>
-            <button onClick={() => handleZoom(1.4)} className={`p-3 transition-colors ${isDark ? 'hover:bg-white/10 text-gray-300 border-b border-white/5' : 'hover:bg-black/5 text-gray-600 border-b border-black/5'}`}><ZoomIn className="w-5 h-5" /></button>
-            <button onClick={() => fgRef.current?.zoomToFit(600, 100)} className={`p-3 transition-colors ${isDark ? 'hover:bg-white/10 text-gray-300 border-b border-white/5' : 'hover:bg-black/5 text-gray-600 border-b border-black/5'}`}><Maximize className="w-5 h-5" /></button>
-            <button onClick={() => handleZoom(0.7)} className={`p-3 transition-colors ${isDark ? 'hover:bg-white/10 text-gray-300' : 'hover:bg-black/5 text-gray-600'}`}><ZoomOut className="w-5 h-5" /></button>
+            <button onClick={() => handleZoom(1.4)} className={`p-3 transition-colors ${isDark ? 'hover:bg-purple-500/20 text-gray-300 border-b border-white/5' : 'hover:bg-black/5 text-gray-600 border-b border-black/5'}`}><ZoomIn className="w-5 h-5" /></button>
+            <button onClick={() => fgRef.current?.zoomToFit(600, 100)} className={`p-3 transition-colors ${isDark ? 'hover:bg-purple-500/20 text-gray-300 border-b border-white/5' : 'hover:bg-black/5 text-gray-600 border-b border-black/5'}`}><Maximize className="w-5 h-5" /></button>
+            <button onClick={() => handleZoom(0.7)} className={`p-3 transition-colors ${isDark ? 'hover:bg-purple-500/20 text-gray-300' : 'hover:bg-black/5 text-gray-600'}`}><ZoomOut className="w-5 h-5" /></button>
           </div>
 
           <AnimatePresence>
@@ -2319,7 +2335,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
               className={`pointer-events-auto backdrop-blur-3xl border rounded-2xl shadow-2xl ${isDark ? 'bg-black/50 border-white/10' : 'bg-white/80 border-black/10'}`}
             >
               <div
-                className={`flex items-center justify-between px-5 pt-4 ${legendCollapsed ? 'pb-4' : 'pb-2'} cursor-pointer transition-colors rounded-t-2xl ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}
+                className={`flex items-center justify-between px-5 pt-4 ${legendCollapsed ? 'pb-4' : 'pb-2'} cursor-pointer transition-colors rounded-t-2xl ${isDark ? 'hover:bg-purple-500/10' : 'hover:bg-black/5'}`}
                 onClick={() => setLegendCollapsed(v => !v)}
               >
                 <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 flex items-center gap-2">
@@ -2327,7 +2343,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                 </p>
                 <div className="flex items-center gap-2">
                   <span
-                    className="text-blue-400/50 text-[10px] font-bold uppercase tracking-widest cursor-pointer"
+                    className="text-purple-400/50 text-[10px] font-bold uppercase tracking-widest cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowConfig(true);
@@ -2386,7 +2402,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                   onMouseDown={onCodeDragStart}
                   className="absolute left-0 top-0 h-full w-1 cursor-col-resize z-[80] group flex items-center justify-center"
                 >
-                  <div className="w-0.5 h-full bg-white/5 group-hover:bg-blue-500/50 transition-colors duration-150" />
+                  <div className="w-0.5 h-full bg-white/5 group-hover:bg-purple-500/50 transition-colors duration-150" />
                 </div>
               )}
 
@@ -2394,14 +2410,14 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                 {/* header */}
                 <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${pal.border}` }}>
                   <div className="flex items-center gap-2 min-w-0">
-                    <Code2 className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                    <Code2 className="w-4 h-4 text-purple-400 flex-shrink-0" />
                     <span className="text-[13px] font-bold truncate" style={{ color: pal.text }}>
                       {selectedFile.split('/').pop()}
                     </span>
                   </div>
                   <button
                     onClick={() => onFileClick(null)}
-                    className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${isDark ? 'text-gray-500 hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-black hover:bg-black/10'}`}
+                    className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${isDark ? 'text-gray-500 hover:text-white hover:bg-purple-500/20' : 'text-gray-400 hover:text-black hover:bg-black/10'}`}
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -2413,19 +2429,19 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                   <div className="flex ml-2 flex-shrink-0">
                     <button
                       onClick={() => setCodePanelTab('review')}
-                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'review' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'review' ? 'text-purple-400 border-b-2 border-purple-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
                     >
                       PR Review
                     </button>
                     <button
                       onClick={() => setCodePanelTab('code')}
-                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'code' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'code' ? 'text-purple-400 border-b-2 border-purple-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
                     >
                       Code
                     </button>
                     <button
                       onClick={() => setCodePanelTab('entities')}
-                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'entities' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'entities' ? 'text-purple-400 border-b-2 border-purple-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
                     >
                       Entities
                     </button>
@@ -2506,7 +2522,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                       {selectedNode && (
                         <div className="border-t border-white/10 pt-4">
                           <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2 flex items-center gap-1.5">
-                            <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
+                            <MessageSquare className="w-3.5 h-3.5 text-purple-400" />
                             PR Line Comments
                           </h4>
                           
@@ -2532,7 +2548,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                               placeholder="Add a review comment..."
                               value={newCommentText}
                               onChange={(e) => setNewCommentText(e.target.value)}
-                              className="flex-1 bg-black/45 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+                              className="flex-1 bg-black/45 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                   handleAddComment(selectedNode.id);
@@ -2541,7 +2557,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                             />
                             <Button
                               size="sm"
-                              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 rounded-lg"
+                              className="bg-purple-600 hover:bg-purple-700 text-white text-xs px-3 rounded-lg"
                               onClick={() => handleAddComment(selectedNode.id)}
                             >
                               Post
@@ -2582,7 +2598,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                             <div key={n.id}>
                               <div
                                 onClick={() => { if (lineNum && codeContent) { setHighlightLine(Number(lineNum)); setCodePanelTab('code'); } }}
-                                className={`flex items-center gap-2 py-1.5 px-2 rounded-lg ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${lineNum && codeContent ? 'cursor-pointer' : ''}`}
+                                className={`flex items-center gap-2 py-1.5 px-2 rounded-lg ${isDark ? 'hover:bg-purple-500/10' : 'hover:bg-black/5'} ${lineNum && codeContent ? 'cursor-pointer' : ''}`}
                               >
                                 {graphMode === 'icon' ? (
                                   <span className="text-[14px] flex-shrink-0">{EMOJI_MAP[n.type] || '❓'}</span>
@@ -2604,7 +2620,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                               {n.decorators?.length > 0 && (
                                 <div className="flex flex-wrap gap-1 mt-1 px-2">
                                   {n.decorators.map((d: string, i: number) => (
-                                    <span key={i} className="text-[8px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">@{d.replace(/^@/, '')}</span>
+                                    <span key={i} className="text-[8px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-400 font-mono">@{d.replace(/^@/, '')}</span>
                                   ))}
                                 </div>
                               )}
@@ -2656,7 +2672,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
               }`}
             >
               {/* Subtle top glow bar */}
-              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
+              <div className="absolute top-0 left-0 right-0 h-1 bg-white" />
 
               <div className="flex justify-between items-start mb-6">
                 <div>
@@ -2669,7 +2685,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                   disabled={isPublishing}
                   onClick={() => setShowPublishModal(false)}
                   className={`p-1.5 rounded-full transition-colors ${
-                    isDark ? "hover:bg-white/10 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
+                    isDark ? "hover:bg-purple-500/20 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
                   }`}
                 >
                   <X className="w-4 h-4" />
@@ -2688,7 +2704,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                     value={publishRepo}
                     onChange={(e) => setPublishRepo(e.target.value)}
                     placeholder="e.g. owner/repository"
-                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${
+                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all ${
                       isDark 
                         ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700" 
                         : "bg-zinc-50 border-zinc-200 text-zinc-950 placeholder-zinc-400 focus:border-zinc-300"
@@ -2707,7 +2723,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                     value={publishVersion}
                     onChange={(e) => setPublishVersion(e.target.value)}
                     placeholder="e.g. 1.0.0"
-                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${
+                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all ${
                       isDark 
                         ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700" 
                         : "bg-zinc-50 border-zinc-200 text-zinc-950 placeholder-zinc-400 focus:border-zinc-300"
@@ -2728,7 +2744,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                   <Button
                     type="submit"
                     disabled={isPublishing}
-                    className="w-full rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-indigo-500/20"
+                    className="w-full rounded-xl bg-purple-600 text-white hover:bg-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]"
                   >
                     {isPublishing ? (
                       <span className="flex items-center justify-center gap-2">
@@ -2771,7 +2787,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
               }`}
             >
               {/* Subtle top glow bar */}
-              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 via-pink-500 to-amber-500" />
+              <div className="absolute top-0 left-0 right-0 h-1 bg-white" />
 
               <div className="flex justify-between items-start mb-6">
                 <div>
@@ -2786,7 +2802,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                 <button
                   onClick={() => setShowChatGPTModal(false)}
                   className={`p-1.5 rounded-full transition-colors ${
-                    isDark ? "hover:bg-white/10 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
+                    isDark ? "hover:bg-purple-500/20 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
                   }`}
                 >
                   <X className="w-4 h-4" />
@@ -2808,7 +2824,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                         toast.success("Prompt copied to clipboard!", { icon: "📋" });
                       }}
                       className={`absolute right-2 p-1.5 rounded-lg transition-colors ${
-                        isDark ? "hover:bg-white/5 text-zinc-400 hover:text-white" : "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-900"
+                        isDark ? "hover:bg-purple-500/10 text-zinc-400 hover:text-white" : "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-900"
                       }`}
                       title="Copy prompt to clipboard"
                     >
@@ -2836,7 +2852,7 @@ export default function PRReviewer({ data, onClose }: { data: any, onClose: () =
                   <Button
                     type="button"
                     onClick={handleCopyAndLaunchChatGPT}
-                    className="w-full rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700 shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2"
+                    className="w-full rounded-xl bg-purple-600 text-white hover:bg-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)] flex items-center justify-center gap-2"
                   >
                     Copy & Open ChatGPT
                   </Button>

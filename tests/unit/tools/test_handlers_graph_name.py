@@ -138,7 +138,12 @@ def test_list_indexed_repositories_forwards_graph_name():
         assert call.kwargs.get("graph_name") == "tenant_y"
 
 
-def test_delete_repository_forwards_graph_name_to_builder():
+def test_delete_repository_forwards_graph_name_to_builder(monkeypatch):
+    # Deletion is gated behind ALLOW_DB_DELETION; enable it so the handler
+    # reaches the builder call this test verifies.
+    monkeypatch.setattr(
+        "codegraphcontext.cli.config_manager.is_db_deletion_allowed", lambda: True
+    )
     mock_builder = MagicMock()
     mock_builder.delete_repository_from_graph.return_value = True
     management_handlers.delete_repository(
@@ -175,10 +180,19 @@ def test_load_bundle_constructs_cgc_bundle_with_graph_name():
                 return False, "stub"
 
         mp.setattr("codegraphcontext.core.cgc_bundle.CGCBundle", _StubBundle)
+        # Bypass the path-sandbox allowlist so the handler reaches CGCBundle
+        # construction (the allowlist has its own dedicated coverage).
+        mp.setattr(
+            "codegraphcontext.utils.path_sandbox.is_path_allowed",
+            lambda *a, **k: True,
+        )
         # Also short-circuit the file-existence path by giving a fake local file.
         import pathlib
 
-        fake_bundle = pathlib.Path("/tmp/__never_exists__.cgc")
+        # Resolve so it matches the handler's Path(bundle_name).resolve()
+        # (on macOS /tmp -> /private/tmp), otherwise the exists() check misses
+        # and the handler falls into the registry-download branch.
+        fake_bundle = pathlib.Path("/tmp/__never_exists__.cgc").resolve()
         mp.setattr(pathlib.Path, "exists", lambda self: self == fake_bundle)
         management_handlers.load_bundle(
             finder, bundle_name=str(fake_bundle), graph_name="tenant_w"
@@ -270,6 +284,12 @@ def test_add_package_to_graph_threads_graph_name(monkeypatch):
         lambda name, lang: "/tmp",
     )
     monkeypatch.setattr(os.path, "exists", lambda p: True)
+    # Bypass the path-sandbox allowlist (covered separately) so the handler
+    # proceeds to job creation / coroutine build that this test verifies.
+    monkeypatch.setattr(
+        "codegraphcontext.tools.handlers.indexing_handlers._is_path_allowed",
+        lambda p: True,
+    )
     monkeypatch.setattr(
         "codegraphcontext.tools.handlers.indexing_handlers.asyncio.run_coroutine_threadsafe",
         lambda coro, loop: None,
@@ -290,10 +310,17 @@ def test_add_package_to_graph_threads_graph_name(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_watch_directory_handler_forwards_graph_name_everywhere(tmp_path):
+def test_watch_directory_handler_forwards_graph_name_everywhere(tmp_path, monkeypatch):
     """watch_directory must forward graph_name to list_repos_func, add_code_func,
     AND code_watcher.watch_directory."""
     real_dir = tmp_path
+
+    # Bypass the path-sandbox allowlist (covered separately) so the handler
+    # reaches the graph_name-forwarding logic this test verifies.
+    monkeypatch.setattr(
+        "codegraphcontext.tools.handlers.watcher_handlers.is_path_allowed",
+        lambda *a, **k: True,
+    )
 
     list_calls = []
 

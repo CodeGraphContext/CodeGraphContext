@@ -62,7 +62,7 @@ export default function ShowDownloads() {
   if (!stats) return <p>Loading stats...</p>;
 
   return (
-    <div data-aos="fade-in">
+    <div>
       {stats?.data ? (
         <>
           <p>Last month downloads: {stats.data.last_month.toLocaleString()}+</p>

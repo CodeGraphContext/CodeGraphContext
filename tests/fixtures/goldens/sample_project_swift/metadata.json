@@ -1,10 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-05-19T02:34:14.592340",
-  "format_version": "1.0",
+  "exported_at": "2026-06-07T18:03:26Z",
+  "format_version": "1.0.0",
   "repo": "sample_project_swift",
-  "repo_path": "/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project_swift",
+  "repo_path": ".",
   "is_dependency": false,
-  "commit": "0c6be239",
-  "languages": []
+  "commit": "f3f62d33",
+  "branch": "fix/e2e-security-followup",
+  "generator": "PYv0.4.16",
+  "name": "sample_project_swift.cgc",
+  "graph_metrics": {
+    "total_nodes": 136,
+    "total_edges": 178
+  }
 }

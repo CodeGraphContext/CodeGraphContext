@@ -281,7 +281,11 @@ class GraphBuilder:
                 f"[CALLS] Skipped {len(diagnostics)} unresolved call(s). "
                 f"Sample: {sample}"
             )
-        self._writer_for(graph_name).write_function_call_groups(*groups)
+        try:
+            self._writer_for(graph_name).write_function_call_groups(*groups)
+        except Exception as exc:
+            error_logger(f"[CALLS] Failed to persist call relationships: {exc}")
+            raise
 
     def _create_all_function_calls(
         self, all_file_data: list[Dict], imports_map: dict, file_class_lookup: Optional[Dict[str, set]] = None, graph_name: Optional[str] = None,

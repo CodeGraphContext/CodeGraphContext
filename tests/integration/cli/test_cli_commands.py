@@ -455,9 +455,9 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
             [
                 ["context", "list"],
                 ["context", "create", "ci-context"],
-                ["context", "delete", "ci-context"],
-                ["context", "mode", "single"],
                 ["context", "default", "ci-context"],
+                ["context", "mode", "global"],
+                ["context", "delete", "ci-context"],
             ]
         )
     if "datasource" in source_inventory:
@@ -498,27 +498,26 @@ def test_config_show_with_empty_config_does_not_crash(monkeypatch, tmp_path):
     assert "Configuration Settings" in result.output
 
 
-def test_find_content_falkordb_known_limitation_message(monkeypatch):
-    class _FakeFalkorDBManager:
+def test_find_content_surfaces_query_errors(monkeypatch):
+    class _FakeDBManager:
         def close_driver(self):
             return None
 
     class _FailingFinder:
         def find_by_content(self, _query):
-            raise Exception("CALL db.index.fulltext.queryNodes is unsupported")
+            raise Exception("database connection lost")
 
     monkeypatch.setattr(cli_main, "_load_credentials", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         cli_main,
         "_initialize_services",
-        lambda *_args, **_kwargs: (_FakeFalkorDBManager(), _FakeGraphBuilder(), _FailingFinder()),
+        lambda *_args, **_kwargs: (_FakeDBManager(), _FakeGraphBuilder(), _FailingFinder()),
     )
 
     result = runner.invoke(app, ["--database", "falkordb", "find", "content", "foo"])
 
-    assert result.exit_code == 0
-    assert "Full-text search is not supported on FalkorDB" in result.output
-    assert "cgc find pattern" in result.output
+    assert result.exit_code != 0
+    assert "Full-text search is not supported on FalkorDB" not in result.output
 
 
 def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):

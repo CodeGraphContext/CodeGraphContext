@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from ....utils.debug_log import info_logger, warning_logger
 from ....utils.git_utils import get_repo_commit_hash
 from ..sanitize import sanitize_props
+from ..schema_contract import NODE_LABELS
 
 
 def _is_binder_exception(e: Exception) -> bool:
@@ -35,6 +36,70 @@ class GraphWriter:
     def _session(self):
         """Open a session bound to this writer's ``graph_name``."""
         return self.db_manager.get_driver(graph_name=self.graph_name).session()
+
+    def _get_all_node_labels(self) -> list[str]:
+        """Discover all node labels in the database, backend-aware.
+
+        Neo4j / Nornic use ``CALL db.labels()``.
+        KuzuDB / LadybugDB use ``MATCH (n) RETURN DISTINCT label(n)``
+        (``SHOW TABLES`` is not supported in KuzuDB Python bindings ≤ 0.11).
+        FalkorDB uses ``CALL db.labels()`` without YIELD.
+        All backends fall back to :data:`schema_contract.NODE_LABELS`
+        plus supplementary labels on failure.
+        """
+        backend = getattr(self.db_manager, "get_backend_type", lambda: "neo4j")()
+
+        if backend in ("kuzudb", "ladybugdb"):
+            # NOTE: Full node scan required because SHOW TABLES is unavailable
+            # in KuzuDB ≤ 0.11. Acceptable for delete_repository (low-frequency).
+            try:
+                with self._session() as session:
+                    result = session.run(
+                        "MATCH (n) RETURN DISTINCT label(n) AS lbl"
+                    )
+                    labels = sorted(
+                        {record[0] for record in result if record[0] is not None}
+                    )
+                    if labels:
+                        return labels
+            except Exception as e:
+                info_logger(
+                    f"[DELETE] label discovery failed for {backend} "
+                    f"({e}), using fallback list"
+                )
+
+        elif backend in ("neo4j", "nornic"):
+            try:
+                with self._session() as session:
+                    label_records = session.run(
+                        "CALL db.labels() YIELD label RETURN label"
+                    )
+                    return sorted({record["label"] for record in label_records})
+            except Exception as e:
+                info_logger(
+                    f"[DELETE] CALL db.labels() failed for {backend} "
+                    f"({e}), using fallback list"
+                )
+
+        elif backend in ("falkordb", "falkordb-remote"):
+            try:
+                with self._session() as session:
+                    label_records = session.run("CALL db.labels()")
+                    return sorted({record["label"] for record in label_records})
+            except Exception as e:
+                info_logger(
+                    f"[DELETE] CALL db.labels() failed for {backend} "
+                    f"({e}), using fallback list"
+                )
+
+        # Fallback: canonical NODE_LABELS from schema_contract + supplementary
+        # labels that may exist in the graph from dynamic indexing paths.
+        return sorted(NODE_LABELS | {
+            "ExternalClass", "ExternalFunction",
+            "EnumValue", "Namespace", "TypeAlias", "Decorator",
+            "Method", "Endpoint", "OrmMapping", "Query",
+            "SpringDataRepository", "Mixin", "Extension", "Object",
+        })
 
     def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
         repo_name = repo_path.name
@@ -299,6 +364,7 @@ class GraphWriter:
                     UNWIND $batch AS row
                     MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.line_number})
                     MERGE (p:Parameter {name: row.arg_name, path: $file_path, function_line_number: row.line_number})
+                    SET p.name = row.arg_name, p.path = $file_path, p.function_line_number = row.line_number
                     MERGE (fn)-[:HAS_PARAMETER]->(p)
                 """,
                     batch=unique_params,
@@ -380,10 +446,9 @@ class GraphWriter:
                     UNWIND $batch AS row
                     MATCH (f:File {path: $file_path})
                     MERGE (m:Module {name: row.module_name})
-                    MERGE (f)-[r:IMPORTS]->(m)
+                    MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)
                     SET r.imported_name = row.imported_name,
-                        r.alias = row.alias,
-                        r.line_number = row.line_number
+                        r.alias = row.alias
                 """,
                     batch=js_imports,
                     file_path=file_path_str,
@@ -397,9 +462,8 @@ class GraphWriter:
                     MERGE (m:Module {name: row.name})
                     SET m.lang = coalesce(row.lang, m.lang),
                         m.full_import_name = coalesce(row.full_import_name, m.full_import_name)
-                    MERGE (f)-[r:IMPORTS]->(m)
-                    SET r.line_number = row.line_number,
-                        r.alias = coalesce(row.alias, ""),
+                    MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)
+                    SET r.alias = coalesce(row.alias, ""),
                         r.imported_name = row.imported_name,
                         r.full_import_name = row.full_import_name
                 """,
@@ -1321,14 +1385,25 @@ class GraphWriter:
         info_logger(f"[SPRING_DATA] Written {written} READS/WRITES derived-query edges")
 
     def delete_repository_from_graph(self, repo_path: str) -> bool:
-        repo_path_str = repo_path
+        # Normalize path separators for cross-platform compatibility (Windows uses \)
+        repo_path_str = repo_path.replace("\\", "/")
         path_prefix = repo_path_str + "/"
         with self._session() as session:
+            # Try normalized path first
             result = session.run(
                 "MATCH (r:Repository {path: $path}) RETURN count(r) as cnt", path=repo_path_str
             ).single()
             if not result or result["cnt"] == 0:
-                warning_logger(f"Attempted to delete non-existent repository: {repo_path_str}")
+                # Fallback: try original path (Windows backslash)
+                result = session.run(
+                    "MATCH (r:Repository {path: $path}) RETURN count(r) as cnt", path=repo_path
+                ).single()
+                # If found via original path, use original path for all subsequent operations
+                if result and result["cnt"] > 0:
+                    repo_path_str = repo_path
+                    path_prefix = repo_path + "\\"
+            if not result or result["cnt"] == 0:
+                warning_logger(f"Attempted to delete non-existent repository: {repo_path}")
                 return False
 
         for rel_type in ("CALLS", "INHERITS", "IMPORTS"):
@@ -1363,17 +1438,16 @@ class GraphWriter:
         # list. Every time the indexer learned a new node type (Variable,
         # Parameter, Directory, ExternalClass, DbTable, ...) the hardcoded
         # tuple here had to be kept in lockstep, and every miss leaked
-        # orphan nodes on `delete_repository`. `CALL db.labels()` returns
-        # exactly the set of labels that have at least one node in the
-        # current database -- per-label DETACH DELETE with the same path
-        # prefix is then label-agnostic and self-maintaining.
+        # orphan nodes on `delete_repository`.
+        #
+        # Neo4j: `CALL db.labels()` returns exactly the set of labels.
+        # KuzuDB: `MATCH (n) RETURN DISTINCT label(n)` discovers labels dynamically.
+        # Other backends: comprehensive fallback list.
         #
         # Labels with no node matching the path prefix are cheap: the
         # label-scoped scan returns 0 rows, the while-True loop exits
         # immediately, and we move on.
-        with self._session() as session:
-            label_records = session.run("CALL db.labels() YIELD label RETURN label")
-            all_labels = sorted({record["label"] for record in label_records})
+        all_labels = self._get_all_node_labels()
 
         for label in all_labels:
             while True:

@@ -1,219 +1,221 @@
-{"from": "0", "to": "1", "type": "CONTAINS", "properties": {}}
-{"from": "0", "to": "3", "type": "CONTAINS", "properties": {}}
-{"from": "0", "to": "4", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "10", "type": "CONTAINS", "properties": {}}
-{"from": "4", "to": "5", "type": "CONTAINS", "properties": {}}
-{"from": "5", "to": "6", "type": "CONTAINS", "properties": {}}
-{"from": "6", "to": "8", "type": "CONTAINS", "properties": {}}
-{"from": "7", "to": "15", "type": "CONTAINS", "properties": {}}
-{"from": "7", "to": "16", "type": "CONTAINS", "properties": {}}
-{"from": "7", "to": "17", "type": "CONTAINS", "properties": {}}
-{"from": "7", "to": "19", "type": "CONTAINS", "properties": {}}
-{"from": "7", "to": "26", "type": "CONTAINS", "properties": {}}
-{"from": "7", "to": "27", "type": "CONTAINS", "properties": {}}
-{"from": "8", "to": "9", "type": "CONTAINS", "properties": {}}
-{"from": "8", "to": "14", "type": "CONTAINS", "properties": {}}
-{"from": "8", "to": "20", "type": "CONTAINS", "properties": {}}
-{"from": "8", "to": "24", "type": "CONTAINS", "properties": {}}
-{"from": "8", "to": "41", "type": "CONTAINS", "properties": {}}
-{"from": "8", "to": "72", "type": "CONTAINS", "properties": {}}
-{"from": "8", "to": "86", "type": "CONTAINS", "properties": {}}
-{"from": "8", "to": "87", "type": "CONTAINS", "properties": {}}
-{"from": "9", "to": "2", "type": "CONTAINS", "properties": {}}
-{"from": "9", "to": "7", "type": "CONTAINS", "properties": {}}
-{"from": "11", "to": "21", "type": "CONTAINS", "properties": {}}
-{"from": "11", "to": "22", "type": "CONTAINS", "properties": {}}
-{"from": "11", "to": "25", "type": "CONTAINS", "properties": {}}
-{"from": "11", "to": "36", "type": "CONTAINS", "properties": {}}
-{"from": "11", "to": "59", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "java.util.Collection", "full_import_name": "java.util.Collection"}}
-{"from": "12", "to": "37", "type": "CONTAINS", "properties": {}}
-{"from": "12", "to": "46", "type": "CONTAINS", "properties": {}}
-{"from": "12", "to": "53", "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "imported_name": "com.example.app.model.User", "full_import_name": "com.example.app.model.User"}}
-{"from": "12", "to": "54", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "com.example.app.annotations.Logged", "full_import_name": "com.example.app.annotations.Logged"}}
-{"from": "13", "to": "34", "type": "CONTAINS", "properties": {}}
-{"from": "13", "to": "35", "type": "CONTAINS", "properties": {}}
-{"from": "13", "to": "39", "type": "CONTAINS", "properties": {}}
-{"from": "14", "to": "29", "type": "CONTAINS", "properties": {}}
-{"from": "14", "to": "30", "type": "CONTAINS", "properties": {}}
-{"from": "14", "to": "45", "type": "CONTAINS", "properties": {}}
-{"from": "14", "to": "49", "type": "CONTAINS", "properties": {}}
-{"from": "14", "to": "50", "type": "CONTAINS", "properties": {}}
-{"from": "14", "to": "51", "type": "CONTAINS", "properties": {}}
-{"from": "14", "to": "67", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "com.example.app.service.WorkService", "full_import_name": "com.example.app.service.WorkService"}}
-{"from": "17", "to": "31", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "17", "to": "32", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "18", "to": "33", "type": "CONTAINS", "properties": {}}
-{"from": "18", "to": "40", "type": "CONTAINS", "properties": {}}
-{"from": "18", "to": "53", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "com.example.app.model.User", "full_import_name": "com.example.app.model.User"}}
-{"from": "18", "to": "57", "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "imported_name": "com.example.app.service.AbstractGreeter", "full_import_name": "com.example.app.service.AbstractGreeter"}}
-{"from": "18", "to": "58", "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "imported_name": "com.example.app.service.GreetingService", "full_import_name": "com.example.app.service.GreetingService"}}
-{"from": "19", "to": "15", "type": "CONTAINS", "properties": {}}
-{"from": "19", "to": "16", "type": "CONTAINS", "properties": {}}
-{"from": "19", "to": "17", "type": "CONTAINS", "properties": {}}
-{"from": "20", "to": "11", "type": "CONTAINS", "properties": {}}
-{"from": "20", "to": "61", "type": "CONTAINS", "properties": {}}
-{"from": "21", "to": "38", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "23", "to": "47", "type": "CONTAINS", "properties": {}}
-{"from": "23", "to": "52", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "java.lang.annotation.*", "full_import_name": "java.lang.annotation.*"}}
-{"from": "24", "to": "12", "type": "CONTAINS", "properties": {}}
-{"from": "24", "to": "13", "type": "CONTAINS", "properties": {}}
-{"from": "24", "to": "28", "type": "CONTAINS", "properties": {}}
-{"from": "24", "to": "60", "type": "CONTAINS", "properties": {}}
-{"from": "25", "to": "21", "type": "CONTAINS", "properties": {}}
-{"from": "25", "to": "22", "type": "CONTAINS", "properties": {}}
-{"from": "28", "to": "18", "type": "CONTAINS", "properties": {}}
-{"from": "29", "to": "34", "type": "CALLS", "properties": {"line_number": 19, "args": ["42"], "full_call_name": "workService.computeResult", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
-{"from": "29", "to": "35", "type": "CALLS", "properties": {"line_number": 18, "args": ["input"], "full_call_name": "workService.doWork", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
-{"from": "29", "to": "55", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "30", "to": "56", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "33", "to": "42", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "34", "to": "43", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "35", "to": "44", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "37", "to": "48", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "39", "to": "34", "type": "CONTAINS", "properties": {}}
-{"from": "39", "to": "35", "type": "CONTAINS", "properties": {}}
-{"from": "40", "to": "33", "type": "CONTAINS", "properties": {}}
-{"from": "40", "to": "46", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": "40", "to": "65", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": "41", "to": "23", "type": "CONTAINS", "properties": {}}
-{"from": "45", "to": "29", "type": "CONTAINS", "properties": {}}
-{"from": "45", "to": "30", "type": "CONTAINS", "properties": {}}
-{"from": "46", "to": "37", "type": "CONTAINS", "properties": {}}
-{"from": "60", "to": "53", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "com.example.app.model.User", "full_import_name": "com.example.app.model.User"}}
-{"from": "60", "to": "62", "type": "CONTAINS", "properties": {}}
-{"from": "60", "to": "65", "type": "CONTAINS", "properties": {}}
-{"from": "61", "to": "63", "type": "CONTAINS", "properties": {}}
-{"from": "61", "to": "64", "type": "CONTAINS", "properties": {}}
-{"from": "61", "to": "68", "type": "CONTAINS", "properties": {}}
-{"from": "61", "to": "69", "type": "CONTAINS", "properties": {}}
-{"from": "61", "to": "78", "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "imported_name": "java.io.FileReader", "full_import_name": "java.io.FileReader"}}
-{"from": "61", "to": "79", "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "imported_name": "java.io.IOException", "full_import_name": "java.io.IOException"}}
-{"from": "61", "to": "80", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "java.io.BufferedReader", "full_import_name": "java.io.BufferedReader"}}
-{"from": "62", "to": "66", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "63", "to": "70", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "65", "to": "62", "type": "CONTAINS", "properties": {}}
-{"from": "68", "to": "63", "type": "CONTAINS", "properties": {}}
-{"from": "68", "to": "64", "type": "CONTAINS", "properties": {}}
-{"from": "71", "to": "73", "type": "CONTAINS", "properties": {}}
-{"from": "71", "to": "74", "type": "CONTAINS", "properties": {}}
-{"from": "71", "to": "75", "type": "CONTAINS", "properties": {}}
-{"from": "71", "to": "76", "type": "CONTAINS", "properties": {}}
-{"from": "71", "to": "77", "type": "CONTAINS", "properties": {}}
-{"from": "71", "to": "81", "type": "CONTAINS", "properties": {}}
-{"from": "71", "to": "82", "type": "CONTAINS", "properties": {}}
-{"from": "71", "to": "83", "type": "CONTAINS", "properties": {}}
-{"from": "72", "to": "71", "type": "CONTAINS", "properties": {}}
-{"from": "73", "to": "84", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "75", "to": "85", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "76", "to": "73", "type": "CONTAINS", "properties": {}}
-{"from": "76", "to": "74", "type": "CONTAINS", "properties": {}}
-{"from": "77", "to": "75", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "88", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "89", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "90", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "91", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "92", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "93", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "94", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "95", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "96", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "97", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "98", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "99", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "100", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "101", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "102", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "103", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "104", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "105", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "106", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "108", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "109", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "110", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "111", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "112", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "113", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "114", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "115", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "116", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "117", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "118", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "119", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "121", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "122", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "123", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "124", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "125", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "126", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "127", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "128", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "129", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "130", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "137", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "138", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "140", "type": "CONTAINS", "properties": {}}
-{"from": "86", "to": "153", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "java.util.List", "full_import_name": "java.util.List"}}
-{"from": "86", "to": "158", "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "imported_name": "java.util.function.Consumer", "full_import_name": "java.util.function.Consumer"}}
-{"from": "87", "to": "53", "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "imported_name": "com.example.app.model.User", "full_import_name": "com.example.app.model.User"}}
-{"from": "87", "to": "58", "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "imported_name": "com.example.app.service.GreetingService", "full_import_name": "com.example.app.service.GreetingService"}}
-{"from": "87", "to": "107", "type": "CONTAINS", "properties": {}}
-{"from": "87", "to": "120", "type": "CONTAINS", "properties": {}}
-{"from": "87", "to": "131", "type": "CONTAINS", "properties": {}}
-{"from": "87", "to": "132", "type": "CONTAINS", "properties": {}}
-{"from": "87", "to": "133", "type": "CONTAINS", "properties": {}}
-{"from": "87", "to": "134", "type": "CONTAINS", "properties": {}}
-{"from": "87", "to": "135", "type": "CONTAINS", "properties": {}}
-{"from": "87", "to": "136", "type": "CONTAINS", "properties": {}}
-{"from": "87", "to": "153", "type": "IMPORTS", "properties": {"line_number": 10, "alias": "", "imported_name": "java.util.List", "full_import_name": "java.util.List"}}
-{"from": "87", "to": "154", "type": "IMPORTS", "properties": {"line_number": 8, "alias": "", "imported_name": "com.example.app.util.IOHelper", "full_import_name": "com.example.app.util.IOHelper"}}
-{"from": "87", "to": "155", "type": "IMPORTS", "properties": {"line_number": 7, "alias": "", "imported_name": "com.example.app.util.CollectionUtils", "full_import_name": "com.example.app.util.CollectionUtils"}}
-{"from": "87", "to": "156", "type": "IMPORTS", "properties": {"line_number": 6, "alias": "", "imported_name": "com.example.app.service.impl.GreetingServiceImpl", "full_import_name": "com.example.app.service.impl.GreetingServiceImpl"}}
-{"from": "87", "to": "157", "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "imported_name": "com.example.app.model.Role", "full_import_name": "com.example.app.model.Role"}}
-{"from": "88", "to": "100", "type": "CALLS", "properties": {"line_number": 28, "args": [], "full_call_name": "outerMethod", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": "89", "to": "89", "type": "CALLS", "properties": {"line_number": 149, "args": ["target", "args"], "full_call_name": "method.invoke", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": "89", "to": "141", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "89", "to": "142", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "89", "to": "143", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "90", "to": "144", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "91", "to": "97", "type": "CALLS", "properties": {"line_number": 99, "args": ["data"], "full_call_name": "repository.saveData", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
-{"from": "91", "to": "145", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "93", "to": "95", "type": "CALLS", "properties": {"line_number": 169, "args": ["\"Sensitive Data\""], "full_call_name": "service.process", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
-{"from": "93", "to": "102", "type": "CALLS", "properties": {"line_number": 166, "args": [], "full_call_name": "ProxyFactory.createSecureService", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": "94", "to": "103", "type": "CALLS", "properties": {"line_number": 54, "args": ["\"data\""], "full_call_name": "p.process", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
-{"from": "94", "to": "138", "type": "CALLS", "properties": {"line_number": 44, "args": [], "full_call_name": "Processor", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": "95", "to": "146", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "97", "to": "147", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "98", "to": "148", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "102", "to": "108", "type": "CALLS", "properties": {"line_number": 159, "args": ["realService"], "full_call_name": "SecurityProxyHandler", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": "102", "to": "111", "type": "CALLS", "properties": {"line_number": 155, "args": [], "full_call_name": "DataServiceImpl", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": "103", "to": "149", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "104", "to": "150", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "105", "to": "151", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "106", "to": "104", "type": "CALLS", "properties": {"line_number": 47, "args": ["input"], "full_call_name": "internalHelper", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": "106", "to": "152", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "107", "to": "19", "type": "CALLS", "properties": {"line_number": 15, "args": ["\"Priya\"", "Role.ADMIN"], "full_call_name": "User", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
-{"from": "107", "to": "21", "type": "CALLS", "properties": {"line_number": 18, "args": ["List.of(1, 2, 3, 4, 5)"], "full_call_name": "CollectionUtils.sumOfSquares", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
-{"from": "107", "to": "40", "type": "CALLS", "properties": {"line_number": 14, "args": [], "full_call_name": "GreetingServiceImpl", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
-{"from": "107", "to": "62", "type": "CALLS", "properties": {"line_number": 16, "args": ["u"], "full_call_name": "svc.greet", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
-{"from": "107", "to": "63", "type": "CALLS", "properties": {"line_number": 22, "args": ["\"README.md\""], "full_call_name": "IOHelper.readFirstLine", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
-{"from": "107", "to": "116", "type": "CALLS", "properties": {"line_number": 29, "args": ["\"inner\""], "full_call_name": "Inner", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": "107", "to": "139", "type": "HAS_PARAMETER", "properties": {}}
-{"from": "108", "to": "89", "type": "CONTAINS", "properties": {}}
-{"from": "108", "to": "105", "type": "CONTAINS", "properties": {}}
-{"from": "108", "to": "159", "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
-{"from": "109", "to": "93", "type": "CONTAINS", "properties": {}}
-{"from": "110", "to": "102", "type": "CONTAINS", "properties": {}}
-{"from": "111", "to": "90", "type": "CONTAINS", "properties": {}}
-{"from": "111", "to": "137", "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": "112", "to": "91", "type": "CONTAINS", "properties": {}}
-{"from": "112", "to": "113", "type": "INJECTS", "properties": {"field_name": "repository", "inject_line": 92, "confidence_label": "EXTRACTED"}}
-{"from": "113", "to": "97", "type": "CONTAINS", "properties": {}}
-{"from": "115", "to": "98", "type": "CONTAINS", "properties": {}}
-{"from": "116", "to": "88", "type": "CONTAINS", "properties": {}}
-{"from": "117", "to": "94", "type": "CONTAINS", "properties": {}}
-{"from": "117", "to": "99", "type": "CONTAINS", "properties": {}}
-{"from": "118", "to": "101", "type": "CONTAINS", "properties": {}}
-{"from": "119", "to": "100", "type": "CONTAINS", "properties": {}}
-{"from": "120", "to": "107", "type": "CONTAINS", "properties": {}}
-{"from": "137", "to": "95", "type": "CONTAINS", "properties": {}}
-{"from": "138", "to": "103", "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 0, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 8, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 6, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 3, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 4, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 6, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 7, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 8, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 5, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 4, "table": 1}, "to": {"offset": 9, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 5, "table": 1}, "to": {"offset": 0, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 5, "table": 1}, "to": {"offset": 1, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 5, "table": 1}, "to": {"offset": 2, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 10, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 11, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 12, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 13, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 14, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 15, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 16, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 17, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 18, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 19, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 20, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 21, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 22, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 23, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 24, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 25, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 26, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 27, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 28, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 29, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 30, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 31, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 32, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 12, "table": 1}, "to": {"offset": 33, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 12, "table": 1}, "to": {"offset": 34, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 14, "table": 1}, "to": {"offset": 35, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 14, "table": 1}, "to": {"offset": 36, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 5, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 3, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 4, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 0, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 1, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 5, "table": 1}, "to": {"offset": 2, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 6, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 10, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 11, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 12, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 13, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 14, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 15, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 16, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 17, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 18, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 19, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 20, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 21, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 7, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 8, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 12, "table": 1}, "to": {"offset": 9, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 14, "table": 1}, "to": {"offset": 22, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 2, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 3, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 4, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 5, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 5, "table": 1}, "to": {"offset": 0, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 5, "table": 1}, "to": {"offset": 1, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 6, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 7, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 8, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 16, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 17, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 18, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 19, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 20, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 21, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 22, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 23, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 24, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 25, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 9, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 10, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 11, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 12, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 13, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 14, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 12, "table": 1}, "to": {"offset": 15, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 4, "table": 1}, "to": {"offset": 0, "table": 8}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 1, "table": 8}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 2, "table": 8}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 1, "table": 11}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 13, "table": 1}, "to": {"offset": 0, "table": 11}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 5, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "java.io.BufferedReader", "imported_name": "java.io.BufferedReader"}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 8, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "full_import_name": "java.io.IOException", "imported_name": "java.io.IOException"}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 9, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "java.io.FileReader", "imported_name": "java.io.FileReader"}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "java.lang.annotation.*", "imported_name": "java.lang.annotation.*"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 2, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "com.example.app.annotations.Logged", "imported_name": "com.example.app.annotations.Logged"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "com.example.app.model.User", "imported_name": "com.example.app.model.User"}}
+{"from": {"offset": 4, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "com.example.app.model.User", "imported_name": "com.example.app.model.User"}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 11, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "com.example.app.service.WorkService", "imported_name": "com.example.app.service.WorkService"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 13, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "java.util.List", "imported_name": "java.util.List"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 15, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "java.util.function.Consumer", "imported_name": "java.util.function.Consumer"}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "com.example.app.model.User", "imported_name": "com.example.app.model.User"}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 3, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "full_import_name": "com.example.app.service.GreetingService", "imported_name": "com.example.app.service.GreetingService"}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 4, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "com.example.app.service.AbstractGreeter", "imported_name": "com.example.app.service.AbstractGreeter"}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 6, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "com.example.app.model.Role", "imported_name": "com.example.app.model.Role"}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 7, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 7, "alias": "", "full_import_name": "com.example.app.util.CollectionUtils", "imported_name": "com.example.app.util.CollectionUtils"}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 3, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "full_import_name": "com.example.app.service.GreetingService", "imported_name": "com.example.app.service.GreetingService"}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 10, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 6, "alias": "", "full_import_name": "com.example.app.service.impl.GreetingServiceImpl", "imported_name": "com.example.app.service.impl.GreetingServiceImpl"}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "com.example.app.model.User", "imported_name": "com.example.app.model.User"}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 12, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 8, "alias": "", "full_import_name": "com.example.app.util.IOHelper", "imported_name": "com.example.app.util.IOHelper"}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 13, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 10, "alias": "", "full_import_name": "java.util.List", "imported_name": "java.util.List"}}
+{"from": {"offset": 12, "table": 1}, "to": {"offset": 14, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "java.util.Collection", "imported_name": "java.util.Collection"}}
+{"from": {"offset": 11, "table": 4}, "to": {"offset": 35, "table": 4}, "type": "CALLS", "properties": {"line_number": 18, "args": ["input"], "full_call_name": "workService.doWork", "args_key": "[\"input\"]", "confidence": 0.88, "resolution_tier": 3, "confidence_label": "INFERRED"}}
+{"from": {"offset": 11, "table": 4}, "to": {"offset": 36, "table": 4}, "type": "CALLS", "properties": {"line_number": 19, "args": ["42"], "full_call_name": "workService.computeResult", "args_key": "[\"42\"]", "confidence": 0.88, "resolution_tier": 3, "confidence_label": "INFERRED"}}
+{"from": {"offset": 12, "table": 4}, "to": {"offset": 20, "table": 4}, "type": "CALLS", "properties": {"line_number": 166, "args": [], "full_call_name": "ProxyFactory.createSecureService", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 12, "table": 4}, "to": {"offset": 30, "table": 4}, "type": "CALLS", "properties": {"line_number": 169, "args": ["\"Sensitive Data\""], "full_call_name": "service.process", "args_key": "[\"\\\"Sensitive Data\\\"\"]", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
+{"from": {"offset": 15, "table": 4}, "to": {"offset": 18, "table": 4}, "type": "CALLS", "properties": {"line_number": 47, "args": ["input"], "full_call_name": "internalHelper", "args_key": "[\"input\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 16, "table": 4}, "to": {"offset": 23, "table": 4}, "type": "CALLS", "properties": {"line_number": 99, "args": ["data"], "full_call_name": "repository.saveData", "args_key": "[\"data\"]", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
+{"from": {"offset": 24, "table": 4}, "to": {"offset": 24, "table": 4}, "type": "CALLS", "properties": {"line_number": 149, "args": ["target", "args"], "full_call_name": "method.invoke", "args_key": "[\"target\", \"args\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 27, "table": 4}, "to": {"offset": 17, "table": 4}, "type": "CALLS", "properties": {"line_number": 28, "args": [], "full_call_name": "outerMethod", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 28, "table": 4}, "to": {"offset": 25, "table": 4}, "type": "CALLS", "properties": {"line_number": 54, "args": ["\"data\""], "full_call_name": "p.process", "args_key": "[\"\\\"data\\\"\"]", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
+{"from": {"offset": 32, "table": 4}, "to": {"offset": 34, "table": 4}, "type": "CALLS", "properties": {"line_number": 18, "args": ["List.of(1, 2, 3, 4, 5)"], "full_call_name": "CollectionUtils.sumOfSquares", "args_key": "[\"List.of(1, 2, 3, 4, 5)\"]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 32, "table": 4}, "to": {"offset": 9, "table": 4}, "type": "CALLS", "properties": {"line_number": 16, "args": ["u"], "full_call_name": "svc.greet", "args_key": "[\"u\"]", "confidence": 0.88, "resolution_tier": 3, "confidence_label": "INFERRED"}}
+{"from": {"offset": 32, "table": 4}, "to": {"offset": 4, "table": 4}, "type": "CALLS", "properties": {"line_number": 22, "args": ["\"README.md\""], "full_call_name": "IOHelper.readFirstLine", "args_key": "[\"\\\"README.md\\\"\"]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 32, "table": 4}, "to": {"offset": 8, "table": 4}, "type": "CALLS", "properties": {"line_number": 30, "args": [], "full_call_name": "inner.combine", "args_key": "[]", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
+{"from": {"offset": 20, "table": 4}, "to": {"offset": 17, "table": 5}, "type": "CALLS", "properties": {"line_number": 155, "args": [], "full_call_name": "DataServiceImpl", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 20, "table": 4}, "to": {"offset": 18, "table": 5}, "type": "CALLS", "properties": {"line_number": 159, "args": ["realService"], "full_call_name": "SecurityProxyHandler", "args_key": "[\"realService\"]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 32, "table": 4}, "to": {"offset": 7, "table": 5}, "type": "CALLS", "properties": {"line_number": 14, "args": [], "full_call_name": "GreetingServiceImpl", "args_key": "[]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 32, "table": 4}, "to": {"offset": 3, "table": 5}, "type": "CALLS", "properties": {"line_number": 28, "args": ["\"outer\""], "full_call_name": "com.example.app.misc.Outer", "args_key": "[\"\\\"outer\\\"\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 32, "table": 4}, "to": {"offset": 2, "table": 5}, "type": "CALLS", "properties": {"line_number": 15, "args": ["\"Priya\"", "Role.ADMIN"], "full_call_name": "User", "args_key": "[\"\\\"Priya\\\"\", \"Role.ADMIN\"]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 32, "table": 4}, "to": {"offset": 11, "table": 5}, "type": "CALLS", "properties": {"line_number": 29, "args": ["\"inner\""], "full_call_name": "Inner", "args_key": "[\"\\\"inner\\\"\"]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 28, "table": 4}, "to": {"offset": 1, "table": 8}, "type": "CALLS", "properties": {"line_number": 44, "args": [], "full_call_name": "Processor", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 0, "table": 4}, "to": {"offset": 1, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 0, "table": 4}, "to": {"offset": 2, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 4, "table": 4}, "to": {"offset": 4, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 5, "table": 4}, "to": {"offset": 3, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 6, "table": 4}, "to": {"offset": 6, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 7, "table": 4}, "to": {"offset": 8, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 9, "table": 4}, "to": {"offset": 0, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 10, "table": 4}, "to": {"offset": 7, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 11, "table": 4}, "to": {"offset": 9, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 15, "table": 4}, "to": {"offset": 14, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 16, "table": 4}, "to": {"offset": 15, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 18, "table": 4}, "to": {"offset": 16, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 19, "table": 4}, "to": {"offset": 17, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 21, "table": 4}, "to": {"offset": 18, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 23, "table": 4}, "to": {"offset": 19, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 24, "table": 4}, "to": {"offset": 20, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 24, "table": 4}, "to": {"offset": 21, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 24, "table": 4}, "to": {"offset": 22, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 25, "table": 4}, "to": {"offset": 23, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 26, "table": 4}, "to": {"offset": 24, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 30, "table": 4}, "to": {"offset": 25, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 31, "table": 4}, "to": {"offset": 5, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 32, "table": 4}, "to": {"offset": 10, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 34, "table": 4}, "to": {"offset": 11, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 35, "table": 4}, "to": {"offset": 12, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 36, "table": 4}, "to": {"offset": 13, "table": 16}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 1, "table": 5}, "to": {"offset": 5, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 5}, "to": {"offset": 0, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 5}, "to": {"offset": 1, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 5}, "to": {"offset": 2, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 5}, "to": {"offset": 6, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 4, "table": 5}, "to": {"offset": 7, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 4, "table": 5}, "to": {"offset": 8, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 5, "table": 5}, "to": {"offset": 3, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 5, "table": 5}, "to": {"offset": 4, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 6, "table": 5}, "to": {"offset": 10, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 6, "table": 5}, "to": {"offset": 11, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 7, "table": 5}, "to": {"offset": 31, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 8, "table": 5}, "to": {"offset": 32, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 5}, "to": {"offset": 33, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 5}, "to": {"offset": 34, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 10, "table": 5}, "to": {"offset": 17, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 11, "table": 5}, "to": {"offset": 27, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 12, "table": 5}, "to": {"offset": 13, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 12, "table": 5}, "to": {"offset": 28, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 13, "table": 5}, "to": {"offset": 21, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 15, "table": 5}, "to": {"offset": 23, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 16, "table": 5}, "to": {"offset": 16, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 17, "table": 5}, "to": {"offset": 19, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 18, "table": 5}, "to": {"offset": 24, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 18, "table": 5}, "to": {"offset": 26, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 19, "table": 5}, "to": {"offset": 20, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 20, "table": 5}, "to": {"offset": 12, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 21, "table": 5}, "to": {"offset": 22, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 22, "table": 5}, "to": {"offset": 35, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 22, "table": 5}, "to": {"offset": 36, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 7, "table": 5}, "to": {"offset": 1, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 7, "table": 5}, "to": {"offset": 0, "table": 8}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 17, "table": 5}, "to": {"offset": 2, "table": 8}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 18, "table": 5}, "to": {"offset": 0, "table": 22}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": {"offset": 16, "table": 5}, "to": {"offset": 15, "table": 5}, "type": "INJECTS", "properties": {"confidence_label": "EXTRACTED", "field_name": "repository", "inject_line": 92}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 1, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 2}, "to": {"offset": 2, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 2}, "to": {"offset": 3, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 2}, "to": {"offset": 4, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 2}, "to": {"offset": 5, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 2}, "to": {"offset": 6, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 2}, "to": {"offset": 7, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 2}, "to": {"offset": 8, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 7, "table": 2}, "to": {"offset": 9, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 2}, "to": {"offset": 7, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 2}, "to": {"offset": 9, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 2}, "to": {"offset": 11, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 4, "table": 2}, "to": {"offset": 5, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 4, "table": 2}, "to": {"offset": 13, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 5, "table": 2}, "to": {"offset": 0, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 5, "table": 2}, "to": {"offset": 12, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 6, "table": 2}, "to": {"offset": 2, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 7, "table": 2}, "to": {"offset": 3, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 7, "table": 2}, "to": {"offset": 4, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 7, "table": 2}, "to": {"offset": 14, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 8, "table": 2}, "to": {"offset": 1, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 2}, "to": {"offset": 10, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 8}, "to": {"offset": 9, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 8}, "to": {"offset": 25, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 8}, "to": {"offset": 30, "table": 4}, "type": "CONTAINS", "properties": {}}

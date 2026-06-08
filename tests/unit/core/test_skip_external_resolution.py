@@ -12,8 +12,25 @@ from codegraphcontext.cli.config_manager import (
     set_config_value,
     CONFIG_DESCRIPTIONS,
     CONFIG_VALIDATORS,
-    DEFAULT_CONFIG
+    DEFAULT_CONFIG,
+    CONFIG_DIR,
+    CONFIG_FILE,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolated_config(tmp_path, monkeypatch):
+    """Use an isolated HOME so config tests do not leak across the suite."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.chdir(home)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("SKIP_EXTERNAL_RESOLUTION", raising=False)
+    # Rebind module-level paths used by config_manager
+    import codegraphcontext.cli.config_manager as cm
+
+    monkeypatch.setattr(cm, "CONFIG_DIR", home / ".codegraphcontext")
+    monkeypatch.setattr(cm, "CONFIG_FILE", home / ".codegraphcontext" / ".env")
 
 
 class TestSkipExternalResolutionConfig:
@@ -116,12 +133,8 @@ class TestBackwardCompatibility:
         # When SKIP_EXTERNAL_RESOLUTION is not set or is "false",
         # behavior should match original cgc behavior
         
-        with patch.dict(os.environ, {}, clear=True):
-            from codegraphcontext.cli.config_manager import get_config_value
-            
-            # Default should be None or "false"
-            value = get_config_value("SKIP_EXTERNAL_RESOLUTION")
-            assert value is None or value.lower() == "false"
+        value = get_config_value("SKIP_EXTERNAL_RESOLUTION")
+        assert value.lower() == "false"
 
     def test_existing_configs_not_affected(self):
         """Test that other configuration options still work."""

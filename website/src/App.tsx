@@ -10,25 +10,14 @@ import NotFound from "./pages/NotFound";
 import Explore from "./pages/Explore";
 import Privacy from "./pages/Privacy";
 import PRReviewerPage from "./pages/PRReviewerPage";
-import MoveToTop from "./components/MoveToTop";
+
 import Navbar from "./components/Navbar";
 
-// ✅ Import AOS library and CSS
-import AOS from "aos";
-import "aos/dist/aos.css";
+// Removed AOS for instant loading
 
 const queryClient = new QueryClient();
 
 const App: React.FC = () => {
-  // ✅ Initialize AOS once on mount
-  useEffect(() => {
-    AOS.init({
-      duration: 800, // Animation duration (ms)
-      easing: "ease-in-out", // Smooth transition
-      once: true, // Run animation only once
-      mirror: false, // Do not animate when scrolling back up
-    });
-  }, []);
 
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -55,8 +44,6 @@ const App: React.FC = () => {
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
-            {/* Move to Top button */}
-            <MoveToTop />
           </TooltipProvider>
         </ThemeProvider>
       </QueryClientProvider>

@@ -524,7 +524,7 @@ class TestAddFileToGraph:
 
         import_call = next(
             c for c in session.calls
-            if "MERGE (f)-[r:IMPORTS]->(m)" in c["query"]
+            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)" in c["query"]
         )
         assert "m.alias" not in import_call["query"]
         assert import_call["kwargs"]["batch"] == [
@@ -544,10 +544,13 @@ class TestAddFileToGraph:
 # ---------------------------------------------------------------------------
 
 class _DeleteRepoSession(_RecordingSession):
-    """RecordingSession that intercepts `CALL db.labels()` queries and
+    """RecordingSession that intercepts label-discovery queries and
     returns a fixed label list without consuming a slot in the responses
     queue, so positional fixtures stay focused on deletion counts and
-    aren't disturbed by the new label-discovery query in the implementation."""
+    aren't disturbed by the label-discovery query in the implementation.
+
+    Supports both Neo4j (``CALL db.labels()``) and KuzuDB/LadybugDB
+    (``MATCH (n) RETURN DISTINCT label(n)``) discovery patterns."""
 
     def __init__(self, labels, responses=None):
         super().__init__(responses=responses)
@@ -557,6 +560,8 @@ class _DeleteRepoSession(_RecordingSession):
         self.calls.append({"query": query, "kwargs": kwargs})
         if "db.labels()" in query:
             return _FakeResult([{"label": lbl} for lbl in self._labels])
+        if "RETURN DISTINCT label(n)" in query:
+            return _FakeResult([[lbl] for lbl in self._labels])
         if self._call_idx < len(self._responses):
             result = self._responses[self._call_idx]
         else:
@@ -590,7 +595,11 @@ class TestDeleteRepositoryFromGraph:
         return _DeleteRepoSession(labels=labels, responses=responses)
 
     def test_returns_false_when_repo_not_found(self):
-        session = _RecordingSession(responses=[_FakeResult([{"cnt": 0}])])
+        # Provide two failure responses: one for normalized path, one for fallback
+        session = _RecordingSession(responses=[
+            _FakeResult([{"cnt": 0}]),  # normalized path (forward-slash)
+            _FakeResult([{"cnt": 0}]),  # fallback path (original)
+        ])
         gb, _ = _make_graph_builder(session)
         result = gb.delete_repository_from_graph("/nonexistent/repo")
         assert result is False
@@ -695,6 +704,52 @@ class TestDeleteRepositoryFromGraph:
         assert existence_idx < labels_call_idx < node_delete_idx, (
             "db.labels() must come after existence check and before per-label deletion"
         )
+
+    def test_finds_repo_stored_with_backslash_path(self):
+        """Fallback should find a Repository stored with Windows backslash paths."""
+        session = _RecordingSession(responses=[
+            _FakeResult([{"cnt": 0}]),   # normalized (forward-slash) fails
+            _FakeResult([{"cnt": 1}]),   # fallback (original backslash) succeeds
+            *([_FakeResult([{"deleted": 0}])] * 20),  # drain loops
+        ])
+        gb, _ = _make_graph_builder(session)
+        result = gb.delete_repository_from_graph("C:\\Users\\test\\repo")
+        assert result is True
+        
+        # Verify that fallback path was used in subsequent parameterised queries.
+        # The implementation uses $prefix / $path bindings, so we inspect kwargs
+        # rather than the query string.
+        prefix_values = [
+            c["kwargs"].get("prefix", "") for c in session.calls
+            if "STARTS WITH" in c["query"]
+        ]
+        assert any("C:\\Users\\test\\repo\\" in p for p in prefix_values), \
+            f"Expected backslash path prefix in $prefix kwargs, got: {prefix_values}"
+
+    def test_uses_matching_path_format_for_deletion(self):
+        """When fallback triggers, deletion queries should use the path format that matched."""
+        session = _RecordingSession(responses=[
+            _FakeResult([{"cnt": 0}]),   # normalized (forward-slash) fails
+            _FakeResult([{"cnt": 1}]),   # fallback (original backslash) succeeds
+            *([_FakeResult([{"deleted": 0}])] * 20),  # drain loops
+        ])
+        gb, _ = _make_graph_builder(session)
+        gb.delete_repository_from_graph("D:\\WorkPlace\\AI\\MinerU\\pipeline")
+        
+        # Check that parameterised queries use backslash paths (not forward-slash).
+        # The implementation passes paths via $prefix / $path bindings.
+        for c in session.calls:
+            if "STARTS WITH" in c["query"] or "DETACH DELETE" in c["query"]:
+                kwargs = c["kwargs"]
+                for key in ("prefix", "path"):
+                    val = kwargs.get(key, "")
+                    if val:
+                        assert "D:/WorkPlace/AI/MinerU/pipeline" not in val, \
+                            f"Should not use forward-slash path in ${key} after fallback, got: {val}"
+                        assert (
+                            "D:\\WorkPlace\\AI\\MinerU\\pipeline" in val
+                            or "D:\\WorkPlace\\AI\\MinerU\\pipeline\\" in val
+                        ), f"Should use backslash path in ${key}, got: {val}"
 
 
 # ---------------------------------------------------------------------------

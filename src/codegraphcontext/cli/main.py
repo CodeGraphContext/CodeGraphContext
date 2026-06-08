@@ -356,26 +356,27 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load global .env: {e}[/yellow]")
     
-    # 2. Local project .env (project-specific overrides - restricted to CWD only, no parent walk)
-    try:
-        local_dot_env = Path.cwd() / ".env"
-        if local_dot_env.exists() and local_dot_env.resolve() != global_env_path.resolve():
-            with open(local_dot_env, "r", encoding="utf-8", errors="replace") as f:
-                _append_source(str(local_dot_env), dotenv_values(stream=f))
-    except Exception as e:
-        console.print(f"[yellow]Warning: Could not load .env from current directory: {e}[/yellow]")
+    # 2. Local project .env (only when cwd is under HOME, or CGC_LOAD_PROJECT_ENV=1)
+    if config_manager.should_apply_project_dotenv():
+        try:
+            local_dot_env = Path.cwd() / ".env"
+            if local_dot_env.exists() and local_dot_env.resolve() != global_env_path.resolve():
+                with open(local_dot_env, "r", encoding="utf-8", errors="replace") as f:
+                    _append_source(str(local_dot_env), dotenv_values(stream=f))
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not load .env from current directory: {e}[/yellow]")
 
-    # 2. <cwd>/.codegraphcontext/.env only (overrides global when distinct)
-    try:
-        local_cgc_env = codegraphcontext_dotenv_at_cwd(Path.cwd())
-        if local_cgc_env and local_cgc_env.resolve() != global_env_path.resolve():
-            with open(local_cgc_env, "r", encoding="utf-8", errors="replace") as f:
-                vals = dotenv_values(stream=f)
-                _append_source(str(local_cgc_env), vals)
-    except Exception as e:
-        console.print(
-            f"[yellow]Warning: Could not load .codegraphcontext/.env at cwd: {e}[/yellow]"
-        )
+        # <cwd>/.codegraphcontext/.env only (overrides global when distinct)
+        try:
+            local_cgc_env = codegraphcontext_dotenv_at_cwd(Path.cwd())
+            if local_cgc_env and local_cgc_env.resolve() != global_env_path.resolve():
+                with open(local_cgc_env, "r", encoding="utf-8", errors="replace") as f:
+                    vals = dotenv_values(stream=f)
+                    _append_source(str(local_cgc_env), vals)
+        except Exception as e:
+            console.print(
+                f"[yellow]Warning: Could not load .codegraphcontext/.env at cwd: {e}[/yellow]"
+            )
     
     # Merge all configs with proper precedence (later sources override earlier ones)
     merged_config = {}
@@ -552,7 +553,8 @@ def config_set(
         cgc config set MAX_FILE_SIZE_MB 20
         cgc config set DEBUG_LOGS true
     """
-    config_manager.set_config_value(key, value)
+    if not config_manager.set_config_value(key, value):
+        raise typer.Exit(code=1)
 
 @config_app.command("reset")
 def config_reset():
@@ -1026,14 +1028,44 @@ def doctor():
                 console.print("   [red]✗[/red] LadybugDB core (ladybug) is not installed")
                 console.print("       Run: pip install ladybug")
                 all_checks_passed = False
-        else:
-            # FalkorDB
+        elif default_db == "falkordb-remote":
+            from codegraphcontext.core.database_falkordb_remote import FalkorDBRemoteManager
+
+            is_valid, validation_error = FalkorDBRemoteManager.validate_config()
+            if not is_valid:
+                console.print(f"   [red]✗[/red] FalkorDB remote config invalid: {validation_error}")
+                console.print("       Run: cgc config set FALKORDB_HOST <hostname>")
+                all_checks_passed = False
+            else:
+                try:
+                    import falkordb  # noqa: F401
+                    console.print("   [green]✓[/green] FalkorDB client is installed")
+                except ImportError:
+                    console.print("   [red]✗[/red] FalkorDB client is not installed")
+                    console.print("       Run: pip install falkordb")
+                    all_checks_passed = False
+
+                if all_checks_passed:
+                    host = os.environ.get("FALKORDB_HOST", "")
+                    port = os.environ.get("FALKORDB_PORT", "6379")
+                    console.print(f"   [cyan]Endpoint:[/cyan] {host}:{port}")
+                    console.print("   [cyan]Testing FalkorDB remote connection...[/cyan]")
+                    is_connected, error_msg = FalkorDBRemoteManager.test_connection()
+                    if is_connected:
+                        console.print("   [green]✓[/green] FalkorDB remote connection successful")
+                    else:
+                        console.print(f"   [red]✗[/red] FalkorDB remote connection failed")
+                        console.print(f"       Reason: {error_msg}")
+                        all_checks_passed = False
+        elif default_db == "falkordb":
             try:
-                import falkordb
+                import falkordblite  # noqa: F401
                 console.print("   [green]✓[/green] FalkorDB Lite is installed")
             except ImportError:
                 console.print("   [yellow]⚠[/yellow] FalkorDB Lite not installed (Python 3.12+ only)")
                 console.print("       Run: pip install falkordblite")
+        else:
+            console.print(f"   [yellow]⚠[/yellow] No connectivity probe for backend '{default_db}'")
     except Exception as e:
         console.print(f"   [red]✗[/red] Database check error: {e}")
         all_checks_passed = False
@@ -1111,6 +1143,7 @@ def doctor():
         console.print("  • For Neo4j issues: Run 'cgc neo4j setup'")
         console.print("  • For missing packages: pip install codegraphcontext")
         console.print("  • For config issues: Run 'cgc config reset'")
+        raise typer.Exit(code=1)
     console.print("=" * 60 + "\n")
 
 
@@ -1197,6 +1230,13 @@ def delete(
     _load_credentials()
     
     if all_repos:
+        if not config_manager.is_db_deletion_allowed():
+            console.print(
+                "[bold red]Error:[/bold red] Full database deletion is disabled. "
+                "Set ALLOW_DB_DELETION=true in config to enable."
+            )
+            raise typer.Exit(code=1)
+
         # Delete all repositories
         services = _initialize_services(context)
         if not all(services[:3]):
@@ -1249,8 +1289,14 @@ def delete(
                 except Exception as e:
                     console.print(f"[red]✗[/red] Failed to delete {repo.get('name', '')}: {e}")
             
+            if deleted_count < len(repos):
+                console.print(
+                    f"\n[bold yellow]Deleted {deleted_count}/{len(repos)} repositories; "
+                    "some deletions failed.[/bold yellow]"
+                )
+                raise typer.Exit(code=1)
             console.print(f"\n[bold green]Successfully deleted {deleted_count}/{len(repos)} repositories![/bold green]")
-            
+
         finally:
             db_manager.close_driver()
     else:
@@ -1448,6 +1494,16 @@ def find_by_name(
 
     try:
         results = []
+
+        _VALID_FIND_TYPES = {
+            'all', 'function', 'class', 'variable', 'module', 'file',
+        }
+        if type is not None and type.lower() not in _VALID_FIND_TYPES:
+            console.print(
+                f"[bold red]Invalid --type '{type}'.[/bold red] "
+                f"Must be one of: {', '.join(sorted(_VALID_FIND_TYPES))}"
+            )
+            raise typer.Exit(code=1)
 
         # Search based on type filter
         if type is None or type.lower() == 'all':
@@ -1758,19 +1814,16 @@ def find_by_content_search(
         try:
             results = code_finder.find_by_content(query)
         except Exception as e:
+            backend = getattr(db_manager, "get_backend_type", lambda: "")()
             error_msg = str(e).lower()
-            if ('fulltext' in error_msg or 'db.index.fulltext' in error_msg) and "Falkor" in db_manager.__class__.__name__:
-                console.print("\n[bold red]❌ Full-text search is not supported on FalkorDB[/bold red]\n")
-                console.print("[yellow]💡 You have two options:[/yellow]\n")
-                console.print("  1. [cyan]Switch to Neo4j:[/cyan]")
-                console.print(f"     [dim]cgc --database neo4j find content \"{query}\"[/dim]\n")
-                console.print("  2. [cyan]Use pattern search instead:[/cyan]")
-                console.print(f"     [dim]cgc find pattern \"{query}\"[/dim]")
-                console.print("     [dim](searches in names only, not source code)[/dim]\n")
-                return
-            else:
-                # Re-raise if it's a different error
-                raise
+            if backend == "neo4j" and (
+                'fulltext' in error_msg or 'db.index.fulltext' in error_msg
+            ):
+                console.print("\n[bold red]Neo4j full-text index is unavailable.[/bold red]")
+                console.print("[yellow]Create the code_search_index or use:[/yellow]")
+                console.print(f"  [dim]cgc find pattern \"{query}\"[/dim]\n")
+                raise typer.Exit(code=1)
+            raise
         
         if not results:
             console.print(f"[yellow]No content matches found for '{query}'[/yellow]")
@@ -2179,21 +2232,34 @@ def analyze_dependencies(
             visualize_dependencies(results, target)
             return
         
-        # Show who imports this module
-        if results.get('importers'):
+        importers = results.get('importers') or []
+        if not show_external:
+            importers = [row for row in importers if not row.get('file_is_dependency')]
+
+        if importers:
             console.print(f"\n[bold cyan]Files that import '{target}':[/bold cyan]")
             table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
             table.add_column("Location", style="cyan", overflow="fold")
-            
-            for imp in results['importers']:
+
+            for imp in importers:
                 path = imp.get('importer_file_path', '')
                 line_str = str(imp.get('import_line_number', ''))
                 location_str = f"{path}:{line_str}" if line_str else path
-
-                table.add_row(
-                    location_str
-                )
+                table.add_row(location_str)
             console.print(table)
+
+        imports = results.get('imports') or []
+        if imports:
+            console.print(f"\n[bold cyan]Modules commonly imported alongside '{target}':[/bold cyan]")
+            imp_table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
+            imp_table.add_column("Module", style="cyan")
+            imp_table.add_column("Alias", style="dim")
+            for row in imports:
+                imp_table.add_row(
+                    str(row.get('imported_module', row.get('imported_name', ''))),
+                    str(row.get('import_alias', '') or ''),
+                )
+            console.print(imp_table)
     finally:
         db_manager.close_driver()
 
@@ -2738,9 +2804,6 @@ def datasource_mysql(
         console.print(f"[red]Import error:[/red] {e}")
         raise typer.Exit(1)
 
-    if context:
-        config_manager.set_config_value("CONTEXT", context)
-
     console.print(f"[cyan]Connecting to Aurora MySQL at {host}:{port}/{database}...[/cyan]")
     try:
         result = mysql_ingest(host=host, port=port, user=user, password=password,
@@ -2749,7 +2812,7 @@ def datasource_mysql(
         console.print(f"[red]Failed to connect / ingest:[/red] {exc}")
         raise typer.Exit(1)
 
-    _write_datasource_graph(result)
+    _write_datasource_graph(result, context=context)
     console.print(
         f"[green]✓ MySQL datasource[/green] [bold]{result['datasource']['name']}[/bold] indexed: "
         f"{len(result.get('tables', []))} tables, {len(result.get('columns', []))} columns"
@@ -2778,9 +2841,6 @@ def datasource_cassandra(
         console.print(f"[red]Import error:[/red] {e}")
         raise typer.Exit(1)
 
-    if context:
-        config_manager.set_config_value("CONTEXT", context)
-
     hosts = [h.strip() for h in host.split(",")]
     console.print(f"[cyan]Connecting to Cassandra at {hosts}/{keyspace}...[/cyan]")
     try:
@@ -2790,7 +2850,7 @@ def datasource_cassandra(
         console.print(f"[red]Failed to connect / ingest:[/red] {exc}")
         raise typer.Exit(1)
 
-    _write_datasource_graph(result)
+    _write_datasource_graph(result, context=context)
     console.print(
         f"[green]✓ Cassandra datasource[/green] [bold]{result['datasource']['name']}[/bold] indexed: "
         f"{len(result.get('tables', []))} tables, {len(result.get('columns', []))} columns"
@@ -2821,9 +2881,6 @@ def datasource_redis(
         console.print(f"[red]Import error:[/red] {e}")
         raise typer.Exit(1)
 
-    if context:
-        config_manager.set_config_value("CONTEXT", context)
-
     console.print(f"[cyan]Connecting to Redis at {host}:{port}/{db}...[/cyan]")
     try:
         result = redis_ingest(host=host, port=port, db=db, password=password,
@@ -2832,24 +2889,32 @@ def datasource_redis(
         console.print(f"[red]Failed to connect / ingest:[/red] {exc}")
         raise typer.Exit(1)
 
-    _write_datasource_graph(result)
+    _write_datasource_graph(result, context=context)
     console.print(
         f"[green]✓ Redis datasource[/green] [bold]{result['datasource']['name']}[/bold] indexed: "
         f"{len(result.get('key_patterns', []))} key patterns"
     )
 
 
-def _write_datasource_graph(ingested: dict) -> None:
+def _write_datasource_graph(ingested: dict, context: Optional[str] = None) -> None:
     """Shared helper: write ingested datasource dict to the active graph."""
-    from codegraphcontext.core.database import DatabaseManager
-    dm = DatabaseManager()
-    driver = dm.get_driver()
-    if driver is None:
-        console.print("[red]No active graph connection. Run[/red] cgc context switch <name> [red]first.[/red]")
-        raise typer.Exit(1)
+    from .cli_helpers import _initialize_services, _fail_services_init
 
-    from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
-    GraphWriter(driver).write_datasource_graph(ingested)
+    services = _initialize_services(context)
+    if not all(services[:3]):
+        _fail_services_init()
+
+    db_manager, _, _, _ctx = services
+    try:
+        driver = db_manager.get_driver()
+        if driver is None:
+            console.print("[red]No active graph connection.[/red]")
+            raise typer.Exit(1)
+
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+        GraphWriter(driver, db_manager=db_manager).write_datasource_graph(ingested)
+    finally:
+        db_manager.close_driver()
 
 
 if __name__ == "__main__":

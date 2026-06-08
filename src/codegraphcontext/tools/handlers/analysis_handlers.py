@@ -273,10 +273,12 @@ def find_datasource_nodes(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """
 
     # Redis key patterns
+    kp_conditions = list(ds_conditions)
+    kp_conditions.append("d.kind = 'redis'")
+    kp_where = ("WHERE " + " AND ".join(kp_conditions)) if kp_conditions else "WHERE d.kind = 'redis'"
     kp_query = f"""
         MATCH (d:Datasource)
-        {where_clause}
-        WHERE d.kind = 'redis'
+        {kp_where}
         OPTIONAL MATCH (kp:RedisKeyPattern)-[:STORED_IN]->(d)
         RETURN d.name AS datasource,
                collect({{pattern: kp.pattern, key_type: kp.key_type, count: kp.count}}) AS key_patterns

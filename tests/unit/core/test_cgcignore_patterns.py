@@ -27,6 +27,7 @@ def _test_env():
     env = os.environ.copy()
     env["HOME"] = str(TEST_HOME)
     env["DEFAULT_DATABASE"] = "falkordb"
+    env["CGC_CONTEXT_MODE"] = "global"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     # Ensure all current sys.path entries are in PYTHONPATH so dependencies and -m work
     env["PYTHONPATH"] = os.pathsep.join(sys.path)

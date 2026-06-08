@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-This document describes the Model Context Protocol (MCP) tools exposed by CodeGraphContext **0.4.13**. The server registers the full catalog defined in `src/codegraphcontext/tool_definitions.py` (same tools the CLI graph operations rely on). In v0.4.13, MCP `tools/list` returns **21** tool definitions—the subsections below enumerate each one.
+This document describes the Model Context Protocol (MCP) tools exposed by CodeGraphContext **0.4.16**. The server registers the full catalog defined in `src/codegraphcontext/tool_definitions.py` (same tools the CLI graph operations rely on). MCP `tools/list` returns **25** tool definitions—the subsections below enumerate each one.
 
 ## Tool categories
 
@@ -12,6 +12,24 @@ This document describes the Model Context Protocol (MCP) tools exposed by CodeGr
 6. [Monitoring](#monitoring)
 7. [Job control](#job-control)
 8. [Advanced querying](#advanced-querying)
+
+---
+
+## Path sandbox (`CGC_ALLOWED_ROOTS`)
+
+Indexing, bundle load, watch, and context-switch tools only accept paths under:
+
+1. The MCP server process **current working directory**, and
+2. Any extra roots in the `CGC_ALLOWED_ROOTS` environment variable (`:`-separated on Linux/macOS, `;` on Windows).
+
+Example:
+
+```bash
+export CGC_ALLOWED_ROOTS="/home/me/projects:/data/repos"
+cgc mcp   # or configure mcp.json with the same env
+```
+
+Without this variable, sibling directories outside the server cwd are rejected for security.
 
 ---
 
@@ -192,3 +210,31 @@ Build a Neo4j Browser URL for visual exploration of a query (where Neo4j Browser
 
 - **Args:** `cypher_query` (string)
 - **Returns:** URL string
+
+### `generate_report`
+
+Generate a markdown audit report (god nodes, complexity, cross-module calls, dead code).
+
+- **Args:** `output_path` (string, optional), `include_java` (boolean, optional)
+- **Returns:** Report text and output path
+
+### `find_java_spring_endpoints`
+
+List Spring HTTP endpoints indexed in the graph.
+
+- **Args:** `repo_path` (string, optional)
+- **Returns:** Endpoint rows (method, path, handler)
+
+### `find_java_spring_beans`
+
+List Spring bean stereotypes (`@Service`, `@Repository`, etc.).
+
+- **Args:** `stereotype` (string, optional), `repo_path` (string, optional)
+- **Returns:** Bean rows
+
+### `find_datasource_nodes`
+
+Query datasource architecture nodes (SQL tables, Redis key patterns, etc.).
+
+- **Args:** `kind` (string, optional), `name` (string, optional), `include_columns` (boolean, optional)
+- **Returns:** Datasource graph nodes

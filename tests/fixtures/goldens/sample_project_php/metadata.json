@@ -1,10 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-05-19T02:34:00.122482",
-  "format_version": "1.0",
+  "exported_at": "2026-06-07T18:02:28Z",
+  "format_version": "1.0.0",
   "repo": "sample_project_php",
-  "repo_path": "/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project_php",
+  "repo_path": ".",
   "is_dependency": false,
   "commit": "83a4ca87",
-  "languages": []
+  "branch": "master",
+  "generator": "PYv0.4.16",
+  "name": "sample_project_php.cgc",
+  "graph_metrics": {
+    "total_nodes": 757,
+    "total_edges": 866
+  }
 }

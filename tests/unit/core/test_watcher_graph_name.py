@@ -96,6 +96,7 @@ def test_code_watcher_forwards_graph_name_to_handler():
     watcher.graph_builder = mock_gb
     watcher.watched_paths = set()
     watcher.watches = {}
+    watcher.handlers = {}
     watcher.observer = MagicMock()
 
     with patch(
@@ -118,6 +119,7 @@ def test_code_watcher_default_graph_name_is_none():
     watcher.graph_builder = mock_gb
     watcher.watched_paths = set()
     watcher.watches = {}
+    watcher.handlers = {}
     watcher.observer = MagicMock()
 
     with patch(

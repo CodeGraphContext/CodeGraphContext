@@ -356,7 +356,17 @@ class PythonTreeSitterParser:
         imports = []
         seen_modules = set()
         query_str = PY_QUERIES['imports']
-        for node, capture_name in execute_query(self.language, query_str, root_node):
+        # Process captures in source order. The query engine (tree-sitter
+        # QueryCursor) may return captures grouped by name rather than by
+        # position, so without this sort the dedup-by-name below would keep a
+        # nondeterministic occurrence when the same module is imported on
+        # multiple lines (e.g. try/except import fallbacks), producing flaky
+        # IMPORTS edges. Sorting by (row, col) makes it always keep the first.
+        captures = sorted(
+            execute_query(self.language, query_str, root_node),
+            key=lambda nc: (nc[0].start_point[0], nc[0].start_point[1]),
+        )
+        for node, capture_name in captures:
             if capture_name in ('import', 'from_import_stmt'):
                 # For 'import_statement'
                 if capture_name == 'import':
@@ -421,43 +431,75 @@ class PythonTreeSitterParser:
 
         return imports
 
+    def _extract_call_name(self, function_node) -> str:
+        if function_node.type == "identifier":
+            return self._get_node_text(function_node)
+        if function_node.type == "attribute":
+            attr = function_node.child_by_field_name("attribute")
+            if attr:
+                return self._get_node_text(attr)
+        return self._get_node_text(function_node).split(".")[-1]
+
+    def _call_args(self, call_node) -> list:
+        args = []
+        arguments_node = call_node.child_by_field_name("arguments")
+        if arguments_node:
+            for arg in arguments_node.children:
+                arg_text = self._get_node_text(arg)
+                if arg_text and arg_text not in ("(", ")", ","):
+                    args.append(arg_text)
+        return args
+
+    def _record_call(self, call_node, enclosing_caller, calls):
+        function_node = call_node.child_by_field_name("function")
+        if not function_node:
+            return None
+
+        called_name = self._extract_call_name(function_node)
+        if enclosing_caller:
+            context = (enclosing_caller, "nested_call", call_node.start_point[0] + 1)
+        else:
+            context = self._get_parent_context(call_node)
+
+        calls.append(
+            {
+                "name": called_name,
+                "full_name": self._get_node_text(function_node),
+                "line_number": call_node.start_point[0] + 1,
+                "args": self._call_args(call_node),
+                "inferred_obj_type": None,
+                "context": context,
+                "class_context": self._get_parent_context(
+                    call_node, types=("class_definition",)
+                )[:2],
+                "lang": self.language_name,
+                "is_dependency": False,
+            }
+        )
+        return called_name
+
+    def _walk_call_tree(self, node, enclosing_caller, calls):
+        if node is None:
+            return
+        if node.type == "call":
+            called_name = self._record_call(node, enclosing_caller, calls)
+            if called_name:
+                arguments_node = node.child_by_field_name("arguments")
+                if arguments_node:
+                    for child in arguments_node.children:
+                        self._walk_call_tree(child, called_name, calls)
+            return
+        for child in node.children:
+            self._walk_call_tree(child, enclosing_caller, calls)
+
     def _find_calls(self, root_node):
         calls = []
-        
-        # First, find all direct function calls
-        query_str = PY_QUERIES['calls']
-        for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name == 'name':
-                call_node = node.parent if node.parent.type == 'call' else node.parent.parent
-                full_call_node = call_node.child_by_field_name('function')
-                
-                args = []
-                arguments_node = call_node.child_by_field_name('arguments')
-                if arguments_node:
-                    for arg in arguments_node.children:
-                        arg_text = self._get_node_text(arg)
-                        if arg_text and arg_text not in ('(', ')', ','):
-                            args.append(arg_text)
+        self._walk_call_tree(root_node, None, calls)
 
-                call_data = {
-                    "name": self._get_node_text(node),
-                    "full_name": self._get_node_text(full_call_node),
-                    "line_number": node.start_point[0] + 1,
-                    "args": args,
-                    "inferred_obj_type": None,
-                    "context": self._get_parent_context(node),
-                    "class_context": self._get_parent_context(node, types=('class_definition',))[:2],
-                    "lang": self.language_name,
-                    "is_dependency": False,
-                }
-                calls.append(call_data)
-        
-        # Second, find dictionary-based method references (indirect calls)
-        # This handles patterns like: tool_map = {"name": self.method, ...}
-        # followed by: handler = tool_map.get(name); handler()
+        # Dictionary-based method references (indirect calls)
         dict_method_calls = self._find_dict_method_references(root_node)
         calls.extend(dict_method_calls)
-        
+
         return calls
     
     def _find_dict_method_references(self, root_node):

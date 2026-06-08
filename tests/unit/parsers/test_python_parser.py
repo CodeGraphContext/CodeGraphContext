@@ -67,6 +67,26 @@ class TestPythonParser:
         assert module_func["context_type"] == "module"
         assert helper_call["context"] == ("<module>", "module", 1)
 
+    def test_nested_module_level_calls_attribute_to_outer_callee(self, parser, temp_test_dir):
+        """Nested call expressions attribute inner calls to the outer callee."""
+        code = (
+            "def f1(x): return x + 1\n"
+            "def f2(x): return x * 2\n"
+            "def f3(x): return x - 3\n\n"
+            "result = f1(f2(f3(10)))\n"
+        )
+        f = temp_test_dir / "function_chains.py"
+        f.write_text(code)
+
+        result = parser.parse(str(f))
+        calls = {call["name"]: call for call in result["function_calls"]}
+
+        assert calls["f1"]["context"] == ("<module>", "module", 1)
+        assert calls["f2"]["context"][0] == "f1"
+        assert calls["f2"]["context"][1] == "nested_call"
+        assert calls["f3"]["context"][0] == "f2"
+        assert calls["f3"]["context"][1] == "nested_call"
+
     def test_parse_class_with_method(self, parser, temp_test_dir):
         """Parse a class with a method."""
         code = """

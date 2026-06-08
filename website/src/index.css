@@ -3,10 +3,12 @@ body {
   width: 100%;
   overflow-x: hidden;
 }
+
 #root {
   width: 100%;
   overflow-x: hidden;
 }
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -112,6 +114,7 @@ body {
     --gradient-primary: linear-gradient(135deg, hsl(263, 49%, 40%), hsl(180, 45%, 47%));
 
   }
+
   .theme {
     --animate-orbit: orbit calc(var(--duration)*1s) linear infinite;
   }
@@ -125,7 +128,7 @@ body {
   body {
     @apply bg-background text-foreground overflow-x-hidden;
     background: hsl(var(--background));
-    background-image: 
+    background-image:
       radial-gradient(circle at 20% 20%, hsl(263 70% 65% / 0.05) 0%, transparent 50%),
       radial-gradient(circle at 80% 80%, hsl(180 100% 70% / 0.05) 0%, transparent 50%);
   }
@@ -137,11 +140,14 @@ body {
 
   /* Custom animations */
   @keyframes graph-pulse {
-    0%, 100% { 
+
+    0%,
+    100% {
       opacity: 1;
       transform: scale(1);
     }
-    50% { 
+
+    50% {
       opacity: 0.7;
       transform: scale(1.05);
     }
@@ -152,6 +158,7 @@ body {
       opacity: 0;
       transform: translateY(30px);
     }
+
     100% {
       opacity: 1;
       transform: translateY(0);
@@ -159,9 +166,12 @@ body {
   }
 
   @keyframes float {
-    0%, 100% {
+
+    0%,
+    100% {
       transform: translateY(0);
     }
+
     50% {
       transform: translateY(-8px);
     }
@@ -172,9 +182,17 @@ body {
   }
 
   @keyframes code-highlight {
-    0% { background-color: transparent; }
-    50% { background-color: hsl(263 70% 65% / 0.1); }
-    100% { background-color: transparent; }
+    0% {
+      background-color: transparent;
+    }
+
+    50% {
+      background-color: hsl(263 70% 65% / 0.1);
+    }
+
+    100% {
+      background-color: transparent;
+    }
   }
 
   .animate-graph-pulse {
@@ -196,14 +214,11 @@ body {
 
   @keyframes orbit {
     0% {
-      transform: rotate(calc(var(--angle) * 1deg))
-        translateY(calc(var(--radius) * 1px))
-        rotate(calc(var(--angle) * -1deg));
+      transform: rotate(calc(var(--angle) * 1deg)) translateY(calc(var(--radius) * 1px)) rotate(calc(var(--angle) * -1deg));
     }
+
     100% {
-      transform: rotate(calc(var(--angle) * 1deg + 360deg))
-        translateY(calc(var(--radius) * 1px))
-        rotate(calc((var(--angle) * -1deg) - 360deg));
+      transform: rotate(calc(var(--angle) * 1deg + 360deg)) translateY(calc(var(--radius) * 1px)) rotate(calc((var(--angle) * -1deg) - 360deg));
     }
   }
 
@@ -214,12 +229,12 @@ body {
     box-shadow: var(--shadow-glow);
   }
 
-  
+
 
   .graph-edge {
     @apply stroke-graph-edge transition-all duration-300;
     stroke-width: 2;
-    stroke-dasharray: 5,5;
+    stroke-dasharray: 5, 5;
     animation: dash 20s linear infinite;
   }
 
@@ -235,35 +250,57 @@ body {
     background: var(--gradient-card);
     box-shadow: var(--shadow-card);
   }
-  /* Custom Scrollbar for Sidebar */
+
+  /* Hide global scrollbars for a cleaner app-like experience */
+  ::-webkit-scrollbar {
+    width: 0px;
+    background: transparent;
+    display: none;
+  }
+
+  /* Custom Scrollbar for Sidebar (if needed specifically) */
   .custom-scrollbar::-webkit-scrollbar {
     width: 0.35rem;
+    display: block;
   }
+
   .custom-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
+
   .custom-scrollbar::-webkit-scrollbar-thumb {
     background: hsl(var(--border));
     border-radius: 100px;
     transition: background 0.2s;
   }
+
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--primary) / 0.5);
   }
 
   /* Shimmer Effect */
   @keyframes shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
+    0% {
+      transform: translateX(-100%);
+    }
+
+    100% {
+      transform: translateX(100%);
+    }
   }
+
   .animate-shimmer {
     position: relative;
     overflow: hidden;
   }
+
   .animate-shimmer::after {
     content: "";
     position: absolute;
-    top: 0; left: 0; width: 100%; height: 100%;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     background: linear-gradient(90deg, transparent, hsl(var(--foreground)/0.03), transparent);
     animation: shimmer 1.5s infinite linear;
   }
@@ -271,6 +308,7 @@ body {
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -278,11 +316,12 @@ body {
 
 @theme inline {
   @keyframes orbit {
-  0% {
-    transform: rotate(calc(var(--angle) * 1deg)) translateY(calc(var(--radius) * 1px)) rotate(calc(var(--angle) * -1deg));
+    0% {
+      transform: rotate(calc(var(--angle) * 1deg)) translateY(calc(var(--radius) * 1px)) rotate(calc(var(--angle) * -1deg));
     }
-  100% {
-    transform: rotate(calc(var(--angle) * 1deg + 360deg)) translateY(calc(var(--radius) * 1px)) rotate(calc((var(--angle) * -1deg) - 360deg));
+
+    100% {
+      transform: rotate(calc(var(--angle) * 1deg + 360deg)) translateY(calc(var(--radius) * 1px)) rotate(calc((var(--angle) * -1deg) - 360deg));
     }
   }
 }

@@ -4,11 +4,11 @@
 
 🌐 **Languages:**
 - 🇬🇧 [English](README.md)
-- 🇨🇳 [中文](README.zh-CN.md)
-- 🇰🇷 [한국어](README.kor.md)
-- 🇺🇦 [Українська](README.uk.md)
-- 🇷🇺 [Русский](README.ru-RU.md)
-- 🇯🇵 [日本語](README.ja.md)
+- 🇨🇳 [中文](docs/translations/README.zh-CN.md)
+- 🇰🇷 [한국어](docs/translations/README.kor.md)
+- 🇺🇦 [Українська](docs/translations/README.uk.md)
+- 🇷🇺 [Русский](docs/translations/README.ru-RU.md)
+- 🇯🇵 [日本語](docs/translations/README.ja.md)
 - 🇪🇸 Español (Soon)
 
 🌍 **Help translate CodeGraphContext to your language by raising an issue & PR on https://github.com/Shashankss1205/CodeGraphContext/issues!**
@@ -70,7 +70,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 ---
 
 ## 📍 Quick Navigation
-* [🚀 Quick Start](#quick-start) 
+* [🚀 Quick Start](#-installation--quick-start) 
 * [🌐 Supported Programming Languages](#supported-programming-languages) 
 * [🛠️ CLI Toolkit](#for-cli-toolkit-mode) 
 * [🤖 MCP Server](#-for-mcp-server-mode) 
@@ -98,7 +98,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 ---
 
 ## Project Details
-- **Version:** 0.4.13
+- **Version:** 0.4.16
 - **Authors:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **License:** MIT License (See [LICENSE](LICENSE) for details)
 - **Website:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
@@ -474,7 +474,7 @@ Once the server is running, you can interact with it through your AI assistant u
 ## Contributing
 
 Contributions are welcome! 🎉  
-Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+Please see our [CONTRIBUTING.md](.github/CONTRIBUTING.md) for detailed guidelines.
 If you have ideas for new features, integrations, or improvements, open an [issue](https://github.com/CodeGraphContext/CodeGraphContext/issues) or submit a Pull Request.
 
 Join discussions and help shape the future of CodeGraphContext.

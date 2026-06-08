@@ -315,7 +315,7 @@ bundle_export(output=bundle_path, repo=project_path, no_stats=False, context=Non
                 
     if property_mismatches:
         node_mismatch_details.append(f"{len(property_mismatches)} property mismatches:\n" + "\n".join(property_mismatches[:5]))
-        
+
     assert not node_mismatch_details, f"Nodes regression mismatch for project {project_name}:\n" + "\n\n".join(node_mismatch_details)
     
     # Assert Edges match exactly

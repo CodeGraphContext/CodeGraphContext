@@ -28,39 +28,39 @@ const Index = () => {
   }, [location.pathname, location.hash]);
 
   return (
-    <main className="min-h-screen overflow-x-hidden pt-16">
-      <div data-aos="fade-in">
+    <main className="pt-16">
+      <div>
         <HeroSection />
       </div>
-      <div data-aos="fade-up" id="demo">
+      <div id="demo">
         <DemoSection />
       </div>
-      <div data-aos="fade-up">
+      <div>
         <ComparisonTable />
       </div>
-      <div data-aos="fade-up" id="features">
+      <div id="features">
         <FeaturesSection />
       </div>
-      <div data-aos="fade-up" id="installation">
+      <div id="installation">
         <InstallationSection />
       </div>
-      <div data-aos="fade-up" id="bundle-registry">
+      <div id="bundle-registry">
         <BundleRegistrySection />
       </div>
 
-      <div data-aos="fade-up" id="examples">
+      <div id="examples">
         <ExamplesSection />
       </div>
-      <div data-aos="fade-up" id="testimonials">
+      <div id="testimonials">
         <TestimonialSection />
       </div>
-      <div data-aos="fade-up" id="cookbook">
+      <div id="cookbook">
         <CookbookSection />
       </div>
-      <div data-aos="fade-up" id="socialmentions">
+      <div id="socialmentions">
         <SocialMentionsTimeline />
       </div>
-      <div data-aos="fade-up" data-aos-anchor-placement="top-bottom">
+      <div>
         <Footer />
       </div>
     </main>

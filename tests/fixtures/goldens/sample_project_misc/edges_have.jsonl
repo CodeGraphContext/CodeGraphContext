@@ -1,26 +1,26 @@
-{"from": "0", "to": "1", "type": "CONTAINS", "properties": {}}
-{"from": "0", "to": "2", "type": "CONTAINS", "properties": {}}
-{"from": "0", "to": "3", "type": "CONTAINS", "properties": {}}
-{"from": "0", "to": "21", "type": "CONTAINS", "properties": {}}
-{"from": "0", "to": "26", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "4", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "5", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "6", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "7", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "8", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "9", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "10", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "11", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "12", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "13", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "14", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "15", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "16", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "17", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "18", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "19", "type": "CONTAINS", "properties": {}}
-{"from": "2", "to": "20", "type": "CONTAINS", "properties": {}}
-{"from": "21", "to": "22", "type": "CONTAINS", "properties": {}}
-{"from": "21", "to": "23", "type": "CONTAINS", "properties": {}}
-{"from": "21", "to": "24", "type": "CONTAINS", "properties": {}}
-{"from": "21", "to": "25", "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 4, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 3, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 2, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 1, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 0, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 16, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 15, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 14, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 13, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 12, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 11, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 10, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 9, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 8, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 7, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 6, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 5, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 4, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 3, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 2, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 1, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 1}, "to": {"offset": 0, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 20, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 19, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 18, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 17, "table": 4}, "type": "CONTAINS", "properties": {}}

@@ -1,5 +1,5 @@
 # src/codegraphcontext/tools/handlers/management_handlers.py
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from dataclasses import asdict
 from datetime import datetime
 from ...core.jobs import JobManager, JobStatus
@@ -43,6 +43,16 @@ def list_indexed_repositories(code_finder: CodeFinder, **args) -> Dict[str, Any]
 
 def delete_repository(graph_builder: GraphBuilder, **args) -> Dict[str, Any]:
     """Tool to delete a repository from the graph."""
+    from ...cli.config_manager import is_db_deletion_allowed
+
+    if not is_db_deletion_allowed():
+        return {
+            "error": (
+                "Repository deletion is disabled. Set ALLOW_DB_DELETION=true in "
+                "~/.codegraphcontext/config.json to enable destructive MCP operations."
+            )
+        }
+
     repo_path = args.get("repo_path")
     graph_name = args.get("graph_name")
     try:
@@ -151,14 +161,43 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     
     try:
         debug_log(f"Loading bundle: {bundle_name}")
-        
-        # Check if bundle exists locally
-        bundle_path = Path(bundle_name)
-        
+
+        if clear_existing:
+            from ...cli.config_manager import is_db_deletion_allowed
+
+            if not is_db_deletion_allowed():
+                return {
+                    "error": (
+                        "Bundle import with clear_existing is disabled. Set "
+                        "ALLOW_DB_DELETION=true in ~/.codegraphcontext/config.json."
+                    )
+                }
+
+        from ...utils.path_sandbox import is_path_allowed, sanitize_bundle_filename, is_safe_download_url
+
+        def _ensure_allowed_bundle_path(candidate: Path) -> Optional[Dict[str, Any]]:
+            resolved = candidate.resolve()
+            if not is_path_allowed(resolved):
+                return {
+                    "error": (
+                        f"Bundle path '{resolved}' is outside allowed roots. "
+                        "Use a bundle under the workspace or CGC_ALLOWED_ROOTS."
+                    )
+                }
+            return None
+
+        bundle_path = Path(bundle_name).resolve()
+        sandbox_error = _ensure_allowed_bundle_path(bundle_path)
+        if sandbox_error:
+            return sandbox_error
+
         # If it doesn't exist as-is, try with .cgc extension
         if not bundle_path.exists() and not str(bundle_name).endswith('.cgc'):
-            bundle_path = Path(f"{bundle_name}.cgc")
-        
+            bundle_path = Path(f"{bundle_name}.cgc").resolve()
+            sandbox_error = _ensure_allowed_bundle_path(bundle_path)
+            if sandbox_error:
+                return sandbox_error
+
         if not bundle_path.exists():
             # Try to download from registry
             debug_log(f"Bundle {bundle_name} not found locally, checking registry...")
@@ -167,11 +206,18 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
             if not download_url:
                 return {"error": f"Bundle not found locally or in registry: {bundle_name}. {error}"}
             
-            # Determine output filename from metadata
-            filename = bundle_meta.get('bundle_name', f"{bundle_name}.cgc")
-            # Save to current working directory
-            target_path = Path.cwd() / filename
-            
+            if not is_safe_download_url(download_url):
+                return {"error": f"Refusing to download bundle from untrusted URL: {download_url}"}
+
+            filename = sanitize_bundle_filename(
+                bundle_meta.get('bundle_name', f"{bundle_name}.cgc"),
+                default=f"{bundle_name}.cgc",
+            )
+            target_path = (Path.cwd() / filename).resolve()
+            sandbox_error = _ensure_allowed_bundle_path(target_path)
+            if sandbox_error:
+                return sandbox_error
+
             debug_log(f"Downloading bundle to {target_path}...")
             try:
                 BundleRegistry.download_file(download_url, target_path)
@@ -225,16 +271,15 @@ def search_registry_bundles(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     
     try:
         debug_log(f"Searching registry for: {query}")
-        
-        # Fetch directly from core registry
+
         bundles = BundleRegistry.fetch_available_bundles()
-        
+
         if not bundles:
             return {
                 "success": True,
                 "bundles": [],
                 "total": 0,
-                "message": "No bundles found in registry"
+                "message": "No bundles found in registry",
             }
         
         # Filter by query if provided
@@ -285,6 +330,13 @@ def search_registry_bundles(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         return response
     
     except Exception as e:
+        from ...core.bundle_registry import RegistryUnavailableError
+        if isinstance(e, RegistryUnavailableError):
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Bundle registry unreachable — internet connection required.",
+            }
         debug_log(f"Error searching registry: {str(e)}")
         return {"error": f"Failed to search registry: {str(e)}"}
 
