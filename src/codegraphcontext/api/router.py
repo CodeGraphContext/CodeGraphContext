@@ -13,6 +13,8 @@ from .schemas import (
 )
 from codegraphcontext.server import MCPServer
 
+import socket 
+
 router = APIRouter()
 
 # Global server instance (initialized on startup)
@@ -25,9 +27,19 @@ def get_server() -> MCPServer:
         _server_instance = MCPServer(cwd=Path.cwd())
     return _server_instance
 
+def raise_service_unavailable(exc: Exception):
+    raise HTTPException(
+        status_code=503,
+        detail="Database service unavailable",
+    ) from exc
+
 @router.get("/status", response_model=ApiResponse)
 async def get_status(server: MCPServer = Depends(get_server)):
-    status = server.db_manager.is_connected()
+    try:
+        status = server.db_manager.is_connected()
+    except (OSError, socket.error) as exc:
+        raise_service_unavailable(exc)
+
     return ApiResponse(
         status="ok",
         message="Connected" if status else "Disconnected",
@@ -43,16 +55,35 @@ async def list_tools(server: MCPServer = Depends(get_server)):
 
 @router.post("/tools/call", response_model=ApiResponse)
 async def call_tool(
-    request: ToolCallRequest, 
+    request: ToolCallRequest,
     server: MCPServer = Depends(get_server)
 ):
     try:
-        result = await server.handle_tool_call(request.name, request.arguments)
+        result = await server.handle_tool_call(
+            request.name,
+            request.arguments
+        )
+
         if "error" in result:
-            return ApiResponse(status="error", error=result["error"])
-        return ApiResponse(status="ok", data=result)
+            return ApiResponse(
+                status="error",
+                error=result["error"]
+            )
+
+        return ApiResponse(
+            status="ok",
+            data=result
+        )
+
+    except (OSError, socket.error) as exc:
+        raise_service_unavailable(exc)
+
     except Exception as e:
-        return ApiResponse(status="error", error=str(e))
+        return ApiResponse(
+            status="error",
+            error=str(e)
+        )
+    
 
 @router.post("/index", response_model=ApiResponse)
 async def index_repository(
@@ -60,21 +91,27 @@ async def index_repository(
     background_tasks: BackgroundTasks,
     server: MCPServer = Depends(get_server)
 ):
-    # Map to add_code_to_graph tool
     args = {
         "path": request.path,
         "repo_name": request.repo_name,
         "branch": request.branch,
         "force": request.force
     }
-    
-    # We call handle_tool_call which is async
-    # But add_code_to_graph starts a background job anyway
-    result = await server.handle_tool_call("add_code_to_graph", args)
-    
+
+    try:
+        result = await server.handle_tool_call(
+            "add_code_to_graph",
+            args
+        )
+    except (OSError, socket.error) as exc:
+        raise_service_unavailable(exc)
+
     if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-        
+        raise HTTPException(
+            status_code=400,
+            detail=result["error"]
+        )
+
     return ApiResponse(
         status="ok",
         message="Indexing job started",
@@ -86,17 +123,38 @@ async def execute_query(
     request: QueryRequest,
     server: MCPServer = Depends(get_server)
 ):
-    result = await server.handle_tool_call("execute_cypher_query", {
-        "cypher_query": request.query,
-        "params": request.params
-    })
-    
+    try:
+        result = await server.handle_tool_call(
+            "execute_cypher_query",
+            {
+                "cypher_query": request.query,
+                "params": request.params,
+            },
+        )
+    except (OSError, socket.error) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Database service unavailable",
+        ) from exc
+
     if "error" in result:
         return ApiResponse(status="error", error=result["error"])
-        
+
     return ApiResponse(status="ok", data=result)
 
 @router.get("/repositories", response_model=ApiResponse)
-async def list_repositories(server: MCPServer = Depends(get_server)):
-    result = await server.handle_tool_call("list_indexed_repositories", {})
-    return ApiResponse(status="ok", data=result)
+async def list_repositories(
+    server: MCPServer = Depends(get_server)
+):
+    try:
+        result = await server.handle_tool_call(
+            "list_indexed_repositories",
+            {}
+        )
+    except (OSError, socket.error) as exc:
+        raise_service_unavailable(exc)
+
+    return ApiResponse(
+        status="ok",
+        data=result
+    )

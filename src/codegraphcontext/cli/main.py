@@ -1392,6 +1392,11 @@ def add_package(
 def watch(
     path: str = typer.Argument(".", help="Path to the directory to watch. Defaults to current directory."),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+    poll: bool = typer.Option(
+        False,
+        "--poll",
+        help="Use watchdog's polling observer for Docker bind mounts and network filesystems.",
+    ),
 ):
     """
     Watch a directory for file changes and automatically update the code graph.
@@ -1410,10 +1415,13 @@ def watch(
     Examples:
         cgc watch .                    # Watch current directory
         cgc watch /path/to/project     # Watch specific directory
+        cgc watch --poll .             # Use polling for Docker/NFS/SMB mounts
         cgc w .                        # Using shortcut alias
+
+    Set CGC_WATCH_POLLING=1 to use polling without passing --poll.
     """
     _load_credentials()
-    watch_helper(path, context)
+    watch_helper(path, context, use_polling=poll or None)
 
 @app.command()
 def unwatch(

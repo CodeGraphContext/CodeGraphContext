@@ -5,6 +5,14 @@ import time
 import signal
 from pathlib import Path
 import logging
+import socket
+
+def is_port_in_use(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except OSError:
+        return False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -17,16 +25,42 @@ def handle_signal(signum, frame):
     logger.info(f"Received signal {signum}. Stopping FalkorDB worker...")
     sys.exit(0)
 
+def get_falkordb_port():
+    return int(os.getenv("FALKORDB_PORT", "6379"))
+
 def run_worker():
+
+    db_path = os.getenv('FALKORDB_PATH')
+    socket_path = os.getenv('FALKORDB_SOCKET_PATH')
+    port = get_falkordb_port()
+
     global db_instance
     
     # Get configuration from env
-    db_path = os.getenv('FALKORDB_PATH')
-    socket_path = os.getenv('FALKORDB_SOCKET_PATH')
-    
     if not db_path or not socket_path:
         logger.error("Missing configuration. FALKORDB_PATH and FALKORDB_SOCKET_PATH must be set.")
         sys.exit(1)
+
+    if is_port_in_use("127.0.0.1", port):
+        logger.warning(f"Port {port} already in use. Checking FalkorDB instance...")
+
+        try:
+            from falkordb import FalkorDB
+
+            client = FalkorDB(unix_socket_path=socket_path)
+            test_graph = client.select_graph("__cgc_health_check")
+            test_graph.query("RETURN 1")
+
+            logger.info("Valid FalkorDB already running. Exiting worker.")
+            sys.exit(0)
+
+        except Exception as e:
+            logger.error(
+                f"Port {port} is already occupied by another service and cannot be reused by FalkorDB. "
+                f"Please stop the conflicting service or configure a different port. "
+                f"Underlying error: {e}"
+            )
+            sys.exit(1)
         
     # Ensure dir exists
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -95,6 +129,7 @@ def run_worker():
 
         db_instance = FalkorDB(db_path, unix_socket_path=socket_path, serverconfig=server_config)
         logger.info("FalkorDB Lite is running.")
+        logger.info(f"Using FalkorDB port: {port}")
         
         # Validate that FalkorDB module actually loaded by running a GRAPH.QUERY
         try:

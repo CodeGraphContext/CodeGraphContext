@@ -303,16 +303,26 @@ class KuzuDBManager:
                 raise RuntimeError("Kuzu Schema Migration Failed") from e
 
     def close_driver(self):
-        """Closes the connection pool."""
+        """Closes the connection pool and releases database resources."""
         if self._db is not None:
-            info_logger("Closing KùzuDB connection pool")
-            # Clear the pool
-            while not self._pool.empty():
-                try:
-                    self._pool.get_nowait()
-                except:
-                    break
-            self._db = None
+            with self._lock:
+                if self._db is None:
+                    return
+                info_logger("Closing KùzuDB connection pool")
+                # Clear and close all connections in the pool
+                while self._pool is not None and not self._pool.empty():
+                    try:
+                        conn = self._pool.get_nowait()
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                    except:
+                        break
+                self._pool = None
+                # Drop database reference to trigger KuzuDB cleanup
+                self._db = None
+                import gc; gc.collect()
 
     def is_connected(self) -> bool:
         """Checks if the database connection is currently active."""

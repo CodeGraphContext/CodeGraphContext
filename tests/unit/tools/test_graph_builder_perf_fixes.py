@@ -524,7 +524,8 @@ class TestAddFileToGraph:
 
         import_call = next(
             c for c in session.calls
-            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)" in c["query"]
+            if "MERGE (f)-[r:IMPORTS" in c["query"]
+            and "]->(m)" in c["query"]
         )
         assert "m.alias" not in import_call["query"]
         assert import_call["kwargs"]["batch"] == [
@@ -705,26 +706,35 @@ class TestDeleteRepositoryFromGraph:
             "db.labels() must come after existence check and before per-label deletion"
         )
 
-    def test_finds_repo_stored_with_backslash_path(self):
-        """Fallback should find a Repository stored with Windows backslash paths."""
+    def test_delete_uses_single_normalized_lookup(self):
+        """Paths are always stored normalized to forward slashes (issue #1080),
+        so delete does a single Repository lookup with no Windows-backslash
+        fallback. The old fallback (a second lookup on the original path) was
+        removed; this guards against it being reintroduced."""
         session = _RecordingSession(responses=[
-            _FakeResult([{"cnt": 0}]),   # normalized (forward-slash) fails
-            _FakeResult([{"cnt": 1}]),   # fallback (original backslash) succeeds
+            _FakeResult([{"cnt": 1}]),   # single normalized lookup succeeds
             *([_FakeResult([{"deleted": 0}])] * 20),  # drain loops
         ])
         gb, _ = _make_graph_builder(session)
-        result = gb.delete_repository_from_graph("C:\\Users\\test\\repo")
+        result = gb.delete_repository_from_graph("/repo/project")
         assert result is True
-        
-        # Verify that fallback path was used in subsequent parameterised queries.
-        # The implementation uses $prefix / $path bindings, so we inspect kwargs
-        # rather than the query string.
+
+        # Exactly one Repository existence check — no fallback second lookup.
+        repo_lookups = [
+            c for c in session.calls
+            if "MATCH (r:Repository" in c["query"] and "count(r)" in c["query"]
+        ]
+        assert len(repo_lookups) == 1, (
+            f"Expected a single normalized repo lookup, got {len(repo_lookups)}: "
+            f"{[c['kwargs'] for c in repo_lookups]}"
+        )
+        # STARTS WITH prefixes must be normalized (forward-slash, no backslashes).
         prefix_values = [
             c["kwargs"].get("prefix", "") for c in session.calls
             if "STARTS WITH" in c["query"]
         ]
-        assert any("C:\\Users\\test\\repo\\" in p for p in prefix_values), \
-            f"Expected backslash path prefix in $prefix kwargs, got: {prefix_values}"
+        assert prefix_values and all("\\" not in p for p in prefix_values), \
+            f"Expected normalized forward-slash prefixes, got: {prefix_values}"
 
     def test_uses_matching_path_format_for_deletion(self):
         """When fallback triggers, deletion queries should use the path format that matched."""

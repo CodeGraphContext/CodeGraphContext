@@ -71,6 +71,8 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 
 ## 📍 Quick Navigation
 * [🚀 Quick Start](#-installation--quick-start) 
+* [📋 Prerequisites](#-prerequisites)
+* [🏃 How to Run the Project Locally](#-how-to-run-the-project-locally)
 * [🌐 Supported Programming Languages](#supported-programming-languages) 
 * [🛠️ CLI Toolkit](#for-cli-toolkit-mode) 
 * [🤖 MCP Server](#-for-mcp-server-mode) 
@@ -240,6 +242,84 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
     - **Neo4j:** Run `codegraphcontext neo4j setup` to use an external server.
 
 ---
+
+## 📋 Prerequisites
+
+Before installing CodeGraphContext, ensure you have:
+
+* Python 3.10 or later
+* pip package manager
+* Git (optional, for cloning repositories)
+
+Verify your Python installation:
+
+```bash
+python --version
+```
+
+---
+
+## 🚀 Step-by-Step Setup Guide
+
+### Step 1: Install CodeGraphContext
+
+```bash
+pip install codegraphcontext
+```
+
+This command installs CodeGraphContext and all required dependencies.
+
+### Step 2: Verify Installation
+
+```bash
+codegraphcontext --help
+```
+
+If the command displays the available CLI commands, the installation was successful.
+
+### Step 3: Database Setup
+
+CodeGraphContext automatically uses an embedded database by default, so no additional configuration is required for most users.
+
+---
+
+## 🏃 How to Run the Project Locally
+
+### Index a Repository
+
+```bash
+codegraphcontext index .
+```
+
+This scans the current project and creates a searchable code graph.
+
+### View Indexed Repositories
+
+```bash
+codegraphcontext list
+```
+
+Displays all repositories currently indexed by CodeGraphContext.
+
+### Analyze Code
+
+```bash
+codegraphcontext analyze dead-code
+```
+
+Finds potentially unused code in the indexed repository.
+
+---
+
+## ✅ Verify Everything Works
+
+After indexing a repository, run:
+
+```bash
+codegraphcontext list
+```
+
+If the command executes successfully and displays indexed repositories, your setup is complete and CodeGraphContext is ready to use.
 
 ### For CLI Toolkit Mode
 

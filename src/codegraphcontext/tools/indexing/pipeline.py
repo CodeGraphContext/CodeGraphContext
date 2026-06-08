@@ -105,6 +105,8 @@ async def run_tree_sitter_index_async(
     )
 
     t0 = time.time()
+    if job_id:
+        job_manager.update_job(job_id, status_message="Resolving inheritance links...")
     info_logger(f"[INHERITS] Resolving inheritance links across {len(all_file_data)} files...")
     inheritance_batch, csharp_files = build_inheritance_and_csharp_files(all_file_data, imports_map)
     writer.write_inheritance_links(inheritance_batch, csharp_files, imports_map)
@@ -117,6 +119,8 @@ async def run_tree_sitter_index_async(
         None,
         diagnostics=call_resolution_diagnostics,
     )
+    if job_id:
+        job_manager.update_job(job_id, status_message="Writing function CALLS edges...")
     writer.write_function_call_groups(*resolved_calls)
     t2 = time.time()
     info_logger(f"Function calls created in {t2 - t1:.1f}s. Total post-processing: {t2 - t0:.1f}s")
@@ -125,10 +129,14 @@ async def run_tree_sitter_index_async(
     # C++ method definitions live in .cpp while the Class node lives in .h.
     # The per-file write cannot create these edges reliably due to ordering;
     # this single repo-scoped pass runs after every node is in the graph.
+    if job_id:
+        job_manager.update_job(job_id, status_message="Linking C++ class-function edges...")
     info_logger("[CPP] Linking C++ out-of-line method definitions to their classes...")
     writer.write_cpp_class_function_links(resolved_repo_path_str)
 
     # ── Spring injection edges (#887) ─────────────────────────────────────────
+    if job_id:
+        job_manager.update_job(job_id, status_message="Processing Spring injection edges...")
     spring_inject_batch = []
     for fd in all_file_data:
         injections = fd.get("spring_injections")
@@ -155,6 +163,8 @@ async def run_tree_sitter_index_async(
 
     # ── Maven / Gradle build graph (#888) ────────────────────────────────────
     if not is_dependency and path.is_dir():
+        if job_id:
+            job_manager.update_job(job_id, status_message="Processing Maven build graph...")
         try:
             from ...tools.languages.maven import parse_repo_maven
             maven_data = parse_repo_maven(path.resolve())
@@ -163,6 +173,8 @@ async def run_tree_sitter_index_async(
         except Exception as _me:
             info_logger(f"[MAVEN] Build graph failed (skipping): {_me}")
 
+        if job_id:
+            job_manager.update_job(job_id, status_message="Processing Gradle build graph...")
         try:
             from ...tools.languages.gradle import parse_repo_gradle
             gradle_data = parse_repo_gradle(path.resolve())
@@ -172,6 +184,8 @@ async def run_tree_sitter_index_async(
             info_logger(f"[GRADLE] Build graph failed (skipping): {_ge}")
 
     # ── ORM / datasource code linkage (#843) ─────────────────────────────────
+    if job_id:
+        job_manager.update_job(job_id, status_message="Processing ORM mappings...")
     orm_batch = []
     for fd in all_file_data:
         orm_mappings = fd.get("orm_mappings")
@@ -189,6 +203,8 @@ async def run_tree_sitter_index_async(
 
     # ── MyBatis XML mapper READS / WRITES edges ───────────────────────────────
     if not is_dependency and path.is_dir():
+        if job_id:
+            job_manager.update_job(job_id, status_message="Processing MyBatis XML mappers...")
         try:
             from ...tools.languages.mybatis import find_and_parse_mybatis_mappers
             mybatis_batch = find_and_parse_mybatis_mappers(path.resolve())
@@ -200,6 +216,8 @@ async def run_tree_sitter_index_async(
     # ── Phase 4: embedding generation (optional, config-gated) ────────────────
     from ...cli.config_manager import get_config_value as _gcv
     if (_gcv("ENABLE_VECTOR_RESOLVE") or "false").lower() == "true":
+        if job_id:
+            job_manager.update_job(job_id, status_message="Generating embeddings...")
         try:
             from .embeddings import EmbeddingPipeline
             repo_path_str = str(path.resolve())
@@ -211,6 +229,8 @@ async def run_tree_sitter_index_async(
 
     # ── Phase 5: inheritance-aware re-resolution (optional, config-gated) ─────
     if (_gcv("ENABLE_INHERIT_RESOLVE") or "false").lower() == "true":
+        if job_id:
+            job_manager.update_job(job_id, status_message="Running inheritance re-resolution...")
         try:
             from .resolution.post_resolution import run_inheritance_reresolve
             vector_resolver = None

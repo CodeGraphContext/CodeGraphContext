@@ -235,7 +235,7 @@ async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, 
                     progress.update(task_id, total=job.total_files, completed=job.processed_files)
                 
                 # Update the current filename in the UI
-                current_file = job.current_file or ""
+                current_file = job.current_file or job.status_message or ""
                 if len(current_file) > 40:
                     current_file = "..." + current_file[-37:]
                 progress.update(task_id, filename=current_file)
@@ -781,7 +781,7 @@ def stats_helper(path: str = None, context: Optional[str] = None):
         db_manager.close_driver()
 
 
-def watch_helper(path: str, context: Optional[str] = None):
+def watch_helper(path: str, context: Optional[str] = None, use_polling: Optional[bool] = None):
     """Watch a directory for changes and auto-update the graph (blocking mode)."""
     import logging
     from ..core.watcher import CodeWatcher
@@ -836,7 +836,7 @@ def watch_helper(path: str, context: Optional[str] = None):
     
     # Create watcher instance
     job_manager = JobManager()
-    watcher = CodeWatcher(graph_builder, job_manager)
+    watcher = CodeWatcher(graph_builder, job_manager, use_polling=use_polling)
     
     try:
         # Start the observer thread

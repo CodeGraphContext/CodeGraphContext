@@ -3,10 +3,12 @@
 This module implements the live file-watching functionality using the `watchdog` library.
 It observes directories for changes and triggers updates to the code graph.
 """
+import os
 import threading
 from pathlib import Path
 import typing
 from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
 
 if typing.TYPE_CHECKING:
@@ -18,6 +20,17 @@ from codegraphcontext.core.cgcignore import build_ignore_spec
 from codegraphcontext.tools.indexing.constants import DEFAULT_IGNORE_PATTERNS
 from codegraphcontext.cli.config_manager import get_config_value
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
+
+POLLING_ENV_VAR = "CGC_WATCH_POLLING"
+TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def should_use_polling_observer(use_polling: typing.Optional[bool] = None) -> bool:
+    """Return whether the watcher should use watchdog's polling backend."""
+    if use_polling is not None:
+        return use_polling
+    return os.getenv(POLLING_ENV_VAR, "").strip().lower() in TRUE_ENV_VALUES
+
 
 class RepositoryEventHandler(FileSystemEventHandler):
     """
@@ -340,9 +353,15 @@ class CodeWatcher:
     Manages the file system observer thread. It can watch multiple directories,
     assigning a separate `RepositoryEventHandler` to each one.
     """
-    def __init__(self, graph_builder: "GraphBuilder", job_manager= "JobManager"):
+    def __init__(
+        self,
+        graph_builder: "GraphBuilder",
+        job_manager="JobManager",
+        use_polling: typing.Optional[bool] = None,
+    ):
         self.graph_builder = graph_builder
-        self.observer = Observer()
+        observer_cls = PollingObserver if should_use_polling_observer(use_polling) else Observer
+        self.observer = observer_cls()
         self.watched_paths = set() # Keep track of paths already being watched.
         self.watches = {} # Store watch objects to allow unscheduling
         self.handlers = {}  # path -> RepositoryEventHandler

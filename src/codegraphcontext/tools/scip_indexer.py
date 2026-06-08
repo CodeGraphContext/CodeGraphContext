@@ -251,7 +251,11 @@ class ScipIndexer:
                 error_logger(f"Docker SCIP indexing failed: {e}")
 
         if not binary:
-            warning_logger(f"SCIP indexer for '{lang}' not found locally or in Docker. Install with: {install_hint}")
+            warning_logger(
+                f"SCIP indexer for '{lang}' is not installed or not available in PATH. "
+                f"Falling back to Tree-sitter parsing. "
+                f"To enable SCIP indexing, install it using: {install_hint}"
+            )
         return None
 
     def _get_binary(self, lang: str) -> Tuple[Optional[str], str, str, Optional[str]]:

@@ -148,10 +148,15 @@ class LuaTreeSitterParser:
         return params
 
     def _calculate_complexity(self, node: Any) -> int:
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         count = 1
+        skipped = False
 
-        def traverse(current):
-            nonlocal count
+        def traverse(current, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if current.type in LUA_CONTROL_NODES:
                 count += 1
             elif current.type == "binary_expression":
@@ -160,9 +165,14 @@ class LuaTreeSitterParser:
                     count += 1
             for child in current.children:
                 if child.is_named:
-                    traverse(child)
+                    traverse(child, depth + 1)
 
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _get_docstring(self, node: Any) -> Optional[str]:

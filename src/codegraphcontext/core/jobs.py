@@ -33,6 +33,7 @@ class JobInfo:
     total_files: int = 0
     processed_files: int = 0
     current_file: Optional[str] = None
+    status_message: Optional[str] = None
     estimated_duration: Optional[float] = None
     actual_duration: Optional[float] = None
     errors: List[str] = None

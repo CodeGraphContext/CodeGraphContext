@@ -185,6 +185,8 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root, bundle_repo_ro
             for k, v in props.items():
                 if k == "args_key":
                     continue
+                if edge_type == "IMPORTS" and k == "line_number":
+                    continue
                 if isinstance(v, str):
                     v = normalize_path(v, current_repo_root, bundle_repo_root if "path" in k else None)
                 clean_props[k] = make_hashable(v)
