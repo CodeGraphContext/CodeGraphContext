@@ -336,9 +336,20 @@ class FalkorDBManager:
             if self._process.poll() is not None:
                 out, err = self._process.communicate()
                 returncode = self._process.returncode
-                
-                # Any non-zero exit code during startup means this backend is toast
-                # Raise FalkorDBUnavailableError to trigger the automatic KùzuDB fallback
+
+                # Exit 0 means the worker detected an already-running FalkorDB instance.
+                if returncode == 0 and os.path.exists(self.socket_path):
+                    try:
+                        from falkordb import FalkorDB
+                        d = FalkorDB(unix_socket_path=self.socket_path)
+                        test_graph = d.select_graph('__cgc_health_check')
+                        test_graph.query("RETURN 1")
+                        return
+                    except Exception as e:
+                        last_error = e
+
+                # Any other exit code during startup means this backend is toast.
+                # Raise FalkorDBUnavailableError to trigger the automatic KùzuDB fallback.
                 raise FalkorDBUnavailableError(
                     f"FalkorDB Lite worker failed to start (Exit Code {returncode}).\n"
                     f"STDOUT: {out.decode().strip()}\n"

@@ -127,6 +127,7 @@ def run_worker():
             except OSError:
                 pass
 
+        server_config.setdefault("port", str(port))
         db_instance = FalkorDB(db_path, unix_socket_path=socket_path, serverconfig=server_config)
         logger.info("FalkorDB Lite is running.")
         logger.info(f"Using FalkorDB port: {port}")

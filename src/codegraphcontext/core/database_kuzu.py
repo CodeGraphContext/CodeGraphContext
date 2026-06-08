@@ -4,7 +4,9 @@ This module provides a thread-safe singleton manager for the KùzuDB database co
 KùzuDB is an embedded graph database that is cross-platform (including Windows) 
 and requires no external server setup.
 """
+import gc
 import os
+import queue
 import time
 import threading
 import re
@@ -313,16 +315,15 @@ class KuzuDBManager:
                 while self._pool is not None and not self._pool.empty():
                     try:
                         conn = self._pool.get_nowait()
-                        try:
-                            conn.close()
-                        except Exception:
-                            pass
-                    except:
+                    except queue.Empty:
                         break
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
                 self._pool = None
-                # Drop database reference to trigger KuzuDB cleanup
                 self._db = None
-                import gc; gc.collect()
+                gc.collect()
 
     def is_connected(self) -> bool:
         """Checks if the database connection is currently active."""

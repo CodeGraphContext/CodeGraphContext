@@ -13,7 +13,7 @@ from .schemas import (
 )
 from codegraphcontext.server import MCPServer
 
-import socket 
+import socket
 
 router = APIRouter()
 
@@ -132,10 +132,7 @@ async def execute_query(
             },
         )
     except (OSError, socket.error) as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="Database service unavailable",
-        ) from exc
+        raise_service_unavailable(exc)
 
     if "error" in result:
         return ApiResponse(status="error", error=result["error"])

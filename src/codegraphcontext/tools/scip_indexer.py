@@ -254,6 +254,7 @@ class ScipIndexer:
             warning_logger(
                 f"SCIP indexer for '{lang}' is not installed or not available in PATH. "
                 f"Falling back to Tree-sitter parsing. "
+                f"Package-level import resolution may be limited without SCIP. "
                 f"To enable SCIP indexing, install it using: {install_hint}"
             )
         return None

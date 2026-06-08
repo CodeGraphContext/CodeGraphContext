@@ -6,7 +6,8 @@ import types
 from codegraphcontext.api.schemas import QueryRequest
 
 import pytest
-from fastapi import HTTPException   
+from fastapi import HTTPException
+
 
 class FakeServer:
     def __init__(self):
@@ -68,27 +69,6 @@ def test_execute_query_returns_503_when_database_unavailable(
     request = QueryRequest(
         query="MATCH (n) RETURN count(n) AS count",
         params={},
-    )
-
-    with pytest.raises(HTTPException) as exc:
-        asyncio.run(
-            router_module.execute_query(
-                request,
-                server=FailingServer(),
-            )
-        )
-
-    assert exc.value.status_code == 503
-    assert exc.value.detail == "Database service unavailable"
-    server_module = types.ModuleType("codegraphcontext.server")
-    server_module.MCPServer = object
-    monkeypatch.setitem(sys.modules, "codegraphcontext.server", server_module)
-
-    router_module = importlib.import_module("codegraphcontext.api.router")
-
-    request = QueryRequest(
-        query="MATCH (n) RETURN count(n) AS count",
-        params={}
     )
 
     with pytest.raises(HTTPException) as exc:

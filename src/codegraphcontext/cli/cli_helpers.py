@@ -234,8 +234,8 @@ async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, 
                 if job.total_files > 0:
                     progress.update(task_id, total=job.total_files, completed=job.processed_files)
                 
-                # Update the current filename in the UI
-                current_file = job.current_file or job.status_message or ""
+                # Prefer post-processing status over the last parsed file path
+                current_file = job.status_message or job.current_file or ""
                 if len(current_file) > 40:
                     current_file = "..." + current_file[-37:]
                 progress.update(task_id, filename=current_file)
