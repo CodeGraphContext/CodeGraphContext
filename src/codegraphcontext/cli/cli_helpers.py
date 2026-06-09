@@ -18,6 +18,7 @@ from rich.progress import (
     BarColumn,
     TaskProgressColumn,
     TimeRemainingColumn,
+    TimeElapsedColumn,
     MofNCompleteColumn,
 )
 
@@ -209,14 +210,14 @@ async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, 
         BarColumn(),
         TaskProgressColumn(),
         MofNCompleteColumn(),
-        TimeRemainingColumn(),
+        TimeElapsedColumn(),
         TextColumn("[dim]{task.fields[filename]}"),
         console=console,
         transient=True,
     ) as progress:
         
         task_id = progress.add_task(
-            "Indexing...", 
+            "Indexing files...", 
             total=None,  # Will be updated once file discovery is done
             filename=""
         )
@@ -227,18 +228,37 @@ async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, 
 
         from ..core.jobs import JobStatus
         
+        entered_post_processing = False
+        
         # Poll for updates
         while not indexing_task.done():
             job = graph_builder.job_manager.get_job(job_id)
             if job:
                 if job.total_files > 0:
-                    progress.update(task_id, total=job.total_files, completed=job.processed_files)
+                    if not entered_post_processing:
+                        progress.update(task_id, total=job.total_files, completed=job.processed_files)
+                    else:
+                        # In post-processing: keep indeterminate bar, show elapsed
+                        progress.update(task_id, completed=0)
                 
-                # Prefer post-processing status over the last parsed file path
                 current_file = job.status_message or job.current_file or ""
                 if len(current_file) > 40:
                     current_file = "..." + current_file[-37:]
                 progress.update(task_id, filename=current_file)
+
+                # Detect transition to post-processing (files done, status_message active)
+                if (
+                    not entered_post_processing
+                    and job.status_message
+                    and job.total_files > 0
+                    and job.processed_files >= job.total_files
+                ):
+                    entered_post_processing = True
+                    progress.update(
+                        task_id,
+                        description="Post-processing...",
+                        total=None,  # indeterminate bar — no misleading "100%"
+                    )
 
                 if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
                     break
