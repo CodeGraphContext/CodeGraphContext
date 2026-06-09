@@ -1,5 +1,6 @@
 import ForceGraph2D from "react-force-graph-2d";
 import ForceGraph3D from "react-force-graph-3d";
+import RepositorySummary from "./RepositorySummary";
 import * as THREE from "three";
 import { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
@@ -1916,8 +1917,15 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
           </AnimatePresence>
         </div>
 
+        <div className="mt-1 mb-4 flex justify-center">
+          <div className="w-full max-w-5xl">
+            <RepositorySummary graphData={data} isIndexed={true} />
+          </div>
+        </div>
+
         {graphMode === 'city3d' ? (
           <>
+
             <ForceGraph3D
               ref={fgRef}
               graphData={city3dData}
