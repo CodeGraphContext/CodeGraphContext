@@ -645,7 +645,7 @@ class TestKotlinFunctionCallResolution:
         assert any(
             edge["caller_name"] == "run"
             and edge["called_name"] == "top"
-            and edge["called_file_path"] == str(Path(data["path"]).resolve())
+            and edge["called_file_path"] == Path(data["path"]).resolve().as_posix()
             for edge in fn_to_fn
         )
 
@@ -1530,7 +1530,7 @@ fun make() = A.Inner()
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "submitEvents"
         assert resolved["called_name"] == "applyEvent"
-        assert resolved["called_file_path"] == progress_data["path"]
+        assert resolved["called_file_path"] == Path(progress_data["path"]).as_posix()
 
     def test_kotlin_call_arguments_are_parsed(self, parser):
         caller_data = _write_and_parse(parser, OVERLOAD_CALLER_SRC)
@@ -1573,7 +1573,7 @@ fun make() = A.Inner()
             e for e in fn_to_fn
             if e["full_call_name"] == "service.target"
         )
-        assert edge["called_file_path"] == service_data["path"]
+        assert edge["called_file_path"] == Path(service_data["path"]).as_posix()
         assert edge["called_context"] == "OverloadedService"
         assert edge["called_line_number"] == two_arg_target["line_number"]
 
@@ -1598,7 +1598,7 @@ fun make() = A.Inner()
             e for e in fn_to_fn
             if e["full_call_name"] == "cache.get"
         )
-        assert edge["called_file_path"] == service_data["path"]
+        assert edge["called_file_path"] == Path(service_data["path"]).as_posix()
         assert edge["called_context"] == "AmbiguousCache"
         assert edge["called_line_number"] == iterable_get["line_number"]
 
@@ -1900,7 +1900,7 @@ fun make() = A.Inner()
             e for e in fn_to_fn
             if e["full_call_name"] == "service.target"
         )
-        assert edge["called_file_path"] == service_data["path"]
+        assert edge["called_file_path"] == Path(service_data["path"]).as_posix()
         assert edge["called_context"] == "LambdaOverloadService"
         assert edge["called_line_number"] == lambda_target["line_number"]
 
@@ -2077,7 +2077,7 @@ fun make() = A.Inner()
         resolved = _resolve_with_progress_service(calls[0], caller_data, progress_data)
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "run"
-        assert resolved["called_file_path"] == progress_data["path"]
+        assert resolved["called_file_path"] == Path(progress_data["path"]).as_posix()
 
     def test_body_property_receiver_resolves_cross_file(self, parser):
         caller_data = _write_and_parse(parser, RECEIVER_PATTERNS_SRC)
@@ -2093,7 +2093,7 @@ fun make() = A.Inner()
         resolved = _resolve_with_progress_service(calls[0], caller_data, progress_data)
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "run"
-        assert resolved["called_file_path"] == progress_data["path"]
+        assert resolved["called_file_path"] == Path(progress_data["path"]).as_posix()
 
     def test_class_property_receiver_survives_local_shadow_in_other_method(self, parser, tmp_path):
         source_path = _write_source(
@@ -2442,7 +2442,7 @@ fun make() = A.Inner()
             resolved = _resolve_with_progress_service(calls[0], caller_data, progress_data)
             assert resolved["type"] == "function"
             assert resolved["caller_name"] == "run"
-            assert resolved["called_file_path"] == progress_data["path"]
+            assert resolved["called_file_path"] == Path(progress_data["path"]).as_posix()
 
 
 class TestKotlinSemanticResolution:
@@ -2471,7 +2471,7 @@ class TestKotlinSemanticResolution:
         resolved = _resolve_with_progress_service(calls[0], caller_data, progress_data)
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "run"
-        assert resolved["called_file_path"] == progress_data["path"]
+        assert resolved["called_file_path"] == Path(progress_data["path"]).as_posix()
 
     def test_imported_top_level_function_resolves_cross_file(self, parser, tmp_path):
         helper_path = _write_source(
@@ -2528,7 +2528,7 @@ class TestKotlinSemanticResolution:
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "run"
         assert resolved["called_name"] == "topLevelHelper"
-        assert resolved["called_file_path"] == str(helper_path)
+        assert resolved["called_file_path"] == helper_path.as_posix()
 
     def test_object_and_companion_calls_resolve_cross_file(self, parser, tmp_path):
         service_path = _write_source(
@@ -2596,7 +2596,7 @@ class TestKotlinSemanticResolution:
         )
         assert find_user is not None
         assert find_user["type"] == "function"
-        assert find_user["called_file_path"] == str(service_path)
+        assert find_user["called_file_path"] == service_path.as_posix()
 
         info = resolve_function_call(
             calls_by_name["info"],
@@ -2608,7 +2608,7 @@ class TestKotlinSemanticResolution:
         )
         assert info is not None
         assert info["type"] == "function"
-        assert info["called_file_path"] == str(logger_path)
+        assert info["called_file_path"] == logger_path.as_posix()
 
     def test_imported_extension_function_resolves_cross_file(self, parser, tmp_path):
         event_path = _write_source(
@@ -2681,7 +2681,7 @@ class TestKotlinSemanticResolution:
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "run"
         assert resolved["called_name"] == "enrich"
-        assert resolved["called_file_path"] == str(extension_path)
+        assert resolved["called_file_path"] == extension_path.as_posix()
 
     def test_same_package_top_level_function_resolves_without_import(self, parser, tmp_path):
         helper_path = _write_source(
@@ -2731,7 +2731,7 @@ class TestKotlinSemanticResolution:
         assert resolved is not None
         assert resolved["type"] == "function"
         assert resolved["called_name"] == "samePackageHelper"
-        assert resolved["called_file_path"] == str(helper_path)
+        assert resolved["called_file_path"] == helper_path.as_posix()
 
     def test_same_package_extension_function_resolves_without_import(self, parser, tmp_path):
         event_path = _write_source(
@@ -2794,7 +2794,7 @@ class TestKotlinSemanticResolution:
         assert resolved is not None
         assert resolved["type"] == "function"
         assert resolved["called_name"] == "decorate"
-        assert resolved["called_file_path"] == str(extension_path)
+        assert resolved["called_file_path"] == extension_path.as_posix()
 
     def test_import_aliases_resolve_top_level_and_extension_functions(self, parser, tmp_path):
         event_path = _write_source(
@@ -2872,7 +2872,7 @@ class TestKotlinSemanticResolution:
         assert helper_resolved is not None
         assert helper_resolved["type"] == "function"
         assert helper_resolved["called_name"] == "aliasedHelper"
-        assert helper_resolved["called_file_path"] == str(helper_path)
+        assert helper_resolved["called_file_path"] == helper_path.as_posix()
 
         extension_call = next(
             c for c in caller_data["function_calls"] if c["full_name"] == "event.addContext"
@@ -2888,7 +2888,7 @@ class TestKotlinSemanticResolution:
         assert extension_resolved is not None
         assert extension_resolved["type"] == "function"
         assert extension_resolved["called_name"] == "enrich"
-        assert extension_resolved["called_file_path"] == str(extension_path)
+        assert extension_resolved["called_file_path"] == extension_path.as_posix()
 
     def test_this_and_super_calls_resolve_to_current_and_base_files(self, parser, tmp_path):
         base_path = _write_source(
@@ -2947,7 +2947,7 @@ class TestKotlinSemanticResolution:
         assert this_resolved is not None
         assert this_resolved["type"] == "function"
         assert this_resolved["called_name"] == "applyEventLocally"
-        assert this_resolved["called_file_path"] == str(derived_path)
+        assert this_resolved["called_file_path"] == derived_path.as_posix()
 
         super_resolved = resolve_function_call(
             calls["super.applyEvent"],
@@ -2961,7 +2961,7 @@ class TestKotlinSemanticResolution:
         assert super_resolved is not None
         assert super_resolved["type"] == "function"
         assert super_resolved["called_name"] == "applyEvent"
-        assert super_resolved["called_file_path"] == str(base_path)
+        assert super_resolved["called_file_path"] == base_path.as_posix()
 
     def test_class_constructor_delegation_resolves_to_base_class(self, parser, tmp_path):
         base_path = _write_source(
@@ -3004,7 +3004,7 @@ class TestKotlinSemanticResolution:
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "DerivedService"
         assert resolved["called_name"] == "BaseService"
-        assert resolved["called_file_path"] == str(base_path)
+        assert resolved["called_file_path"] == base_path.as_posix()
 
     def test_cross_file_chained_return_and_property_receivers_resolve(self, parser, tmp_path):
         progress_path = _write_source(
@@ -3104,7 +3104,7 @@ class TestKotlinSemanticResolution:
             assert resolved is not None
             assert resolved["type"] == "function"
             assert resolved["called_name"] == "applyEvent"
-            assert resolved["called_file_path"] == str(progress_path)
+            assert resolved["called_file_path"] == progress_path.as_posix()
 
         fn_to_fn, *_ = build_function_call_groups(
             [progress_data, provider_data, caller_data],
@@ -3114,8 +3114,8 @@ class TestKotlinSemanticResolution:
             (edge["full_call_name"], edge["called_file_path"])
             for edge in fn_to_fn
         }
-        assert ("provider.service().applyEvent", str(progress_path)) in resolved_edges
-        assert ("provider.progressService.applyEvent", str(progress_path)) in resolved_edges
+        assert ("provider.service().applyEvent", progress_path.as_posix()) in resolved_edges
+        assert ("provider.progressService.applyEvent", progress_path.as_posix()) in resolved_edges
 
     def test_wildcard_imports_resolve_top_level_and_extension_functions(self, parser, tmp_path):
         event_path = _write_source(
@@ -3198,7 +3198,7 @@ class TestKotlinSemanticResolution:
             skip_external=False,
         )
         assert helper_resolved is not None
-        assert helper_resolved["called_file_path"] == str(helper_path)
+        assert helper_resolved["called_file_path"] == helper_path.as_posix()
 
         extension_call = next(
             c for c in caller_data["function_calls"] if c["full_name"] == "event.wildcardEnrich"
@@ -3212,7 +3212,7 @@ class TestKotlinSemanticResolution:
             skip_external=False,
         )
         assert extension_resolved is not None
-        assert extension_resolved["called_file_path"] == str(helper_path)
+        assert extension_resolved["called_file_path"] == helper_path.as_posix()
 
     def test_imported_typealias_receiver_resolves_to_target_type(self, parser, tmp_path):
         progress_path = _write_source(
@@ -3279,7 +3279,7 @@ class TestKotlinSemanticResolution:
         assert any(
             edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
             for edge in fn_to_fn
         )
 
@@ -3342,7 +3342,7 @@ class TestKotlinSemanticResolution:
             for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         }
         assert resolved_lines == {6, 7, 8, 9, 10, 11}
 
@@ -3402,7 +3402,7 @@ class TestKotlinSemanticResolution:
             edge for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         ]
         assert len(resolved_refs) == 2
 
@@ -3461,7 +3461,7 @@ class TestKotlinSemanticResolution:
             for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         }
         assert resolved_lines == {6, 7}
 
@@ -3544,7 +3544,7 @@ class TestKotlinSemanticResolution:
             for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         }
         assert resolved_lines == {6, 8}
 
@@ -3641,9 +3641,9 @@ class TestKotlinSemanticResolution:
         )
 
         assert explicit_resolved is not None
-        assert explicit_resolved["called_file_path"] == str(explicit_path)
+        assert explicit_resolved["called_file_path"] == explicit_path.as_posix()
         assert same_package_resolved is not None
-        assert same_package_resolved["called_file_path"] == str(same_package_path)
+        assert same_package_resolved["called_file_path"] == same_package_path.as_posix()
 
     def test_if_and_when_smart_casts_infer_receiver_types(self, parser, tmp_path):
         progress_path = _write_source(
@@ -3702,7 +3702,7 @@ class TestKotlinSemanticResolution:
             edge for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         ]
         assert len(resolved_edges) == 2
 
@@ -3796,13 +3796,13 @@ class TestKotlinSemanticResolution:
         assert any(
             edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(base_path)
+            and edge["called_file_path"] == base_path.as_posix()
             for edge in fn_to_fn
         )
         assert not any(
             edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(child_path)
+            and edge["called_file_path"] == child_path.as_posix()
             for edge in fn_to_fn
         )
 
@@ -3863,7 +3863,7 @@ class TestKotlinSemanticResolution:
         assert any(
             edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(interface_path)
+            and edge["called_file_path"] == interface_path.as_posix()
             for edge in fn_to_fn
         )
 
@@ -3920,7 +3920,7 @@ class TestKotlinSemanticResolution:
             for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         }
         assert resolved_lines == {6, 7}
 
@@ -4008,7 +4008,7 @@ class TestKotlinSemanticResolution:
             for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         }
         assert resolved_lines == {13, 14, 15, 16}
 

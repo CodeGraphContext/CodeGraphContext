@@ -16,7 +16,7 @@ export function ThemeToggle() {
   return (
     <button 
       onClick={toggleTheme} 
-      className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 text-muted-foreground hover:text-foreground transition-colors duration-200 flex items-center justify-center relative w-9 h-9 border-none bg-transparent cursor-pointer shrink-0"
+      className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-purple-500/10 text-muted-foreground hover:text-foreground transition-colors duration-200 flex items-center justify-center relative w-9 h-9 border-none bg-transparent cursor-pointer shrink-0"
       title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
     >
       <AnimatePresence initial={false} mode="wait">

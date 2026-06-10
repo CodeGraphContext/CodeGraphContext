@@ -20,8 +20,11 @@ GITHUB_REPO = "CodeGraphContext"
 
 def fetch_available_bundles() -> List[Dict[str, Any]]:
     """Fetch all available bundles from the Hugging Face registry (delegates to core BundleRegistry)."""
-    from ..core.bundle_registry import BundleRegistry
-    return BundleRegistry.fetch_available_bundles()
+    from ..core.bundle_registry import BundleRegistry, RegistryUnavailableError
+    try:
+        return BundleRegistry.fetch_available_bundles()
+    except RegistryUnavailableError:
+        raise
 
 
 def _get_base_package_name(bundle_name: str) -> str:
@@ -66,13 +69,21 @@ def list_bundles(verbose: bool = False, unique: bool = False):
     """
     console.print("[cyan]Fetching available bundles...[/cyan]")
     
-    bundles = fetch_available_bundles()
-    
+    try:
+        bundles = fetch_available_bundles()
+    except Exception as e:
+        from ..core.bundle_registry import RegistryUnavailableError
+        if isinstance(e, RegistryUnavailableError):
+            console.print(f"[bold red]Registry unavailable:[/bold red] {e}")
+            console.print("[dim]An internet connection is required to access the bundle registry.[/dim]")
+            raise typer.Exit(code=1)
+        raise
+
     if not bundles:
         console.print("[yellow]No bundles found in registry.[/yellow]")
-        console.print("[dim]The registry may be empty or unreachable.[/dim]")
+        console.print("[dim]The registry may be empty.[/dim]")
         return
-    
+
     # If unique flag is set, keep only the most recent version per package
     if unique:
         unique_bundles = {}
@@ -128,14 +139,26 @@ def list_bundles(verbose: bool = False, unique: bool = False):
 
 def search_bundles(query: str):
     """Search for bundles matching the query."""
+    if not query or not query.strip():
+        console.print("[bold red]Error:[/bold red] Search query cannot be empty.")
+        raise typer.Exit(code=1)
+
     console.print(f"[cyan]Searching for '{query}'...[/cyan]")
     
-    bundles = fetch_available_bundles()
-    
+    try:
+        bundles = fetch_available_bundles()
+    except Exception as e:
+        from ..core.bundle_registry import RegistryUnavailableError
+        if isinstance(e, RegistryUnavailableError):
+            console.print(f"[bold red]Registry unavailable:[/bold red] {e}")
+            console.print("[dim]An internet connection is required to search the bundle registry.[/dim]")
+            raise typer.Exit(code=1)
+        raise
+
     if not bundles:
         console.print("[yellow]No bundles found in registry.[/yellow]")
-        return
-    
+        raise typer.Exit(code=1)
+
     # Filter bundles
     query_lower = query.lower()
     matching_bundles = [
@@ -149,7 +172,7 @@ def search_bundles(query: str):
     if not matching_bundles:
         console.print(f"[yellow]No bundles found matching '{query}'[/yellow]")
         console.print("[dim]Try a different search term or use 'cgc registry list' to see all bundles[/dim]")
-        return
+        raise typer.Exit(code=1)
     
     # Create table
     table = Table(show_header=True, header_style="bold magenta", title=f"Search Results for '{query}'")

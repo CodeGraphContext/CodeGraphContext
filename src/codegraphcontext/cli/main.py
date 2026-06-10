@@ -9,6 +9,7 @@ Commands:
 - help: Displays help information.
 - version: Show the installed version.
 """
+import sys
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -34,6 +35,7 @@ from .cli_helpers import (
     cypher_helper_visual,
     visualize_helper,
     reindex_helper,
+    update_helper,
     clean_helper,
     stats_helper,
     _initialize_services,
@@ -42,6 +44,7 @@ from .cli_helpers import (
     list_watching_helper,
     setup_scip_helper,
 )
+from .hook_manager import HookError, get_hook_status, install_hooks, uninstall_hooks
 
 # Set the log level for the noisy neo4j, asyncio, and urllib3 loggers to keep the output clean.
 # Get the log level from config, defaulting to WARNING
@@ -249,7 +252,7 @@ def context_list():
 @context_app.command("create")
 def context_create(
     name: str = typer.Argument(..., help="Name of the new context"),
-    database: str = typer.Option(None, "--database", "--db", "-db", "-d", help="Database backend (falkordb, kuzudb, neo4j). Defaults to DEFAULT_DATABASE from config."),
+    database: str = typer.Option(None, "--database", "--db", "-db", "-d", help=config_manager.DATABASE_CLI_HELP),
     db_path: str = typer.Option(None, "--db-path", help="Explicit path for the DB (defaults to ~/.codegraphcontext/contexts/<name>/db)"),
 ):
     """Create a new logical context."""
@@ -290,7 +293,7 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
     Uses per-variable precedence - each variable is loaded from the highest priority source.
     Priority order (highest to lowest):
     1. Runtime environment variables (shell/CI)
-    2. Local `.codegraphcontext/.env` and `.env` in the current project directory (project-specific overrides)
+    2. Local `.codegraphcontext/.env` and `.env` in the current project directory (per-repo mode only)
     3. Global `~/.codegraphcontext/.env` (user defaults, including `cgc config set`)
     4. Local `mcp.json` env vars (project defaults)
 
@@ -356,26 +359,27 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load global .env: {e}[/yellow]")
     
-    # 2. Local project .env (project-specific overrides - restricted to CWD only, no parent walk)
-    try:
-        local_dot_env = Path.cwd() / ".env"
-        if local_dot_env.exists() and local_dot_env.resolve() != global_env_path.resolve():
-            with open(local_dot_env, "r", encoding="utf-8", errors="replace") as f:
-                _append_source(str(local_dot_env), dotenv_values(stream=f))
-    except Exception as e:
-        console.print(f"[yellow]Warning: Could not load .env from current directory: {e}[/yellow]")
+    # 2. Local project .env (only when cwd is under HOME, or CGC_LOAD_PROJECT_ENV=1)
+    if config_manager.should_apply_project_dotenv():
+        try:
+            local_dot_env = Path.cwd() / ".env"
+            if local_dot_env.exists() and local_dot_env.resolve() != global_env_path.resolve():
+                with open(local_dot_env, "r", encoding="utf-8", errors="replace") as f:
+                    _append_source(str(local_dot_env), dotenv_values(stream=f))
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not load .env from current directory: {e}[/yellow]")
 
-    # 2. <cwd>/.codegraphcontext/.env only (overrides global when distinct)
-    try:
-        local_cgc_env = codegraphcontext_dotenv_at_cwd(Path.cwd())
-        if local_cgc_env and local_cgc_env.resolve() != global_env_path.resolve():
-            with open(local_cgc_env, "r", encoding="utf-8", errors="replace") as f:
-                vals = dotenv_values(stream=f)
-                _append_source(str(local_cgc_env), vals)
-    except Exception as e:
-        console.print(
-            f"[yellow]Warning: Could not load .codegraphcontext/.env at cwd: {e}[/yellow]"
-        )
+        # <cwd>/.codegraphcontext/.env only (overrides global when distinct)
+        try:
+            local_cgc_env = codegraphcontext_dotenv_at_cwd(Path.cwd())
+            if local_cgc_env and local_cgc_env.resolve() != global_env_path.resolve():
+                with open(local_cgc_env, "r", encoding="utf-8", errors="replace") as f:
+                    vals = dotenv_values(stream=f)
+                    _append_source(str(local_cgc_env), vals)
+        except Exception as e:
+            console.print(
+                f"[yellow]Warning: Could not load .codegraphcontext/.env at cwd: {e}[/yellow]"
+            )
     
     # Merge all configs with proper precedence (later sources override earlier ones)
     merged_config = {}
@@ -552,7 +556,8 @@ def config_set(
         cgc config set MAX_FILE_SIZE_MB 20
         cgc config set DEBUG_LOGS true
     """
-    config_manager.set_config_value(key, value)
+    if not config_manager.set_config_value(key, value):
+        raise typer.Exit(code=1)
 
 @config_app.command("reset")
 def config_reset():
@@ -651,10 +656,30 @@ def bundle_export(
     finally:
         db_manager.close_driver()
 
+def _confirm_bundle_clear(clear: bool, yes: bool) -> bool:
+    """Return True if import may proceed; False if user cancelled."""
+    if not clear:
+        return True
+    console.print("[yellow]⚠️  Warning: This will clear all existing graph data![/yellow]")
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        console.print(
+            "[bold red]Refusing to clear graph in non-interactive mode. "
+            "Pass --yes / -y to confirm.[/bold red]"
+        )
+        raise typer.Exit(code=1)
+    if not typer.confirm("Are you sure you want to continue?", default=False):
+        console.print("[yellow]Import cancelled[/yellow]")
+        return False
+    return True
+
+
 @bundle_app.command("import")
 def bundle_import(
     bundle_file: str = typer.Argument(..., help="Path to the .cgc bundle file to import"),
     clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before importing"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation when using --clear"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
@@ -665,7 +690,7 @@ def bundle_import(
     
     Examples:
         cgc bundle import numpy.cgc
-        cgc bundle import my-project.cgc --clear
+        cgc bundle import my-project.cgc --clear --yes
     """
     _load_credentials()
     from codegraphcontext.core.cgc_bundle import CGCBundle
@@ -682,11 +707,8 @@ def bundle_import(
             console.print(f"[bold red]Bundle file not found: {bundle_path}[/bold red]")
             raise typer.Exit(code=1)
         
-        if clear:
-            console.print("[yellow]⚠️  Warning: This will clear all existing graph data![/yellow]")
-            if not typer.confirm("Are you sure you want to continue?", default=False):
-                console.print("[yellow]Import cancelled[/yellow]")
-                return
+        if not _confirm_bundle_clear(clear, yes):
+            return
         
         console.print(f"[cyan]Importing bundle from {bundle_path}...[/cyan]")
         
@@ -708,7 +730,8 @@ def bundle_import(
 @bundle_app.command("load")
 def bundle_load(
     bundle_name: str = typer.Argument(..., help="Bundle name or path to load (e.g., 'numpy' or 'numpy.cgc')"),
-    clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before loading")
+    clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before loading"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation when using --clear"),
 ):
     """
     Load a pre-indexed bundle (download if needed, then import).
@@ -729,7 +752,7 @@ def bundle_load(
     
     # If it's an absolute path or has .cgc extension and exists, use it directly
     if bundle_path.is_absolute() or (bundle_path.suffix == '.cgc' and bundle_path.exists()):
-        bundle_import(str(bundle_path), clear=clear)
+        bundle_import(str(bundle_path), clear=clear, yes=yes)
         return
     
     # Add .cgc extension if not present
@@ -739,7 +762,7 @@ def bundle_load(
     # Check if exists locally
     if bundle_path.exists():
         console.print(f"[dim]Found local bundle: {bundle_path}[/dim]")
-        bundle_import(str(bundle_path), clear=clear)
+        bundle_import(str(bundle_path), clear=clear, yes=yes)
         return
     
     # Try to download from registry
@@ -757,7 +780,7 @@ def bundle_load(
         
         if downloaded_path:
             # Import the downloaded bundle
-            bundle_import(downloaded_path, clear=clear)
+            bundle_import(downloaded_path, clear=clear, yes=yes)
         else:
             console.print(f"[bold red]Failed to download bundle '{name}'[/bold red]")
             raise typer.Exit(code=1)
@@ -766,6 +789,71 @@ def bundle_load(
         console.print(f"[bold red]Error: {e}[/bold red]")
         console.print("[dim]Use 'cgc registry list' to see available bundles[/dim]")
         raise typer.Exit(code=1)
+
+# ============================================================================
+# HOOK COMMAND GROUP - Git integration
+# ============================================================================
+
+hook_app = typer.Typer(help="Install Git hooks that keep the CGC graph in sync")
+app.add_typer(hook_app, name="hook")
+
+
+@hook_app.command("install")
+def hook_install(
+    path: str = typer.Argument(".", help="Path inside the Git repository"),
+    force: bool = typer.Option(False, "--force", "-f", help="Replace existing non-CGC hook files"),
+):
+    """
+    Install CGC-managed Git hooks in the nearest repository.
+
+    The installed hooks run `cgc update <repo> --quiet` after commits and
+    checkouts. Existing non-CGC hooks are preserved unless --force is used.
+    """
+    try:
+        status = install_hooks(path, force=force)
+    except HookError as exc:
+        console.print(f"[bold red]Hook install failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+    console.print(f"[green]✓[/green] Installed CGC hooks in [bold]{status.repo_root}[/bold]")
+    console.print(f"[dim]Git directory: {status.git_dir}[/dim]")
+
+
+@hook_app.command("uninstall")
+def hook_uninstall(
+    path: str = typer.Argument(".", help="Path inside the Git repository"),
+):
+    """Remove CGC-managed Git hooks and local merge-driver config."""
+    try:
+        status = uninstall_hooks(path)
+    except HookError as exc:
+        console.print(f"[bold red]Hook uninstall failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+    console.print(f"[green]✓[/green] Removed CGC hooks from [bold]{status.repo_root}[/bold]")
+
+
+@hook_app.command("status")
+def hook_status(
+    path: str = typer.Argument(".", help="Path inside the Git repository"),
+):
+    """Show whether CGC-managed Git hooks are installed."""
+    try:
+        status = get_hook_status(path)
+    except HookError as exc:
+        console.print(f"[bold red]Hook status failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+    table = Table(title="CGC Git Hook Status", show_header=True, header_style="bold magenta")
+    table.add_column("Check", style="cyan")
+    table.add_column("Status")
+    table.add_row("Repository", str(status.repo_root))
+    table.add_row("Git directory", str(status.git_dir))
+    table.add_row("Managed hooks", ", ".join(status.installed_hooks) or "none")
+    table.add_row("Unmanaged hooks", ", ".join(status.unmanaged_hooks) or "none")
+    table.add_row("Merge driver", "installed" if status.has_merge_driver else "missing")
+    table.add_row(".gitattributes", "installed" if status.has_gitattributes_entry else "missing")
+    console.print(table)
 
 # Shortcut commands at root level
 @app.command("export", rich_help_panel="Bundle Shortcuts")
@@ -781,10 +869,11 @@ def export_shortcut(
 @app.command("load", rich_help_panel="Bundle Shortcuts")
 def load_shortcut(
     bundle_name: str = typer.Argument(..., help="Bundle name or path to load"),
-    clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before loading")
+    clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before loading"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation when using --clear"),
 ):
     """Shortcut for 'cgc bundle load'"""
-    bundle_load(bundle_name, clear)
+    bundle_load(bundle_name, clear, yes=yes)
 
 # ============================================================================
 # REGISTRY COMMAND GROUP - Browse and Download Bundles
@@ -1026,14 +1115,44 @@ def doctor():
                 console.print("   [red]✗[/red] LadybugDB core (ladybug) is not installed")
                 console.print("       Run: pip install ladybug")
                 all_checks_passed = False
-        else:
-            # FalkorDB
+        elif default_db == "falkordb-remote":
+            from codegraphcontext.core.database_falkordb_remote import FalkorDBRemoteManager
+
+            is_valid, validation_error = FalkorDBRemoteManager.validate_config()
+            if not is_valid:
+                console.print(f"   [red]✗[/red] FalkorDB remote config invalid: {validation_error}")
+                console.print("       Run: cgc config set FALKORDB_HOST <hostname>")
+                all_checks_passed = False
+            else:
+                try:
+                    import falkordb  # noqa: F401
+                    console.print("   [green]✓[/green] FalkorDB client is installed")
+                except ImportError:
+                    console.print("   [red]✗[/red] FalkorDB client is not installed")
+                    console.print("       Run: pip install falkordb")
+                    all_checks_passed = False
+
+                if all_checks_passed:
+                    host = os.environ.get("FALKORDB_HOST", "")
+                    port = os.environ.get("FALKORDB_PORT", "6379")
+                    console.print(f"   [cyan]Endpoint:[/cyan] {host}:{port}")
+                    console.print("   [cyan]Testing FalkorDB remote connection...[/cyan]")
+                    is_connected, error_msg = FalkorDBRemoteManager.test_connection()
+                    if is_connected:
+                        console.print("   [green]✓[/green] FalkorDB remote connection successful")
+                    else:
+                        console.print(f"   [red]✗[/red] FalkorDB remote connection failed")
+                        console.print(f"       Reason: {error_msg}")
+                        all_checks_passed = False
+        elif default_db == "falkordb":
             try:
-                import falkordb
+                import falkordblite  # noqa: F401
                 console.print("   [green]✓[/green] FalkorDB Lite is installed")
             except ImportError:
                 console.print("   [yellow]⚠[/yellow] FalkorDB Lite not installed (Python 3.12+ only)")
                 console.print("       Run: pip install falkordblite")
+        else:
+            console.print(f"   [yellow]⚠[/yellow] No connectivity probe for backend '{default_db}'")
     except Exception as e:
         console.print(f"   [red]✗[/red] Database check error: {e}")
         all_checks_passed = False
@@ -1111,6 +1230,7 @@ def doctor():
         console.print("  • For Neo4j issues: Run 'cgc neo4j setup'")
         console.print("  • For missing packages: pip install codegraphcontext")
         console.print("  • For config issues: Run 'cgc config reset'")
+        raise typer.Exit(code=1)
     console.print("=" * 60 + "\n")
 
 
@@ -1139,6 +1259,23 @@ def index(
         reindex_helper(path, context)
     else:
         index_helper(path, context)
+
+@app.command()
+def update(
+    path: Optional[str] = typer.Argument(None, help="Path to refresh. Defaults to current directory."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Reduce output when running from automation"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use (overrides mode/default)"),
+):
+    """
+    Refresh an existing repository index.
+
+    This command is intentionally small and hook-friendly; Git hooks installed
+    with `cgc hook install` call it after commits and checkouts.
+    """
+    _load_credentials()
+    if path is None:
+        path = str(Path.cwd())
+    update_helper(path, context)
 
 @app.command()
 def clean(
@@ -1197,6 +1334,13 @@ def delete(
     _load_credentials()
     
     if all_repos:
+        if not config_manager.is_db_deletion_allowed():
+            console.print(
+                "[bold red]Error:[/bold red] Full database deletion is disabled. "
+                "Set ALLOW_DB_DELETION=true in config to enable."
+            )
+            raise typer.Exit(code=1)
+
         # Delete all repositories
         services = _initialize_services(context)
         if not all(services[:3]):
@@ -1249,8 +1393,14 @@ def delete(
                 except Exception as e:
                     console.print(f"[red]✗[/red] Failed to delete {repo.get('name', '')}: {e}")
             
+            if deleted_count < len(repos):
+                console.print(
+                    f"\n[bold yellow]Deleted {deleted_count}/{len(repos)} repositories; "
+                    "some deletions failed.[/bold yellow]"
+                )
+                raise typer.Exit(code=1)
             console.print(f"\n[bold green]Successfully deleted {deleted_count}/{len(repos)} repositories![/bold green]")
-            
+
         finally:
             db_manager.close_driver()
     else:
@@ -1346,6 +1496,11 @@ def add_package(
 def watch(
     path: str = typer.Argument(".", help="Path to the directory to watch. Defaults to current directory."),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+    poll: bool = typer.Option(
+        False,
+        "--poll",
+        help="Use watchdog's polling observer for Docker bind mounts and network filesystems.",
+    ),
 ):
     """
     Watch a directory for file changes and automatically update the code graph.
@@ -1364,10 +1519,13 @@ def watch(
     Examples:
         cgc watch .                    # Watch current directory
         cgc watch /path/to/project     # Watch specific directory
+        cgc watch --poll .             # Use polling for Docker/NFS/SMB mounts
         cgc w .                        # Using shortcut alias
+
+    Set CGC_WATCH_POLLING=1 to use polling without passing --poll.
     """
     _load_credentials()
-    watch_helper(path, context)
+    watch_helper(path, context, use_polling=poll or None)
 
 @app.command()
 def unwatch(
@@ -1448,6 +1606,16 @@ def find_by_name(
 
     try:
         results = []
+
+        _VALID_FIND_TYPES = {
+            'all', 'function', 'class', 'variable', 'module', 'file',
+        }
+        if type is not None and type.lower() not in _VALID_FIND_TYPES:
+            console.print(
+                f"[bold red]Invalid --type '{type}'.[/bold red] "
+                f"Must be one of: {', '.join(sorted(_VALID_FIND_TYPES))}"
+            )
+            raise typer.Exit(code=1)
 
         # Search based on type filter
         if type is None or type.lower() == 'all':
@@ -1758,19 +1926,16 @@ def find_by_content_search(
         try:
             results = code_finder.find_by_content(query)
         except Exception as e:
+            backend = getattr(db_manager, "get_backend_type", lambda: "")()
             error_msg = str(e).lower()
-            if ('fulltext' in error_msg or 'db.index.fulltext' in error_msg) and "Falkor" in db_manager.__class__.__name__:
-                console.print("\n[bold red]❌ Full-text search is not supported on FalkorDB[/bold red]\n")
-                console.print("[yellow]💡 You have two options:[/yellow]\n")
-                console.print("  1. [cyan]Switch to Neo4j:[/cyan]")
-                console.print(f"     [dim]cgc --database neo4j find content \"{query}\"[/dim]\n")
-                console.print("  2. [cyan]Use pattern search instead:[/cyan]")
-                console.print(f"     [dim]cgc find pattern \"{query}\"[/dim]")
-                console.print("     [dim](searches in names only, not source code)[/dim]\n")
-                return
-            else:
-                # Re-raise if it's a different error
-                raise
+            if backend == "neo4j" and (
+                'fulltext' in error_msg or 'db.index.fulltext' in error_msg
+            ):
+                console.print("\n[bold red]Neo4j full-text index is unavailable.[/bold red]")
+                console.print("[yellow]Create the code_search_index or use:[/yellow]")
+                console.print(f"  [dim]cgc find pattern \"{query}\"[/dim]\n")
+                raise typer.Exit(code=1)
+            raise
         
         if not results:
             console.print(f"[yellow]No content matches found for '{query}'[/yellow]")
@@ -2179,21 +2344,34 @@ def analyze_dependencies(
             visualize_dependencies(results, target)
             return
         
-        # Show who imports this module
-        if results.get('importers'):
+        importers = results.get('importers') or []
+        if not show_external:
+            importers = [row for row in importers if not row.get('file_is_dependency')]
+
+        if importers:
             console.print(f"\n[bold cyan]Files that import '{target}':[/bold cyan]")
             table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
             table.add_column("Location", style="cyan", overflow="fold")
-            
-            for imp in results['importers']:
+
+            for imp in importers:
                 path = imp.get('importer_file_path', '')
                 line_str = str(imp.get('import_line_number', ''))
                 location_str = f"{path}:{line_str}" if line_str else path
-
-                table.add_row(
-                    location_str
-                )
+                table.add_row(location_str)
             console.print(table)
+
+        imports = results.get('imports') or []
+        if imports:
+            console.print(f"\n[bold cyan]Modules commonly imported alongside '{target}':[/bold cyan]")
+            imp_table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
+            imp_table.add_column("Module", style="cyan")
+            imp_table.add_column("Alias", style="dim")
+            for row in imports:
+                imp_table.add_row(
+                    str(row.get('imported_module', row.get('imported_name', ''))),
+                    str(row.get('import_alias', '') or ''),
+                )
+            console.print(imp_table)
     finally:
         db_manager.close_driver()
 
@@ -2634,7 +2812,9 @@ def main(
         "--database", 
         "--db",
         "-db", 
-        help="[Global] Temporarily override database backend (falkordb, falkordb-remote, neo4j, or kuzudb) for any command"
+        help="[Global] Temporarily override database backend ("
+        + "|".join(config_manager.SUPPORTED_DATABASES)
+        + ") for any command"
     ),
     visual: bool = typer.Option(
         False,
@@ -2738,9 +2918,6 @@ def datasource_mysql(
         console.print(f"[red]Import error:[/red] {e}")
         raise typer.Exit(1)
 
-    if context:
-        config_manager.set_config_value("CONTEXT", context)
-
     console.print(f"[cyan]Connecting to Aurora MySQL at {host}:{port}/{database}...[/cyan]")
     try:
         result = mysql_ingest(host=host, port=port, user=user, password=password,
@@ -2749,7 +2926,7 @@ def datasource_mysql(
         console.print(f"[red]Failed to connect / ingest:[/red] {exc}")
         raise typer.Exit(1)
 
-    _write_datasource_graph(result)
+    _write_datasource_graph(result, context=context)
     console.print(
         f"[green]✓ MySQL datasource[/green] [bold]{result['datasource']['name']}[/bold] indexed: "
         f"{len(result.get('tables', []))} tables, {len(result.get('columns', []))} columns"
@@ -2778,9 +2955,6 @@ def datasource_cassandra(
         console.print(f"[red]Import error:[/red] {e}")
         raise typer.Exit(1)
 
-    if context:
-        config_manager.set_config_value("CONTEXT", context)
-
     hosts = [h.strip() for h in host.split(",")]
     console.print(f"[cyan]Connecting to Cassandra at {hosts}/{keyspace}...[/cyan]")
     try:
@@ -2790,7 +2964,7 @@ def datasource_cassandra(
         console.print(f"[red]Failed to connect / ingest:[/red] {exc}")
         raise typer.Exit(1)
 
-    _write_datasource_graph(result)
+    _write_datasource_graph(result, context=context)
     console.print(
         f"[green]✓ Cassandra datasource[/green] [bold]{result['datasource']['name']}[/bold] indexed: "
         f"{len(result.get('tables', []))} tables, {len(result.get('columns', []))} columns"
@@ -2821,9 +2995,6 @@ def datasource_redis(
         console.print(f"[red]Import error:[/red] {e}")
         raise typer.Exit(1)
 
-    if context:
-        config_manager.set_config_value("CONTEXT", context)
-
     console.print(f"[cyan]Connecting to Redis at {host}:{port}/{db}...[/cyan]")
     try:
         result = redis_ingest(host=host, port=port, db=db, password=password,
@@ -2832,24 +3003,32 @@ def datasource_redis(
         console.print(f"[red]Failed to connect / ingest:[/red] {exc}")
         raise typer.Exit(1)
 
-    _write_datasource_graph(result)
+    _write_datasource_graph(result, context=context)
     console.print(
         f"[green]✓ Redis datasource[/green] [bold]{result['datasource']['name']}[/bold] indexed: "
         f"{len(result.get('key_patterns', []))} key patterns"
     )
 
 
-def _write_datasource_graph(ingested: dict) -> None:
+def _write_datasource_graph(ingested: dict, context: Optional[str] = None) -> None:
     """Shared helper: write ingested datasource dict to the active graph."""
-    from codegraphcontext.core.database import DatabaseManager
-    dm = DatabaseManager()
-    driver = dm.get_driver()
-    if driver is None:
-        console.print("[red]No active graph connection. Run[/red] cgc context switch <name> [red]first.[/red]")
-        raise typer.Exit(1)
+    from .cli_helpers import _initialize_services, _fail_services_init
 
-    from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
-    GraphWriter(driver).write_datasource_graph(ingested)
+    services = _initialize_services(context)
+    if not all(services[:3]):
+        _fail_services_init()
+
+    db_manager, _, _, _ctx = services
+    try:
+        driver = db_manager.get_driver()
+        if driver is None:
+            console.print("[red]No active graph connection.[/red]")
+            raise typer.Exit(1)
+
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+        GraphWriter(driver, db_manager=db_manager).write_datasource_graph(ingested)
+    finally:
+        db_manager.close_driver()
 
 
 if __name__ == "__main__":

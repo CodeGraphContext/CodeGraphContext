@@ -67,15 +67,20 @@ class PerlTreeSitterParser:
         return None, None, None
 
     def _calculate_complexity(self, node):
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         complexity_nodes = {
             "if_statement", "unless_statement", "for_statement", "foreach_statement",
             "while_statement", "until_statement", "conditional_expression",
             "logical_expression", "binary_expression"
         }
         count = 1
+        skipped = False
         
-        def traverse(n):
-            nonlocal count
+        def traverse(n, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if n.type in complexity_nodes:
                 if n.type == "binary_expression":
                     op_node = None
@@ -87,9 +92,14 @@ class PerlTreeSitterParser:
                         return
                 count += 1
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
         
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict:

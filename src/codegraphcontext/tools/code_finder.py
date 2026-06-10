@@ -145,7 +145,7 @@ class CodeFinder:
         limit: int = 20,
     ) -> Dict[str, Any]:
         """Audit Kotlin function-to-function CALLS edges for multi-target callsites."""
-        repo_path = str(Path(repo_path).resolve()) if repo_path else None
+        repo_path = Path(repo_path).resolve().as_posix() if repo_path else None
         repo_filter = "AND a.path STARTS WITH $repo_path" if repo_path else ""
         query = f"""
             MATCH (a:Function)-[r:CALLS]->(b:Function)
@@ -787,7 +787,13 @@ class CodeFinder:
 
         with self.driver.session() as session:
             repo_filter = "AND func.path STARTS WITH $repo_path" if repo_path else ""
-            decorator_filter = "AND ALL(decorator_name IN $exclude_decorated_with WHERE NOT decorator_name IN func.decorators)" if exclude_decorated_with else ""
+            decorator_filter = ""
+            if exclude_decorated_with:
+                any_conditions = " AND ".join(
+                    f"NOT ANY(d IN func.decorators WHERE d CONTAINS '{p.replace(chr(39), chr(39)+chr(39))}')"
+                    for p in exclude_decorated_with
+                )
+                decorator_filter = f"AND {any_conditions}"
             func_ignore = cypher_path_not_under_ignore_dirs("func.path")
             caller_ignore = cypher_path_not_under_ignore_dirs("caller.path")
             
@@ -823,9 +829,7 @@ class CodeFinder:
             params = {}
             if repo_path:
                 params["repo_path"] = repo_path
-            if exclude_decorated_with:
-                params["exclude_decorated_with"] = exclude_decorated_with
-                
+
             result = session.run(query, **params)
             
             return {
@@ -917,17 +921,16 @@ class CodeFinder:
             start_props = "{name: $start_function" + (", path: $start_file}" if start_file else "}")
             end_props = "{name: $end_function" + (", path: $end_file}" if end_file else "}")
 
-            # KùzuDB-compatible: Use anonymous end node and filter
-            repo_filter = "WHERE 1=1 AND (start.path IS NULL OR start.path STARTS WITH $repo_path) AND (end_target.path IS NULL OR end_target.path STARTS WITH $repo_path)" if repo_path else ""
+            repo_clauses = []
+            if repo_path:
+                repo_clauses.append("start.path STARTS WITH $repo_path")
+                repo_clauses.append("end_target.path STARTS WITH $repo_path")
+            repo_where = ("WHERE " + " AND ".join(repo_clauses)) if repo_clauses else ""
             query = f"""
                 MATCH (start:Function {start_props}), (end_target:Function {end_props})
-                {repo_filter}
-                WITH start as start, end_target as end_target
-                MATCH path = (start)-[:CALLS*1..{max_depth}]->()
-                WITH path as path, end_target as end_target, nodes(path) as func_nodes, relationships(path) as call_rels
-                WITH path as path, func_nodes as func_nodes, call_rels as call_rels, end_target as end_target, func_nodes[size(func_nodes)-1] as path_end
-                WHERE path_end.name = end_target.name AND (end_target.path IS NULL OR path_end.path = end_target.path)
-                RETURN func_nodes as function_nodes, call_rels as call_nodes, size(call_rels) as chain_length
+                {repo_where}
+                MATCH path = (start)-[:CALLS*1..{max_depth}]->(end_target)
+                RETURN nodes(path) AS function_nodes, relationships(path) AS call_nodes, length(path) AS chain_length
                 ORDER BY chain_length ASC
                 LIMIT 20
             """

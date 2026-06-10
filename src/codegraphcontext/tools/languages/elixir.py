@@ -159,14 +159,19 @@ class ElixirTreeSitterParser:
 
     def _calculate_complexity(self, node: Any) -> int:
         """Calculate cyclomatic complexity for Elixir constructs."""
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         complexity_keywords = {
             "if", "unless", "case", "cond", "with", "for", "try",
             "receive", "and", "or", "&&", "||", "when",
         }
         count = 1
+        skipped = False
 
-        def traverse(n):
-            nonlocal count
+        def traverse(n, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if n.type == 'identifier' and self._get_node_text(n) in complexity_keywords:
                 count += 1
             elif n.type in ('binary_operator',):
@@ -174,9 +179,14 @@ class ElixirTreeSitterParser:
                 if '&&' in op_text or '||' in op_text or ' and ' in op_text or ' or ' in op_text:
                     count += 1
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
 
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _get_docstring(self, node: Any) -> Optional[str]:

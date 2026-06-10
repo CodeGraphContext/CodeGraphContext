@@ -3,10 +3,12 @@
 This module implements the live file-watching functionality using the `watchdog` library.
 It observes directories for changes and triggers updates to the code graph.
 """
+import os
 import threading
 from pathlib import Path
 import typing
 from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
 
 if typing.TYPE_CHECKING:
@@ -18,6 +20,17 @@ from codegraphcontext.core.cgcignore import build_ignore_spec
 from codegraphcontext.tools.indexing.constants import DEFAULT_IGNORE_PATTERNS
 from codegraphcontext.cli.config_manager import get_config_value
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
+
+POLLING_ENV_VAR = "CGC_WATCH_POLLING"
+TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def should_use_polling_observer(use_polling: typing.Optional[bool] = None) -> bool:
+    """Return whether the watcher should use watchdog's polling backend."""
+    if use_polling is not None:
+        return use_polling
+    return os.getenv(POLLING_ENV_VAR, "").strip().lower() in TRUE_ENV_VALUES
+
 
 class RepositoryEventHandler(FileSystemEventHandler):
     """
@@ -35,6 +48,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
         perform_initial_scan: bool = True,
         cgcignore_path: str = None,
         ignore_spec: "PathSpec" = None,
+        sync_on_start: bool = False,
     ):
         """
         Initializes the event handler.
@@ -46,6 +60,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
             perform_initial_scan: Whether to perform an initial scan of the repository.
             cgcignore_path: Optional explicit .cgcignore path from the active context.
             ignore_spec: Optional precompiled ignore spec, useful for tests.
+            sync_on_start: Whether to reconcile an existing graph with the current files on disk.
         """
         super().__init__()
         self.graph_builder = graph_builder
@@ -60,8 +75,10 @@ class RepositoryEventHandler(FileSystemEventHandler):
         self.all_file_data = []
         self.imports_map = {}
         
-        # Perform the initial scan and linking when the watcher is created.
-        if perform_initial_scan:
+        # Reconcile an existing graph, or perform the lighter initial relationship scan.
+        if sync_on_start:
+            self.synchronize_with_disk()
+        elif perform_initial_scan:
             self._initial_scan()
 
     def _load_ignore_spec(self, cgcignore_path: str = None) -> None:
@@ -135,12 +152,51 @@ class RepositoryEventHandler(FileSystemEventHandler):
             if "error" not in parsed_data:
                 self.all_file_data.append(parsed_data)
         
-        # 3. After all files are parsed, create the relationships (e.g., function calls) between them.
+        # 3. Persist parsed nodes, then create cross-file relationships.
+        repo_name = self.repo_path.name
+        repo_path_str = self.repo_path.resolve().as_posix()
+        self.graph_builder.add_repository_to_graph(self.repo_path, is_dependency=False)
+        for file_data in self.all_file_data:
+            self.graph_builder.add_file_to_graph(
+                file_data, repo_name, self.imports_map, repo_path_str=repo_path_str
+            )
         self.graph_builder.link_function_calls(self.all_file_data, self.imports_map)
         self.graph_builder.link_inheritance(self.all_file_data, self.imports_map)
         # Free memory — all_file_data is only needed during the linking pass.
         self.all_file_data.clear()
         info_logger(f"Initial scan and graph linking complete for: {self.repo_path}")
+
+    def synchronize_with_disk(self) -> None:
+        """Reconcile an existing repository graph with the current files on disk."""
+        info_logger(f"Synchronizing watcher graph with disk: {self.repo_path}")
+        current_files = self._iter_supported_files()
+        current_paths = {str(path.resolve()) for path in current_files}
+        indexed_paths = self.graph_builder.get_repo_file_paths(self.repo_path)
+
+        self.imports_map = self.graph_builder.pre_scan_imports(current_files)
+
+        for stale_path in sorted(indexed_paths - current_paths):
+            self.graph_builder.delete_file_from_graph(stale_path)
+
+        refreshed_file_data = []
+        for path in current_files:
+            file_data = self.graph_builder.update_file_in_graph(
+                path,
+                self.repo_path,
+                self.imports_map,
+            )
+            if file_data and "error" not in file_data and not file_data.get("deleted"):
+                refreshed_file_data.append(file_data)
+
+        self.graph_builder.delete_relationship_links(self.repo_path)
+        self.graph_builder.link_function_calls(refreshed_file_data, self.imports_map)
+        self.graph_builder.link_inheritance(refreshed_file_data, self.imports_map)
+        refreshed_file_data.clear()
+
+        info_logger(
+            f"Watcher startup synchronization complete for {self.repo_path}: "
+            f"{len(current_paths)} current files, {len(indexed_paths - current_paths)} removed files"
+        )
 
     def _debounce(self, event_path, action):
         """
@@ -155,6 +211,11 @@ class RepositoryEventHandler(FileSystemEventHandler):
         timer = threading.Timer(self.debounce_interval, action)
         timer.start()
         self.timers[event_path] = timer
+
+    def cancel_timers(self) -> None:
+        for timer in self.timers.values():
+            timer.cancel()
+        self.timers.clear()
 
     def _update_imports_map_for_file(self, changed_path: Path):
         """Re-scan a single file and merge its contributions into self.imports_map.
@@ -203,7 +264,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
             debug_log(f"Ignored watcher update based on .cgcignore: {changed_path}")
             return
 
-        changed_path_str = str(changed_path.resolve())
+        changed_path_str = changed_path.resolve().as_posix()
         supported_extensions = self.graph_builder.parsers.keys()
 
         # Step 1: Find affected neighbours BEFORE nodes are destroyed.
@@ -320,13 +381,26 @@ class CodeWatcher:
     Manages the file system observer thread. It can watch multiple directories,
     assigning a separate `RepositoryEventHandler` to each one.
     """
-    def __init__(self, graph_builder: "GraphBuilder", job_manager= "JobManager"):
+    def __init__(
+        self,
+        graph_builder: "GraphBuilder",
+        job_manager="JobManager",
+        use_polling: typing.Optional[bool] = None,
+    ):
         self.graph_builder = graph_builder
-        self.observer = Observer()
+        observer_cls = PollingObserver if should_use_polling_observer(use_polling) else Observer
+        self.observer = observer_cls()
         self.watched_paths = set() # Keep track of paths already being watched.
         self.watches = {} # Store watch objects to allow unscheduling
+        self.handlers = {}  # path -> RepositoryEventHandler
 
-    def watch_directory(self, path: str, perform_initial_scan: bool = True, cgcignore_path: str = None):
+    def watch_directory(
+        self,
+        path: str,
+        perform_initial_scan: bool = True,
+        cgcignore_path: str = None,
+        sync_on_start: bool = False,
+    ):
         """Schedules a directory to be watched for changes."""
         path_obj = Path(path).resolve()
         path_str = str(path_obj)
@@ -340,11 +414,13 @@ class CodeWatcher:
             self.graph_builder,
             path_obj,
             perform_initial_scan=perform_initial_scan,
+            sync_on_start=sync_on_start,
             cgcignore_path=cgcignore_path,
         )
         
         watch = self.observer.schedule(event_handler, path_str, recursive=True)
         self.watches[path_str] = watch
+        self.handlers[path_str] = event_handler
         self.watched_paths.add(path_str)
         info_logger(f"Started watching for code changes in: {path_str}")
         
@@ -358,10 +434,14 @@ class CodeWatcher:
             warning_logger(f"Attempted to unwatch a path that is not being watched: {path_str}")
             return {"error": f"Path not currently being watched: {path_str}"}
 
+        handler = self.handlers.pop(path_str, None)
+        if handler:
+            handler.cancel_timers()
+
         watch = self.watches.pop(path_str, None)
         if watch:
             self.observer.unschedule(watch)
-        
+
         self.watched_paths.discard(path_str)
         info_logger(f"Stopped watching for code changes in: {path_str}")
         return {"message": f"Stopped watching {path_str}."}
@@ -378,6 +458,10 @@ class CodeWatcher:
 
     def stop(self):
         """Stops the observer thread gracefully."""
+        for handler in self.handlers.values():
+            handler.cancel_timers()
+        self.handlers.clear()
+
         if self.observer.is_alive():
             self.observer.stop()
             self.observer.join() # Wait for the thread to terminate.

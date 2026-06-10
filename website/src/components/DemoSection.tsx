@@ -1,11 +1,11 @@
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
-import { motion } from "framer-motion";
-import graphTotalImage from "../assets/graph-total.png";
-import functionCallsImage from "../assets/function-calls.png";
-import hierarchyImage from "../assets/hierarchy.png";
-import type { Variants } from "framer-motion";
+import GlassCard from "./GlassCard";
+import SectionDivider from "./SectionDivider";
+
+import graphTotalImage from "@/assets/graph-total.png";
+import functionCallsImage from "@/assets/function-calls.png";
+import hierarchyImage from "@/assets/hierarchy.png";
 
 const DemoSection = () => {
   const visualizations = [
@@ -14,84 +14,43 @@ const DemoSection = () => {
       description: "All components and relationships between code elements.",
       image: graphTotalImage,
       badge: "Full Overview",
-      aos: "fade-up",
     },
     {
       title: "Function Call Analysis",
       description: "Direct and indirect function calls across directories.",
       image: functionCallsImage,
       badge: "Call Chains",
-      aos: "zoom-in",
     },
     {
       title: "Project Hierarchy",
       description: "Hierarchical structure of files and dependencies.",
       image: hierarchyImage,
       badge: "File Structure",
-      aos: "flip-up",
     },
   ];
-
-const containerVariants: Variants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.2, delayChildren: 0.1 },
-  },
-};
-
-const itemVariants: Variants = {
-  hidden: { y: 20, opacity: 0 },
-  visible: {
-    y: 0,
-    opacity: 1,
-    transition: { duration: 0.6, ease: "easeOut" },
-  },
-};
 
 
   return (
     <section
-      className="py-20 px-4 bg-gradient-to-b from-background to-secondary/10"
-      data-aos="fade-in"
-      data-aos-duration="800"
+      className="py-20 px-4 bg-black"
     >
-      <div className="container mx-auto max-w-7xl">
+      <div className="container mx-auto max-w-7xl relative z-10">
+        <SectionDivider variant="wave" className="absolute -top-20 left-0 right-0 z-0" />
+        
         {/* Heading Section */}
-        <motion.div
-          className="text-center mb-16"
-          initial={{ opacity: 0, y: -20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, amount: 0.5 }}
-          transition={{ duration: 0.7 }}
-        >
-          <h2
-            className="text-3xl sm:text-4xl md:text-5xl font-bold mb-6 bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent py-2"
-            data-aos="fade-down"
-            data-aos-duration="1000"
-          >
+        <div className="text-center mb-16">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black mb-6 gradient-text uppercase tracking-tight py-2">
             See CodeGraphContext in Action
           </h2>
-          <p
-            className="text-xl text-muted-foreground max-w-3xl mx-auto mb-12"
-            data-aos="fade-up"
-            data-aos-delay="200"
-          >
+          <p className="text-sm font-mono text-gray-500 uppercase tracking-widest max-w-3xl mx-auto mb-12">
             Watch how CodeGraphContext transforms complex codebases into
             interactive knowledge graphs.
           </p>
-        </motion.div>
+        </div>
 
         {/* Embedded Demo Video */}
-        <motion.div
-          className="max-w-4xl mx-auto mb-16"
-          initial={{ opacity: 0, scale: 0.9 }}
-          whileInView={{ opacity: 1, scale: 1 }}
-          viewport={{ once: true, amount: 0.3 }}
-          transition={{ duration: 0.8, ease: "easeInOut" }}
-          data-aos="zoom-in"
-        >
-          <div className="relative aspect-video rounded-lg overflow-hidden shadow-2xl border border-border/50">
+        <div className="max-w-4xl mx-auto mb-16">
+          <div className="relative aspect-video rounded-3xl overflow-hidden shadow-2xl border border-white/20">
             <iframe
               src="https://www.youtube.com/embed/KYYSdxhg1xU?autoplay=1&mute=1&loop=1&playlist=KYYSdxhg1xU"
               title="CodeGraphContext Demo"
@@ -100,71 +59,56 @@ const itemVariants: Variants = {
               className="w-full h-full"
             />
           </div>
-        </motion.div>
+        </div>
 
         {/* Interactive Visualizations Section */}
         <div className="mb-12">
-          <h3
-            className="text-3xl font-bold text-center mb-8"
-            data-aos="fade-up"
-            data-aos-delay="100"
-          >
+          <h3 className="text-xl md:text-2xl font-black uppercase tracking-widest text-center text-white mb-8">
             Interactive Visualizations
           </h3>
 
-          <motion.div
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
-            variants={containerVariants}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, amount: 0.2 }}
-          >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {visualizations.map((viz, index) => (
-              <motion.div
-                key={index}
-                variants={itemVariants}
-                data-aos={viz.aos}
-                data-aos-delay={index * 150}
-              >
-                <Card className="group hover:shadow-xl transition-all duration-300 border-border/50 overflow-hidden w-full h-full bg-background/70 backdrop-blur-sm">
+              <div key={index}>
+                <GlassCard className="group h-full w-full">
                   <Dialog>
                     <DialogTrigger asChild>
-                      <div className="relative cursor-pointer flex flex-col h-full">
+                      <div className="relative cursor-pointer flex flex-col h-full rounded-3xl overflow-hidden bg-black border border-white/10">
                         <div className="relative">
                           <img
                             src={viz.image}
                             alt={viz.title}
-                            className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+                            className="w-full h-48 object-cover opacity-90 group-hover:opacity-100 transition-all duration-300"
                             loading="lazy"
                           />
-                          <Badge className="absolute top-2 left-2 text-xs">
+                          <Badge className="absolute top-4 left-4 text-[10px] font-mono uppercase tracking-widest bg-purple-500/20 text-purple-300 border border-purple-500/50 rounded-full py-1">
                             {viz.badge}
                           </Badge>
                         </div>
-                        <CardContent className="p-6 flex-grow flex flex-col">
-                          <h4 className="text-xl font-semibold mb-3 group-hover:text-primary transition-colors">
+                        <div className="p-6 flex-grow flex flex-col bg-black">
+                          <h4 className="text-sm font-black uppercase tracking-widest text-white mb-3 group-hover:text-gray-300 transition-colors">
                             {viz.title}
                           </h4>
-                          <p className="text-base text-muted-foreground flex-grow">
+                          <p className="text-xs font-mono text-gray-500 flex-grow">
                             {viz.description}
                           </p>
-                        </CardContent>
+                        </div>
                       </div>
                     </DialogTrigger>
 
                     {/* Dialog Content */}
-                    <DialogContent className="max-w-5xl w-full">
+                    <DialogContent className="max-w-5xl w-full bg-black border-white/20 rounded-3xl p-4">
                       <img
-                        src={viz.image}
-                        alt={`${viz.title} Visualization`}
-                        className="w-full h-auto max-h-[80vh] object-contain rounded-lg"
+                         src={viz.image}
+                         alt={`${viz.title} Visualization`}
+                         className="w-full h-auto max-h-[80vh] object-contain rounded-2xl"
                       />
                     </DialogContent>
                   </Dialog>
-                </Card>
-              </motion.div>
+                </GlassCard>
+              </div>
             ))}
-          </motion.div>
+          </div>
         </div>
       </div>
     </section>

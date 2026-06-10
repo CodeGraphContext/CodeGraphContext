@@ -60,6 +60,7 @@ FalkorDB is a low-latency, high-performance graph database. It supports two exec
 An embedded, in-memory graph engine that uses local shared memory drivers.
 - **Limitation**: Unix-only (Linux and macOS) and requires Python 3.12+.
 - **Speed**: Optimal traversal latency due to in-memory index layouts.
+- **Content search**: `cgc find content` uses portable substring matching on `source` and `docstring` fields (no Neo4j Lucene index required).
 
 ### FalkorDB Remote
 Connects to an external Redis-compatible FalkorDB server instance running in a Docker container or network host.

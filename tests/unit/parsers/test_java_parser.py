@@ -265,7 +265,7 @@ class TestJavaCrossFileResolution:
         )
 
         assert resolved is not None, "resolve_function_call returned None"
-        assert resolved["called_file_path"] == service_path, (
+        assert resolved["called_file_path"] == Path(service_path).as_posix(), (
             f"Expected cross-file path {service_path!r}, "
             f"got {resolved['called_file_path']!r}. "
             "DI CALLS edge would be self-referential (issue #823 not fixed)."

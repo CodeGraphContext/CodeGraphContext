@@ -1,10 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-05-19T02:33:32.472970",
-  "format_version": "1.0",
+  "exported_at": "2026-06-07T18:00:37Z",
+  "format_version": "1.0.0",
   "repo": "sample_project_dart",
-  "repo_path": "/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project_dart",
+  "repo_path": ".",
   "is_dependency": false,
-  "commit": "0c6be239",
-  "languages": []
+  "commit": "f3f62d33",
+  "branch": "fix/e2e-security-followup",
+  "generator": "PYv0.4.16",
+  "name": "sample_project_dart.cgc",
+  "graph_metrics": {
+    "total_nodes": 49,
+    "total_edges": 64
+  }
 }

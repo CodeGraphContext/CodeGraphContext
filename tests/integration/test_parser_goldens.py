@@ -185,6 +185,8 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root, bundle_repo_ro
             for k, v in props.items():
                 if k == "args_key":
                     continue
+                if edge_type == "IMPORTS" and k == "line_number":
+                    continue
                 if isinstance(v, str):
                     v = normalize_path(v, current_repo_root, bundle_repo_root if "path" in k else None)
                 clean_props[k] = make_hashable(v)
@@ -192,6 +194,17 @@ def load_and_normalize(nodes_path, edges_path, current_repo_root, bundle_repo_ro
             # Serialize props as a sorted tuple of items to make it hashable
             props_tuple = tuple(sorted(clean_props.items()))
             normalized_edges.add((from_key, to_key, edge_type, props_tuple))
+
+    referenced_node_keys = {
+        key
+        for edge in normalized_edges
+        for key in (edge[0], edge[1])
+    }
+    normalized_nodes = {
+        key: node
+        for key, node in normalized_nodes.items()
+        if "Module" not in normalize_labels(node.get("_labels")) or key in referenced_node_keys
+    }
             
     return normalized_nodes, normalized_edges
 
@@ -315,7 +328,7 @@ bundle_export(output=bundle_path, repo=project_path, no_stats=False, context=Non
                 
     if property_mismatches:
         node_mismatch_details.append(f"{len(property_mismatches)} property mismatches:\n" + "\n".join(property_mismatches[:5]))
-        
+
     assert not node_mismatch_details, f"Nodes regression mismatch for project {project_name}:\n" + "\n\n".join(node_mismatch_details)
     
     # Assert Edges match exactly

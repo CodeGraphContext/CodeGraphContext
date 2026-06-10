@@ -24,6 +24,11 @@ def create_app() -> FastAPI:
 
     app.include_router(router, prefix="/api/v1")
 
+    @app.get("/health")
+    async def health():
+        """Liveness probe for load balancers and k8s."""
+        return {"status": "ok"}
+
     # MCP-over-SSE Endpoints
     app.add_api_route("/api/v1/mcp/sse", handle_sse, methods=["GET"])
     app.add_api_route("/api/v1/mcp/messages", handle_messages, methods=["POST"])

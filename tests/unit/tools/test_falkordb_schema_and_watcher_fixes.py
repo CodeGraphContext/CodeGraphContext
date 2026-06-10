@@ -217,7 +217,7 @@ class TestUpdateFileInGraphGenericFiles:
 
         mock_add_full.assert_not_called()
         mock_add_minimal.assert_not_called()
-        assert result == {"deleted": True, "path": str(gone.resolve())}
+        assert result == {"deleted": True, "path": gone.resolve().as_posix()}
 
     @staticmethod
     def _generic_extensions_sample():

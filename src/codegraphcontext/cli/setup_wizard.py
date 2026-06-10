@@ -15,6 +15,14 @@ from codegraphcontext.cli.config_manager import normalize_config_path
 
 console = Console()
 
+def _check_write_access(path: Path) -> bool:
+    target = path if path.exists() else path.parent
+
+    while not target.exists() and target != target.parent:
+        target = target.parent
+
+    return os.access(target, os.W_OK)
+
 # Constants for Docker Neo4j setup
 DEFAULT_NEO4J_URI = "neo4j://localhost:7687"
 DEFAULT_NEO4J_USERNAME = "neo4j"
@@ -104,8 +112,24 @@ def _generate_mcp_json(creds):
 
     # Also save to a file for convenience
     mcp_file = Path.cwd() / "mcp.json"
-    with open(mcp_file, "w") as f:
-        json.dump(mcp_config, f, indent=2)
+
+    if not _check_write_access(mcp_file):
+        console.print(
+            f"[bold red]Permission denied:[/bold red] Cannot write to {mcp_file}"
+        )
+        console.print(
+            "[yellow]Please check file permissions or choose a writable directory.[/yellow]"
+        )
+        return
+
+    try:
+        with open(mcp_file, "w") as f:
+            json.dump(mcp_config, f, indent=2)
+    except PermissionError:
+        console.print(
+            f"[bold red]Permission denied while writing:[/bold red] {mcp_file}"
+        )
+        return
     console.print(f"\n[cyan]For your convenience, the configuration has also been saved to: {mcp_file}[/cyan]")
 
     # Also save credentials to .env using the proper function
@@ -137,8 +161,20 @@ def convert_mcp_json_to_yaml():
     if json_path.exists():
         with open(json_path, "r") as json_file:
             mcp_config = json.load(json_file)
-        with open(yaml_path, "w") as yaml_file:
-            yaml.dump(mcp_config, yaml_file, default_flow_style=False)
+        if not _check_write_access(yaml_path):
+            console.print(
+                f"[bold red]Permission denied:[/bold red] Cannot write to {yaml_path}"
+            )
+            return
+
+        try:
+            with open(yaml_path, "w") as yaml_file:
+                yaml.dump(mcp_config, yaml_file, default_flow_style=False)
+        except PermissionError:
+            console.print(
+                f"[bold red]Permission denied while writing:[/bold red] {yaml_path}"
+            )
+            return
         console.print(f"[green]Generated devfile.yaml for Amazon Q Developer at {yaml_path}[/green]")
 
 def _print_opencode_mcp_instructions(mcp_config: dict) -> None:
@@ -179,9 +215,19 @@ def _configure_goose(mcp_config):
     if not target_path:
         # If no config found, default to the first standard path and ensure directory exists
         target_path = paths[0]
+        
         try:
             target_path.parent.mkdir(parents=True, exist_ok=True)
             console.print(f"[green]Created new configuration directory at: {target_path.parent}[/green]")
+        except PermissionError:
+            console.print(
+                f"[bold red]Permission denied:[/bold red] Cannot create {target_path.parent}"
+            )
+            console.print(
+                "[yellow]Please run with appropriate permissions or create the directory manually.[/yellow]"
+            )
+            return
+            
         except Exception as e:
              console.print(f"[yellow]Current paths checked: {[str(p) for p in paths]}[/yellow]")
              console.print(f"[yellow]Could not create configuration directory: {e}[/yellow]")
@@ -241,8 +287,20 @@ def _configure_goose(mcp_config):
             
             config["extensions"]["codegraphcontext"] = goose_ext
             
-            with open(target_path, "w") as f:
-                yaml.dump(config, f, default_flow_style=False)
+            if not _check_write_access(target_path):
+                console.print(
+                    f"[bold red]Permission denied:[/bold red] Cannot write to {target_path}"
+                )
+                return
+
+            try:
+                with open(target_path, "w") as f:
+                    yaml.dump(config, f, default_flow_style=False)
+            except PermissionError:
+                console.print(
+                    f"[bold red]Permission denied while writing:[/bold red] {target_path}"
+                )
+                return
                 
             console.print(f"[green]Successfully updated Goose configuration.[/green]")
         else:
@@ -412,8 +470,23 @@ def _configure_ide(mcp_config):
             settings["mcpServers"].update(mcp_config["mcpServers"])
 
         try:
-            with open(target_path, "w") as f:
-                json.dump(settings, f, indent=2)
+            if not _check_write_access(target_path):
+                console.print(
+                    f"[bold red]Permission denied:[/bold red] Cannot write to {target_path}"
+                )
+                console.print(
+                    "[yellow]Please check file permissions or run with appropriate privileges.[/yellow]"
+                )
+                return
+
+            try:
+                with open(target_path, "w") as f:
+                    json.dump(settings, f, indent=2)
+            except PermissionError:
+                console.print(
+                    f"[bold red]Permission denied while writing:[/bold red] {target_path}"
+                )
+                return
             console.print(f"[green]Successfully updated {ide_choice} configuration.[/green]")
         except Exception as e:
             console.print(f"[red]Failed to write to configuration file: {e}[/red]")
@@ -581,8 +654,21 @@ def configure_mcp_client():
 
     # Save to file for convenience
     mcp_file = Path.cwd() / "mcp.json"
-    with open(mcp_file, "w") as f:
-        json.dump(mcp_config, f, indent=2)
+
+    if not _check_write_access(mcp_file):
+        console.print(
+            f"[bold red]Permission denied:[/bold red] Cannot write to {mcp_file}"
+        )
+        return
+
+    try:
+        with open(mcp_file, "w") as f:
+            json.dump(mcp_config, f, indent=2)
+    except PermissionError:
+        console.print(
+            f"[bold red]Permission denied while writing:[/bold red] {mcp_file}"
+        )
+        return
     console.print(f"\n[cyan]Configuration saved to: {mcp_file}[/cyan]")
     
     # Configure IDE automatically

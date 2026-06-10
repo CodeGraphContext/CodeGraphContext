@@ -139,5 +139,4 @@ def discover_files_to_index(
                 filtered_files.append(f)
         files = filtered_files
 
-    return files, ignore_root
-
+    return sorted(files, key=lambda file: file.as_posix()), ignore_root

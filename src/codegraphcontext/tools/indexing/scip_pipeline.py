@@ -9,9 +9,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from ...core.cgcignore import build_ignore_spec
 from ...core.jobs import JobManager, JobStatus
 from ...utils.debug_log import debug_log, error_logger, info_logger, warning_logger
 from ...utils.path_ignore import file_path_has_ignore_dir_segment
+from .constants import DEFAULT_IGNORE_PATTERNS
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
 from .resolution.inheritance import build_inheritance_and_csharp_files
@@ -37,6 +39,7 @@ async def run_scip_index_async(
     parsers_keys: Any,
     get_parser: Callable[[str], Any],
     scip_indexer_mod: Any,
+    cgcignore_path: Optional[str] = None,
 ) -> None:
     """Run SCIP CLI, write graph, supplement with Tree-sitter, write SCIP CALLS edges."""
     ScipIndexer = scip_indexer_mod.ScipIndexer
@@ -48,6 +51,33 @@ async def run_scip_index_async(
     repo_root = path if path.is_dir() else path.parent.resolve()
     writer.add_repository_to_graph(repo_root, is_dependency)
     repo_name = repo_root.name
+    index_root = path.resolve() if path.is_dir() else path.parent.resolve()
+
+    ignore_spec = None
+    try:
+        ignore_spec, resolved_cgcignore = build_ignore_spec(
+            ignore_root=index_root,
+            default_patterns=DEFAULT_IGNORE_PATTERNS,
+            explicit_path=cgcignore_path,
+        )
+        if resolved_cgcignore:
+            debug_log(
+                f"SCIP using .cgcignore at {resolved_cgcignore} "
+                f"(filtering relative to {index_root})"
+            )
+    except OSError as e:
+        warning_logger(f"Could not load/create .cgcignore for SCIP indexing: {e}")
+
+    def should_skip_file(file_path: Path) -> bool:
+        if file_path.is_file() and file_path_has_ignore_dir_segment(file_path, index_root):
+            return True
+        if not ignore_spec:
+            return False
+        try:
+            rel_path = file_path.relative_to(index_root).as_posix()
+        except ValueError:
+            return False
+        return ignore_spec.match_file(rel_path)
 
     try:
         with tempfile.TemporaryDirectory(prefix="cgc_scip_") as tmpdir:
@@ -66,6 +96,12 @@ async def run_scip_index_async(
             raise RuntimeError("SCIP parse returned empty result")
 
         files_data = scip_data.get("files", {})
+        if ignore_spec:
+            files_data = {
+                abs_path_str: file_data
+                for abs_path_str, file_data in files_data.items()
+                if not should_skip_file(Path(abs_path_str))
+            }
         file_paths = [Path(p) for p in files_data.keys() if Path(p).exists()]
 
         imports_map = pre_scan_for_imports(file_paths, parsers_keys, get_parser)
@@ -74,10 +110,9 @@ async def run_scip_index_async(
             job_manager.update_job(job_id, total_files=len(files_data))
 
         processed = 0
-        index_root = path.resolve() if path.is_dir() else path.parent.resolve()
         for abs_path_str, file_data in files_data.items():
             file_path = Path(abs_path_str)
-            if file_path.is_file() and file_path_has_ignore_dir_segment(file_path, index_root):
+            if should_skip_file(file_path):
                 continue
             file_data["repo_path"] = str(index_root)
             if job_id:
@@ -149,7 +184,7 @@ async def run_scip_index_async(
         from .discovery import discover_files_to_index
         supplementary_files, _ = discover_files_to_index(
             index_root,
-            cgcignore_path=None,
+            cgcignore_path=cgcignore_path,
             supported_extensions=set(parsers_keys),
         )
         for repo_file in supplementary_files:

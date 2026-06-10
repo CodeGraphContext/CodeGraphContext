@@ -1,10 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-05-19T02:36:02.251850",
-  "format_version": "1.0",
+  "exported_at": "2026-06-07T18:00:44Z",
+  "format_version": "1.0.0",
   "repo": "sample_project_elixir",
-  "repo_path": "/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project_elixir",
+  "repo_path": ".",
   "is_dependency": false,
-  "commit": "b1b69680",
-  "languages": []
+  "commit": "f3f62d33",
+  "branch": "fix/e2e-security-followup",
+  "generator": "PYv0.4.16",
+  "name": "sample_project_elixir.cgc",
+  "graph_metrics": {
+    "total_nodes": 53,
+    "total_edges": 81
+  }
 }

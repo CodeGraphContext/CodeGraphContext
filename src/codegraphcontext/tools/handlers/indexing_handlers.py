@@ -1,44 +1,12 @@
 # src/codegraphcontext/tools/handlers/indexing_handlers.py
-from typing import Any, Dict, List
+import os
+from typing import Any, Dict
 from pathlib import Path
 import asyncio
-import os
 from ...utils.debug_log import debug_log
+from ...utils.path_sandbox import is_path_allowed as _is_path_allowed
 from ...utils.repo_path import repo_record_matches_path
 from ..package_resolver import get_local_package_path
-
-
-def _get_allowed_roots() -> List[Path]:
-    """
-    Return the list of allowed root directories for indexing.
-
-    By default only the current working directory is allowed.  Additional
-    roots can be specified via the ``CGC_ALLOWED_ROOTS`` environment
-    variable (colon-separated on Unix, semicolon-separated on Windows).
-    """
-    roots: List[Path] = [Path.cwd().resolve()]
-
-    env_roots = os.environ.get("CGC_ALLOWED_ROOTS", "")
-    if env_roots:
-        separator = ";" if os.name == "nt" else ":"
-        for entry in env_roots.split(separator):
-            entry = entry.strip()
-            if entry:
-                roots.append(Path(entry).resolve())
-
-    return roots
-
-
-def _is_path_allowed(path: Path) -> bool:
-    """Check whether *path* falls under one of the allowed root directories."""
-    resolved = path.resolve()
-    for root in _get_allowed_roots():
-        try:
-            resolved.relative_to(root)
-            return True
-        except ValueError:
-            continue
-    return False
 
 
 def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args) -> Dict[str, Any]:
@@ -65,9 +33,10 @@ def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args)
 
         if not path_obj.exists():
             return {
-                "success": True,
+                "success": False,
                 "status": "path_not_found",
-                "message": f"Path '{path}' does not exist."
+                "error": f"Path '{path}' does not exist.",
+                "message": f"Path '{path}' does not exist.",
             }
 
         # Prevent re-indexing the same repository.
@@ -128,7 +97,16 @@ def add_package_to_graph(graph_builder, job_manager, loop, list_repos_func, **ar
         
         if not package_path:
             return {"error": f"Could not find package '{package_name}' for language '{language}'. Make sure it's installed."}
-        
+
+        package_resolved = Path(package_path).resolve()
+        if not _is_path_allowed(package_resolved):
+            return {
+                "error": (
+                    f"Package path '{package_resolved}' is outside allowed roots. "
+                    "Add its parent directory to CGC_ALLOWED_ROOTS to index packages."
+                )
+            }
+
         if not os.path.exists(package_path):
             return {"error": f"Package path '{package_path}' does not exist"}
         

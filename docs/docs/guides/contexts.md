@@ -15,6 +15,7 @@ Below is the standard directory structure under global and local scopes:
     global/
         .cgcignore              <-- Global ignore patterns
         db/
+            falkordb/           <-- Global-mode FalkorDB Lite storage (default on Unix)
             kuzudb/             <-- Global-mode KuzuDB storage directory
     contexts/
         ProjectA/
@@ -32,7 +33,7 @@ When executing a CLI command (e.g., `cgc index`) or starting an MCP session, CGC
 1. **Context Override Flag**: If `--context <name>` or `-c <name>` is provided, CGC routes all writes and queries to the specified named context.
 2. **Local Repository Scope**: If the current directory contains a `.codegraphcontext/` folder, CGC operates in per-repo mode.
 3. **Global Config Setting**: CGC reads the active mode (`global`, `per-repo`, or `named`) and default context name specified in `~/.codegraphcontext/config.yaml`.
-4. **Default Fallback**: Connects to the global database located at `~/.codegraphcontext/global/db/kuzudb/`.
+4. **Default Fallback**: On Linux/macOS with Python 3.12+, connects to FalkorDB Lite at `~/.codegraphcontext/global/db/falkordb/`; otherwise KuzuDB at `~/.codegraphcontext/global/db/kuzudb/`.
 
 ---
 

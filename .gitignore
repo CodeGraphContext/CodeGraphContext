@@ -93,4 +93,10 @@ site/
 target/
 venv_indexing/
 scratch/
-scripts/
+scripts/.agents/
+scripts
+.agents
+*.py[cod]
+.tox/
+.mypy_cache/
+.ruff_cache/

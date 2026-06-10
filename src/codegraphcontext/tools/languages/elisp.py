@@ -345,18 +345,28 @@ class ElispTreeSitterParser:
         return args
 
     def _calculate_complexity(self, node: Any) -> int:
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         count = 1
+        skipped = False
 
-        def traverse(current: Any) -> None:
-            nonlocal count
+        def traverse(current: Any, depth: int = 0) -> None:
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             head = self._form_head(current)
             if head in CONTROL_FORMS:
                 count += 1
             for child in current.children:
                 if child.is_named:
-                    traverse(child)
+                    traverse(child, depth + 1)
 
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def parse(

@@ -4,7 +4,9 @@ This module provides a thread-safe singleton manager for the KùzuDB database co
 KùzuDB is an embedded graph database that is cross-platform (including Windows) 
 and requires no external server setup.
 """
+import gc
 import os
+import queue
 import time
 import threading
 import re
@@ -38,28 +40,27 @@ class KuzuDBManager:
         """
         Initializes the manager with default database path or explicit overrides.
         """
-        if hasattr(self, '_initialized') and self.db_path == db_path:
-            return
-            
-        self._initialized = False
-
-        self.name = "kuzudb"
-        # Try to load from config manager
         try:
             from codegraphcontext.cli.config_manager import get_config_value
             config_db_path = get_config_value('KUZUDB_PATH')
         except Exception:
             config_db_path = None
-        
-        # Database path with fallback chain (Explicit > Env > Config/Default)
-        self.db_path = db_path or os.getenv(
+
+        new_db_path = db_path or os.getenv(
             'KUZUDB_PATH',
             config_db_path or str(Path.home() / '.codegraphcontext' / 'global' / 'kuzudb')
         )
-        
-        # Ensure directory exists
+
+        if hasattr(self, '_initialized') and getattr(self, 'db_path', None) == new_db_path:
+            return
+
+        if hasattr(self, '_initialized') and getattr(self, 'db_path', None) != new_db_path:
+            self.close_driver()
+
+        self._initialized = False
+        self.name = "kuzudb"
+        self.db_path = new_db_path
         os.makedirs(Path(self.db_path).parent, exist_ok=True)
-        
         self._initialized = True
 
     def get_driver(self, graph_name: str = None):
@@ -143,6 +144,9 @@ class KuzuDBManager:
             ("Extension", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Object", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("DbTable", "name STRING, fqn STRING, datasource_name STRING, path STRING, PRIMARY KEY (name)"),
+            ("Datasource", "name STRING, kind STRING, host STRING, env STRING, PRIMARY KEY (name)"),
+            ("DbColumn", "name STRING, table_fqn STRING, type STRING, nullable BOOLEAN, datasource_name STRING, is_primary_key BOOLEAN, PRIMARY KEY (name, table_fqn)"),
+            ("RedisKeyPattern", "pattern STRING, datasource_name STRING, key_type STRING, example_key STRING, count INT64, PRIMARY KEY (pattern, datasource_name)"),
             ("ExternalClass", "name STRING, path STRING, PRIMARY KEY (name)")
         ]
         
@@ -205,7 +209,9 @@ class KuzuDBManager:
             ("INJECTS", "FROM Class TO Class, field_name STRING, inject_line INT64, confidence_label STRING", False),
             ("MAPS_TO", "FROM Class TO DbTable, datastore STRING, line_number INT64", False),
             ("READS", "FROM Function TO DbTable, line_number INT64", False),
-            ("WRITES", "FROM Function TO DbTable, line_number INT64", False)
+            ("WRITES", "FROM Function TO DbTable, line_number INT64", False),
+            ("STORED_IN", "FROM DbTable TO Datasource, FROM RedisKeyPattern TO Datasource", True),
+            ("HAS_COLUMN", "FROM DbTable TO DbColumn", False),
         ]
 
         for table_name, schema in node_tables:
@@ -299,16 +305,35 @@ class KuzuDBManager:
                 raise RuntimeError("Kuzu Schema Migration Failed") from e
 
     def close_driver(self):
-        """Closes the connection pool."""
+        """Closes the connection pool and releases database resources."""
         if self._db is not None:
-            info_logger("Closing KùzuDB connection pool")
-            # Clear the pool
-            while not self._pool.empty():
+            with self._lock:
+                if self._db is None:
+                    return
+                info_logger("Closing KùzuDB connection pool")
+                # Clear and close all connections in the pool
+                while self._pool is not None and not self._pool.empty():
+                    try:
+                        conn = self._pool.get_nowait()
+                    except queue.Empty:
+                        break
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                self._pool = None
+                # Explicitly close the Database object — kuzu.Database has no
+                # __del__, so Python GC alone cannot release the C++ resources.
+                # Without this call the process hangs on exit because the
+                # embedded Kùzu engine keeps background threads alive.
                 try:
-                    self._pool.get_nowait()
-                except:
-                    break
-            self._db = None
+                    if not self._db.is_closed():
+                        self._db.close()
+                        info_logger("KùzuDB database closed successfully")
+                except Exception as e:
+                    warning_logger(f"Error closing KùzuDB database: {e}")
+                self._db = None
+                gc.collect()
 
     def is_connected(self) -> bool:
         """Checks if the database connection is currently active."""

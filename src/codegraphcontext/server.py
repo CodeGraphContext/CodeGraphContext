@@ -48,6 +48,14 @@ DEFAULT_FUZZY_SEARCH = False
 WORKSPACE_PREFIX = "/workspace/"
 
 
+def _teardown_db_manager(db_manager) -> None:
+    """Release DB resources; stop FalkorDB Lite worker when switching contexts."""
+    if getattr(db_manager, "get_backend_type", lambda: "")() == "falkordb":
+        db_manager.close_driver(teardown=True)
+    else:
+        db_manager.close_driver()
+
+
 def _is_path_key(key: str) -> bool:
     """Check if a dict key represents a file path field.
 
@@ -106,15 +114,25 @@ def _apply_response_token_limit(tool_name: str, text: str) -> str:
         return text
 
     notice = (
-        f"\n\n[CGC] Response truncated: output exceeded the MAX_TOOL_RESPONSE_TOKENS "
-        f"limit of {max_tokens} tokens (tool: {tool_name}). "
-        "Increase MAX_TOOL_RESPONSE_TOKENS or narrow your query for full results."
+        f"Response truncated: output exceeded MAX_TOOL_RESPONSE_TOKENS "
+        f"({max_tokens} tokens) for tool '{tool_name}'. "
+        "Increase the limit or narrow your query for full results."
     )
-    # Reserve space for the notice inside the budget
-    budget = max_chars - len(notice)
-    if budget < 0:
-        budget = 0
-    return text[:budget] + notice
+    budget = max(0, max_chars - 200)
+    try:
+        payload = json.loads(text)
+        preview = json.dumps(payload, indent=2)
+        if len(preview) <= budget:
+            return preview
+        return json.dumps(
+            {"truncated": True, "preview": preview[:budget], "notice": notice},
+            indent=2,
+        )
+    except json.JSONDecodeError:
+        return json.dumps(
+            {"truncated": True, "preview": text[:budget], "notice": notice},
+            indent=2,
+        )
 
 
 class MCPServer:
@@ -358,13 +376,11 @@ class MCPServer:
         output_path_raw = args.get("output_path")
         output_path = Path(output_path_raw) if output_path_raw else self.cwd / "CGC_REPORT.md"
 
-        base_dir = self.cwd.resolve()
-        output_path = output_path.resolve()
+        from .utils.path_sandbox import is_path_allowed
 
-        try:
-            output_path.relative_to(base_dir)
-        except ValueError:
-            return {"error": "Invalid output_path: path traversal is not allowed"}
+        output_path = output_path.resolve()
+        if not is_path_allowed(output_path):
+            return {"error": "Invalid output_path: path is outside allowed roots"}
 
         try:
             report = generate_report(
@@ -389,8 +405,17 @@ class MCPServer:
         return analysis_handlers.find_datasource_nodes(self.code_finder, **args)
 
     def discover_codegraph_contexts_tool(self, **args) -> Dict[str, Any]:
+        from .utils.path_sandbox import is_path_allowed, clamp_discovery_depth
+
         scan_path = Path(args.get("path", str(self.cwd))).resolve()
-        max_depth = int(args.get("max_depth", 1))
+        if not is_path_allowed(scan_path):
+            return {
+                "error": (
+                    f"Path '{scan_path}' is outside allowed roots. "
+                    "Set CGC_ALLOWED_ROOTS to scan additional directories."
+                )
+            }
+        max_depth = clamp_discovery_depth(args.get("max_depth", 1))
         try:
             children = discover_child_contexts(scan_path, max_depth=max_depth)
             if not children:
@@ -418,7 +443,7 @@ class MCPServer:
         if raw_path == "global":
             try:
                 try:
-                    self.db_manager.close_driver()
+                    _teardown_db_manager(self.db_manager)
                 except Exception:
                     pass
 
@@ -456,7 +481,11 @@ class MCPServer:
                 return {"error": f"Failed to switch to global context: {e}"}
 
         # --- Normal path-based switch ---
+        from .utils.path_sandbox import is_path_allowed
+
         target = Path(raw_path).resolve()
+        if not is_path_allowed(target):
+            return {"error": f"Context path '{target}' is outside allowed roots."}
         # Accept either the repo dir or the .codegraphcontext dir directly
         if target.name == ".codegraphcontext":
             cgc_dir = target
@@ -482,7 +511,7 @@ class MCPServer:
         try:
             # Tear down old connection
             try:
-                self.db_manager.close_driver()
+                _teardown_db_manager(self.db_manager)
             except Exception:
                 pass
 
@@ -526,7 +555,7 @@ class MCPServer:
         Routes a tool call from the AI assistant to the appropriate handler function. 
         """
         if tool_name in self.disabled_tools:
-            return {"error": f"Unknown tool: {tool_name}"}
+            return {"error": f"Tool '{tool_name}' is disabled in mcp.json (disabledTools)."}
 
         tool_map: Dict[str, Coroutine] = {
             "add_package_to_graph": self.add_package_to_graph_tool,
@@ -587,8 +616,11 @@ class MCPServer:
         self.code_watcher.start()
         
         loop = asyncio.get_event_loop()
+        request_count = 0
         while True:
             try:
+                if request_count and request_count % 50 == 0:
+                    self.job_manager.cleanup_old_jobs(max_age_hours=24)
                 # Read a request from the standard input.
                 line = await loop.run_in_executor(None, sys.stdin.readline)
                 if not line:
@@ -599,6 +631,7 @@ class MCPServer:
                 method = request.get('method')
                 params = request.get('params', {})
                 request_id = request.get('id')
+                request_count += 1
                 
                 response = {}
                 # Route the request based on the JSON-RPC method.
@@ -609,7 +642,7 @@ class MCPServer:
                             "protocolVersion": "2025-03-26",
                             "serverInfo": {
                                 "name": "CodeGraphContext", "version": self._get_version(),
-                                "systemPrompt": LLM_SYSTEM_PROMPT
+                                "instructionsAvailable": True
                             },
                             "capabilities": {"tools": {"listTools": True}},
                         }
@@ -662,7 +695,10 @@ class MCPServer:
 
                 error_response = {
                     "jsonrpc": "2.0", "id": request_id,
-                    "error": {"code": -32603, "message": f"Internal error: {str(e)}", "data": traceback.format_exc()}
+                    "error": {
+                        "code": -32603,
+                        "message": f"Internal error: {str(e)}",
+                    },
                 }
                 print(json.dumps(error_response), flush=True)
 
@@ -670,4 +706,4 @@ class MCPServer:
         """Gracefully shuts down the server and its components."""
         debug_logger("Shutting down server...")
         self.code_watcher.stop()
-        self.db_manager.close_driver()
+        _teardown_db_manager(self.db_manager)

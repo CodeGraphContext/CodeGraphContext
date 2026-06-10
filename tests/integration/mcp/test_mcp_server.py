@@ -137,6 +137,6 @@ class TestMCPServer:
 
         async def run_test():
             result = await server.handle_tool_call("find_code", {"query": "test"})
-            assert result == {"error": "Unknown tool: find_code"}
+            assert result == {"error": "Tool 'find_code' is disabled in mcp.json (disabledTools)."}
 
         asyncio.run(run_test())

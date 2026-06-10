@@ -101,6 +101,7 @@ class GoTreeSitterParser:
         return None, None, None
 
     def _calculate_complexity(self, node):
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         """
         Compute a simple cyclomatic complexity score from the Go AST.
 
@@ -131,9 +132,13 @@ class GoTreeSitterParser:
         }
 
         count = 1
+        skipped = False
 
-        def traverse(n):
-            nonlocal count
+        def traverse(n, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if n.type in decision_node_types:
                 count += 1
                 # Still traverse children because nested constructs also contribute.
@@ -148,9 +153,14 @@ class GoTreeSitterParser:
                     count += 1
 
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
 
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _get_docstring(self, func_node):

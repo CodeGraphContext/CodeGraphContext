@@ -6,6 +6,9 @@ import { getSupabaseClient } from "@/lib/supabase-client";
 import { FaGithub, FaDiscord } from "react-icons/fa";
 import { SiPypi } from "react-icons/si";
 import { FiBookOpen } from "react-icons/fi";
+import GlassCard from "./GlassCard";
+import SectionDivider from "./SectionDivider";
+import ParticleBackground from "./ParticleBackground";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -85,8 +88,12 @@ const Footer = () => {
   };
 
   return (
-    <footer className="border-t border-border/50 py-16 px-6 bg-muted/10" data-aos="fade-up">
-      <div className="container mx-auto max-w-7xl">
+    <footer className="py-16 px-6 bg-black relative overflow-hidden">
+      <SectionDivider variant="wave" className="absolute top-0 left-0 right-0 z-0 opacity-40 rotate-180" />
+      <div className="absolute inset-0 opacity-20 pointer-events-none">
+        <ParticleBackground />
+      </div>
+      <div className="container mx-auto max-w-7xl relative z-10 pt-12">
         {/* Top Section */}
         <div className="flex flex-col lg:flex-row justify-between gap-12">
           {/* Left Side: Brand + Resources (closer together) */}
@@ -96,14 +103,14 @@ const Footer = () => {
               <div className="flex items-center gap-3 mb-4 select-none">
                 <img
                   src="/cgcIcon.png"
-                  className="w-10 h-10 drop-shadow-[0_0_8px_rgba(168,85,247,0.4)]"
+                  className="w-10 h-10"
                   alt="CodeGraphContext Logo"
                 />
-                <h3 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                <h3 className="text-2xl font-black text-white uppercase tracking-widest">
                   CodeGraphContext
                 </h3>
               </div>
-              <p className="text-muted-foreground mb-6 leading-relaxed max-w-sm">
+              <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest mb-6 leading-relaxed max-w-sm">
                 Transform your codebase into an intelligent knowledge graph for
                 AI assistants.
               </p>
@@ -112,7 +119,7 @@ const Footer = () => {
                   variant="outline"
                   size="sm"
                   asChild
-                  className="social-btn social-github social-float"
+                  className="rounded-full bg-transparent border-white/20 text-white hover:bg-purple-600 hover:text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-colors"
                 >
                   <a
                     href="https://github.com/CodeGraphContext/CodeGraphContext"
@@ -122,9 +129,8 @@ const Footer = () => {
                   >
                     <FaGithub
                       className="h-4 w-4 mr-2"
-                      style={{ color: "#9CA3AF" }}
                     />
-                    <span>GitHub</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">GitHub</span>
                   </a>
                 </Button>
 
@@ -132,7 +138,7 @@ const Footer = () => {
                   variant="outline"
                   size="sm"
                   asChild
-                  className="social-btn social-discord social-float"
+                  className="rounded-full bg-transparent border-white/20 text-white hover:bg-purple-600 hover:text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-colors"
                 >
                   <a
                     href="https://discord.com/invite/dR4QY32uYQ"
@@ -142,9 +148,8 @@ const Footer = () => {
                   >
                     <FaDiscord
                       className="h-4 w-4 mr-2"
-                      style={{ color: "#5865F2" }}
                     />
-                    <span>Discord</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">Discord</span>
                   </a>
                 </Button>
 
@@ -152,7 +157,7 @@ const Footer = () => {
                   variant="outline"
                   size="sm"
                   asChild
-                  className="social-btn social-pypi social-float"
+                  className="rounded-full bg-transparent border-white/20 text-white hover:bg-purple-600 hover:text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-colors"
                 >
                   <a
                     href="https://pypi.org/project/codegraphcontext/"
@@ -162,9 +167,8 @@ const Footer = () => {
                   >
                     <SiPypi
                       className="h-4 w-4 mr-2"
-                      style={{ color: "#EAB308" }}
                     />
-                    <span>PyPI</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">PyPI</span>
                   </a>
                 </Button>
 
@@ -172,7 +176,7 @@ const Footer = () => {
                   variant="outline"
                   size="sm"
                   asChild
-                  className="social-btn social-docs social-float"
+                  className="rounded-full bg-transparent border-white/20 text-white hover:bg-purple-600 hover:text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-colors"
                 >
                   <a
                     href="https://codegraphcontext.github.io/"
@@ -182,9 +186,8 @@ const Footer = () => {
                   >
                     <FiBookOpen
                       className="h-4 w-4 mr-2"
-                      style={{ color: "#6366F1" }}
                     />
-                    <span>Documentation</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">Docs</span>
                   </a>
                 </Button>
               </div>
@@ -192,12 +195,12 @@ const Footer = () => {
 
             {/* Resources */}
             <div className="w-48">
-              <h4 className="font-semibold mb-4">Resources</h4>
-              <ul className="space-y-3 text-muted-foreground">
+              <h4 className="text-[11px] font-black uppercase tracking-widest text-white mb-4">Resources</h4>
+              <ul className="space-y-3 text-[10px] font-mono uppercase tracking-widest text-gray-500">
                 <li>
                   <a
                     href="https://codegraphcontext.github.io/"
-                    className="hover:text-foreground transition-smooth"
+                    className="hover:text-white transition-colors"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -209,7 +212,7 @@ const Footer = () => {
                     href="https://github.com/CodeGraphContext/CodeGraphContext/blob/main/docs/docs/cookbook.md"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="hover:text-foreground transition-smooth"
+                    className="hover:text-white transition-colors"
                   >
                     Cookbook
                   </a>
@@ -219,7 +222,7 @@ const Footer = () => {
                     href="https://github.com/CodeGraphContext/CodeGraphContext/blob/main/CONTRIBUTING.md"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="hover:text-foreground transition-smooth"
+                    className="hover:text-white transition-colors"
                   >
                     Contributing
                   </a>
@@ -227,7 +230,7 @@ const Footer = () => {
                 <li>
                   <a
                     href="https://github.com/CodeGraphContext/CodeGraphContext/issues"
-                    className="hover:text-foreground transition-smooth"
+                    className="hover:text-white transition-colors"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -242,13 +245,13 @@ const Footer = () => {
           <div className="flex-1 flex flex-col sm:flex-row gap-12">
             {/* Contact */}
             <div className="w-full sm:w-64 lg:w-72">
-              <h4 className="font-semibold mb-4">Contact</h4>
-              <div className="space-y-5 text-muted-foreground">
+              <h4 className="text-[11px] font-black uppercase tracking-widest text-white mb-4">Contact</h4>
+              <div className="space-y-5 text-[10px] font-mono text-gray-500 uppercase tracking-widest">
                 <div className="flex items-center gap-3">
-                  <Mail className="h-5 w-5 text-primary shrink-0" />
+                  <Mail className="h-4 w-4 shrink-0 text-primary" />
                   <a
                     href="mailto:shashankshekharsingh1205@gmail.com"
-                    className="hover:text-foreground transition-smooth text-sm whitespace-nowrap"
+                    className="hover:text-white transition-colors text-[9px] whitespace-nowrap"
                   >
                     shashankshekharsingh1205@gmail.com
                   </a>
@@ -263,63 +266,65 @@ const Footer = () => {
                   </a>
                 </div> */}
                 <div className="flex items-start gap-3">
-                  <MapPin className="h-5 w-5 mt-1 text-primary" />
-                  <p className="text-sm">(Available Worldwide 🌍)</p>
+                  <MapPin className="h-4 w-4 mt-1 text-primary" />
+                  <p>(Available Worldwide 🌍)</p>
                 </div>
                 <div>
-                  <p className="font-medium text-foreground">
+                  <p className="font-black text-white mb-1">
                     Shashank Shekhar Singh
                   </p>
-                  <p className="text-sm">Creator & Maintainer</p>
+                  <p>Creator & Maintainer</p>
                 </div>
               </div>
             </div>
 
             {/* Newsletter */}
             <div className="flex-1">
-              <h4 className="font-semibold mb-4">Newsletter</h4>
-              <p className="text-muted-foreground mb-4 text-sm leading-relaxed">
-                Stay updated with the latest features, releases, and code
-                intelligence insights.
-              </p>
-              <form onSubmit={handleNewsletterSubmit} className="space-y-3">
+              <GlassCard glowColor="none" className="p-6">
+                <h4 className="text-[11px] font-black uppercase tracking-widest text-white mb-4">Newsletter</h4>
+                <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest mb-4 leading-relaxed">
+                  Stay updated with the latest features, releases, and code
+                  intelligence insights.
+                </p>
+                <form onSubmit={handleNewsletterSubmit} className="space-y-3">
                 <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="email"
-                    placeholder="Enter your email"
+                    placeholder="ENTER YOUR EMAIL"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={isLoading}
-                    className="flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-smooth disabled:opacity-50"
+                    className="flex-1 px-4 py-2.5 text-[10px] font-mono border border-white/20 rounded-full bg-black text-white focus:outline-none focus:border-white transition-colors disabled:opacity-50 uppercase tracking-widest placeholder:text-gray-600"
                     required
                   />
                   <Button
                     type="submit"
                     size="sm"
                     disabled={isLoading}
-                    className="whitespace-nowrap"
+                    className="whitespace-nowrap bg-gradient-to-r from-purple-600 to-cyan-500 hover:opacity-90 text-white shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all rounded-full font-black text-[10px] uppercase tracking-widest px-6 border-0"
                   >
-                    {isLoading ? "Subscribing..." : "Subscribe"}
+                    {isLoading ? "SUBSCRIBING..." : "SUBSCRIBE"}
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[8px] font-mono text-gray-600 mt-3 uppercase tracking-widest">
                   No spam. Unsubscribe at any time.
                 </p>
-              </form>
+                </form>
+              </GlassCard>
             </div>
           </div>
         </div>
 
         {/* Bottom Bar */}
-        <div className="border-t border-border/50 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-muted-foreground text-sm">
+        <div className="border-t border-white/10 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-[10px] font-mono text-gray-500 uppercase tracking-widest">
+          <p>
             © 2026 CodeGraphContext. Released under the MIT License.
           </p>
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+          <div className="flex items-center gap-4">
             <span>Version {version}</span>
-            <div className="w-1 h-1 bg-muted-foreground rounded-full" />
+            <div className="w-1 h-1 bg-white/20 rounded-full" />
             <span>Python 3.10+</span>
-            <div className="w-1 h-1 bg-muted-foreground rounded-full" />
+            <div className="w-1 h-1 bg-white/20 rounded-full" />
             <span>Falkordb or Neo4j</span>
           </div>
         </div>

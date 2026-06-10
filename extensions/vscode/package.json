@@ -226,6 +226,17 @@
           "type": "string",
           "default": "{}",
           "description": "JSON map of tool name to max result count, e.g. {\"find_code\": 20}."
+        },
+        "cgc.statusBarAlignment": {
+          "type": "string",
+          "default": "right",
+          "enum": ["left", "right"],
+          "description": "Which side of the VS Code status bar the CGC item appears on. Change this if the item conflicts with another extension."
+        },
+        "cgc.statusBarPriority": {
+          "type": "number",
+          "default": 1000,
+          "description": "Priority of the CGC status bar item. Higher values place the item further left within its alignment group. Adjust this to resolve layout conflicts with other extensions (issue #1118)."
         }
       }
     }

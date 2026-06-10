@@ -57,6 +57,23 @@ For active development, run a filesystem watcher in the background to capture fi
 cgc watch
 ```
 
+```mermaid
+sequenceDiagram
+    participant User
+    participant Watch as cgc watch
+    participant FileSystem
+    participant ParsingQueue
+
+    User->>Watch: Start watch command
+    Watch->>FileSystem: Monitor directory
+
+    FileSystem-->>Watch: File changed
+    Watch->>ParsingQueue: Queue file for parsing
+
+    FileSystem-->>Watch: Another change
+    Watch->>ParsingQueue: Queue updated file
+```
+
 - **Listing Watchers**: View active file monitors with:
   ```bash
   cgc watching

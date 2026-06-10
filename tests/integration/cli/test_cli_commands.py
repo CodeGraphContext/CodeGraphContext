@@ -61,6 +61,7 @@ def _inventory_from_main_source() -> dict[str, set[str]]:
         "neo4j": set(),
         "config": set(),
         "bundle": set(),
+        "hook": set(),
         "registry": set(),
         "find": set(),
         "analyze": set(),
@@ -241,6 +242,7 @@ def cli_test_stubs(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_main, "run_neo4j_setup_wizard", lambda *_args, **_kwargs: None)
 
     monkeypatch.setattr(cli_main, "index_helper", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_main, "update_helper", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli_main, "setup_scip_helper", lambda *_args, **_kwargs: None)
     
     import uvicorn
@@ -305,6 +307,32 @@ def cli_test_stubs(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "codegraphcontext.core.cgc_bundle", bundle_module)
 
     monkeypatch.setattr(cli_main, "_write_datasource_graph", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        cli_main,
+        "install_hooks",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            repo_root=tmp_path, git_dir=tmp_path / ".git"
+        ),
+    )
+    monkeypatch.setattr(
+        cli_main,
+        "uninstall_hooks",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            repo_root=tmp_path, git_dir=tmp_path / ".git"
+        ),
+    )
+    monkeypatch.setattr(
+        cli_main,
+        "get_hook_status",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            repo_root=tmp_path,
+            git_dir=tmp_path / ".git",
+            installed_hooks=("post-commit",),
+            unmanaged_hooks=(),
+            has_merge_driver=True,
+            has_gitattributes_entry=True,
+        ),
+    )
 
     datasource_pkg = types.ModuleType("codegraphcontext.tools.datasources")
     monkeypatch.setitem(sys.modules, "codegraphcontext.tools.datasources", datasource_pkg)
@@ -353,11 +381,12 @@ def _matrix_command_set(entries: list[list[str]]) -> set[tuple[str, str]]:
 def test_cli_inventory_grouped_from_source():
     inventory = _inventory_from_main_source()
 
-    assert {"root", "mcp", "neo4j", "config", "bundle", "registry", "find", "analyze"}.issubset(set(inventory.keys()))
+    assert {"root", "mcp", "neo4j", "config", "bundle", "hook", "registry", "find", "analyze"}.issubset(set(inventory.keys()))
     assert inventory["mcp"] == {"setup", "start", "tools"}
     assert inventory["neo4j"] == {"setup"}
     assert inventory["config"] == {"show", "set", "reset", "db"}
     assert inventory["bundle"] == {"export", "import", "load"}
+    assert inventory["hook"] == {"install", "uninstall", "status"}
     assert inventory["registry"] == {"list", "search", "download", "request"}
     assert inventory["find"] == {"name", "pattern", "type", "variable", "content", "decorator", "argument"}
     assert inventory["analyze"] == {
@@ -396,6 +425,9 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
         ["bundle", "export", bundle_export],
         ["bundle", "import", bundle_file],
         ["bundle", "load", bundle_file],
+        ["hook", "install"],
+        ["hook", "uninstall"],
+        ["hook", "status"],
         ["registry", "list"],
         ["registry", "search", "numpy"],
         ["registry", "download", "numpy"],
@@ -404,6 +436,7 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
         ["setup-scip"],
         ["api", "start"],
         ["index", "."],
+        ["update", "."],
         ["clean"],
         ["stats"],
         ["delete", "."],
@@ -452,9 +485,9 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
             [
                 ["context", "list"],
                 ["context", "create", "ci-context"],
-                ["context", "delete", "ci-context"],
-                ["context", "mode", "single"],
                 ["context", "default", "ci-context"],
+                ["context", "mode", "global"],
+                ["context", "delete", "ci-context"],
             ]
         )
     if "datasource" in source_inventory:
@@ -495,27 +528,26 @@ def test_config_show_with_empty_config_does_not_crash(monkeypatch, tmp_path):
     assert "Configuration Settings" in result.output
 
 
-def test_find_content_falkordb_known_limitation_message(monkeypatch):
-    class _FakeFalkorDBManager:
+def test_find_content_surfaces_query_errors(monkeypatch):
+    class _FakeDBManager:
         def close_driver(self):
             return None
 
     class _FailingFinder:
         def find_by_content(self, _query):
-            raise Exception("CALL db.index.fulltext.queryNodes is unsupported")
+            raise Exception("database connection lost")
 
     monkeypatch.setattr(cli_main, "_load_credentials", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         cli_main,
         "_initialize_services",
-        lambda *_args, **_kwargs: (_FakeFalkorDBManager(), _FakeGraphBuilder(), _FailingFinder()),
+        lambda *_args, **_kwargs: (_FakeDBManager(), _FakeGraphBuilder(), _FailingFinder()),
     )
 
     result = runner.invoke(app, ["--database", "falkordb", "find", "content", "foo"])
 
-    assert result.exit_code == 0
-    assert "Full-text search is not supported on FalkorDB" in result.output
-    assert "cgc find pattern" in result.output
+    assert result.exit_code != 0
+    assert "Full-text search is not supported on FalkorDB" not in result.output
 
 
 def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):
@@ -702,6 +734,8 @@ def test_load_credentials_displays_kuzudb_backend(monkeypatch, tmp_path):
 
 def test_load_credentials_normalizes_tilde_paths_from_mcp_json(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    if os.name == "nt":
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
 

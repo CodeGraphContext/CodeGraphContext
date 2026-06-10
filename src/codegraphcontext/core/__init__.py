@@ -19,6 +19,20 @@ import platform
 from typing import Union, Optional
 import importlib.util
 
+# Set when FalkorDB Lite fails in-process so we skip repeated startup/retry storms.
+_FALKORDB_DISABLED = False
+
+
+def mark_falkordb_unavailable() -> None:
+    """Remember that FalkorDB Lite cannot run in this process."""
+    global _FALKORDB_DISABLED
+    _FALKORDB_DISABLED = True
+
+
+def is_falkordb_usable() -> bool:
+    """True when FalkorDB Lite is installed and has not failed this session."""
+    return _is_falkordb_available() and not _FALKORDB_DISABLED
+
 def _is_kuzudb_available() -> bool:
     """Check if KùzuDB is installed."""
     try:
@@ -91,8 +105,11 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
             return KuzuDBManager(db_path=db_path)
 
         elif db_type == 'falkordb':
-            if not _is_falkordb_available():
-                info_logger("FalkorDB Lite is not supported or not installed. Falling back to KùzuDB.")
+            if not is_falkordb_usable():
+                if _FALKORDB_DISABLED:
+                    info_logger("FalkorDB Lite disabled for this process after earlier failure. Using KùzuDB.")
+                else:
+                    info_logger("FalkorDB Lite is not supported or not installed. Falling back to KùzuDB.")
                 if _is_kuzudb_available():
                     from .database_kuzu import KuzuDBManager
                     return KuzuDBManager(db_path=db_path)
@@ -101,15 +118,11 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
             from .database_falkordb import FalkorDBManager, FalkorDBUnavailableError
             try:
                 mgr = FalkorDBManager(db_path=db_path)
-                # Eagerly probe the connection so any FalkorDBUnavailableError
-                # (e.g. redis-py/falkordblite version mismatch — issue #1035)
-                # surfaces *here*, while we can still fall back to KùzuDB.
-                # ``get_driver`` is idempotent (singleton-guarded), so the
-                # subsequent real call from server.py costs nothing.
                 mgr.get_driver()
                 info_logger(f"Using FalkorDB Lite (explicit) at {db_path or 'default path'}")
                 return mgr
             except FalkorDBUnavailableError as falkor_err:
+                mark_falkordb_unavailable()
                 info_logger(f"FalkorDB Lite not functional ({falkor_err}). Falling back to KùzuDB.")
                 if _is_kuzudb_available():
                     from .database_kuzu import KuzuDBManager
@@ -155,16 +168,15 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
         return FalkorDBRemoteManager()
 
     # Implicit: FalkorDB Lite on Unix when available (typical embedded default there)
-    if _is_falkordb_available():
+    if is_falkordb_usable():
         from .database_falkordb import FalkorDBManager, FalkorDBUnavailableError
         try:
             mgr = FalkorDBManager(db_path=db_path)
-            # Eagerly probe so dep/version failures (issue #1035) surface here
-            # while we can still fall through to KùzuDB below.
             mgr.get_driver()
             info_logger(f"Using FalkorDB Lite (default) at {db_path or 'default path'}")
             return mgr
         except FalkorDBUnavailableError as falkor_err:
+            mark_falkordb_unavailable()
             info_logger(
                 f"FalkorDB Lite not functional in this environment ({falkor_err}). "
                 "Falling back to KùzuDB."
@@ -215,6 +227,7 @@ _LAZY_IMPORTS = {
     'FalkorDBManager': '.database_falkordb',
     'FalkorDBRemoteManager': '.database_falkordb_remote',
     'KuzuDBManager': '.database_kuzu',
+    'LadybugDBManager': '.database_ladybug',
     'NornicDBManager': '.database_nornic',
 }
 
@@ -224,12 +237,13 @@ def __getattr__(name: str):
         module = importlib.import_module(_LAZY_IMPORTS[name], __package__)
         return getattr(module, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-# For backward compatibility, export managers
-from .database import DatabaseManager
-from .database_falkordb import FalkorDBManager
-from .database_falkordb_remote import FalkorDBRemoteManager
-from .database_kuzu import KuzuDBManager
-from .database_ladybug import LadybugDBManager
-from .database_nornic import NornicDBManager
 
-__all__ = ['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager', 'LadybugDBManager', 'NornicDBManager', 'get_database_manager']
+__all__ = [
+    'DatabaseManager',
+    'FalkorDBManager',
+    'FalkorDBRemoteManager',
+    'KuzuDBManager',
+    'LadybugDBManager',
+    'NornicDBManager',
+    'get_database_manager',
+]

@@ -14,6 +14,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from codegraphcontext.tools.handlers.indexing_handlers import add_code_to_graph
 
 
@@ -76,6 +78,7 @@ def test_rejects_home_ssh_directory():
     graph_builder.build_graph_from_path_async.assert_not_called()
 
 
+@pytest.mark.skipif(os.name == 'nt', reason="Symlinks require admin privileges on Windows")
 def test_rejects_symlink_escape(tmp_path):
     """A symlink inside cwd that points outside should be rejected after resolution."""
     cwd = Path.cwd()
@@ -160,7 +163,8 @@ def test_allows_multiple_env_roots():
 
     with tempfile.TemporaryDirectory(prefix="cgc_root1_") as dir1, \
          tempfile.TemporaryDirectory(prefix="cgc_root2_") as dir2:
-        env_val = f"{dir1}:{dir2}"
+        sep = ";" if os.name == "nt" else ":"
+        env_val = f"{dir1}{sep}{dir2}"
         with patch.dict(os.environ, {"CGC_ALLOWED_ROOTS": env_val}):
             for d in [dir1, dir2]:
                 gb, jm, lp, lr = _make_mocks()

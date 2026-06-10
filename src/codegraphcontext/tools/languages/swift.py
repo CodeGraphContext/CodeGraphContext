@@ -176,6 +176,7 @@ class SwiftTreeSitterParser:
         Counts decision points: if/for/while/repeat-while/guard, each non-default
         switch case, each catch block, boolean &&/||, and ternary `?:`.
         """
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         decision_node_types = {
             "if_statement",
             "for_statement",
@@ -188,9 +189,13 @@ class SwiftTreeSitterParser:
             "ternary_expression",
         }
         count = 1
+        skipped = False
 
-        def traverse(n: Any) -> None:
-            nonlocal count
+        def traverse(n: Any, depth: int = 0) -> None:
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             t = n.type
             if t in decision_node_types:
                 count += 1
@@ -199,9 +204,14 @@ class SwiftTreeSitterParser:
                 if not is_default:
                     count += 1
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
 
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _parse_functions(self, captures: list, source_code: str, path: Path) -> list[Dict[str, Any]]:

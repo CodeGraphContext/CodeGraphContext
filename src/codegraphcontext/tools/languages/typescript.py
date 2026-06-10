@@ -124,19 +124,29 @@ class TypescriptTreeSitterParser:
         return None, None, None
 
     def _calculate_complexity(self, node):
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         complexity_nodes = {
             "if_statement", "for_statement", "while_statement", "do_statement",
             "switch_statement", "case_statement", "conditional_expression",
             "logical_expression", "binary_expression", "catch_clause"
         }
         count = 1
-        def traverse(n):
-            nonlocal count
+        skipped = False
+        def traverse(n, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if n.type in complexity_nodes:
                 count += 1
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _get_docstring(self, body_node):

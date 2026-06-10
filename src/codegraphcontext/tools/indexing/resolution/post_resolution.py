@@ -24,6 +24,7 @@ import time
 from typing import Any, Dict, List, Optional, Set
 
 from ....utils.debug_log import info_logger, warning_logger
+from ..persistence.utils import get_backend_type, execute_read_operation, execute_write_operation
 
 # Tier 10: resolved via inheritance graph (better than tier 8 first-match bias)
 _TIER_INHERIT_CONFIDENCE = 0.78
@@ -52,8 +53,9 @@ def run_inheritance_reresolve(
 
     # Step 1: find all low-confidence same-file CALLS edges (tier 8 or 9)
     # These are edges where the resolver gave up and pointed to the caller's file.
-    with driver.session() as session:
-        low_confidence = list(session.run(
+    backend = get_backend_type(driver)
+    def _read_work_1(session):
+        return list(session.run(
             """
             MATCH (caller)-[c:CALLS]->(called)
             WHERE (caller.path STARTS WITH $repo_path_prefix
@@ -70,6 +72,7 @@ def run_inheritance_reresolve(
             """,
             repo_path_prefix=repo_path_prefix,
         ))
+    low_confidence = execute_read_operation(driver, backend, _read_work_1)
 
     info_logger(f"[INHERIT-RESOLVE] Found {len(low_confidence)} low-confidence edges to re-examine")
     if not low_confidence:
@@ -87,7 +90,9 @@ def run_inheritance_reresolve(
 
     _NAMES_BATCH = 500  # stay well under Cypher parameter-list limits
     unique_names_list = list(unique_names)
-    with driver.session() as session:
+    backend = get_backend_type(driver)
+    def _read_work_2(session):
+        local_impls = {}
         for _i in range(0, len(unique_names_list), _NAMES_BATCH):
             chunk = unique_names_list[_i : _i + _NAMES_BATCH]
             result = session.run(
@@ -105,7 +110,10 @@ def run_inheritance_reresolve(
                 repo_path_prefix=repo_path_prefix,
             )
             for row in result:
-                name_to_impls.setdefault(row["queried_name"], []).append(dict(row))
+                local_impls.setdefault(row["queried_name"], []).append(dict(row))
+        return local_impls
+    
+    name_to_impls.update(execute_read_operation(driver, backend, _read_work_2))
 
     # Step 3: for each low-confidence edge, check if INHERITS narrows candidates
     # Strategy:
@@ -177,7 +185,9 @@ def run_inheritance_reresolve(
 
     # Step 4: write updated edges in batches
     batch_size = 500
-    with driver.session() as session:
+    backend = get_backend_type(driver)
+    def _write_work(session):
+        local_improved = 0
         for i in range(0, len(improvements), batch_size):
             batch = improvements[i : i + batch_size]
             session.run(
@@ -198,7 +208,9 @@ def run_inheritance_reresolve(
                 """,
                 batch=batch,
             )
-            improved += len(batch)
+            local_improved += len(batch)
+        return local_improved
+    improved += execute_write_operation(driver, backend, _write_work)
 
     info_logger(
         f"[INHERIT-RESOLVE] Improved {improved} CALLS edges in {time.time()-t0:.1f}s"
