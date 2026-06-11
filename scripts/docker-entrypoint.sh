@@ -1,12 +1,15 @@
 #!/bin/bash
 set -e
 
-# Signal handling for graceful shutdown
-trap 'echo "Shutting down CGC..."; kill -TERM $PID; wait $PID' SIGTERM SIGINT
-
-# If the first argument is a cgc subcommand, prepend 'cgc'
-if cgc "$1" --help &>/dev/null 2>&1; then
+# If the first arg starts with '-' or is a known cgc subcommand, prepend 'cgc'
+if [ "${1#-}" != "$1" ]; then
     set -- cgc "$@"
+else
+    case "$1" in
+        index|update|clean|stats|setup-scip|delete|report|visualize|list|add-package|watch|unwatch|watching|query|help|version|mcp|neo4j|context|config|bundle|hook|registry|api|find|analyze|datasource|m|n|i|ls|rm|v|w|export|load)
+            set -- cgc "$@"
+            ;;
+    esac
 fi
 
 # Mode-based startup via CGC_MODE env var
@@ -20,7 +23,7 @@ case "${CGC_MODE:-cli}" in
         exec cgc viz serve --host 0.0.0.0 --port 8080 "$@"
         ;;
     shell)
-        exec /bin/bash
+        exec /bin/bash "$@"
         ;;
     cli|*)
         # Pass through to cgc CLI or whatever command was given

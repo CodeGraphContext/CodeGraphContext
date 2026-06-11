@@ -5,7 +5,7 @@ WORKDIR /app/website
 
 # Install dependencies first for better caching
 COPY website/package.json website/package-lock.json* ./
-RUN npm ci || npm install
+RUN npm ci
 
 # Copy website source and build
 COPY website/ ./
