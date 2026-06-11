@@ -25,7 +25,7 @@ interface RepositoryGraphData {
 interface RepositorySummaryProps {
   graphData: RepositoryGraphData;
   largeFileThreshold?: number;
-  isIndexed?: boolean; // ✅ added for requirement: show after indexing completes
+  isIndexed?: boolean;
 }
 
 const RepositorySummary: React.FC<RepositorySummaryProps> = ({
@@ -62,10 +62,9 @@ const RepositorySummary: React.FC<RepositorySummaryProps> = ({
     };
   }, [graphData, largeFileThreshold]);
 
-  // ❌ Requirement: only show AFTER indexing completes
   if (!isIndexed) {
     return (
-      <div className="mt-6 mb-4 rounded-xl border border-border bg-background/80 p-4 text-sm text-muted-foreground">
+      <div className="mt-1 mb-2 w-full rounded-xl border border-border bg-background p-3 shadow-sm">
         Indexing repository...
       </div>
     );
@@ -75,42 +74,62 @@ const RepositorySummary: React.FC<RepositorySummaryProps> = ({
   const unusedExports = graphData.unusedExports;
 
   return (
-    <div className="mt-6 mb-4 rounded-xl border border-border bg-background/80 backdrop-blur-sm p-4">
-      <h2 className="mb-4 text-lg font-semibold">
-        Repository Analysis Summary
-      </h2>
+    <div className="mt-1 mb-2 w-full rounded-xl border border-border/60 bg-background p-4 shadow-sm">
+      <div className="mb-3">
+        <h2 className="text-xl font-bold tracking-tight text-foreground">
+          Repository Analysis
+        </h2>
 
-      {/* Core Metrics */}
-      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-5">
-        <StatCard label="Files" value={summary.files} />
-        <StatCard label="Folders" value={summary.folders} />
-        <StatCard label="Functions" value={summary.functions} />
-        <StatCard label="Classes" value={summary.classes} />
-        <StatCard label="Imports" value={summary.imports} />
+        <p className="mt-1 text-sm text-muted-foreground">
+          Quick overview of the indexed repository structure and potential
+          maintainability concerns.
+        </p>
       </div>
 
-      {/* Issues */}
-      <div className="border-t pt-4">
-        <h3 className="mb-3 font-medium">Potential Issues</h3>
+      {/* Repository Overview */}
+      <div className="mb-3">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Repository Overview
+        </h3>
 
-        <div className="space-y-2 text-sm">
-          <div>
-            ⚠ Circular Dependencies:{" "}
-            {circularDependencies !== undefined
-              ? circularDependencies
-              : "—"}
-          </div>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+          <StatCard icon="📄" label="Files" value={summary.files} />
+          <StatCard icon="📁" label="Folders" value={summary.folders} />
+          <StatCard icon="⚙️" label="Functions" value={summary.functions} />
+          <StatCard icon="🏗️" label="Classes" value={summary.classes} />
+          <StatCard icon="🔗" label="Imports" value={summary.imports} />
+        </div>
+      </div>
 
-          <div>
-            ⚠ Large Files: {summary.largeFiles}
-          </div>
+      {/* Analysis Warnings */}
+      <div className="border-t border-border pt-3">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Analysis Warnings
+        </h3>
 
-          <div>
-            ⚠ Unused Exports:{" "}
-            {unusedExports !== undefined
-              ? unusedExports
-              : "—"}
-          </div>
+        <div className="grid gap-2 md:grid-cols-3">
+          <IssueCard
+            title="Circular Dependencies"
+            value={
+              circularDependencies !== undefined
+                ? circularDependencies.toString()
+                : "Backend support pending"
+            }
+          />
+
+          <IssueCard
+            title="Large Files"
+            value={summary.largeFiles.toString()}
+          />
+
+          <IssueCard
+            title="Unused Exports"
+            value={
+              unusedExports !== undefined
+                ? unusedExports.toString()
+                : "Backend support pending"
+            }
+          />
         </div>
       </div>
     </div>
@@ -120,14 +139,46 @@ const RepositorySummary: React.FC<RepositorySummaryProps> = ({
 interface StatCardProps {
   label: string;
   value: number;
+  icon: string;
 }
 
-const StatCard: React.FC<StatCardProps> = ({ label, value }) => (
-  <div className="rounded-lg border border-border p-3 text-center">
+const StatCard: React.FC<StatCardProps> = ({
+  label,
+  value,
+  icon,
+}) => (
+  <div className="rounded-lg border border-border bg-card p-3 text-center shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
+    <div className="mb-1 text-xl">
+      {icon}
+    </div>
+
     <div className="text-2xl font-bold">
       {value.toLocaleString()}
     </div>
-    <div className="text-sm text-muted-foreground">{label}</div>
+
+    <div className="text-xs font-medium text-muted-foreground">
+      {label}
+    </div>
+  </div>
+);
+
+interface IssueCardProps {
+  title: string;
+  value: string;
+}
+
+const IssueCard: React.FC<IssueCardProps> = ({
+  title,
+  value,
+}) => (
+  <div className="rounded-lg border border-yellow-500/30 bg-yellow-50 p-3 shadow-sm dark:bg-yellow-500/5">
+    <div className="mb-1 text-sm font-semibold">
+      ⚠ {title}
+    </div>
+
+    <div className="text-xs text-muted-foreground">
+      {value}
+    </div>
   </div>
 );
 

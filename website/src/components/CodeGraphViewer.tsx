@@ -1918,7 +1918,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
         </div>
 
         <div className="mt-1 mb-4 flex justify-center">
-          <div className="w-full max-w-5xl">
+          <div className="w-full max-w-[1330px]">
             <RepositorySummary graphData={data} isIndexed={true} />
           </div>
         </div>
