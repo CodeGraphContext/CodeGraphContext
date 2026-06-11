@@ -11,7 +11,7 @@
 - 🇯🇵 [日本語](docs/translations/README.ja.md)
 - 🇪🇸 Español (Soon)
 
-🌍 **Help translate CodeGraphContext to your language by raising an issue & PR on [GitHub Issues](https://github.com/Shashankss1205/CodeGraphContext/issues)!**
+🌍 **Help translate CodeGraphContext to your language by raising an issue & PR on [GitHub Issues](https://github.com/CodeGraphContext/CodeGraphContext/issues)!**
 
 <p align="center">
   <br>
@@ -240,6 +240,57 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
     - **FalkorDB Lite:** Default backend.
     - **KuzuDB:** Cross-platform embedded backend.
     - **Neo4j:** Run `codegraphcontext neo4j setup` to use an external server.
+
+---
+
+## 🐳 Docker (No Python Required)
+
+Run CodeGraphContext without installing Python — pull the image and start indexing:
+
+### Quick Start
+```bash
+# Pull the latest image
+docker pull codegraphcontext/codegraphcontext:latest
+
+# Index your current directory
+docker run --rm -v "$(pwd):/workspace" codegraphcontext/codegraphcontext cgc index .
+
+# List indexed repos
+docker run --rm -v cgc-data:/home/cgc/.codegraphcontext \
+    codegraphcontext/codegraphcontext cgc list
+
+# Interactive shell
+docker run -it --rm -v "$(pwd):/workspace" \
+    -v cgc-data:/home/cgc/.codegraphcontext \
+    codegraphcontext/codegraphcontext bash
+```
+
+### Docker Compose
+```bash
+# Clone the repo and start with Docker Compose
+git clone https://github.com/CodeGraphContext/CodeGraphContext.git
+cd CodeGraphContext
+
+# Start with embedded DB
+docker compose run --rm cgc index .
+
+# Start with external FalkorDB
+docker compose --profile falkordb up -d
+
+# Start with visualization server
+docker compose --profile viz up -d
+# Open http://localhost:8080
+```
+
+### Available Docker Tags
+| Tag | Description |
+|---|---|
+| `latest` | Latest stable release |
+| `edge` | Latest from `main` branch (may be unstable) |
+| `0.4.19` | Specific version |
+| `0.4` | Latest patch in 0.4.x |
+
+For more advanced Docker usage, including running the MCP Server or connecting external databases, see our [Comprehensive Docker Guide](docs/DOCKER.md).
 
 ---
 

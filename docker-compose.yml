@@ -3,15 +3,15 @@ version: '3.8'
 services:
   # CodeGraphContext with FalkorDB Lite (default)
   codegraphcontext:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: codegraphcontext/codegraphcontext:latest
     container_name: codegraphcontext
     volumes:
       # Mount your code directory here
       - ./:/workspace
       # Persist database and config
-      - cgc-data:/root/.codegraphcontext
+      - cgc-data:/home/cgc/.codegraphcontext
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
       - DEFAULT_DATABASE=${DEFAULT_DATABASE:-falkordb}
@@ -59,6 +59,22 @@ services:
       - cgc-network
     profiles:
       - neo4j  # Only start when explicitly requested
+
+  # Visualization Server
+  viz:
+    image: codegraphcontext/codegraphcontext:latest
+    container_name: cgc-viz
+    volumes:
+      - ./:/workspace
+      - cgc-data:/home/cgc/.codegraphcontext
+    environment:
+      - CGC_MODE=viz
+    ports:
+      - "8080:8080"
+    networks:
+      - cgc-network
+    profiles:
+      - viz
 
 volumes:
   cgc-data:

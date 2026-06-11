@@ -1,10 +1,22 @@
-# Multi-stage build for CodeGraphContext
-FROM python:3.12-slim as builder
+# Stage 1: Build the website frontend
+FROM node:20-slim AS web-builder
 
-# Set working directory
+WORKDIR /app/website
+
+# Install dependencies first for better caching
+COPY website/package.json website/package-lock.json* ./
+RUN npm ci || npm install
+
+# Copy website source and build
+COPY website/ ./
+RUN npm run build
+
+# Stage 2: Python builder
+FROM python:3.12-slim AS python-builder
+
 WORKDIR /app
 
-# Install system dependencies required for building
+# Install system dependencies required for building Python packages
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -20,55 +32,67 @@ COPY src/ ./src/
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir .
 
-# Production stage
+# Stage 3: Production environment
 FROM python:3.12-slim
 
-# Set working directory
-WORKDIR /app
+# OCI Annotations
+ARG CGC_VERSION=0.4.19
+LABEL org.opencontainers.image.title="CodeGraphContext"
+LABEL org.opencontainers.image.description="Turn code repositories into a queryable graph for AI agents"
+LABEL org.opencontainers.image.url="https://github.com/CodeGraphContext/CodeGraphContext"
+LABEL org.opencontainers.image.source="https://github.com/CodeGraphContext/CodeGraphContext"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.version="${CGC_VERSION}"
 
-# Install runtime dependencies
+# Install runtime dependencies (git for code fetching, curl for healthchecks/tools)
 RUN apt-get update && apt-get install -y \
     git \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=builder /usr/local/bin/cgc /usr/local/bin/cgc
-COPY --from=builder /usr/local/bin/codegraphcontext /usr/local/bin/codegraphcontext
+# Create a non-root user for security
+RUN groupadd -r cgc && useradd -r -g cgc -u 1000 cgc
 
-# Copy source code
-COPY --from=builder /app/src /app/src
+# Set working directories and permissions
+RUN mkdir -p /workspace /home/cgc/.codegraphcontext && \
+    chown -R cgc:cgc /workspace /home/cgc
 
-# Create directory for code to be indexed
-RUN mkdir -p /workspace
+# Copy built python packages and executables
+COPY --from=python-builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=python-builder /usr/local/bin/cgc /usr/local/bin/cgc
+COPY --from=python-builder /usr/local/bin/codegraphcontext /usr/local/bin/codegraphcontext
 
-# Create directory for database and config
-RUN mkdir -p /root/.codegraphcontext
+# Copy source code (this contains the mcp server files, etc)
+COPY --from=python-builder /app/src /app/src
+
+# Copy built website into the viz/dist directory
+COPY --from=web-builder /app/website/dist /app/src/codegraphcontext/viz/dist
+
+# Set permissions for source code
+RUN chown -R cgc:cgc /app/src
+
+# Copy entrypoint script
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Switch to non-root user
+USER cgc
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV CGC_HOME=/root/.codegraphcontext
+ENV CGC_HOME=/home/cgc/.codegraphcontext
+ENV PYTHONPATH=/app/src
 
-# Remote FalkorDB connection (set at runtime via docker run -e or docker-compose)
-# ENV DEFAULT_DATABASE=falkordb-remote
-# ENV FALKORDB_HOST=
-# ENV FALKORDB_PORT=6379
-# ENV FALKORDB_PASSWORD=
-# ENV FALKORDB_USERNAME=
-# ENV FALKORDB_SSL=false
-# ENV FALKORDB_GRAPH_NAME=codegraph
-
-# Expose port for potential web interface (future use)
+# Expose port for the visualization server
 EXPOSE 8080
 
 # Default working directory for user code
 WORKDIR /workspace
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD cgc --version || exit 1
+# Health check to verify CLI runs correctly
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD ["cgc", "--version"]
 
-# Default command - show help
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["cgc", "help"]
