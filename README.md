@@ -239,6 +239,36 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
     - **KuzuDB:** Cross-platform embedded backend.
     - **Neo4j:** Run `codegraphcontext neo4j setup` to use an external server.
 
+### 🧪 Local Development Setup
+
+If you want to run CodeGraphContext from a local clone and contribute changes, use an editable install:
+
+```bash
+git clone https://github.com/CodeGraphContext/CodeGraphContext.git
+cd CodeGraphContext
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+Then verify the install and try the local commands:
+
+```bash
+cgc --help
+cgc doctor
+cgc index .
+cgc analyze callers main
+```
+
+For MCP server work, finish the setup with:
+
+```bash
+cgc mcp setup
+cgc mcp start
+```
+
+If you are only installing the published package, `pip install codegraphcontext` is enough. If you are developing parser-heavy features and want the optional parsing extras too, install with `pip install -e ".[dev,parsing]"`.
+
 ---
 
 ### For CLI Toolkit Mode
