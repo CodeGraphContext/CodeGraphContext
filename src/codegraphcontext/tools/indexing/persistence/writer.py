@@ -700,7 +700,15 @@ class GraphWriter:
             (file_to_interface, "File", "Interface"),
             (file_to_object, "File", "Object"),
         ]
-        def _work(session):
+        def relationship_label_for_row(row: Dict[str, Any]) -> str:
+            tier = row.get("resolution_tier")
+            try:
+                tier_int = int(tier)
+            except (TypeError, ValueError):
+                tier_int = -1
+            return "HEURISTIC_CALLS" if tier_int >= 8 else "CALLS"
+
+        with self.driver.session() as session:
             for batch_data, caller_label, called_label in queries:
                 if not batch_data:
                     continue
@@ -765,136 +773,66 @@ class GraphWriter:
                         unique_calls.append(row)
                 sanitized_batch = unique_calls
 
-                called_context_clause = _called_context_clause(called_label)
+                precise_batch = []
+                heuristic_batch = []
+                for row in sanitized_batch:
+                    if relationship_label_for_row(row) == "HEURISTIC_CALLS":
+                        heuristic_batch.append(row)
+                    else:
+                        precise_batch.append(row)
 
-                caller_match = (
-                    f"MATCH (caller:File {{path: row.caller_file_path}})"
-                    if caller_label == "File"
-                    else f"MATCH (caller:`{caller_label}` {{name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number}})"
-                )
-                set_clause = """
-                        SET call.args = row.args
-                        SET call.confidence = row.confidence
-                        SET call.resolution_tier = row.resolution_tier
-                        SET call.confidence_label = row.confidence_label"""
-                create_clause = f"{calls_keyword} (caller)-[call:CALLS {{line_number: row.line_number, full_call_name: row.full_call_name, args_key: row.args_key}}]->(called)"
+                # Define which labels have a 'context' property in the schema
+                labels_with_context = {"Function", "Variable"}
+                called_context_clause = ""
+                if called_label in labels_with_context:
+                    called_context_clause = 'AND (row.called_context = "" OR called.context = row.called_context)'
 
-                def _run_call_batch(q: str, sub_batch: List[Dict[str, Any]]) -> None:
-                    if not sub_batch:
+                def _write_batch(batch_rows: List[Dict[str, Any]], relation_label: str) -> None:
+                    if not batch_rows:
                         return
-                    captured_q, captured_b = q, sub_batch
-
-                    def _batch_work(tx, _q=captured_q, _b=captured_b):
-                        tx.run(_q, batch=_b)
-
-                    try:
-                        if hasattr(session, "execute_write"):
-                            session.execute_write(_batch_work)
-                        elif hasattr(session, "write_transaction"):
-                            session.write_transaction(_batch_work)
-                        else:
-                            session.run(q, batch=sub_batch)
-                    except Exception as e:
-                        if _is_binder_exception(e):
-                            return
-                        raise e
-
-                t0 = time.time()
-                total = len(sanitized_batch)
-
-                if use_fast_slow_split:
-                    if called_label == "Parameter":
-                        q_with_line = f"""
+                    if caller_label == "File":
+                        q = f"""
                             UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:Parameter {{name: row.called_name, path: row.called_file_path, function_line_number: row.called_line_number}})
-                            {create_clause}{set_clause}
+                            MATCH (caller:File {{path: row.caller_file_path}})
+                            MATCH (called:{called_label} {{name: row.called_name, path: row.called_file_path}})
+                            WHERE (row.called_line_number <= 0 OR called.line_number = row.called_line_number)
+                              {called_context_clause}
+                            MERGE (caller)-[call:{relation_label} {{line_number: row.line_number, full_call_name: row.full_call_name, args_key: row.args_key}}]->(called)
+                            SET call.args = row.args
+                            SET call.confidence = row.confidence
+                            SET call.resolution_tier = row.resolution_tier
+                            SET call.confidence_label = row.confidence_label
                         """
-                        q_without_line = q_with_line
-                    elif called_label == "File":
-                        q_with_line = f"""
-                            UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:File {{path: row.called_file_path}})
-                            {create_clause}{set_clause}
-                        """
-                        q_without_line = q_with_line
                     else:
-                        q_with_line = f"""
+                        q = f"""
                             UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:`{called_label}` {{name: row.called_name, path: row.called_file_path, line_number: row.called_line_number}})
-                            {"WHERE " + called_context_clause.lstrip("AND ") if called_context_clause else ""}
-                            {create_clause}{set_clause}
-                        """
-                        q_without_line = f"""
-                            UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:`{called_label}` {{name: row.called_name, path: row.called_file_path}})
-                            {"WHERE " + called_context_clause.lstrip("AND ") if called_context_clause else ""}
-                            {create_clause}{set_clause}
+                            MATCH (caller:{caller_label} {{name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number}})
+                            MATCH (called:{called_label} {{name: row.called_name, path: row.called_file_path}})
+                            WHERE (row.called_line_number <= 0 OR called.line_number = row.called_line_number)
+                              {called_context_clause}
+                            MERGE (caller)-[call:{relation_label} {{line_number: row.line_number, full_call_name: row.full_call_name, args_key: row.args_key}}]->(called)
+                            SET call.args = row.args
+                            SET call.confidence = row.confidence
+                            SET call.resolution_tier = row.resolution_tier
+                            SET call.confidence_label = row.confidence_label
                         """
 
-                    fast_total = sum(1 for r in sanitized_batch if r.get("called_line_number", 0) > 0)
-                    slow_total = total - fast_total
+                    t0 = time.time()
+                    for i in range(0, len(batch_rows), batch_size):
+                        batch = batch_rows[i : i + batch_size]
+                        try:
+                            session.run(q, batch=batch)
+                        except Exception as e:
+                            if _is_binder_exception(e):
+                                continue
+                            raise e
                     info_logger(
-                        f"[CALLS] {caller_label}-to-{called_label}: {total} edges — "
-                        f"fast path (line known): {fast_total} ({100*fast_total//total if total else 0}%), "
-                        f"slow path: {slow_total} ({100*slow_total//total if total else 0}%)"
+                        f"[{relation_label}] {caller_label}-to-{called_label}: {len(batch_rows)} edges written in {time.time()-t0:.1f}s"
                     )
-                    for i in range(0, total, batch_size):
-                        batch = sanitized_batch[i : i + batch_size]
-                        batch_with_line = [r for r in batch if r.get("called_line_number", 0) > 0]
-                        batch_without_line = [r for r in batch if r.get("called_line_number", 0) <= 0]
-                        for q, sub_batch in ((q_with_line, batch_with_line), (q_without_line, batch_without_line)):
-                            _run_call_batch(q, sub_batch)
-                        written_so_far = min(i + batch_size, total)
-                        info_logger(
-                            f"[CALLS] {caller_label}-to-{called_label}: "
-                            f"{written_so_far}/{total} edges written ({time.time()-t0:.1f}s elapsed)"
-                        )
-                else:
-                    line_where = (
-                        "WHERE (row.called_line_number <= 0 OR called.line_number = row.called_line_number)"
-                    )
-                    if called_context_clause:
-                        line_where += f" {called_context_clause}"
 
-                    if called_label == "Parameter":
-                        q_unified = f"""
-                            UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:Parameter {{name: row.called_name, path: row.called_file_path, function_line_number: row.called_line_number}})
-                            {create_clause}{set_clause}
-                        """
-                    elif called_label == "File":
-                        q_unified = f"""
-                            UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:File {{path: row.called_file_path}})
-                            {create_clause}{set_clause}
-                        """
-                    else:
-                        q_unified = f"""
-                            UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:`{called_label}` {{name: row.called_name, path: row.called_file_path}})
-                            {line_where}
-                            {create_clause}{set_clause}
-                        """
+                _write_batch(precise_batch, "CALLS")
+                _write_batch(heuristic_batch, "HEURISTIC_CALLS")
 
-                    for i in range(0, total, batch_size):
-                        _run_call_batch(q_unified, sanitized_batch[i : i + batch_size])
-                        written_so_far = min(i + batch_size, total)
-                        info_logger(
-                            f"[CALLS] {caller_label}-to-{called_label}: "
-                            f"{written_so_far}/{total} edges written ({time.time()-t0:.1f}s elapsed)"
-                        )
-
-                info_logger(f"[CALLS] {caller_label}-to-{called_label}: {total} edges written in {time.time()-t0:.1f}s")
-
-        with self.driver.session() as session:
-            _work(session)
         info_logger("[CALLS] All relationships processed.")
 
     def _create_csharp_inheritance_and_interfaces(
@@ -1929,7 +1867,7 @@ DETACH DELETE r, n
         backend = get_backend_type(self.driver, self._db_manager)
         def _work(session):
             result = session.run(
-                "MATCH (caller)-[:CALLS]->(callee) "
+                "MATCH (caller)-[:CALLS|HEURISTIC_CALLS]->(callee) "
                 "WHERE callee.path = $path "
                 "RETURN DISTINCT coalesce(caller.path, '') AS p",
                 path=file_path_str,
@@ -1965,14 +1903,12 @@ DETACH DELETE r, n
 
         return execute_read_operation(self.driver, backend, _work)
     def delete_outgoing_calls_from_files(self, file_paths: List[str]) -> None:
-        backend = get_backend_type(self.driver, self._db_manager)
-        def _work(session):
+        with self.driver.session() as session:
             result = session.run(
-                "MATCH (a)-[r:CALLS]->(b) WHERE a.path IN $paths DELETE r RETURN count(r) AS cnt",
+                "MATCH (a)-[r:CALLS|HEURISTIC_CALLS]->(b) WHERE a.path IN $paths DELETE r RETURN count(r) AS cnt",
                 paths=file_paths,
             ).single()
-            return result["cnt"] if result else 0
-        cnt = execute_write_operation(self.driver, backend, _work)
+        cnt = result["cnt"] if result else 0
         info_logger(f"[RELINK] Deleted {cnt} outgoing CALLS from {len(file_paths)} caller files")
 
     def delete_inherits_for_files(self, file_paths: List[str]) -> None:
@@ -2014,7 +1950,7 @@ DETACH DELETE r, n
         backend = get_backend_type(self.driver, self._db_manager)
         def _work(session):
             result = session.run(
-                "MATCH (a)-[r:CALLS]->(b) WHERE a.path STARTS WITH $prefix DELETE r RETURN count(r) AS cnt",
+                "MATCH (a)-[r:CALLS|HEURISTIC_CALLS]->(b) WHERE a.path STARTS WITH $prefix DELETE r RETURN count(r) AS cnt",
                 prefix=repo_path_str,
             ).single()
             calls_deleted = result["cnt"] if result else 0
@@ -2028,5 +1964,5 @@ DETACH DELETE r, n
 
         calls_deleted, inherits_deleted = execute_write_operation(self.driver, backend, _work)
         info_logger(
-            f"[RELINK] Cleared {calls_deleted} CALLS and {inherits_deleted} INHERITS before re-linking: {repo_path}"
+            f"[RELINK] Cleared {calls_deleted} CALLS/HEURISTIC_CALLS and {inherits_deleted} INHERITS before re-linking: {repo_path}"
         )

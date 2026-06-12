@@ -1,16 +1,16 @@
 # src/codegraphcontext/tools/indexing/resolution/post_resolution.py
-"""Post-resolution pass: tighten low-confidence CALLS edges using INHERITS graph.
+"""Post-resolution pass: tighten low-confidence CALLS / HEURISTIC_CALLS edges using INHERITS graph.
 
 This module is called AFTER the initial CALLS graph is written.  It looks for
 edges with confidence < 0.5 (tiers 8 and 9) where the call target has a
 unique implementor that can be determined from the INHERITS graph.
 
-Algorithm for each low-confidence CALLS edge (caller → called_name → same_file):
+Algorithm for each low-confidence CALLS / HEURISTIC_CALLS edge (caller → called_name → same_file):
   1. Find all Function nodes with name = called_name across the codebase
   2. Find which of those are in classes that INHERIT from a common base
   3. If the caller file imports exactly one of those base types, resolve to
      the matching implementor
-  4. Update the CALLS edge: set called_file_path, confidence, resolution_tier=10
+  4. Update the CALLS / HEURISTIC_CALLS edge: set called_file_path, confidence, resolution_tier=10
 
 Tier 10 = inheritance-graph resolved (confidence: 0.78)
 
@@ -40,7 +40,7 @@ def run_inheritance_reresolve(
     repo_path: str,
     vector_resolver: Optional[Any] = None,
 ) -> int:
-    """Re-resolve low-confidence CALLS edges using INHERITS graph + optional embeddings.
+    """Re-resolve low-confidence CALLS / HEURISTIC_CALLS edges using INHERITS graph + optional embeddings.
 
     Returns the number of edges that were improved.
     """
@@ -51,13 +51,13 @@ def run_inheritance_reresolve(
     # "/opt/repos/myapp" must not accidentally match "/opt/repos/myapp_extra".
     repo_path_prefix = repo_path.rstrip("/") + "/"
 
-    # Step 1: find all low-confidence same-file CALLS edges (tier 8 or 9)
+    # Step 1: find all low-confidence same-file CALLS / HEURISTIC_CALLS edges (tier 8 or 9)
     # These are edges where the resolver gave up and pointed to the caller's file.
     backend = get_backend_type(driver)
     def _read_work_1(session):
         return list(session.run(
             """
-            MATCH (caller)-[c:CALLS]->(called)
+            MATCH (caller)-[c:CALLS|HEURISTIC_CALLS]->(called)
             WHERE (caller.path STARTS WITH $repo_path_prefix
                    OR called.path STARTS WITH $repo_path_prefix)
               AND c.resolution_tier IN [8, 9]
@@ -192,21 +192,12 @@ def run_inheritance_reresolve(
     backend = get_backend_type(driver)
 
     def _make_write_query(caller_has_line: bool, called_has_line: bool) -> str:
-        caller_match = (
-            "MATCH (caller:Function {name: row.caller_name, path: row.caller_path, line_number: row.caller_line})"
-            if caller_has_line
-            else "MATCH (caller {name: row.caller_name, path: row.caller_path})"
-        )
-        called_match = (
-            "MATCH (new_called:Function {name: row.called_name, path: row.new_called_path, line_number: row.new_called_line})"
-            if called_has_line
-            else "MATCH (new_called:Function {name: row.called_name, path: row.new_called_path})"
-        )
         return f"""
                 UNWIND $batch AS row
-                {caller_match}
-                {called_match}
-                OPTIONAL MATCH (caller)-[old_edge:CALLS]->(old_called {{name: row.called_name}})
+                MATCH (caller {name: row.caller_name, path: row.caller_path})
+                WHERE row.caller_line IS NULL OR caller.line_number = row.caller_line
+                MATCH (new_called:Function {name: row.called_name, path: row.new_called_path})
+                OPTIONAL MATCH (caller)-[old_edge:CALLS|HEURISTIC_CALLS]->(old_called {name: row.called_name})
                   WHERE old_edge.resolution_tier IN [8, 9]
                 DELETE old_edge
                 WITH caller, new_called, row
@@ -238,6 +229,6 @@ def run_inheritance_reresolve(
     improved += execute_write_operation(driver, backend, _write_work)
 
     info_logger(
-        f"[INHERIT-RESOLVE] Improved {improved} CALLS edges in {time.time()-t0:.1f}s"
+        f"[INHERIT-RESOLVE] Improved {improved} CALLS / HEURISTIC_CALLS edges in {time.time()-t0:.1f}s"
     )
     return improved

@@ -418,6 +418,35 @@ class TestCreateAllFunctionCallsV3:
         assert call_write["kwargs"]["batch"][0]["called_line_number"] == 0
         assert call_write["kwargs"]["batch"][0]["called_context"] == ""
 
+    def test_heuristic_call_rows_use_heuristic_label(self):
+        """Low-confidence fallback rows should be written as HEURISTIC_CALLS."""
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+
+        session = _RecordingSession()
+        writer = GraphWriter(_FakeDriver(session))
+        writer.write_function_call_groups(
+            [
+                {
+                    "caller_name": "caller",
+                    "caller_file_path": "/repo/a.py",
+                    "caller_line_number": 1,
+                    "called_name": "callee",
+                    "called_file_path": "/repo/a.py",
+                    "called_line_number": 2,
+                    "called_context": "",
+                    "line_number": 5,
+                    "args": [],
+                    "full_call_name": "callee",
+                    "resolution_tier": 9,
+                    "confidence_label": "AMBIGUOUS",
+                },
+            ],
+        )
+
+        heuristic_query = next(c for c in session.calls if "HEURISTIC_CALLS" in c["query"])
+        assert "MERGE (caller)-[call:HEURISTIC_CALLS" in heuristic_query["query"]
+        assert heuristic_query["kwargs"]["batch"][0]["resolution_tier"] == 9
+
     def test_empty_file_data_writes_nothing(self):
         calls = self._run([])
         call_rels = [c for c in calls if "CALLS" in c.get("query", "")]
