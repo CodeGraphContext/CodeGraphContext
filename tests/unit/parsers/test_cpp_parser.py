@@ -28,8 +28,9 @@ enum Color { RED, GREEN, BLUE };
 enum class Status { OK = 0, ERROR = 1 };
 """
     f = temp_test_dir / "enums.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     enum_names = [e["name"] for e in result.get("enums", [])]
     assert "Color" in enum_names
@@ -47,8 +48,9 @@ public:
 };
 """
     f = temp_test_dir / "mixed.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     assert any(c["name"] == "Foo" for c in result["classes"])
     assert any(e["name"] == "DataType" for e in result.get("enums", []))
@@ -69,8 +71,9 @@ public:
 };
 """
     f = temp_test_dir / "inherit_single.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     classes = {c["name"]: c for c in result["classes"]}
     assert "Base" in classes
@@ -86,8 +89,9 @@ class B {};
 class C : public A, private B {};
 """
     f = temp_test_dir / "inherit_multi.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     classes = {c["name"]: c for c in result["classes"]}
     assert classes["C"]["bases"] == ["A", "B"]
@@ -99,8 +103,9 @@ class Base {};
 class Derived : virtual public Base {};
 """
     f = temp_test_dir / "inherit_virtual.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     classes = {c["name"]: c for c in result["classes"]}
     assert classes["Derived"]["bases"] == ["Base"]
@@ -114,8 +119,9 @@ class Container {};
 class IntContainer : public Container<int> {};
 """
     f = temp_test_dir / "inherit_template.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     classes = {c["name"]: c for c in result["classes"]}
     # Template args should be stripped for graph matching
@@ -130,8 +136,9 @@ class Base {};
 class Derived : public ns::Base {};
 """
     f = temp_test_dir / "inherit_qualified.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     classes = {c["name"]: c for c in result["classes"]}
     assert len(classes["Derived"]["bases"]) == 1
@@ -156,8 +163,9 @@ void free_function() {
 }
 """
     f = temp_test_dir / "methods.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     func_names = [fn["name"] for fn in result["functions"]]
     assert "execute" in func_names
@@ -182,8 +190,9 @@ void Namespace::Class::method() {
 }
 """
     f = temp_test_dir / "nested_method.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     func_names = [fn["name"] for fn in result["functions"]]
     assert "method" in func_names
@@ -202,8 +211,9 @@ void doWork() {
 }
 """
     f = temp_test_dir / "arrow_calls.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     call_names = [c["name"] for c in result["function_calls"]]
     assert "execute" in call_names
@@ -218,8 +228,9 @@ void doWork() {
 }
 """
     f = temp_test_dir / "scoped_calls.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     call_names = [c["name"] for c in result["function_calls"]]
     assert "move" in call_names
@@ -241,8 +252,9 @@ void MyClass::doWork() {
 }
 """
     f = temp_test_dir / "this_calls.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     call_names = [c["name"] for c in result["function_calls"]]
     assert "execute" in call_names
@@ -260,8 +272,9 @@ void doWork() {
 }
 """
     f = temp_test_dir / "direct_calls.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     call_names = [c["name"] for c in result["function_calls"]]
     assert "printf" in call_names
@@ -306,8 +319,9 @@ public:
 };
 """
     f = temp_test_dir / "realistic.h"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     classes = {c["name"]: c for c in result["classes"]}
 

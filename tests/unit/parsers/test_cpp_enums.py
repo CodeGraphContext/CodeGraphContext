@@ -26,8 +26,9 @@ enum Color { RED, GREEN, BLUE };
 enum class Status { OK = 0, ERROR = 1 };
 """
     f = temp_test_dir / "enums.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     enum_names = [e["name"] for e in result.get("enums", [])]
     assert "Color" in enum_names
@@ -45,8 +46,9 @@ public:
 };
 """
     f = temp_test_dir / "mixed.cpp"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
     result = cpp_parser.parse(f)
+    assert isinstance(result, dict)
 
     assert any(c["name"] == "Foo" for c in result["classes"])
     assert any(e["name"] == "DataType" for e in result.get("enums", []))

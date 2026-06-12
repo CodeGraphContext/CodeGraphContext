@@ -29,10 +29,11 @@ class TestPythonParser:
         """Parse a simple python file and verify output."""
         code = "def hello():\n    print('world')"
         f = temp_test_dir / "test.py"
-        f.write_text(code)
+        f.write_text(code, encoding="utf-8")
 
         # Act
         result = parser.parse(str(f))
+        assert isinstance(result, dict)
 
         # Assert
         # We expect a list of nodes/edges or a structure containing them
@@ -50,9 +51,10 @@ class TestPythonParser:
         """Top-level executable calls should be linked from a synthetic module frame."""
         code = "from pkg.utils import helper\n\nresult = helper()\n"
         f = temp_test_dir / "__main__.py"
-        f.write_text(code)
+        f.write_text(code, encoding="utf-8")
 
         result = parser.parse(str(f))
+        assert isinstance(result, dict)
 
         module_func = next(
             func for func in result["functions"]
@@ -75,9 +77,10 @@ class Greeter:
         return f"Hello {name}"
 """
         f = temp_test_dir / "classes.py"
-        f.write_text(code)
+        f.write_text(code, encoding="utf-8")
 
         result = parser.parse(str(f))
+        assert isinstance(result, dict)
 
         assert "classes" in result
         classes = result["classes"]
