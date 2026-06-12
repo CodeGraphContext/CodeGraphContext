@@ -54,6 +54,37 @@ def _save_neo4j_credentials(creds):
     console.print("[dim]  cgc mcp setup[/dim]")
 
 
+def _validate_neo4j_credentials(creds):
+    """Validate Neo4j credentials and test the connection."""
+    is_valid, validation_error = DatabaseManager.validate_config(
+        creds.get("uri", ""),
+        creds.get("username", ""),
+        creds.get("password", ""),
+    )
+
+    if not is_valid:
+        console.print(validation_error)
+        console.print("\n[red]❌ Invalid configuration. Please try again.[/red]\n")
+        return False
+
+    console.print("[green]✅ Configuration format is valid[/green]")
+    console.print("\n[cyan]🔗 Testing connection...[/cyan]")
+
+    is_connected, error_msg = DatabaseManager.test_connection(
+        creds.get("uri", ""),
+        creds.get("username", ""),
+        creds.get("password", ""),
+    )
+
+    if not is_connected:
+        console.print(error_msg)
+        console.print("\n[red]❌ Connection test failed.[/red]\n")
+        return False
+
+    console.print("[green]✅ Connection successful![/green]")
+    return True
+
+
 def _generate_mcp_json(creds):
     """Generates and prints the MCP JSON configuration."""
     cgc_path = shutil.which("cgc")
@@ -668,6 +699,19 @@ def setup_existing_db():
                 console.print(f"[red]❌ Failed to parse credentials file: {e}[/red]")
                 return
 
+        if creds and not _validate_neo4j_credentials(creds):
+            retry = prompt([
+                {
+                    "type": "confirm",
+                    "message": "Connection failed. Would you like to re-enter the details instead of saving these credentials?",
+                    "name": "retry",
+                    "default": True,
+                }
+            ])
+            if retry.get("retry"):
+                return setup_existing_db()
+            console.print("[yellow]Proceeding with the provided credentials anyway.[/yellow]")
+
     elif cred_method: # Manual entry
         console.print("Please enter your Neo4j connection details.")
         
@@ -683,38 +727,12 @@ def setup_existing_db():
             if not manual_creds: 
                 return # User cancelled
             
-            # Validate the user input
-            console.print("\n[cyan]🔍 Validating configuration...[/cyan]")
-            from codegraphcontext.core.database import DatabaseManager
-            is_valid, validation_error = DatabaseManager.validate_config(
-                manual_creds.get("uri", ""),
-                manual_creds.get("username", ""),
-                manual_creds.get("password", "")
-            )
-            
-            if not is_valid:
-                console.print(validation_error)
-                console.print("\n[red]❌ Invalid configuration. Please try again.[/red]\n")
-                continue  # Ask for input again
-            
-            console.print("[green]✅ Configuration format is valid[/green]")
-            
-            # Test the connection
-            console.print("\n[cyan]🔗 Testing connection...[/cyan]")
-            is_connected, error_msg = DatabaseManager.test_connection(
-                manual_creds.get("uri", ""),
-                manual_creds.get("username", ""),
-                manual_creds.get("password", "")
-            )
-            
-            if not is_connected:
-                console.print(error_msg)
+            if not _validate_neo4j_credentials(manual_creds):
                 retry = prompt([{"type": "confirm", "message": "Connection failed. Try again with different credentials?", "name": "retry", "default": True}])
                 if not retry.get("retry"):
                     return
                 continue  # Ask for input again
-            
-            console.print("[green]✅ Connection successful![/green]")
+
             creds = manual_creds
             break  # Exit loop with valid credentials
 
@@ -787,6 +805,19 @@ def setup_hosted_db():
                 console.print(f"[red]❌ Failed to parse credentials file: {e}[/red]")
                 return
 
+        if creds and not _validate_neo4j_credentials(creds):
+            retry = prompt([
+                {
+                    "type": "confirm",
+                    "message": "Connection failed. Would you like to re-enter the details instead of saving these credentials?",
+                    "name": "retry",
+                    "default": True,
+                }
+            ])
+            if retry.get("retry"):
+                return setup_hosted_db()
+            console.print("[yellow]Proceeding with the provided credentials anyway.[/yellow]")
+
     elif cred_method: # Manual entry
         console.print("Please enter your remote Neo4j connection details.")
         
@@ -802,38 +833,12 @@ def setup_hosted_db():
             if not manual_creds:
                 return # User cancelled
             
-            # Validate the user input
-            console.print("\n[cyan]🔍 Validating configuration...[/cyan]")
-            from codegraphcontext.core.database import DatabaseManager
-            is_valid, validation_error = DatabaseManager.validate_config(
-                manual_creds.get("uri", ""),
-                manual_creds.get("username", ""),
-                manual_creds.get("password", "")
-            )
-            
-            if not is_valid:
-                console.print(validation_error)
-                console.print("\n[red]❌ Invalid configuration. Please try again.[/red]\n")
-                continue  # Ask for input again
-            
-            console.print("[green]✅ Configuration format is valid[/green]")
-            
-            # Test the connection
-            console.print("\n[cyan]🔗 Testing connection...[/cyan]")
-            is_connected, error_msg = DatabaseManager.test_connection(
-                manual_creds.get("uri", ""),
-                manual_creds.get("username", ""),
-                manual_creds.get("password", "")
-            )
-            
-            if not is_connected:
-                console.print(error_msg)
+            if not _validate_neo4j_credentials(manual_creds):
                 retry = prompt([{"type": "confirm", "message": "Connection failed. Try again with different credentials?", "name": "retry", "default": True}])
                 if not retry.get("retry"):
                     return
                 continue  # Ask for input again
-            
-            console.print("[green]✅ Connection successful![/green]")
+
             creds = manual_creds
             break  
 
