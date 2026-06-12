@@ -39,6 +39,7 @@ NODE_LABELS = frozenset({
 RELATIONSHIP_TYPES = frozenset({
     "CONTAINS",
     "CALLS",
+    "HEURISTIC_CALLS",
     "IMPORTS",
     "INHERITS",
     "HAS_PARAMETER",

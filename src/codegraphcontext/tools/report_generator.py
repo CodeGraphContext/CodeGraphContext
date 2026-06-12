@@ -61,7 +61,7 @@ def _section_god_nodes(driver: Any, limit: int = 15) -> str:
     rows = _run_cypher(
         driver,
         """
-        MATCH ()-[:CALLS]->(target)
+        MATCH ()-[:CALLS|HEURISTIC_CALLS]->(target)
         WITH target, count(*) AS in_degree
         WHERE in_degree > 1
         RETURN labels(target)[0] AS kind, target.name AS name,
@@ -123,7 +123,7 @@ def _section_cross_module_calls(driver: Any, limit: int = 20) -> str:
     rows = _run_cypher(
         driver,
         """
-        MATCH (caller)-[c:CALLS]->(callee)
+        MATCH (caller)-[c:CALLS|HEURISTIC_CALLS]->(callee)
         WHERE caller.path IS NOT NULL AND callee.path IS NOT NULL
           AND caller.path <> callee.path
         WITH caller, callee, c,
@@ -168,7 +168,7 @@ def _section_dead_code(driver: Any, limit: int = 20) -> str:
         """
         MATCH (fn:Function)
         WHERE fn.is_dependency IS NULL OR fn.is_dependency = false
-        AND NOT ()-[:CALLS]->(fn)
+        AND NOT ()-[:CALLS|HEURISTIC_CALLS]->(fn)
         RETURN fn.name AS name, fn.path AS path
         ORDER BY fn.path, fn.name
         LIMIT $limit
@@ -276,7 +276,7 @@ def _section_suggested_queries() -> str:
         (
             "Callers of a specific function",
             """
-            MATCH (caller)-[:CALLS]->(fn:Function {name: 'yourFunctionName'})
+            MATCH (caller)-[:CALLS|HEURISTIC_CALLS]->(fn:Function {name: 'yourFunctionName'})
             RETURN caller.name, caller.path LIMIT 20
             """,
         ),
@@ -306,7 +306,7 @@ def _section_suggested_queries() -> str:
         (
             "CALLS edges with low confidence (potential mis-resolutions)",
             """
-            MATCH (a)-[c:CALLS]->(b)
+            MATCH (a)-[c:CALLS|HEURISTIC_CALLS]->(b)
             WHERE c.confidence_label = 'AMBIGUOUS'
             RETURN a.name, b.name, c.resolution_tier, a.path LIMIT 20
             """,
