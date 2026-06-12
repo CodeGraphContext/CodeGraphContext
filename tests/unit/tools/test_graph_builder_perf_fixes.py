@@ -836,6 +836,22 @@ class TestDeleteRepositoryFromGraph:
             "`CALL db.labels()`, including labels not in any hardcoded list."
         )
 
+    def test_purges_dangling_parameters_and_variables(self):
+        """Orphan Parameter and Variable nodes should be removed after repo delete."""
+        session = self._make_repo_exists_session()
+        gb, _ = _make_graph_builder(session)
+        gb.delete_repository_from_graph("/my/repo")
+
+        queries = [c["query"] for c in session.calls]
+        assert any(
+            "Parameter" in q and "NOT ()-[]-(p)" in q and "DETACH DELETE p" in q
+            for q in queries
+        ), "Expected dangling Parameter purge after repository deletion"
+        assert any(
+            "Variable" in q and "NOT ()-[]-(v)" in q and "DETACH DELETE v" in q
+            for q in queries
+        ), "Expected dangling Variable purge after repository deletion"
+
     def test_calls_db_labels_after_existence_check(self):
         """Label discovery should happen exactly once, after the repo
         existence check passes, before any per-label deletion loops."""

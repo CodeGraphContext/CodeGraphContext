@@ -1896,7 +1896,7 @@ DETACH DELETE r, n
         return True
 
     def _purge_dangling_pathless_nodes(self) -> None:
-        """Remove shared pathless nodes (e.g. imported Module headers) left without references."""
+        """Remove shared pathless or orphaned nodes left without references."""
         dangling_queries = [
             (
                 "MATCH (m:Module) WHERE NOT ()-[:IMPORTS|INCLUDES]->(m) "
@@ -1910,7 +1910,16 @@ DETACH DELETE r, n
                 "MATCH (n:ExternalFunction) WHERE NOT ()-[]->(n) "
                 "WITH n LIMIT 5000 DETACH DELETE n RETURN count(n) AS deleted"
             ),
+            (
+                "MATCH (p:Parameter) WHERE NOT ()-[]-(p) "
+                "WITH p LIMIT 5000 DETACH DELETE p RETURN count(p) AS deleted"
+            ),
+            (
+                "MATCH (v:Variable) WHERE NOT ()-[]-(v) "
+                "WITH v LIMIT 5000 DETACH DELETE v RETURN count(v) AS deleted"
+            ),
         ]
+
         for query in dangling_queries:
             try:
                 while True:
@@ -1919,7 +1928,7 @@ DETACH DELETE r, n
                         deleted = result["deleted"] if result else 0
                     if deleted == 0:
                         break
-                    info_logger(f"[DELETE] Purged {deleted} dangling pathless nodes")
+                    info_logger("[DELETE] Purged dangling pathless or orphan nodes")
             except Exception as e:
                 if _is_binder_exception(e):
                     continue
