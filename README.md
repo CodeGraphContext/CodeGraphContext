@@ -97,6 +97,43 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 
 ---
 
+## Why CodeGraphContext?
+
+CodeGraphContext is built for the moment when plain text search stops being enough. It turns a repository into a graph of files, symbols, calls, inheritance, imports, and relationships so you can move from "where is this defined?" to "how does this actually connect?" without jumping between tools.
+
+```mermaid
+flowchart LR
+  A[Source code] --> B[Tree-sitter and SCIP indexers]
+  B --> C[Graph database]
+  C --> D[CLI queries]
+  C --> E[MCP server]
+  D --> F[Direct analysis]
+  E --> G[AI assistants with repo context]
+```
+
+### Comparison at a glance
+
+| Approach | Best for | Tradeoff |
+| --- | --- | --- |
+| `grep` / file search | Exact string lookup | Misses relationships and code structure |
+| RAG over code chunks | Natural-language retrieval | Can lose symbol-level precision |
+| CodeGraphContext | Repository-wide reasoning | Requires an indexing step |
+
+### Common use cases
+
+- Trace call chains across files and packages.
+- Understand class hierarchies, imports, and module boundaries.
+- Find dead code, hotspots, and unexpected dependencies.
+- Give an AI assistant the same structural context a maintainer would use.
+
+### FAQ
+
+- **Do I need a remote service?** No. CGC works locally with embedded backends or with external graph databases when you want them.
+- **Is it only for one language?** No. It supports a broad mix of mainstream languages and keeps expanding.
+- **Can I use it with an AI assistant?** Yes. That is one of the main reasons the MCP server exists.
+
+---
+
 ## Project Details
 - **Version:** 0.4.13
 - **Authors:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
