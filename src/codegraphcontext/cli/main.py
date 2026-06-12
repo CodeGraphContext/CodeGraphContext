@@ -1243,6 +1243,7 @@ def index(
     path: Optional[str] = typer.Argument(None, help="Path to the directory or file to index. Defaults to the current directory."),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use (overrides mode/default)"),
+    no_progress: bool = typer.Option(False, "--no-progress", help="Disable live progress rendering during indexing."),
 ):
     """
     Indexes a directory or file by adding it to the code graph.
@@ -1256,9 +1257,9 @@ def index(
     
     if force:
         console.print("[yellow]Force re-indexing (--force flag detected)[/yellow]")
-        reindex_helper(path, context)
+        reindex_helper(path, context, no_progress=no_progress)
     else:
-        index_helper(path, context)
+        index_helper(path, context, no_progress=no_progress)
 
 @app.command()
 def update(
