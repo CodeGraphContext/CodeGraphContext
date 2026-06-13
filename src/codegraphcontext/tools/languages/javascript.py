@@ -303,6 +303,7 @@ class JavascriptTreeSitterParser:
                 "class_context": class_context,
                 "lang": self.language_name,
                 "is_dependency": False,
+                "cyclomatic_complexity": self._calculate_complexity(func_node),
             }
 
             if self.index_source:
