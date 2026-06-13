@@ -2,9 +2,9 @@
 
 CodeGraphContext (CGC) is a high-performance, developer-focused **Code Intelligence Engine** that transforms source repositories into semantic, queryable property graphs. Tree-sitter and optional SCIP indexers extract symbols; CGC resolves calls, imports, and inheritance into a graph you can query from the CLI, MCP tools, or the HTTP API gateway.
 
-**Current release: 0.4.19**
+**Current release: 0.5.0**
 
-Recent improvements in the 0.4.17–0.4.19 line include nested call-chain accuracy, per-repo context isolation fixes, Neo4j write performance (CREATE vs MERGE, managed transactions), watcher startup graph reconciliation, SCIP respect for `.cgcignore`, `GET /health` on the API gateway, `bundle import --yes` for CI, and clearer configuration precedence for project-local `.env` files.
+Recent improvements in the 0.5.0 line include cross-language call-graph resolution fixes (Perl, Ruby, Lua, Haskell, Rust, TypeScript, C#, Dart, C), structural edge persistence (`PARTIAL_OF`, `IMPLEMENTS`, `METACLASS`, etc.), and average CALLS audit accuracy rising from ~84% to ~98%.
 
 ---
 

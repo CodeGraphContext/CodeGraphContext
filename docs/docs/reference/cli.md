@@ -19,7 +19,7 @@ These flags apply to most subcommands:
 | `--version` | `-v` | Print package version and exit. |
 | `--help` | `-h` | Show help and exit. |
 
-Use `cgc version` (or `cgc --version`) to print the installed release (currently **0.4.19**).
+Use `cgc version` (or `cgc --version`) to print the installed release (currently **0.5.0**).
 
 ---
 

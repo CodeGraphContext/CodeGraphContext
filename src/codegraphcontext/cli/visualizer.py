@@ -20,8 +20,29 @@ def check_visual_flag(ctx: Any, visual: bool) -> bool:
     return resolve_visual_flag(ctx, visual)
 
 
+ALLOWED_GRAPH_LABELS = frozenset({
+    "Class", "DbTable", "Directory", "Enum", "EnumMember", "ExternalClass",
+    "ExternalFunction", "Extension", "File", "Function", "Interface", "Macro",
+    "Mixin", "Module", "Object", "Parameter", "Repository", "Struct", "Trait",
+    "Union", "Variable",
+})
+
+
 def _escape_cypher_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _validate_graph_label(label: str) -> str:
+    normalized = label.strip()
+    if not normalized or not normalized.replace("_", "").isalnum():
+        raise ValueError(f"Invalid node label: {label!r}")
+    for allowed in ALLOWED_GRAPH_LABELS:
+        if allowed.lower() == normalized.lower():
+            return allowed
+    raise ValueError(
+        f"Unsupported node label {label!r}. "
+        f"Allowed labels: {', '.join(sorted(ALLOWED_GRAPH_LABELS))}"
+    )
 
 
 def _file_props(name: str, file: Optional[str]) -> str:
@@ -59,7 +80,10 @@ def visualize_search_results(
             f"RETURN n AS n, null AS rel, null AS m LIMIT 80"
         )
     elif search_type == "type":
-        label = term.capitalize()
+        try:
+            label = _validate_graph_label(name)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
         query = (
             f"MATCH (n:{label}) "
             f"RETURN n AS n, null AS rel, null AS m LIMIT 80"

@@ -1139,11 +1139,13 @@ class TestWriteOrmMappingsDatasourceName:
     def _make_writer(self):
         from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
         mock_driver = MagicMock()
-        mock_session = MagicMock()
-        mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
-        mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+        mock_session = MagicMock(spec=["run", "__enter__", "__exit__"])
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_driver.session.return_value = mock_session
         writer = GraphWriter.__new__(GraphWriter)
         writer.driver = mock_driver
+        writer._db_manager = None
         return writer, mock_session
 
     def test_on_match_set_present_in_write_orm_mappings(self):

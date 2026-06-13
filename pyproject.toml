@@ -1,6 +1,6 @@
 [project]
 name = "codegraphcontext"
-version = "0.4.19"
+version = "0.5.1"
 description = "An MCP server that indexes local code into a graph database to provide context to AI assistants."
 authors = [{ name = "Shashank Shekhar Singh", email = "shashankshekharsingh1205@gmail.com" }]
 readme = "README.md"
@@ -92,6 +92,15 @@ dev = [
     "pytest>=7.4.0",
     "black>=23.11.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-mock",
+    "ruff",
+]
+# Optional drivers for `cgc datasource` ingestion (MySQL/Aurora, Cassandra).
+# Redis ingestion uses the ``redis`` package already pinned in core deps.
+datasources = [
+    "pymysql",
+    "mysql-connector-python",
+    "cassandra-driver",
 ]
 
 [project.urls]
@@ -112,6 +121,13 @@ codegraphcontext = ["viz/dist/**/*"]
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["codegraphcontext*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

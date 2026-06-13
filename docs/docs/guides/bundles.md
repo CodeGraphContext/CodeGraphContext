@@ -35,7 +35,7 @@ numpy.cgc
 #### metadata.json
 ```json
 {
-  "cgc_version": "0.4.19",
+  "cgc_version": "0.5.0",
   "exported_at": "2026-01-13T22:00:00",
   "repo": "numpy/numpy",
   "commit": "a1b2c3d4",

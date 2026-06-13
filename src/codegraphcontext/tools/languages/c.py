@@ -150,6 +150,7 @@ class CTreeSitterParser:
         root_node = tree.root_node
 
         functions = self._find_functions(root_node)
+        functions.extend(self._synthesize_define_handler_functions(source_code, path))
         classes = self._find_structs_unions_enums(root_node)
         imports = self._find_imports(root_node)
         function_calls = self._find_calls(root_node)
@@ -272,6 +273,39 @@ class CTreeSitterParser:
                 
                 args.append(arg_info)
         return args
+
+    def _synthesize_define_handler_functions(
+        self, source_code: str, path: Path
+    ) -> List[Dict[str, Any]]:
+        """Synthesize functions emitted by DEFINE_HANDLER(name) macro invocations."""
+        if "DEFINE_HANDLER" not in source_code:
+            return []
+
+        synthesized: List[Dict[str, Any]] = []
+        seen: set = set()
+        invocation_re = re.compile(
+            r"^[ \t]*DEFINE_HANDLER\s*\(\s*(\w+)\s*\)\s*$", re.MULTILINE
+        )
+        for match in invocation_re.finditer(source_code):
+            token = match.group(1)
+            name = f"handle_{token}"
+            if name in seen:
+                continue
+            seen.add(name)
+            line_number = source_code[: match.start()].count("\n") + 1
+            synthesized.append({
+                "name": name,
+                "line_number": line_number,
+                "end_line": line_number,
+                "args": ["val"],
+                "cyclomatic_complexity": 1,
+                "context": None,
+                "class_context": None,
+                "lang": self.language_name,
+                "is_dependency": False,
+                "synthetic_macro": True,
+            })
+        return synthesized
 
     def _find_functions(self, root_node: Any) -> list[Dict[str, Any]]:
         functions = []

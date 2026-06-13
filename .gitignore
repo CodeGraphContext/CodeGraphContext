@@ -87,6 +87,17 @@ CGC_VALUE_PROPOSITION.md
 docs/site/
 site/
 
+# Local scratch reports and audit artifacts (untracked; other CGC_*.md reports
+# are tracked, so list untracked ones by name instead of a glob)
+CGC_EXPECTED_GRAPH_SPEC.md
+GOLDEN_PERFECTION_REPORT.md
+COMMIT_MSG.txt
+organizer/
+audit_output/
+test_env_e2e/
+.venv-release/
+falkordb.sock
+
 # Build Artifacts
 [Bb]in/
 [Oo]bj/

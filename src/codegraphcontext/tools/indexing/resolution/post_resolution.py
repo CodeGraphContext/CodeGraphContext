@@ -136,12 +136,14 @@ def run_inheritance_reresolve(
             continue
 
         best_path = None
+        best_line = None
         confidence = _TIER_INHERIT_CONFIDENCE
         tier = _TIER_INHERIT
 
         if len(candidates) == 1:
             # Unambiguous: single implementation outside the caller file
             best_path = candidates[0]["path"]
+            best_line = candidates[0].get("line_number")
         else:
             # Multiple candidates — prefer those that are part of an INHERITS hierarchy
             inheriting = [c for c in candidates if c.get("parent_name")]
@@ -149,6 +151,7 @@ def run_inheritance_reresolve(
 
             if len(pool) == 1:
                 best_path = pool[0]["path"]
+                best_line = pool[0].get("line_number")
             elif vector_resolver is not None:
                 # Use embedding similarity to disambiguate
                 vec_path = vector_resolver.resolve(
@@ -159,6 +162,7 @@ def run_inheritance_reresolve(
                 )
                 if vec_path:
                     best_path = vec_path
+                    best_line = next((c.get("line_number") for c in pool if c["path"] == vec_path), None)
                     confidence = _TIER_EMBED_CONFIDENCE
                     tier = _TIER_EMBED
             # else: too ambiguous without vector — skip
@@ -173,6 +177,7 @@ def run_inheritance_reresolve(
             "called_name": called_name,
             "call_line": row["call_line"],
             "new_called_path": best_path,
+            "new_called_line": best_line,
             "confidence": confidence,
             "resolution_tier": tier,
         })
@@ -183,31 +188,51 @@ def run_inheritance_reresolve(
 
     info_logger(f"[INHERIT-RESOLVE] Re-resolving {len(improvements)} edges...")
 
-    # Step 4: write updated edges in batches
     batch_size = 500
     backend = get_backend_type(driver)
-    def _write_work(session):
-        local_improved = 0
-        for i in range(0, len(improvements), batch_size):
-            batch = improvements[i : i + batch_size]
-            session.run(
-                """
+
+    def _make_write_query(caller_has_line: bool, called_has_line: bool) -> str:
+        caller_match = (
+            "MATCH (caller:Function {name: row.caller_name, path: row.caller_path, line_number: row.caller_line})"
+            if caller_has_line
+            else "MATCH (caller {name: row.caller_name, path: row.caller_path})"
+        )
+        called_match = (
+            "MATCH (new_called:Function {name: row.called_name, path: row.new_called_path, line_number: row.new_called_line})"
+            if called_has_line
+            else "MATCH (new_called:Function {name: row.called_name, path: row.new_called_path})"
+        )
+        return f"""
                 UNWIND $batch AS row
-                MATCH (caller {name: row.caller_name, path: row.caller_path})
-                WHERE row.caller_line IS NULL OR caller.line_number = row.caller_line
-                MATCH (new_called:Function {name: row.called_name, path: row.new_called_path})
-                OPTIONAL MATCH (caller)-[old_edge:CALLS]->(old_called {name: row.called_name})
+                {caller_match}
+                {called_match}
+                OPTIONAL MATCH (caller)-[old_edge:CALLS]->(old_called {{name: row.called_name}})
                   WHERE old_edge.resolution_tier IN [8, 9]
                 DELETE old_edge
                 WITH caller, new_called, row
-                MERGE (caller)-[c:CALLS {called_name: row.called_name}]->(new_called)
+                MERGE (caller)-[c:CALLS {{called_name: row.called_name}}]->(new_called)
                 SET c.line_number = coalesce(row.call_line, c.line_number),
                     c.confidence = row.confidence,
                     c.resolution_tier = row.resolution_tier,
                     c.resolution_method = 'inheritance'
-                """,
-                batch=batch,
-            )
+                """
+
+    def _write_work(session):
+        local_improved = 0
+        for i in range(0, len(improvements), batch_size):
+            batch = improvements[i : i + batch_size]
+            # Partition into 4 groups based on what line numbers are available
+            buckets = {(True, True): [], (True, False): [], (False, True): [], (False, False): []}
+            for row in batch:
+                key = (
+                    row.get("caller_line") is not None and isinstance(row.get("caller_line"), int),
+                    row.get("new_called_line") is not None and isinstance(row.get("new_called_line"), int),
+                )
+                buckets[key].append(row)
+            for (caller_has_line, called_has_line), sub_batch in buckets.items():
+                if not sub_batch:
+                    continue
+                session.run(_make_write_query(caller_has_line, called_has_line), batch=sub_batch)
             local_improved += len(batch)
         return local_improved
     improved += execute_write_operation(driver, backend, _write_work)

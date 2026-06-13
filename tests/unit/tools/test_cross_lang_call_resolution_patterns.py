@@ -64,12 +64,27 @@ class TestCrossLangCallResolutionPatterns:
         names = {member["name"] for member in data.get("enum_members", [])}
         assert names == {"COLOR_RED", "COLOR_GREEN", "COLOR_BLUE"}
 
+    def test_c_define_handler_macro_functions(self, manager):
+        wrapper = _parser(manager, "c")
+        parser = CTreeSitterParser(wrapper)
+        data = parser.parse(str(FIXTURES / "sample_project_c" / "tough_macros.c"))
+        handlers = {
+            (fn["name"], fn["line_number"])
+            for fn in data.get("functions", [])
+            if fn.get("name", "").startswith("handle_")
+        }
+        assert handlers == {
+            ("handle_input", 13),
+            ("handle_output", 14),
+            ("handle_error", 15),
+        }
+
     def test_c_function_pointer_callback(self, manager):
         wrapper = _parser(manager, "c")
         parser = CTreeSitterParser(wrapper)
         base = FIXTURES / "sample_project_c"
         files = []
-        for name in ("main.c", "utils.c"):
+        for name in ("main.c", "utils.c", "tough_macros.c"):
             parsed = parser.parse(str(base / name))
             files.append({
                 "path": str((base / name).resolve()),
@@ -80,12 +95,15 @@ class TestCrossLangCallResolutionPatterns:
                 "imports": parsed.get("imports", []),
             })
         fn_to_fn, *_ = build_function_call_groups(files, {})
-        edge = next(
+        edges = [
             e for e in fn_to_fn
             if e["caller_name"] == "process_entity" and e["called_name"] == "my_callback"
-        )
+        ]
+        assert len(edges) == 1
+        edge = edges[0]
         assert edge["line_number"] == 6
         assert edge["called_line_number"] == 5
+        assert edge["called_file_path"].endswith("main.c")
 
     def test_cpp_template_overload_disambiguation(self, manager):
         wrapper = _parser(manager, "cpp")
@@ -584,6 +602,7 @@ class TestCrossLangCallResolutionPatterns:
                 "classes": parsed.get("classes", []),
                 "function_calls": parsed.get("function_calls", []),
                 "imports": parsed.get("imports", []),
+                "variables": parsed.get("variables", []),
                 "library_parts": parsed.get("library_parts", []),
             })
             for cls in parsed.get("classes", []):
@@ -591,13 +610,20 @@ class TestCrossLangCallResolutionPatterns:
             for fn in parsed.get("functions", []):
                 imports_map.setdefault(fn["name"], []).append(file_path)
 
-        fn_to_fn, *_ = build_function_call_groups(files, imports_map)
+        from codegraphcontext.tools.indexing.pre_scan import pre_scan_for_imports
+
+        def get_parser(ext):
+            return DartTreeSitterParser(wrapper)
+
+        prescan_map = pre_scan_for_imports(list(base.rglob("*.dart")), {".dart"}, get_parser)
+        fn_to_fn, *_ = build_function_call_groups(files, prescan_map)
         edge = next(
             e for e in fn_to_fn
             if e.get("caller_name") == "main" and e.get("called_name") == "performAction"
         )
         assert edge["line_number"] == 5
         assert edge["called_line_number"] == 18
+        assert edge.get("called_context") == "User"
 
         part_links = build_part_of_links(files)
         assert any(

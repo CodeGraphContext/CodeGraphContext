@@ -16,11 +16,36 @@ When neither is set, implicit selection:
 """
 import os
 import platform
+from pathlib import Path
 from typing import Union, Optional
 import importlib.util
 
 # Set when FalkorDB Lite fails in-process so we skip repeated startup/retry storms.
 _FALKORDB_DISABLED = False
+
+
+def _fallback_db_path_for(db_path: Optional[str], target_backend: str) -> Optional[str]:
+    """
+    Adjust a FalkorDB-specific db_path when falling back to a different backend.
+
+    Default DB paths embed the backend name as the last path segment
+    (e.g. ``…/db/falkordb`` or the legacy ``…/global/falkordb.db``). Reusing such
+    a path for another backend would make e.g. Kùzu open the FalkorDB data
+    directory, so swap the trailing segment for the target backend's name.
+    Paths that don't look like FalkorDB defaults are returned unchanged.
+    """
+    if not db_path:
+        return db_path
+    p = Path(db_path)
+    if p.name.lower() in ('falkordb', 'falkordb.db'):
+        from codegraphcontext.utils.debug_log import warning_logger
+        new_path = str(p.parent / target_backend)
+        warning_logger(
+            f"FalkorDB fallback: db_path '{db_path}' points at the FalkorDB data "
+            f"directory; using '{new_path}' for backend '{target_backend}' instead."
+        )
+        return new_path
+    return db_path
 
 
 def mark_falkordb_unavailable() -> None:
@@ -99,6 +124,17 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
         db_type = db_type.lower()
         if db_type == 'kuzudb':
             if not _is_kuzudb_available():
+                info_logger("Kùzu is not installed. Falling back to an available configured backend.")
+                if _is_ladybugdb_available():
+                    from .database_ladybug import LadybugDBManager
+                    return LadybugDBManager(db_path=db_path)
+                if _is_neo4j_configured():
+                    from .database import DatabaseManager
+                    info_logger("Using Neo4j Server (fallback)")
+                    return DatabaseManager()
+                if _is_nornic_configured():
+                    from .database_nornic import NornicDBManager
+                    return NornicDBManager()
                 raise ValueError("Database set to 'kuzudb' but Kùzu is not installed.\nRun 'pip install kuzu'")
             from .database_kuzu import KuzuDBManager
             info_logger(f"Using KùzuDB (explicit) at {db_path or 'default path'}")
@@ -107,13 +143,26 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
         elif db_type == 'falkordb':
             if not is_falkordb_usable():
                 if _FALKORDB_DISABLED:
-                    info_logger("FalkorDB Lite disabled for this process after earlier failure. Using KùzuDB.")
+                    info_logger("FalkorDB Lite disabled for this process after earlier failure. Falling back to an available backend.")
                 else:
-                    info_logger("FalkorDB Lite is not supported or not installed. Falling back to KùzuDB.")
+                    info_logger("FalkorDB Lite is not supported or not installed. Falling back to an available backend.")
                 if _is_kuzudb_available():
                     from .database_kuzu import KuzuDBManager
-                    return KuzuDBManager(db_path=db_path)
-                raise ValueError("Database set to 'falkordb' but FalkorDB Lite is not installed or not supported on this OS.\nRun 'pip install falkordblite'")
+                    return KuzuDBManager(db_path=_fallback_db_path_for(db_path, 'kuzudb'))
+                if _is_ladybugdb_available():
+                    from .database_ladybug import LadybugDBManager
+                    return LadybugDBManager(db_path=_fallback_db_path_for(db_path, 'ladybugdb'))
+                if _is_neo4j_configured():
+                    from .database import DatabaseManager
+                    info_logger("Using Neo4j Server (fallback)")
+                    return DatabaseManager()
+                if _is_nornic_configured():
+                    from .database_nornic import NornicDBManager
+                    return NornicDBManager()
+                raise ValueError(
+                    "Database set to 'falkordb' but FalkorDB Lite is not installed or not supported on this OS.\n"
+                    "Install 'falkordblite' or configure a supported alternative such as KùzuDB or Neo4j."
+                )
             
             from .database_falkordb import FalkorDBManager, FalkorDBUnavailableError
             try:
@@ -123,10 +172,20 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
                 return mgr
             except FalkorDBUnavailableError as falkor_err:
                 mark_falkordb_unavailable()
-                info_logger(f"FalkorDB Lite not functional ({falkor_err}). Falling back to KùzuDB.")
+                info_logger(f"FalkorDB Lite not functional ({falkor_err}). Falling back to available backend.")
                 if _is_kuzudb_available():
                     from .database_kuzu import KuzuDBManager
-                    return KuzuDBManager(db_path=db_path)
+                    return KuzuDBManager(db_path=_fallback_db_path_for(db_path, 'kuzudb'))
+                if _is_ladybugdb_available():
+                    from .database_ladybug import LadybugDBManager
+                    return LadybugDBManager(db_path=_fallback_db_path_for(db_path, 'ladybugdb'))
+                if _is_neo4j_configured():
+                    from .database import DatabaseManager
+                    info_logger("Using Neo4j Server (fallback)")
+                    return DatabaseManager()
+                if _is_nornic_configured():
+                    from .database_nornic import NornicDBManager
+                    return NornicDBManager()
                 raise
 
         elif db_type == 'falkordb-remote':
@@ -186,14 +245,16 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
     # Implicit: KùzuDB (typical on Windows; Unix fallback when Falkor Lite unavailable)
     if _is_kuzudb_available():
         from .database_kuzu import KuzuDBManager
-        info_logger(f"Using KùzuDB (default) at {db_path or 'default path'}")
-        return KuzuDBManager(db_path=db_path)
+        kuzu_path = _fallback_db_path_for(db_path, 'kuzudb')
+        info_logger(f"Using KùzuDB (default) at {kuzu_path or 'default path'}")
+        return KuzuDBManager(db_path=kuzu_path)
 
     # Implicit: LadybugDB when available
     if _is_ladybugdb_available():
         from .database_ladybug import LadybugDBManager
-        info_logger(f"Using LadybugDB (default) at {db_path or 'default path'}")
-        return LadybugDBManager(db_path=db_path)
+        ladybug_path = _fallback_db_path_for(db_path, 'ladybugdb')
+        info_logger(f"Using LadybugDB (default) at {ladybug_path or 'default path'}")
+        return LadybugDBManager(db_path=ladybug_path)
 
     # Implicit: Neo4j when configured
     if _is_neo4j_configured():

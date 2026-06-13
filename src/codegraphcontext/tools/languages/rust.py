@@ -158,6 +158,8 @@ class RustTreeSitterParser:
                     "args": params,
                     "module_context": module_context,
                     "is_extern": False,
+                    "lang": self.language_name,
+                    "is_dependency": False,
                 }
 
                 if self.index_source:
@@ -205,6 +207,8 @@ class RustTreeSitterParser:
                     "args": params,
                     "module_context": self._module_path_for_node(child),
                     "is_extern": True,
+                    "lang": self.language_name,
+                    "is_dependency": False,
                 })
 
         return functions

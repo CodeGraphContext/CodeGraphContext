@@ -159,7 +159,8 @@ class TestNormalizePrefix:
 
 def _make_writer() -> tuple[GraphWriter, MagicMock]:
     """Return a GraphWriter with a fully mocked driver and db_manager."""
-    mock_session = MagicMock()
+    # Limit spec so execute_write_operation invokes work_fn(session) directly.
+    mock_session = MagicMock(spec=["run", "__enter__", "__exit__"])
     mock_session.__enter__ = MagicMock(return_value=mock_session)
     mock_session.__exit__ = MagicMock(return_value=False)
     mock_session.run.return_value = MagicMock(single=MagicMock(return_value=None))

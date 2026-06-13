@@ -1,5 +1,3 @@
-# src/codegraphcontext/tool_definitions.py
-
 TOOLS = {
     "add_code_to_graph": {
         "name": "add_code_to_graph",
@@ -7,115 +5,211 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the directory or file to add."},
-                "is_dependency": {"type": "boolean", "description": "Whether this code is a dependency.", "default": False}
+                "repo_path": {
+                    "type": "string",
+                    "description": "Path to the repository root"
+                },
+                "is_dependency": {
+                    "type": "boolean",
+                    "description": "Whether this code is a dependency.",
+                    "default": False
+                }
             },
-            "required": ["path"]
+            "required": ["repo_path"]
         }
     },
+
     "check_job_status": {
         "name": "check_job_status",
         "description": "Check the status and progress of a background job.",
         "inputSchema": {
             "type": "object",
-            "properties": { "job_id": {"type": "string", "description": "Job ID from a previous tool call"} },
+            "properties": {
+                "job_id": {
+                    "type": "string",
+                    "description": "Job ID from a previous tool call"
+                }
+            },
             "required": ["job_id"]
         }
     },
+
     "list_jobs": {
         "name": "list_jobs",
         "description": "List all background jobs and their current status.",
-        "inputSchema": {"type": "object", "properties": {}}
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
     },
+
     "find_code": {
         "name": "find_code",
         "description": "Find relevant code snippets related to a keyword (e.g., function name, class name, or content).",
         "inputSchema": {
             "type": "object",
-            "properties": { "query": {"type": "string", "description": "Keyword or phrase to search for"}, "fuzzy_search": {"type": "boolean", "description": "Whether to use fuzzy search", "default": False}, "edit_distance": {"type": "number", "description": "Edit distance for fuzzy search (between 0-2)", "default": 2}, "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}}, 
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Keyword or phrase to search for"
+                },
+                "fuzzy_search": {
+                    "type": "boolean",
+                    "description": "Whether to use fuzzy search",
+                    "default": False
+                },
+                "edit_distance": {
+                    "type": "number",
+                    "description": "Edit distance for fuzzy search (between 0-2)",
+                    "default": 2
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Optional: Path to the repository to restrict the search to."
+                }
+            },
             "required": ["query"]
         }
     },
+
     "analyze_code_relationships": {
         "name": "analyze_code_relationships",
-        "description": "Analyze code relationships like 'who calls this function' or 'class hierarchy'. Supported query types include: find_callers, find_callees, find_all_callers, find_all_callees, find_importers, who_modifies, class_hierarchy, overrides, dead_code, call_chain, module_deps, variable_scope, find_complexity, find_functions_by_argument, find_functions_by_decorator.",
+        "description": "Analyze code relationships like 'who calls this function' or 'class hierarchy'.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query_type": {"type": "string", "description": "Type of relationship query to run.", "enum": ["find_callers", "find_callees", "find_all_callers", "find_all_callees", "find_importers", "who_modifies", "class_hierarchy", "overrides", "dead_code", "call_chain", "module_deps", "variable_scope", "find_complexity", "find_functions_by_argument", "find_functions_by_decorator"]},
-                "target": {"type": "string", "description": "The function, class, or module to analyze."},
-                "context": {"type": "string", "description": "Optional: specific file path for precise results."},
-                "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
+                "query_type": {
+                    "type": "string",
+                    "enum": [
+                        "find_callers",
+                        "find_callees",
+                        "find_all_callers",
+                        "find_all_callees",
+                        "find_importers",
+                        "who_modifies",
+                        "class_hierarchy",
+                        "overrides",
+                        "dead_code",
+                        "call_chain",
+                        "module_deps",
+                        "variable_scope",
+                        "find_complexity",
+                        "find_functions_by_argument",
+                        "find_functions_by_decorator"
+                    ]
+                },
+                "target": {
+                    "type": "string",
+                    "description": "The function, class, or module to analyze."
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional file path for precise results."
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Optional repository path."
+                }
             },
             "required": ["query_type", "target"]
         }
     },
+
     "watch_directory": {
         "name": "watch_directory",
-        "description": "Performs an initial scan of a directory and then continuously monitors it for changes, automatically keeping the graph up-to-date. Ideal for projects under active development. Returns a job ID for the initial scan.",
-        "inputSchema": {
-            "type": "object",
-            "properties": { "path": {"type": "string", "description": "Path to directory to watch"} },
-            "required": ["path"]
-        }
-    },
-    "execute_cypher_query": {
-        "name": "execute_cypher_query",
-        "description": "Fallback tool to run a direct, read-only Cypher query against the code graph. Use this for complex questions not covered by other tools. The graph contains nodes representing code structures and relationships between them. **Schema Overview:**\n- **Nodes:** `Repository`, `File`, `Module`, `Class`, `Function`.\n- **Properties:** Nodes have properties like `name`, `path`, `cyclomatic_complexity` (on Function nodes), and `source`.\n- **Relationships:** `CONTAINS` (e.g., File-[:CONTAINS]->Function), `CALLS` (Function-[:CALLS]->Function or File-[:CALLS]->Function), `IMPORTS` (File-[:IMPORTS]->Module), `INHERITS` (Class-[:INHERITS]->Class).",
-        "inputSchema": {
-            "type": "object",
-            "properties": { "cypher_query": {"type": "string", "description": "The read-only Cypher query to execute."} },
-            "required": ["cypher_query"]
-        }
-    },
-    "add_package_to_graph": {
-        "name": "add_package_to_graph",
-        "description": "Add a package to the graph by discovering its location. Supports multiple languages. Returns immediately with a job ID.",
+        "description": "Continuously monitors a directory and keeps graph updated.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "package_name": {"type": "string", "description": "Name of the package to add (e.g., 'requests', 'express', 'moment', 'lodash')."},
-                "language": {"type": "string", "description": "The programming language of the package.", "enum": ["python", "javascript", "typescript", "java", "c", "go", "ruby", "php","cpp"]},
-                "is_dependency": {"type": "boolean", "description": "Mark as a dependency.", "default": True}
+                "repo_path": {
+                    "type": "string",
+                    "description": "Path to repository root"
+                }
+            },
+            "required": ["repo_path"]
+        }
+    },
+
+    "execute_cypher_query": {
+        "name": "execute_cypher_query",
+        "description": "Run a read-only Cypher query against the code graph.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "cypher_query": {
+                    "type": "string",
+                    "description": "The Cypher query to execute"
+                }
+            },
+            "required": ["cypher_query"]
+        }
+    },
+
+    "add_package_to_graph": {
+        "name": "add_package_to_graph",
+        "description": "Add a package to the graph.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "package_name": {
+                    "type": "string"
+                },
+                "language": {
+                    "type": "string",
+                    "enum": ["python", "javascript", "typescript", "java", "c", "go", "ruby", "php", "cpp"]
+                },
+                "is_dependency": {
+                    "type": "boolean",
+                    "default": True
+                }
             },
             "required": ["package_name", "language"]
         }
     },
+
     "find_dead_code": {
         "name": "find_dead_code",
-        "description": "Find potentially unused functions (dead code) across the entire indexed codebase, optionally excluding functions with specific decorators.",
+        "description": "Find potentially unused functions.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "exclude_decorated_with": {"type": "array", "items": {"type": "string"}, "description": "Optional: A list of decorator names (e.g., '@app.route') to exclude from dead code detection.", "default": []},
-                "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
+                "exclude_decorated_with": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": []
+                },
+                "repo_path": {
+                    "type": "string"
+                }
             }
         }
     },
+
     "calculate_cyclomatic_complexity": {
         "name": "calculate_cyclomatic_complexity",
-        "description": "Calculate the cyclomatic complexity of a specific function to measure its complexity.",
+        "description": "Calculate complexity of a function.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "function_name": {"type": "string", "description": "The name of the function to analyze."},
-                "path": {"type": "string", "description": "Optional: The full path to the file containing the function for a more specific query."},
-                "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
+                "function_name": {"type": "string"},
+                "repo_path": {"type": "string"}
             },
             "required": ["function_name"]
         }
     },
+
     "find_most_complex_functions": {
         "name": "find_most_complex_functions",
-        "description": "Find the most complex functions in the codebase based on cyclomatic complexity.",
+        "description": "Find most complex functions.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "description": "The maximum number of complex functions to return.", "default": 10},
-                "repo_path": {"type": "string", "description": "Optional: Path to the repository to restrict the search to."}
+                "limit": {"type": "integer", "default": 10},
+                "repo_path": {"type": "string"}
             }
         }
     },
+
     "list_indexed_repositories": {
         "name": "list_indexed_repositories",
         "description": "List all indexed repositories.",
@@ -124,156 +218,171 @@ TOOLS = {
             "properties": {}
         }
     },
+
     "delete_repository": {
         "name": "delete_repository",
-        "description": "Delete an indexed repository from the graph.",
+        "description": "Delete a repository from the graph.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "repo_path": {"type": "string", "description": "The path of the repository to delete."} 
+                "repo_path": {
+                    "type": "string",
+                    "description": "The path of the repository to delete."
+                }
             },
             "required": ["repo_path"]
         }
     },
+
     "visualize_graph_query": {
         "name": "visualize_graph_query",
-        "description": "Generates a URL to visualize the results of a Cypher query in the Neo4j Browser. The user can open this URL in their web browser to see the graph visualization.",
+        "description": "Generate a Neo4j visualization URL for a Cypher query.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "cypher_query": {"type": "string", "description": "The Cypher query to visualize."}
+                "cypher_query": {"type": "string"}
             },
             "required": ["cypher_query"]
         }
     },
+
     "list_watched_paths": {
         "name": "list_watched_paths",
-        "description": "Lists all directories currently being watched for live file changes.",
-        "inputSchema": {"type": "object", "properties": {}}
-    },
-    "unwatch_directory": {
-        "name": "unwatch_directory",
-        "description": "Stops watching a directory for live file changes.",
+        "description": "List all watched directories.",
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "The absolute path of the directory to stop watching."}
-            },
-            "required": ["path"]
+            "properties": {}
         }
     },
-    "load_bundle": {
-        "name": "load_bundle",
-        "description": "Load a pre-indexed .cgc bundle into the database. Can load from local file or automatically download from registry if not found locally. Bundles are portable snapshots of indexed code that load instantly without re-indexing.",
+
+    "unwatch_directory": {
+        "name": "unwatch_directory",
+        "description": "Stop watching a directory.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "bundle_name": {"type": "string", "description": "Name of the bundle to load (e.g., 'flask', 'pandas', 'flask-main-2579ce9.cgc'). Can be a full filename or just the package name."},
-                "clear_existing": {"type": "boolean", "description": "Whether to clear existing data before loading. Use with caution.", "default": False}
+                "repo_path": {"type": "string"}
+            },
+            "required": ["repo_path"]
+        }
+    },
+
+    "load_bundle": {
+        "name": "load_bundle",
+        "description": "Load a pre-indexed bundle.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "bundle_name": {"type": "string"},
+                "clear_existing": {"type": "boolean", "default": False}
             },
             "required": ["bundle_name"]
         }
     },
+
     "search_registry_bundles": {
         "name": "search_registry_bundles",
-        "description": "Search for available pre-indexed bundles in the registry. Returns bundles matching the search query with details like repository, version, size, and download information.",
+        "description": "Search registry bundles.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Search query to find bundles (searches in name, repository, and description). Leave empty to list all bundles."},
-                "unique_only": {"type": "boolean", "description": "If true, show only the most recent version of each package. If false, show all versions.", "default": False}
+                "query": {"type": "string"},
+                "unique_only": {"type": "boolean", "default": False}
             }
         }
     },
+
     "get_repository_stats": {
         "name": "get_repository_stats",
-        "description": "Get statistics about indexed repositories, including counts of files, functions, classes, and modules. Can show overall database statistics or stats for a specific repository.",
+        "description": "Get repository statistics.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "repo_path": {"type": "string", "description": "Optional: Path to a specific repository. If not provided, returns overall database statistics."}
+                "repo_path": {"type": "string"}
             }
         }
     },
+
     "discover_codegraph_contexts": {
         "name": "discover_codegraph_contexts",
-        "description": "Scan child directories of the current workspace (or a given path) for .codegraphcontext folders that contain indexed code graph databases. Useful when the IDE is opened on a parent folder that itself has no database, but its sub-projects do.",
+        "description": "Discover .codegraphcontext folders.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Optional: Root directory to scan. Defaults to the server's current working directory."},
-                "max_depth": {"type": "integer", "description": "How many levels of child directories to scan. Defaults to 1 (immediate children only).", "default": 1}
+                "repo_path": {"type": "string"},
+                "max_depth": {"type": "integer", "default": 1}
             }
         }
     },
+
     "switch_context": {
         "name": "switch_context",
-        "description": "Switch the current MCP session to use a different .codegraphcontext database. Provide the path to the repo directory (or its .codegraphcontext/ folder). The server will reconnect to that database so subsequent queries use it. By default the mapping is saved globally for persistence across restarts.",
+        "description": "Switch active graph context.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "context_path": {"type": "string", "description": "Path to the repository root that contains a .codegraphcontext/ folder, or directly to the .codegraphcontext/ folder itself."},
-                "save": {"type": "boolean", "description": "Whether to persist this mapping so the server reconnects automatically next time. Defaults to true.", "default": True}
+                "context_path": {"type": "string"},
+                "save": {"type": "boolean", "default": True}
             },
             "required": ["context_path"]
         }
     },
+
     "generate_report": {
         "name": "generate_report",
-        "description": "Generate a CGC_REPORT.md summarising god nodes (highest fan-in), most complex functions, cross-module coupling, potential dead code, and suggested Cypher queries. Use include_java=true to also include Spring endpoint tables, bean stereotype counts, and Maven module dependency summaries.",
+        "description": "Generate codegraph report.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "output_path": {"type": "string", "description": "Where to write the report. Defaults to CGC_REPORT.md in the server working directory."},
-                "include_java": {"type": "boolean", "description": "Include Spring/Maven Java-specific sections.", "default": False},
-                "god_node_limit": {"type": "integer", "description": "Max rows for god-nodes section.", "default": 15},
-                "complexity_limit": {"type": "integer", "description": "Max rows for complexity section.", "default": 15},
-                "cross_module_limit": {"type": "integer", "description": "Max rows for cross-module connections section.", "default": 20}
+                "output_path": {"type": "string"},
+                "include_java": {"type": "boolean", "default": False},
+                "god_node_limit": {"type": "integer", "default": 15},
+                "complexity_limit": {"type": "integer", "default": 15},
+                "cross_module_limit": {"type": "integer", "default": 20}
             }
         }
     },
+
     "find_java_spring_endpoints": {
         "name": "find_java_spring_endpoints",
-        "description": "Find all Spring HTTP endpoint handler functions in the indexed Java codebase. Optionally filter by HTTP method (GET, POST, PUT, DELETE, PATCH) or URL path pattern.",
+        "description": "Find Spring endpoints.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "http_method": {"type": "string", "description": "Optional: HTTP method to filter by (GET, POST, PUT, DELETE, PATCH).", "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]},
-                "path_pattern": {"type": "string", "description": "Optional: URL path substring to filter by (e.g. '/api/users')."},
-                "repo_path": {"type": "string", "description": "Optional: Restrict search to a specific repository path."}
+                "http_method": {"type": "string"},
+                "path_pattern": {"type": "string"},
+                "repo_path": {"type": "string"}
             }
         }
     },
+
     "find_java_spring_beans": {
         "name": "find_java_spring_beans",
-        "description": "Find Spring bean classes by stereotype (CONTROLLER, REST_CONTROLLER, SERVICE, REPOSITORY, COMPONENT, CONFIGURATION). Returns class names, file paths, and injection counts.",
+        "description": "Find Spring beans.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "stereotype": {"type": "string", "description": "Optional: Filter by Spring stereotype.", "enum": ["CONTROLLER", "REST_CONTROLLER", "SERVICE", "REPOSITORY", "COMPONENT", "CONFIGURATION"]},
-                "repo_path": {"type": "string", "description": "Optional: Restrict search to a specific repository path."}
+                "stereotype": {
+                    "type": "string",
+                    "enum": ["CONTROLLER", "REST_CONTROLLER", "SERVICE", "REPOSITORY", "COMPONENT", "CONFIGURATION"]
+                },
+                "repo_path": {"type": "string"}
             }
         }
     },
+
     "find_datasource_nodes": {
         "name": "find_datasource_nodes",
-        "description": "Query Datasource, DbTable, DbColumn, and RedisKeyPattern nodes in the code graph. Returns datasources and their tables/key-patterns, optionally filtered by kind or name.",
+        "description": "Query datasource nodes.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "kind": {
                     "type": "string",
-                    "description": "Optional: Filter by datasource kind.",
                     "enum": ["mysql", "cassandra", "redis"]
                 },
-                "name": {
-                    "type": "string",
-                    "description": "Optional: Filter by datasource name (substring match)."
-                },
-                "include_columns": {
-                    "type": "boolean",
-                    "description": "If true, include DbColumn / RedisKeyPattern details in the response. Default false."
-                }
+                "name": {"type": "string"},
+                "include_columns": {"type": "boolean"}
             }
         }
     }

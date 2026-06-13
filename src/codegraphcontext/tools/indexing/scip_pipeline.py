@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -16,6 +17,7 @@ from ...utils.path_ignore import file_path_has_ignore_dir_segment
 from .constants import DEFAULT_IGNORE_PATTERNS
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
+from .resolution.calls import build_function_call_groups
 from .resolution.inheritance import build_inheritance_and_csharp_files
 
 
@@ -164,6 +166,8 @@ async def run_scip_index_async(
 
                         file_data["imports"] = ts_data.get("imports", [])
                         file_data["variables"] = ts_data.get("variables", [])
+                        if ts_data.get("function_calls"):
+                            file_data["function_calls"] = ts_data["function_calls"]
                 except Exception as e:
                     debug_log(f"Tree-sitter supplement failed for {abs_path_str}: {e}")
 
@@ -227,6 +231,17 @@ async def run_scip_index_async(
             list(files_data.values()), imports_map
         )
         writer.write_inheritance_links(inheritance_batch, csharp_files, imports_map)
+
+        all_file_data = list(files_data.values())
+        info_logger(
+            f"[CALLS] Resolving Tree-sitter function calls across {len(all_file_data)} files..."
+        )
+        t_calls = time.time()
+        if job_id:
+            job_manager.update_job(job_id, status_message="Resolving function CALLS edges...")
+        resolved_calls = build_function_call_groups(all_file_data, imports_map, None)
+        writer.write_function_call_groups(*resolved_calls)
+        info_logger(f"[CALLS] Tree-sitter call resolution complete in {time.time() - t_calls:.1f}s")
 
         writer.write_scip_call_edges(files_data, name_from_symbol)
 

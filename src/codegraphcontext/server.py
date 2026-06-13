@@ -404,7 +404,7 @@ class MCPServer:
     def discover_codegraph_contexts_tool(self, **args) -> Dict[str, Any]:
         from .utils.path_sandbox import is_path_allowed, clamp_discovery_depth
 
-        scan_path = Path(args.get("path", str(self.cwd))).resolve()
+        scan_path = Path(args.get("path") or args.get("repo_path") or str(self.cwd)).resolve()
         if not is_path_allowed(scan_path):
             return {
                 "error": (
@@ -429,6 +429,27 @@ class MCPServer:
         except Exception as e:
             return {"error": f"Discovery failed: {e}"}
 
+    def _stop_current_watcher(self) -> bool:
+        """Stop the active code watcher (if any). Returns whether it was running."""
+        was_running = False
+        try:
+            watcher = getattr(self, "code_watcher", None)
+            if watcher is not None:
+                was_running = watcher.observer.is_alive()
+                watcher.stop()
+        except Exception as exc:
+            warning_logger(f"Failed to stop old code watcher during context switch: {exc}")
+        return was_running
+
+    def _start_watcher_if(self, should_start: bool) -> None:
+        """Start the (new) code watcher when the previous one was running."""
+        if not should_start:
+            return
+        try:
+            self.code_watcher.start()
+        except Exception as exc:
+            warning_logger(f"Failed to start new code watcher after context switch: {exc}")
+
     def switch_context_tool(self, **args) -> Dict[str, Any]:
         raw_path = args.get("context_path", "")
         should_save = args.get("save", True)
@@ -439,10 +460,11 @@ class MCPServer:
         # --- Special case: switch back to the global context ---
         if raw_path == "global":
             try:
+                watcher_was_running = self._stop_current_watcher()
                 try:
                     _teardown_db_manager(self.db_manager)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    warning_logger(f"Failed to tear down old DB manager during context switch: {exc}")
 
                 # Resolve global DB path directly — do NOT use resolve_context()
                 # because that checks CWD for local .codegraphcontext/ and may
@@ -466,6 +488,7 @@ class MCPServer:
                 self.graph_builder = GraphBuilder(self.db_manager, self.job_manager, self.loop)
                 self.code_finder = CodeFinder(self.db_manager)
                 self.code_watcher = CodeWatcher(self.graph_builder, self.job_manager)
+                self._start_watcher_if(watcher_was_running)
                 self._context_note_pending = False
 
                 return {
@@ -506,11 +529,12 @@ class MCPServer:
         new_db_path = str(cgc_dir / "db" / local_db)
 
         try:
+            watcher_was_running = self._stop_current_watcher()
             # Tear down old connection
             try:
                 _teardown_db_manager(self.db_manager)
-            except Exception:
-                pass
+            except Exception as exc:
+                warning_logger(f"Failed to tear down old DB manager during context switch: {exc}")
 
             os.environ['CGC_RUNTIME_DB_TYPE'] = local_db
             new_manager = get_database_manager(db_path=new_db_path)
@@ -530,6 +554,7 @@ class MCPServer:
             self.graph_builder = GraphBuilder(self.db_manager, self.job_manager, self.loop)
             self.code_finder = CodeFinder(self.db_manager)
             self.code_watcher = CodeWatcher(self.graph_builder, self.job_manager)
+            self._start_watcher_if(watcher_was_running)
 
             if should_save:
                 save_workspace_mapping(self.cwd, cgc_dir)
@@ -553,6 +578,18 @@ class MCPServer:
         """
         if tool_name in self.disabled_tools:
             return {"error": f"Tool '{tool_name}' is disabled in mcp.json (disabledTools)."}
+
+        # Normalize path/repo_path aliasing: tool schemas declare `repo_path`
+        # while several handlers read `path` (and vice versa). Skip the
+        # repo_path -> path direction for tools where the two keys carry
+        # different meanings (path = file path, repo_path = repo filter).
+        if isinstance(args, dict):
+            args = dict(args)
+            path_means_file = tool_name in ("calculate_cyclomatic_complexity",)
+            if "repo_path" in args and "path" not in args and not path_means_file:
+                args["path"] = args["repo_path"]
+            elif "path" in args and "repo_path" not in args:
+                args["repo_path"] = args["path"]
 
         tool_map: Dict[str, Coroutine] = {
             "add_package_to_graph": self.add_package_to_graph_tool,
@@ -612,6 +649,17 @@ class MCPServer:
         self.code_watcher.start()
         
         loop = asyncio.get_event_loop()
+        try:
+            await self._run_loop(loop)
+        finally:
+            # Release watcher/DB resources even when stdin reaches EOF or the
+            # loop exits unexpectedly.
+            try:
+                self.shutdown()
+            except Exception as exc:
+                warning_logger(f"Error during server shutdown: {exc}")
+
+    async def _run_loop(self, loop):
         request_count = 0
         while True:
             try:
@@ -641,6 +689,7 @@ class MCPServer:
                                 "instructionsAvailable": True
                             },
                             "capabilities": {"tools": {"listTools": True}},
+                            "instructions": LLM_SYSTEM_PROMPT,
                         }
                     }
                 elif method == 'tools/list':

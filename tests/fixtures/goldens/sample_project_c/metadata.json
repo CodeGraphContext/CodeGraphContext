@@ -7,7 +7,7 @@
   "is_dependency": false,
   "commit": "c74cd26c",
   "branch": "main",
-  "generator": "PYv0.4.19",
+  "generator": "PYv0.5.0",
   "name": "sample_project_c.cgc",
   "graph_metrics": {
     "total_nodes": 105,

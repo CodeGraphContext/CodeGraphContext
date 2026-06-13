@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useSearchParams, useParams } from "react-router-dom";
+import { useSearchParams, useParams, useLocation } from "react-router-dom";
 import CodeGraphViewer from "../components/CodeGraphViewer";
 import LocalUploader from "../components/LocalUploader";
 import { motion, AnimatePresence } from "framer-motion";
@@ -9,6 +9,14 @@ import JSZip from "jszip";
 import { parseFilesIntoGraph } from "../lib/parser";
 import { KuzuCoordinator } from "../lib/kuzu-coordinator";
 import { getOrCreateSessionId } from "../lib/utils";
+import {
+  RepoRef,
+  getAuthTokenKey,
+  getCacheKey,
+  getLegacyCacheKey,
+  repoRefFromRoute,
+} from "../lib/repo-provider";
+import { fetchRepositoryFiles } from "../lib/repo-fetcher";
 
 
 const IGNORED_DIRS = new Set([
@@ -76,23 +84,32 @@ const openDB = (): Promise<IDBDatabase> => {
   });
 };
 
-const getCachedGraph = async (owner: string, repo: string): Promise<any | null> => {
+const getCachedGraph = async (ref: RepoRef): Promise<any | null> => {
   try {
     const db = await openDB();
+    const cacheKeys = [getCacheKey(ref), getLegacyCacheKey(ref)];
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE_NAME, "readonly");
       const store = transaction.objectStore(STORE_NAME);
-      const request = store.get(`${owner.toLowerCase()}/${repo.toLowerCase()}`);
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        const result = request.result;
-        // Keep cache valid for 7 days
-        if (result && (Date.now() - result.timestamp < 7 * 24 * 60 * 60 * 1000)) {
-          resolve(result.graphData);
-        } else {
-          resolve(null);
-        }
-      };
+      let pending = cacheKeys.length;
+      let found: any | null = null;
+
+      for (const key of cacheKeys) {
+        const request = store.get(key);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const result = request.result;
+          if (
+            !found &&
+            result &&
+            Date.now() - result.timestamp < 7 * 24 * 60 * 60 * 1000
+          ) {
+            found = result.graphData;
+          }
+          pending -= 1;
+          if (pending === 0) resolve(found);
+        };
+      }
     });
   } catch (e) {
     console.error("Failed to read from IndexedDB", e);
@@ -100,14 +117,14 @@ const getCachedGraph = async (owner: string, repo: string): Promise<any | null> 
   }
 };
 
-const cacheGraph = async (owner: string, repo: string, graphData: any): Promise<void> => {
+const cacheGraph = async (ref: RepoRef, graphData: any): Promise<void> => {
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE_NAME, "readwrite");
       const store = transaction.objectStore(STORE_NAME);
       const request = store.put({
-        key: `${owner.toLowerCase()}/${repo.toLowerCase()}`,
+        key: getCacheKey(ref),
         graphData,
         timestamp: Date.now()
       });
@@ -160,41 +177,14 @@ const fetchWithProgress = async (
   });
 };
 
-interface JSDelivrFile {
-  name: string;
-  type: "file" | "directory";
-  size?: number;
-  files?: JSDelivrFile[];
-}
-
-const flattenJSDelivrTree = (items: JSDelivrFile[], currentPath = ""): string[] => {
-  let filePaths: string[] = [];
-  for (const item of items) {
-    const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
-    if (item.type === "file") {
-      filePaths.push(itemPath);
-    } else if (item.type === "directory" && item.files) {
-      filePaths.push(...flattenJSDelivrTree(item.files, itemPath));
-    }
-  }
-  return filePaths;
-};
-
-const getJSDelivrTotalSize = (items: JSDelivrFile[]): number => {
-  let total = 0;
-  for (const item of items) {
-    if (item.type === "file" && item.size) {
-      total += item.size;
-    } else if (item.type === "directory" && item.files) {
-      total += getJSDelivrTotalSize(item.files);
-    }
-  }
-  return total;
-};
-
 const Explore = () => {
   const [searchParams] = useSearchParams();
-  const { owner, repo } = useParams();
+  const location = useLocation();
+  const { owner, repo, "*": gitlabSplat } = useParams();
+  const isGitlabRoute = location.pathname.startsWith("/gitlab/");
+  const repoRef = isGitlabRoute
+    ? repoRefFromRoute("gitlab", undefined, undefined, gitlabSplat)
+    : repoRefFromRoute("github", owner, repo);
   const [graphData, setGraphData] = useState<any>(null);
   const graphDataRef = useRef<any>(null);
   useEffect(() => {
@@ -325,21 +315,19 @@ const Explore = () => {
     throw lastError || new Error("Failed to fetch via all available CORS proxies.");
   };
 
-  // If owner and repo path parameters are present, auto-fetch and index the codebase!
+  // If route parameters resolve to a repository, auto-fetch and index the codebase.
   useEffect(() => {
-    if (!owner || !repo) return;
-    
-    // Ignore static routes like "explore" getting caught as owner/repo
-    if (owner.toLowerCase() === "explore") return;
+    if (!repoRef) return;
+
+    if (!isGitlabRoute && owner?.toLowerCase() === "explore") return;
 
     const autoFetchAndIndex = async () => {
       setLoading(true);
       setError(null);
       
       try {
-        // 1. Try to load from IndexedDB cache first
         try {
-          const cached = await getCachedGraph(owner, repo);
+          const cached = await getCachedGraph(repoRef);
           if (cached) {
             setProgressText("Loading cached codebase graph...");
             setProgressValue(90);
@@ -348,353 +336,20 @@ const Explore = () => {
             setProgressText("Complete!");
             setProgressValue(100);
             setLoading(false);
-            console.log(`[Cache] Loaded repository graph for ${owner}/${repo} from IndexedDB cache.`);
+            console.log(`[Cache] Loaded repository graph for ${repoRef.fullPath} from IndexedDB cache.`);
             return;
           }
         } catch (cacheErr) {
           console.warn("[Cache] Error reading from cache:", cacheErr);
         }
 
-        let files: any[] = [];
-        let fileContents: Record<string, string> = {};
-
-        const getGithubHeaders = () => {
-          const headers: Record<string, string> = {};
-          const pat = localStorage.getItem('github_pat');
-          if (pat) {
-            headers['Authorization'] = `token ${pat}`;
-          }
-          return headers;
-        };
-
-        // 2. Resolve the default branch dynamically (natively CORS-compliant, rate-limited at 60/hr/IP on GitHub REST API)
-        let detectedBranch = "main";
-        let latestCommitSha = "";
-        try {
-          console.log(`[Explore] Resolving default branch for ${owner}/${repo} dynamically...`);
-          const apiRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers: getGithubHeaders() });
-          if (apiRes.ok) {
-            const apiData = await apiRes.json();
-            if (apiData && apiData.default_branch) {
-              detectedBranch = apiData.default_branch;
-              console.log(`[Explore] GitHub REST API resolved default branch: ${detectedBranch}`);
-            }
-          }
-          
-          console.log(`[Explore] Resolving latest commit SHA for branch ${detectedBranch} dynamically...`);
-          const commitsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${detectedBranch}`, { headers: getGithubHeaders() });
-          if (commitsRes.ok) {
-            const commitsData = await commitsRes.json();
-            if (commitsData && commitsData.sha) {
-              latestCommitSha = commitsData.sha;
-              console.log(`[Explore] GitHub REST API resolved latest commit SHA: ${latestCommitSha}`);
-            }
-          }
-        } catch (err) {
-          console.warn("[Explore] Failed to resolve default branch or commit SHA dynamically via GitHub API:", err);
-        }
-
-        // Compile a robust fallback order of branch names to try (ensuring non-standard branches like unstable/trunk/develop work)
-        const branchesToTry = Array.from(new Set([
-          detectedBranch,
-          "main",
-          "master",
-          "unstable",
-          "trunk",
-          "develop",
-          "dev"
-        ]));
-
-        // 3. Estimate the repository size using jsDelivr API (Rate-limit free)
-        let estimatedZipSize = 4 * 1024 * 1024; // Default to 4MB estimate
-        let isEstimateReliable = false;
-        let sizeMetaData = null;
-        let sizeSuccessBranch = detectedBranch;
-
-        console.log("[Explore] Fetching repo metadata to estimate ZIP download size...");
-        for (const branch of branchesToTry) {
-          try {
-            const jsdelivrMetaUrl = `https://data.jsdelivr.net/v1/packages/gh/${owner}/${repo}@${branch}`;
-            const metaRes = await fetch(jsdelivrMetaUrl);
-            if (metaRes.ok) {
-              sizeMetaData = await metaRes.json();
-              sizeSuccessBranch = branch;
-              console.log(`[Explore] Successfully fetched jsDelivr metadata for size estimation (@${branch})`);
-              break;
-            }
-          } catch (err) {
-            console.warn(`[Explore] Failed jsDelivr metadata fetch for branch ${branch}:`, err);
-          }
-        }
-
-        if (sizeMetaData && Array.isArray(sizeMetaData.files)) {
-          const uncompressedSize = getJSDelivrTotalSize(sizeMetaData.files);
-          if (uncompressedSize > 0) {
-            estimatedZipSize = Math.max(500 * 1024, uncompressedSize * 0.22); // Assume 22% average compression
-            isEstimateReliable = true;
-            console.log(`[Explore] Estimated ZIP size: ${(estimatedZipSize / 1024 / 1024).toFixed(2)} MB (based on ${(uncompressedSize / 1024 / 1024).toFixed(2)} MB uncompressed, branch @${sizeSuccessBranch})`);
-          }
-        }
-
-        try {
-          // --- METHOD 1: ZIP ARCHIVE FLOW (PRIMARY) ---
-          setProgressText("Downloading repository archive...");
-          setProgressValue(10);
-          
-          let response = null;
-          let zipSuccessBranch = detectedBranch;
-
-          const updateDownloadProgress = (loaded: number, total: number) => {
-            const mbLoaded = (loaded / 1024 / 1024).toFixed(2);
-            const finalTotal = total > 0 ? total : estimatedZipSize;
-            
-            let pct = 0;
-            if (loaded < finalTotal) {
-              pct = Math.round((loaded / finalTotal) * 90);
-            } else {
-              const overflow = loaded - finalTotal;
-              const extraPct = 9 * (1 - Math.exp(-overflow / (1024 * 1024 * 5))); // 5MB half-life
-              pct = Math.round(90 + extraPct);
-            }
-
-            if (total > 0) {
-              setProgressText(`Downloading repository archive: ${pct}% (${mbLoaded} MB of ${(total / 1024 / 1024).toFixed(2)} MB)`);
-            } else if (isEstimateReliable) {
-              setProgressText(`Downloading repository archive: ${pct}% (${mbLoaded} MB of ~${(estimatedZipSize / 1024 / 1024).toFixed(2)} MB)`);
-            } else {
-              setProgressText(`Downloading repository archive: ${pct}% (${mbLoaded} MB)`);
-            }
-            setProgressValue(10 + Math.floor(pct * 0.15));
-          };
-
-          // TIER 0: Authenticated GitHub REST API Zipball (Direct & CORS-compliant for Private Repos)
-          const pat = localStorage.getItem('github_pat');
-          if (pat) {
-            for (const branch of branchesToTry) {
-              try {
-                console.log(`[Explore] Authenticated Tier: Fetching private zipball for branch: ${branch}`);
-                const zipUrl = `https://api.github.com/repos/${owner}/${repo}/zipball/${branch}`;
-                const tempRes = await fetch(zipUrl, {
-                  headers: {
-                    'Authorization': `token ${pat}`
-                  }
-                });
-                if (tempRes && tempRes.ok) {
-                  response = tempRes;
-                  zipSuccessBranch = branch;
-                  console.log(`[Explore] Authenticated Tier succeeded for branch: ${branch}`);
-                  break;
-                }
-              } catch (errAuth) {
-                console.warn(`[Explore] Authenticated Tier zip failed for branch ${branch}:`, errAuth);
-              }
-            }
-          }
-
-          // TIER 1: Same-Origin Serverless Rewrite / Dev Proxy (Fastest & CORS-Free)
-          if (!response || !response.ok) {
-            for (const branch of branchesToTry) {
-              try {
-                console.log(`[Explore] Tier 1: Fetching zip archive via same-origin rewrite for branch: ${branch}`);
-                const zipUrl = `/api/github-zip/${owner}/${repo}/${branch}`;
-                const tempRes = await fetchWithProgress(zipUrl, updateDownloadProgress);
-                if (tempRes && tempRes.ok) {
-                  const contentType = tempRes.headers.get("content-type") || "";
-                  if (!contentType.includes("text/html") && !contentType.includes("application/json")) {
-                    response = tempRes;
-                    zipSuccessBranch = branch;
-                    console.log(`[Explore] Tier 1 succeeded for branch: ${branch}`);
-                    break;
-                  }
-                }
-              } catch (err1) {
-                console.warn(`[Explore] Tier 1 same-origin zip failed for branch ${branch}:`, err1);
-              }
-            }
-          }
-
-          // TIER 2: Fallback to public CORS Proxies (Standard Web Archive)
-          if (!response || !response.ok) {
-            console.log("[Explore] Tier 2: Falling back to public CORS proxies...");
-            for (const branch of branchesToTry) {
-              try {
-                console.log(`[Explore] Tier 2: Fetching zip archive via CORS proxy for branch: ${branch}`);
-                const zipUrl = `https://github.com/${owner}/${repo}/archive/refs/heads/${branch}.zip`;
-                const tempRes = await fetchWithFallbackProxies(zipUrl, updateDownloadProgress);
-                if (tempRes && tempRes.ok) {
-                  const contentType = tempRes.headers.get("content-type") || "";
-                  if (!contentType.includes("text/html") && !contentType.includes("application/json")) {
-                    response = tempRes;
-                    zipSuccessBranch = branch;
-                    console.log(`[Explore] Tier 2 succeeded for branch: ${branch}`);
-                    break;
-                  }
-                }
-              } catch (err3) {
-                console.warn(`[Explore] Tier 2 fallback zip failed for branch ${branch}:`, err3);
-              }
-            }
-          }
-
-          if (!response || !response.ok) {
-            throw new Error("All ZIP download tiers failed.");
-          }
-
-          setProgressText("Unzipping archive in-memory...");
-          setProgressValue(30);
-          const buffer = await response.arrayBuffer();
-          const jszip = await JSZip.loadAsync(buffer);
-          
-          const promises: Promise<void>[] = [];
-          
-          jszip.forEach((path, entry) => {
-            if (
-              !entry.dir && 
-              path.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/) && 
-              !isPathIgnored(path)
-            ) {
-              promises.push(
-                entry.async("text").then((content) => {
-                  const cleanPath = path.substring(path.indexOf("/") + 1);
-                  files.push({ path: cleanPath, content });
-                })
-              );
-            }
-          });
-          
-          if (promises.length === 0) {
-            throw new Error("No parseable code files found in the repository.");
-          }
-          
-          setProgressText(`Extracting ${promises.length} files...`);
-          setProgressValue(45);
-          await Promise.all(promises);
-
-          for (const f of files) {
-            fileContents[f.path] = f.content;
-          }
-          console.log(`[ZIP Flow] Successfully downloaded and extracted ${files.length} files from branch @${zipSuccessBranch}.`);
-
-        } catch (zipErr: any) {
-          console.warn("[ZIP Flow] Failed, falling back to CDN individual file pipeline...", zipErr);
-          files = [];
-          fileContents = {};
-
-          // --- METHOD 2: FALLBACK FAST CDN FLOW ---
-          setProgressText("Fetching repository structure (fallback)...");
-          setProgressValue(5);
-          
-          let filesList: string[] = [];
-          let cdnSuccessBranch = detectedBranch;
-
-          // TIER 1: Try jsDelivr Data API first
-          for (const branch of branchesToTry) {
-            try {
-              console.log(`[Explore] Fallback Tier 1: Attempting to list repository files via jsDelivr API (@${branch})...`);
-              const jsdelivrMetaUrl = `https://data.jsdelivr.net/v1/packages/gh/${owner}/${repo}@${branch}`;
-              const metaRes = await fetch(jsdelivrMetaUrl);
-              if (metaRes.ok) {
-                const metaData = await metaRes.json();
-                if (metaData && Array.isArray(metaData.files)) {
-                  filesList = flattenJSDelivrTree(metaData.files);
-                  cdnSuccessBranch = branch;
-                  if (metaData.version) {
-                    latestCommitSha = metaData.version;
-                    console.log(`[Explore] jsDelivr resolved version/commit: ${latestCommitSha}`);
-                  }
-                  console.log(`[Explore] Successfully resolved ${filesList.length} files from jsDelivr API (@${branch}).`);
-                  break;
-                }
-              }
-            } catch (e) {
-              console.warn(`[Explore] Fallback Tier 1 jsDelivr @${branch} failed:`, e);
-            }
-          }
-
-          // TIER 2: Fallback to GitHub REST API
-          if (filesList.length === 0) {
-            console.log("[Explore] Fallback Tier 2: Fetching structure from GitHub REST API...");
-            for (const branch of branchesToTry) {
-              try {
-                console.log(`[Explore] Fallback Tier 2: Fetching structure for branch @${branch} from GitHub REST API...`);
-                const treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=true`, { headers: getGithubHeaders() });
-                if (treeResponse.ok) {
-                  const treeData = await treeResponse.json();
-                  if (treeData && Array.isArray(treeData.tree)) {
-                    filesList = treeData.tree
-                      .filter((item: any) => item.type === "blob")
-                      .map((item: any) => item.path);
-                    cdnSuccessBranch = branch;
-                    console.log(`[Explore] Resolved ${filesList.length} files from GitHub REST API for branch @${branch}.`);
-                    break;
-                  }
-                }
-              } catch (e) {
-                console.warn(`[Explore] Fallback Tier 2 GitHub REST API @${branch} failed:`, e);
-              }
-            }
-          }
-
-          if (filesList.length === 0) {
-            throw new Error("Failed to fetch tree from GitHub REST API or jsDelivr API for all branch attempts.");
-          }
-
-          // Filter files matching our source-code pattern
-          const candidatePaths = filesList.filter((path) => 
-            path.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/) &&
-            !isPathIgnored(path)
-          );
-          
-          if (candidatePaths.length === 0) {
-            throw new Error("No parseable code files found in the repository.");
-          }
-
-          const candidateFiles = candidatePaths.map(p => ({ path: p }));
-          
-          setProgressText(`Found ${candidateFiles.length} code files. Downloading in parallel...`);
-          setProgressValue(15);
-          
-          const BATCH_SIZE = 15;
-          let downloadedCount = 0;
-          
-          for (let i = 0; i < candidateFiles.length; i += BATCH_SIZE) {
-            const batch = candidateFiles.slice(i, i + BATCH_SIZE);
-            
-            await Promise.all(
-              batch.map(async (file: any) => {
-                const fileUrl = `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${cdnSuccessBranch}/${file.path}`;
-                try {
-                  const fileRes = await fetch(fileUrl);
-                  if (!fileRes.ok) throw new Error(`Status ${fileRes.status}`);
-                  const content = await fileRes.text();
-                  files.push({ path: file.path, content });
-                  fileContents[file.path] = content;
-                } catch (err) {
-                  try {
-                    const fallbackUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${cdnSuccessBranch}/${file.path}`;
-                    const fileRes = await fetch(fallbackUrl, { headers: getGithubHeaders() });
-                    if (!fileRes.ok) throw new Error(`Status ${fileRes.status}`);
-                    const content = await fileRes.text();
-                    files.push({ path: file.path, content });
-                    fileContents[file.path] = content;
-                  } catch (e2) {
-                    console.warn(`Failed to fetch file content for ${file.path}:`, err, e2);
-                  }
-                } finally {
-                  downloadedCount++;
-                  const progress = 15 + Math.min(35, Math.floor((downloadedCount / candidateFiles.length) * 35));
-                  setProgressText(`Downloading files (${downloadedCount}/${candidateFiles.length})...`);
-                  setProgressValue(progress);
-                }
-              })
-            );
-          }
-          
-          if (files.length === 0) {
-            throw new Error("Failed to download any code files from the CDN.");
-          }
-          console.log(`[CDN Flow] Successfully downloaded ${files.length} files from CDN branch @${cdnSuccessBranch}.`);
-        }
+        const { files, fileContents, latestCommitSha } = await fetchRepositoryFiles(repoRef, {
+          onProgressText: setProgressText,
+          onProgressValue: setProgressValue,
+          isPathIgnored,
+          fetchWithProgress,
+          fetchWithFallbackProxies,
+        });
 
         // --- COMMON SEMANTIC INDEXING PHASE ---
         setProgressText("Initializing WebAssembly semantic engine...");
@@ -734,7 +389,8 @@ const Explore = () => {
           ...graphData,
           fileContents,
           metadata: {
-            repo: `${owner}/${repo}`,
+            repo: repoRef.fullPath,
+            provider: repoRef.provider,
             version: latestCommitSha ? (latestCommitSha.length === 40 && /^[0-9a-fA-F]+$/.test(latestCommitSha) ? latestCommitSha.substring(0, 7) : latestCommitSha) : "1.0.0",
             commit: latestCommitSha || "",
             exported_at: new Date().toISOString(),
@@ -743,10 +399,9 @@ const Explore = () => {
         };
         setGraphData(finalGraphData);
         
-        // Cache the newly indexed graph data to IndexedDB
         try {
-          await cacheGraph(owner, repo, finalGraphData);
-          console.log(`[Cache] Successfully cached repository graph for ${owner}/${repo} in IndexedDB.`);
+          await cacheGraph(repoRef, finalGraphData);
+          console.log(`[Cache] Successfully cached repository graph for ${repoRef.fullPath} in IndexedDB.`);
         } catch (cacheErr) {
           console.warn("[Cache] Failed to save graph to IndexedDB:", cacheErr);
         }
@@ -760,41 +415,42 @@ const Explore = () => {
     };
 
     autoFetchAndIndex();
-  }, [owner, repo]);
+  }, [repoRef?.fullPath, repoRef?.provider, owner, repo, isGitlabRoute, gitlabSplat]);
 
   // ✅ Automatic Graph Caching: Safely caches all graphs (local folder uploads, ZIPs, CGC bundles) to IndexedDB!
   useEffect(() => {
     if (!graphData) return;
 
     const saveToCache = async () => {
+      let cacheRef = repoRef;
       const metaRepo = graphData.metadata?.repo || "";
-      let cleanOwner = "local";
-      let cleanRepo = metaRepo || "local-project";
 
-      if (metaRepo) {
-        if (metaRepo.includes("/")) {
-          const parts = metaRepo.split("/");
-          cleanOwner = parts[0];
-          cleanRepo = parts[1];
-        } else {
-          cleanOwner = "local";
-          cleanRepo = metaRepo;
-        }
-      } else if (owner && repo) {
-        cleanOwner = owner;
-        cleanRepo = repo;
+      if (!cacheRef && metaRepo.includes("/")) {
+        const parts = metaRepo.split("/").filter(Boolean);
+        const repoName = parts[parts.length - 1];
+        const ownerPath = parts.slice(0, -1).join("/");
+        const provider = graphData.metadata?.provider === "gitlab" ? "gitlab" : "github";
+        cacheRef = {
+          provider,
+          owner: ownerPath,
+          repo: repoName,
+          fullPath: metaRepo,
+          host: provider === "gitlab" ? "gitlab.com" : "github.com",
+        };
       }
 
+      if (!cacheRef) return;
+
       try {
-        await cacheGraph(cleanOwner, cleanRepo, graphData);
-        console.log(`[Cache] Automatically cached active graph for ${cleanOwner}/${cleanRepo} in IndexedDB.`);
+        await cacheGraph(cacheRef, graphData);
+        console.log(`[Cache] Automatically cached active graph for ${cacheRef.fullPath} in IndexedDB.`);
       } catch (cacheErr) {
         console.warn("[Cache] Failed to auto-save graph to IndexedDB:", cacheErr);
       }
     };
 
     saveToCache();
-  }, [graphData, owner, repo]);
+  }, [graphData, repoRef]);
 
   // ✅ Supabase Realtime Signaling Tunnel: Bridges ChatGPT Action calls to browser's AST Code Graph!
   useEffect(() => {
@@ -814,9 +470,11 @@ const Explore = () => {
     }
 
     // 3. We segment traffic based on the active repo, or fallback to global channel
-    const activeRepoPath = (owner && repo && owner.toLowerCase() !== "explore") 
-      ? `${owner}/${repo}`.toLowerCase()
-      : "playground";
+    const activeRepoPath = repoRef
+      ? repoRef.fullPath.toLowerCase()
+      : (owner && repo && owner.toLowerCase() !== "explore")
+        ? `${owner}/${repo}`.toLowerCase()
+        : "playground";
       
     const cleanRepoName = activeRepoPath.replace(/\//g, "_");
 
@@ -1262,7 +920,7 @@ const Explore = () => {
   }, [backend, repoPath, cypherQuery]);
 
   if (loading) {
-    const isAutoIndexing = owner && repo && owner.toLowerCase() !== "explore";
+    const isAutoIndexing = !!repoRef;
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-black text-center px-6 w-full relative overflow-hidden">
         
@@ -1345,27 +1003,30 @@ const Explore = () => {
           <h1 className="text-sm font-black uppercase tracking-widest mb-3 text-white">Access or Loading Error</h1>
           <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest max-w-md mb-6 leading-relaxed">{error}</p>
           
-          {(owner && repo) && (
+          {repoRef && (
             <div className="mb-6 p-4 rounded-2xl bg-white/5 border border-white/10 text-left">
               <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block mb-2">
                 Private Repository? Access Token (PAT)
               </label>
               <input
                 type="password"
-                placeholder="ghp_..."
-                defaultValue={localStorage.getItem('github_pat') || ""}
+                placeholder="PAT — GitHub (ghp_...) or GitLab (glpat-...)"
+                defaultValue={localStorage.getItem(getAuthTokenKey(repoRef)) || ""}
                 onChange={(e) => {
                   const val = e.target.value.trim();
+                  const tokenKey = getAuthTokenKey(repoRef);
                   if (val) {
-                    localStorage.setItem('github_pat', val);
+                    localStorage.setItem(tokenKey, val);
                   } else {
-                    localStorage.removeItem('github_pat');
+                    localStorage.removeItem(tokenKey);
                   }
                 }}
                 className="w-full bg-black border border-white/20 rounded-full px-4 py-2.5 text-[10px] font-mono text-white placeholder-gray-600 focus:outline-none focus:border-white transition-colors uppercase tracking-widest"
               />
               <p className="text-[8px] font-mono text-gray-600 mt-2 leading-normal uppercase tracking-widest">
-                If the repository is private, dynamic auto-indexing requires a GitHub Personal Access Token with read/repo scopes.
+                {repoRef.provider === "gitlab"
+                  ? "Private GitLab repos need a Personal Access Token with read_api scope."
+                  : "Private GitHub repos need a Personal Access Token with read:repo scope."}
               </p>
             </div>
           )}

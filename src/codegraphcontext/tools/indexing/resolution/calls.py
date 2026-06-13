@@ -899,7 +899,9 @@ def resolve_function_call(
                 return (
                     selected.get("path"),
                     selected.get("line_number"),
-                    selected.get("context") or simple_type_key(type_name),
+                    selected.get("class_context")
+                    or selected.get("context")
+                    or simple_type_key(type_name),
                 )
 
             arity_compatible_members = arity_compatible_function_candidates(
@@ -2103,7 +2105,14 @@ def build_function_call_groups(
                     arg_text = str(call_args[param_index]).strip()
                     if not re.fullmatch(r"[A-Za-z_]\w*", arg_text):
                         continue
-                    for target_fp, target_fn in functions_named(arg_text):
+                    callback_matches = functions_named(arg_text)
+                    if len(callback_matches) > 1:
+                        same_file = [
+                            match for match in callback_matches if match[0] == caller_fp
+                        ]
+                        if same_file:
+                            callback_matches = same_file
+                    for target_fp, target_fn in callback_matches:
                         callback_arg_targets[(callee_fp, callee_name, param)].append(
                             (target_fp, arg_text, target_fn.get("line_number"))
                         )
@@ -2746,7 +2755,7 @@ def build_function_call_groups(
             context_name = context[0] if context and len(context) == 3 else None
             current_call_scope = call_scope(call)
             call_line = call.get("line_number")
-            if caller_lang == "kotlin":
+            if caller_lang in ("kotlin", "dart"):
                 base_obj = call.get("base_obj")
                 if not base_obj:
                     full_name = call.get("full_name", "")

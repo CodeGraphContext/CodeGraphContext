@@ -48,7 +48,7 @@ The testing pipeline utilizes `pytest`. Ensure all checks pass locally before pu
 pytest
 
 # Test a specific driver module
-pytest tests/integration/test_kuzudb.py
+pytest tests/unit/core/test_database_kuzu_compat.py
 
 # Run tests bypassing re-indexing cache
 CGC_SKIP_REINDEX=true pytest

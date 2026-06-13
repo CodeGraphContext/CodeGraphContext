@@ -1,7 +1,11 @@
 # src/codegraphcontext/tools/graph_builder.py
 
 # src/codegraphcontext/tools/graph_builder.py
-"""Facade for graph indexing; implementation lives in indexing/."""
+"""Facade for graph indexing.
+
+Implementation lives in the ``indexing/`` subpackage, including
+parsers, persistence, resolution, and schema management.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -28,9 +32,25 @@ from .tree_sitter_parser import TreeSitterParser
 
 
 class GraphBuilder:
-    """Module for building and managing the code graph (Neo4j / Falkor / Kùzu)."""
+    """Build and manage the code graph.
+
+    Provides a high-level facade over the indexing pipeline, including
+    repository ingestion, file parsing, call resolution, and inheritance
+    linking for Neo4j, FalkorDB, and Kùzu backends.
+    """
 
     def __init__(self, db_manager: DatabaseManager, job_manager: JobManager, loop: asyncio.AbstractEventLoop):
+        """Initialize GraphBuilder.
+
+        Parameters
+        ----------
+        db_manager : DatabaseManager
+            Active database manager instance.
+        job_manager : JobManager
+            Job manager for tracking indexing progress.
+        loop : asyncio.AbstractEventLoop
+            Event loop for async operations.
+        """
         self.db_manager = db_manager
         self.job_manager = job_manager
         self.loop = loop
@@ -129,7 +149,21 @@ class GraphBuilder:
         )
 
     def pre_scan_imports(self, files: list[Path]) -> dict:
-        """Build global imports_map from language pre-scans (public API for watchers/pipeline)."""
+        """Build global imports map from language pre-scans.
+
+        Public API for watchers and the indexing pipeline.
+
+        Parameters
+        ----------
+        files : list[Path]
+            List of file paths to scan for import declarations.
+
+        Returns
+        -------
+        dict
+            Global imports mapping ``{name: [file_paths]}`` used for
+            cross-file relationship resolution.
+        """
         return pre_scan_for_imports(files, self.parsers, self.get_parser)
 
 
@@ -705,11 +739,37 @@ class GraphBuilder:
         return self.pre_scan_imports(files)
 
     def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
+        """Add a repository node to the graph.
+
+        Delegates to :meth:`GraphWriter.add_repository_to_graph`.
+
+        Parameters
+        ----------
+        repo_path : Path
+            Filesystem path to the repository root.
+        is_dependency : bool, optional
+            Whether this repository is a dependency (default ``False``).
+        """
         self._writer.add_repository_to_graph(repo_path, is_dependency)
 
     def add_file_to_graph(
         self, file_data: Dict, repo_name: str, imports_map: dict, repo_path_str: str = None
     ) -> None:
+        """Add a file and its parsed contents to the graph.
+
+        Delegates to :meth:`GraphWriter.add_file_to_graph`.
+
+        Parameters
+        ----------
+        file_data : Dict
+            Parsed file data including functions, classes, imports, etc.
+        repo_name : str
+            Name of the parent repository.
+        imports_map : dict
+            Global imports map for cross-file resolution.
+        repo_path_str : str, optional
+            Pre-resolved repository path to skip a DB lookup.
+        """
         self._writer.add_file_to_graph(file_data, repo_name, imports_map, repo_path_str=repo_path_str)
 
     def link_function_calls(
@@ -718,7 +778,17 @@ class GraphBuilder:
         imports_map: dict,
         file_class_lookup: Optional[Dict[str, set]] = None,
     ) -> None:
-        """Resolve and persist CALLS relationships (public API)."""
+        """Resolve and persist CALLS relationships.
+
+        Parameters
+        ----------
+        all_file_data : list[Dict]
+            Parsed data for all files in the repository.
+        imports_map : dict
+            Global imports map for cross-file resolution.
+        file_class_lookup : dict, optional
+            Pre-built ``{file_path: set_of_class_names}`` for incremental mode.
+        """
         diagnostics: list[Dict[str, Any]] = []
         groups = build_function_call_groups(
             all_file_data,
@@ -748,7 +818,15 @@ class GraphBuilder:
         self.link_function_calls(all_file_data, imports_map, file_class_lookup)
 
     def link_inheritance(self, all_file_data: list[Dict], imports_map: dict) -> None:
-        """Resolve and persist INHERITS / C# IMPLEMENTS / Go IMPLEMENTS (public API)."""
+        """Resolve and persist INHERITS / C# IMPLEMENTS / Go IMPLEMENTS relationships.
+
+        Parameters
+        ----------
+        all_file_data : list[Dict]
+            Parsed data for all files in the repository.
+        imports_map : dict
+            Global imports map for cross-file resolution.
+        """
         from .indexing.resolution.inheritance import (
             build_companion_of_links,
             build_decorated_by_links,
@@ -779,33 +857,132 @@ class GraphBuilder:
         self.link_inheritance(all_file_data, imports_map)
 
     def delete_file_from_graph(self, path: str) -> None:
+        """Remove a file node and all its relationships from the graph.
+
+        Parameters
+        ----------
+        path : str
+            Absolute path of the file to remove.
+        """
         self._writer.delete_file_from_graph(path)
 
     def delete_repository_from_graph(self, repo_path: str) -> bool:
+        """Remove a repository node and all its contents from the graph.
+
+        Parameters
+        ----------
+        repo_path : str
+            Absolute path to the repository root.
+
+        Returns
+        -------
+        bool
+            ``True`` if the repository was found and removed.
+        """
         return self._writer.delete_repository_from_graph(repo_path)
 
     def get_caller_file_paths(self, file_path_str: str) -> set:
+        """Get all files that have CALLS relationships to the given file.
+
+        Parameters
+        ----------
+        file_path_str : str
+            Absolute path of the target file.
+
+        Returns
+        -------
+        set
+            Set of file paths that call into the target file.
+        """
         return self._writer.get_caller_file_paths(file_path_str)
 
     def get_repo_file_paths(self, repo_path: Path) -> set:
+        """Get all file paths indexed for a repository.
+
+        Parameters
+        ----------
+        repo_path : Path
+            Path to the repository root.
+
+        Returns
+        -------
+        set
+            Set of absolute file paths in the repository.
+        """
         return self._writer.get_repo_file_paths(repo_path)
 
     def get_inheritance_neighbor_paths(self, file_path_str: str) -> set:
+        """Get files with INHERITS relationships to/from the given file.
+
+        Parameters
+        ----------
+        file_path_str : str
+            Absolute path of the target file.
+
+        Returns
+        -------
+        set
+            Set of file paths connected via inheritance relationships.
+        """
         return self._writer.get_inheritance_neighbor_paths(file_path_str)
 
     def delete_outgoing_calls_from_files(self, file_paths: list) -> None:
+        """Remove outgoing CALLS relationships from the specified files.
+
+        Parameters
+        ----------
+        file_paths : list
+            List of absolute file paths.
+        """
         self._writer.delete_outgoing_calls_from_files(file_paths)
 
     def delete_inherits_for_files(self, file_paths: list) -> None:
+        """Remove INHERITS relationships for the specified files.
+
+        Parameters
+        ----------
+        file_paths : list
+            List of absolute file paths.
+        """
         self._writer.delete_inherits_for_files(file_paths)
 
     def get_repo_class_lookup(self, repo_path: Path) -> dict:
+        """Get a mapping of file paths to their defined class names.
+
+        Parameters
+        ----------
+        repo_path : Path
+            Path to the repository root.
+
+        Returns
+        -------
+        dict
+            Mapping of ``{file_path: set_of_class_names}``.
+        """
         return self._writer.get_repo_class_lookup(repo_path)
 
     def delete_relationship_links(self, repo_path: Path) -> None:
+        """Remove all relationship links for a repository.
+
+        Parameters
+        ----------
+        repo_path : Path
+            Path to the repository root.
+        """
         self._writer.delete_relationship_links(repo_path)
 
     def update_file_in_graph(self, path: Path, repo_path: Path, imports_map: dict):
+        """Update a file node in the graph (delete and re-index).
+
+        Parameters
+        ----------
+        path : Path
+            Path to the file to update.
+        repo_path : Path
+            Path to the parent repository.
+        imports_map : dict
+            Global imports map for cross-file resolution.
+        """
         file_path_str = path.resolve().as_posix()
         repo_name = repo_path.name
 
@@ -826,6 +1003,23 @@ class GraphBuilder:
         return {"deleted": True, "path": file_path_str}
 
     def parse_file(self, repo_path: Path, path: Path, is_dependency: bool = False) -> Dict:
+        """Parse a source file and extract code structure.
+
+        Parameters
+        ----------
+        repo_path : Path
+            Path to the parent repository.
+        path : Path
+            Path to the file to parse.
+        is_dependency : bool, optional
+            Whether this file belongs to a dependency (default ``False``).
+
+        Returns
+        -------
+        Dict
+            Parsed file data with keys for functions, classes, imports, etc.
+            On failure, returns a dict with an ``error`` key.
+        """
         ext = path.suffix
         if path.name.endswith(".d.ts"):
             ext = ".d.ts"
@@ -860,6 +1054,18 @@ class GraphBuilder:
             return {"path": str(path), "error": str(e)}
 
     def estimate_processing_time(self, path: Path) -> Optional[Tuple[int, float]]:
+        """Estimate the time required to index a repository.
+
+        Parameters
+        ----------
+        path : Path
+            Path to the repository root.
+
+        Returns
+        -------
+        tuple of (int, float) or None
+            ``(total_files, estimated_seconds)``, or ``None`` on error.
+        """
         try:
             from codegraphcontext.tools.indexing.discovery import discover_files_to_index
             supported_extensions = set(self.parsers.keys())
@@ -875,7 +1081,7 @@ class GraphBuilder:
             return None
 
     async def _build_graph_from_scip(
-        self, path: Path, is_dependency: bool, job_id: Optional[str], lang: str
+        self, path: Path, is_dependency: bool, job_id: Optional[str], lang: str, cgcignore_path: Optional[str] = None
     ):
         from . import scip_indexer
 
@@ -893,6 +1099,18 @@ class GraphBuilder:
         )
 
     def _name_from_symbol(self, symbol: str) -> str:
+        """Extract a human-readable name from a SCIP symbol string.
+
+        Parameters
+        ----------
+        symbol : str
+            SCIP symbol identifier.
+
+        Returns
+        -------
+        str
+            Simplified name extracted from the symbol.
+        """
         return name_from_symbol(symbol)
 
     async def build_graph_from_path_async(
@@ -926,7 +1144,7 @@ class GraphBuilder:
                 if detected_lang and is_scip_available(detected_lang):
                     info_logger(f"SCIP_INDEXER=true — using SCIP for language: {detected_lang}")
                     try:
-                        await self._build_graph_from_scip(path, is_dependency, job_id, detected_lang)
+                        await self._build_graph_from_scip(path, is_dependency, job_id, detected_lang, cgcignore_path)
                         return
                     except Exception as e:
                         warning_logger(
@@ -976,5 +1194,17 @@ class GraphBuilder:
                 )
 
     def add_minimal_file_node(self, file_path: Path, repo_path: Path, is_dependency: bool = False) -> None:
-        """Delegate to GraphWriter for path-normalized minimal File node creation."""
+        """Create a minimal File node without parsing (for unsupported file types).
+
+        Delegates to :meth:`GraphWriter.add_minimal_file_node`.
+
+        Parameters
+        ----------
+        file_path : Path
+            Path to the file.
+        repo_path : Path
+            Path to the parent repository.
+        is_dependency : bool, optional
+            Whether this file belongs to a dependency (default ``False``).
+        """
         self._writer.add_minimal_file_node(file_path, repo_path, is_dependency)
