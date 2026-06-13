@@ -20,7 +20,7 @@ case "${CGC_MODE:-cli}" in
         ;;
     viz)
         echo "Starting CGC Visualization Server on :8080..."
-        exec cgc viz serve --host 0.0.0.0 --port 8080 "$@"
+        exec cgc visualize --host 0.0.0.0 --port 8080 "$@"
         ;;
     shell)
         exec /bin/bash "$@"

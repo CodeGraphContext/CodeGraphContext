@@ -1455,6 +1455,7 @@ def report(
 @app.command()
 def visualize(
     repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Path to the repository to visualize."),
+    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host interface to bind to."),
     port: int = typer.Option(8000, "--port", "-p", help="Port to run the visualizer server on."),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use")
 ):
@@ -1462,7 +1463,7 @@ def visualize(
     Launches the interactive UI to visualize the code graph.
     """
     _load_credentials()
-    visualize_helper(repo, port, context)
+    visualize_helper(repo, host, port, context)
 
 @app.command("list")
 def list_repositories(

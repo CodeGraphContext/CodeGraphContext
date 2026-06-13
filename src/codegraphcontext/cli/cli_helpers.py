@@ -526,6 +526,7 @@ from ..viz.server import run_server, set_db_manager
 
 def visualize_helper(
     repo_path: Optional[str] = None,
+    host: str = "127.0.0.1",
     port: int = 8000,
     context: Optional[str] = None,
     cypher_query: Optional[str] = None,
@@ -620,7 +621,7 @@ def visualize_helper(
     threading.Thread(target=open_browser, daemon=True).start()
     
     try:
-        run_server(host="127.0.0.1", port=port, static_dir=str(static_dir))
+        run_server(host=host, port=port, static_dir=str(static_dir))
     except Exception as e:
         console.print(f"[bold red]An error occurred while running the server:[/bold red] {e}")
         raise typer.Exit(code=1)
