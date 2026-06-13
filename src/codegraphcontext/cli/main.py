@@ -1296,26 +1296,60 @@ def doctor():
 
 
 @app.command()
+@app.command()
 def index(
     path: Optional[str] = typer.Argument(None, help="Path to the directory or file to index. Defaults to the current directory."),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use (overrides mode/default)"),
+    summarize: bool = typer.Option(False, "--summarize", "-s", help="Show a summary of the indexed codebase after indexing"),
 ):
     """
     Indexes a directory or file by adding it to the code graph.
     If no path is provided, it indexes the current directory.
-    
+
     Use --force to delete the existing index and rebuild from scratch.
+    Use --summarize to display a summary after indexing.
     """
     _load_credentials()
     if path is None:
         path = str(Path.cwd())
-    
-    if force:
-        console.print("[yellow]Force re-indexing (--force flag detected)[/yellow]")
-        reindex_helper(path, context)
-    else:
-        index_helper(path, context)
+
+    try:
+        if force:
+            console.print("[yellow]Force re-indexing (--force flag detected)[/yellow]")
+            reindex_helper(path, context)
+        else:
+            index_helper(path, context)
+    except Exception as e:
+        if str(e):
+            console.print(f"[red]An error occurred during indexing: {e}[/red]")
+
+    if summarize:
+        import os
+
+        py_files = []
+        for root, dirs, files in os.walk(path):
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['venv', '__pycache__', 'node_modules']]
+            for file in files:
+                if file.endswith('.py'):
+                    py_files.append(os.path.join(root, file))
+
+        total_lines = 0
+        for f in py_files:
+            try:
+                with open(f, 'r', encoding='utf-8', errors='ignore') as fp:
+                    total_lines += len(fp.readlines())
+            except:
+                pass
+
+        console.print("\n[bold cyan]📊 Codebase Summary:[/bold cyan]")
+        console.print(f"  • Path indexed     : [green]{path}[/green]")
+        console.print(f"  • Python files     : [yellow]{len(py_files)}[/yellow]")
+        console.print(f"  • Total lines      : [yellow]{total_lines}[/yellow]")
+        console.print(f"\n  • Run [bold]cgc analyze complexity[/bold] to find complex functions")
+        console.print(f"  • Run [bold]cgc analyze dead-code[/bold] to find unused code")
+        console.print(f"  • Run [bold]cgc list[/bold] to see all indexed repositories")
+        console.print("\n[dim]Tip: Use --summarize anytime after indexing to see this.[/dim]")
 
 @app.command()
 def update(
