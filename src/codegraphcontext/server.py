@@ -92,47 +92,66 @@ _CHARS_PER_TOKEN = 4
 
 
 def _apply_response_token_limit(tool_name: str, text: str) -> str:
-    """Truncate *text* to the configured token budget and append a notice.
-
-    Reads ``MAX_TOOL_RESPONSE_TOKENS`` from the CGC config at call time so
-    that live config changes are respected without a server restart.
-    Returns *text* unchanged when the limit is 0 (unlimited) or not set.
-    """
+    # Truncate *text* to the configured budget and append a notice.
+    # Reads MAX_TOOL_RESPONSE_TOKENS (token-based) and MAX_PROMPT_CHARS
+    # (character-based) from the CGC config at call time, so live config
+    # changes take effect without a server restart. Applies the stricter
+    # of the two active limits. Returns *text* unchanged when both limits
+    # are 0 (unlimited) or not set. Warns to stderr whenever truncation fires.
+    import sys
     from .cli.config_manager import get_config_value
 
-    raw = get_config_value("MAX_TOOL_RESPONSE_TOKENS") or "0"
+    raw_tokens = get_config_value("MAX_TOOL_RESPONSE_TOKENS") or "0"
     try:
-        max_tokens = int(raw)
+        max_tokens = int(raw_tokens)
     except ValueError:
         max_tokens = 0
 
-    if max_tokens <= 0:
-        return text  # unlimited
+    raw_chars = get_config_value("MAX_PROMPT_CHARS") or "0"
+    try:
+        max_prompt_chars = int(raw_chars)
+    except ValueError:
+        max_prompt_chars = 0
 
-    max_chars = max_tokens * _CHARS_PER_TOKEN
+    # Convert token limit to characters; 0 means "not set" for that limit.
+    token_limit_chars = max_tokens * _CHARS_PER_TOKEN if max_tokens > 0 else 0
+
+    # Pick the stricter (smaller) active limit; ignore limits that are 0.
+    active_limits = [lim for lim in (token_limit_chars, max_prompt_chars) if lim > 0]
+    if not active_limits:
+        return text  # both unlimited
+
+    max_chars = min(active_limits)
     if len(text) <= max_chars:
         return text
 
+    # Build a human-readable description of which limit(s) triggered.
+    limit_parts = []
+    if max_tokens > 0:
+        limit_parts.append(f"MAX_TOOL_RESPONSE_TOKENS={max_tokens}")
+    if max_prompt_chars > 0:
+        limit_parts.append(f"MAX_PROMPT_CHARS={max_prompt_chars}")
+    limit_desc = ", ".join(limit_parts)
+
     notice = (
-        f"Response truncated: output exceeded MAX_TOOL_RESPONSE_TOKENS "
-        f"({max_tokens} tokens) for tool '{tool_name}'. "
+        f"\n\n[CGC] Response truncated: output exceeded the configured limit "
+        f"({limit_desc}) for tool '{tool_name}'. "
         "Increase the limit or narrow your query for full results."
     )
-    budget = max(0, max_chars - 200)
-    try:
-        payload = json.loads(text)
-        preview = json.dumps(payload, indent=2)
-        if len(preview) <= budget:
-            return preview
-        return json.dumps(
-            {"truncated": True, "preview": preview[:budget], "notice": notice},
-            indent=2,
-        )
-    except json.JSONDecodeError:
-        return json.dumps(
-            {"truncated": True, "preview": text[:budget], "notice": notice},
-            indent=2,
-        )
+    # Reserve space for the notice inside the budget.
+    budget = max_chars - len(notice)
+    if budget < 0:
+        budget = 0
+    truncated = text[:budget] + notice
+
+    print(
+        f"[CGC WARNING] Response for tool '{tool_name}' truncated: "
+        f"original={len(text)} chars, truncated={len(truncated)} chars "
+        f"(limit: {limit_desc})",
+        file=sys.stderr,
+        flush=True,
+    )
+    return truncated
 
 
 class MCPServer:
@@ -404,7 +423,7 @@ class MCPServer:
     def discover_codegraph_contexts_tool(self, **args) -> Dict[str, Any]:
         from .utils.path_sandbox import is_path_allowed, clamp_discovery_depth
 
-        scan_path = Path(args.get("path") or args.get("repo_path") or str(self.cwd)).resolve()
+        scan_path = Path(args.get("path", str(self.cwd))).resolve()
         if not is_path_allowed(scan_path):
             return {
                 "error": (
@@ -429,27 +448,6 @@ class MCPServer:
         except Exception as e:
             return {"error": f"Discovery failed: {e}"}
 
-    def _stop_current_watcher(self) -> bool:
-        """Stop the active code watcher (if any). Returns whether it was running."""
-        was_running = False
-        try:
-            watcher = getattr(self, "code_watcher", None)
-            if watcher is not None:
-                was_running = watcher.observer.is_alive()
-                watcher.stop()
-        except Exception as exc:
-            warning_logger(f"Failed to stop old code watcher during context switch: {exc}")
-        return was_running
-
-    def _start_watcher_if(self, should_start: bool) -> None:
-        """Start the (new) code watcher when the previous one was running."""
-        if not should_start:
-            return
-        try:
-            self.code_watcher.start()
-        except Exception as exc:
-            warning_logger(f"Failed to start new code watcher after context switch: {exc}")
-
     def switch_context_tool(self, **args) -> Dict[str, Any]:
         raw_path = args.get("context_path", "")
         should_save = args.get("save", True)
@@ -460,11 +458,10 @@ class MCPServer:
         # --- Special case: switch back to the global context ---
         if raw_path == "global":
             try:
-                watcher_was_running = self._stop_current_watcher()
                 try:
                     _teardown_db_manager(self.db_manager)
-                except Exception as exc:
-                    warning_logger(f"Failed to tear down old DB manager during context switch: {exc}")
+                except Exception:
+                    pass
 
                 # Resolve global DB path directly — do NOT use resolve_context()
                 # because that checks CWD for local .codegraphcontext/ and may
@@ -488,7 +485,6 @@ class MCPServer:
                 self.graph_builder = GraphBuilder(self.db_manager, self.job_manager, self.loop)
                 self.code_finder = CodeFinder(self.db_manager)
                 self.code_watcher = CodeWatcher(self.graph_builder, self.job_manager)
-                self._start_watcher_if(watcher_was_running)
                 self._context_note_pending = False
 
                 return {
@@ -529,12 +525,11 @@ class MCPServer:
         new_db_path = str(cgc_dir / "db" / local_db)
 
         try:
-            watcher_was_running = self._stop_current_watcher()
             # Tear down old connection
             try:
                 _teardown_db_manager(self.db_manager)
-            except Exception as exc:
-                warning_logger(f"Failed to tear down old DB manager during context switch: {exc}")
+            except Exception:
+                pass
 
             os.environ['CGC_RUNTIME_DB_TYPE'] = local_db
             new_manager = get_database_manager(db_path=new_db_path)
@@ -554,7 +549,6 @@ class MCPServer:
             self.graph_builder = GraphBuilder(self.db_manager, self.job_manager, self.loop)
             self.code_finder = CodeFinder(self.db_manager)
             self.code_watcher = CodeWatcher(self.graph_builder, self.job_manager)
-            self._start_watcher_if(watcher_was_running)
 
             if should_save:
                 save_workspace_mapping(self.cwd, cgc_dir)
@@ -578,18 +572,6 @@ class MCPServer:
         """
         if tool_name in self.disabled_tools:
             return {"error": f"Tool '{tool_name}' is disabled in mcp.json (disabledTools)."}
-
-        # Normalize path/repo_path aliasing: tool schemas declare `repo_path`
-        # while several handlers read `path` (and vice versa). Skip the
-        # repo_path -> path direction for tools where the two keys carry
-        # different meanings (path = file path, repo_path = repo filter).
-        if isinstance(args, dict):
-            args = dict(args)
-            path_means_file = tool_name in ("calculate_cyclomatic_complexity",)
-            if "repo_path" in args and "path" not in args and not path_means_file:
-                args["path"] = args["repo_path"]
-            elif "path" in args and "repo_path" not in args:
-                args["repo_path"] = args["path"]
 
         tool_map: Dict[str, Coroutine] = {
             "add_package_to_graph": self.add_package_to_graph_tool,
@@ -649,17 +631,6 @@ class MCPServer:
         self.code_watcher.start()
         
         loop = asyncio.get_event_loop()
-        try:
-            await self._run_loop(loop)
-        finally:
-            # Release watcher/DB resources even when stdin reaches EOF or the
-            # loop exits unexpectedly.
-            try:
-                self.shutdown()
-            except Exception as exc:
-                warning_logger(f"Error during server shutdown: {exc}")
-
-    async def _run_loop(self, loop):
         request_count = 0
         while True:
             try:
@@ -689,7 +660,6 @@ class MCPServer:
                                 "instructionsAvailable": True
                             },
                             "capabilities": {"tools": {"listTools": True}},
-                            "instructions": LLM_SYSTEM_PROMPT,
                         }
                     }
                 elif method == 'tools/list':

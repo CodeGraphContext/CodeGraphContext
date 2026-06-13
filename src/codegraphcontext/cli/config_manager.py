@@ -15,19 +15,6 @@ import yaml
 
 console = Console()
 
-
-def _atomic_write_text(path: Path, content: str, *, secure: bool = False) -> None:
-    """Write *content* to *path* atomically (temp file + replace)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        f.write(content)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp_path, path)
-    if secure:
-        os.chmod(path, 0o600)
-
 # Configuration file location
 CONFIG_DIR = Path.home() / ".codegraphcontext"
 CONFIG_FILE = CONFIG_DIR / ".env"
@@ -75,6 +62,8 @@ DEFAULT_CONFIG = {
     "SKIP_EXTERNAL_RESOLUTION": "false",
     # 0 = unlimited; any positive integer caps MCP tool response size.
     "MAX_TOOL_RESPONSE_TOKENS": "0",
+    # 0 = unlimited; any positive integer caps MCP tool response size in characters.
+    "MAX_PROMPT_CHARS": "0",
     # JSON object mapping tool names to integer result-count limits.
     # Example: {"find_code": 20, "analyze_code_relationships": 10, "find_dead_code": 30}
     "TOOL_RESULT_LIMITS": "{}",
@@ -115,6 +104,7 @@ CONFIG_DESCRIPTIONS = {
     "SCIP_LANGUAGES": "Comma-separated languages to index via SCIP when SCIP_INDEXER=true (python,typescript,javascript,go,rust,java,dart,cpp,c,csharp)",
     "SKIP_EXTERNAL_RESOLUTION": "Skip resolution attempts for external library method calls (recommended for enterprise large Java/Spring codebases)",
     "MAX_TOOL_RESPONSE_TOKENS": "Maximum tokens per MCP tool response (0 = unlimited). Truncates oversized payloads and appends a notice.",
+    "MAX_PROMPT_CHARS": "Maximum characters per MCP tool response (0 = unlimited). Stricter of MAX_PROMPT_CHARS and MAX_TOOL_RESPONSE_TOKENS is applied.",
     "TOOL_RESULT_LIMITS": "JSON object mapping tool names to max result counts, e.g. {\"find_code\": 20, \"analyze_code_relationships\": 10}. Missing keys use built-in defaults.",
     # Post-indexing resolution phases
     "ENABLE_INHERIT_RESOLVE": (
@@ -398,27 +388,30 @@ def save_config(config: Dict[str, str], preserve_db_credentials: bool = True):
                 credentials_to_write[key] = config[key]
     
     try:
-        lines = [
-            "# CodeGraphContext Configuration",
-            f"# Location: {CONFIG_FILE}",
-            "",
-        ]
-        if credentials_to_write:
-            lines.append("# ===== Database Credentials =====")
-            for key in sorted(DATABASE_CREDENTIAL_KEYS):
-                if key in credentials_to_write:
-                    lines.append(f"{key}={credentials_to_write[key]}")
-            lines.append("")
-        lines.append("# ===== Configuration Settings =====")
-        for key, value in sorted(config.items()):
-            if key in DATABASE_CREDENTIAL_KEYS:
-                continue
-            description = CONFIG_DESCRIPTIONS.get(key, "")
-            if description:
-                lines.append(f"# {description}")
-            lines.append(f"{key}={value}")
-            lines.append("")
-        _atomic_write_text(CONFIG_FILE, "\n".join(lines), secure=True)
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            f.write("# CodeGraphContext Configuration\n")
+            f.write(f"# Location: {CONFIG_FILE}\n\n")
+            
+            # Write database credentials first if they exist
+            if credentials_to_write:
+                f.write("# ===== Database Credentials =====\n")
+                for key in sorted(DATABASE_CREDENTIAL_KEYS):
+                    if key in credentials_to_write:
+                        f.write(f"{key}={credentials_to_write[key]}\n")
+                f.write("\n")
+            
+            # Write configuration settings
+            f.write("# ===== Configuration Settings =====\n")
+            for key, value in sorted(config.items()):
+                # Skip database credentials (already written above)
+                if key in DATABASE_CREDENTIAL_KEYS:
+                    continue
+                    
+                description = CONFIG_DESCRIPTIONS.get(key, "")
+                if description:
+                    f.write(f"# {description}\n")
+                f.write(f"{key}={value}\n\n")
+        
         console.print(f"[green]✅ Configuration saved to {CONFIG_FILE}[/green]")
     except Exception as e:
         console.print(f"[red]Error saving config: {e}[/red]")
@@ -479,6 +472,14 @@ def validate_config_value(key: str, value: str) -> tuple[bool, Optional[str]]:
                 return False, "MAX_TOOL_RESPONSE_TOKENS must be 0 (unlimited) or a positive integer"
         except ValueError:
             return False, "MAX_TOOL_RESPONSE_TOKENS must be an integer (0 = unlimited)"
+
+    if key == "MAX_PROMPT_CHARS":
+        try:
+            limit = int(value)
+            if limit < 0:
+                return False, "MAX_PROMPT_CHARS must be 0 (unlimited) or a positive integer"
+        except ValueError:
+            return False, "MAX_PROMPT_CHARS must be an integer (0 = unlimited)"
 
     if key == "TOOL_RESULT_LIMITS":
         import json as _json
@@ -814,10 +815,8 @@ def save_context_config(cfg: ContextConfig) -> None:
     }
 
     try:
-        _atomic_write_text(
-            CONTEXT_CONFIG_FILE,
-            yaml.dump(raw, default_flow_style=False, sort_keys=False),
-        )
+        with open(CONTEXT_CONFIG_FILE, "w", encoding="utf-8") as f:
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
     except Exception as e:
         console.print(f"[red]Error saving config.yaml: {e}[/red]")
 
@@ -1189,10 +1188,8 @@ def _save_workspace_mappings(mappings: Dict[str, Dict[str, str]]) -> None:
             raw = {}
     raw["workspace_mappings"] = mappings
     try:
-        _atomic_write_text(
-            CONTEXT_CONFIG_FILE,
-            yaml.dump(raw, default_flow_style=False, sort_keys=False),
-        )
+        with open(CONTEXT_CONFIG_FILE, "w", encoding="utf-8") as f:
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
     except Exception as e:
         console.print(f"[red]Error saving workspace mappings: {e}[/red]")
 
