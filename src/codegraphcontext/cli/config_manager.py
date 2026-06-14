@@ -8,12 +8,49 @@ Also manages the context system (config.yaml) alongside the existing .env file.
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from rich.console import Console
-from rich.table import Table
+try:
+    from rich.console import Console
+    from rich.table import Table
+    console = Console()
+except Exception:
+    # Lightweight fallback when 'rich' is not installed (tests or minimal envs)
+    class _TableFallback:
+        def __init__(self, show_header=True, header_style=None):
+            self._cols = []
+            self._rows = []
+
+        def add_column(self, name, **_kwargs):
+            self._cols.append(name)
+
+        def add_row(self, *cells):
+            self._rows.append([str(c) for c in cells])
+
+        def __str__(self) -> str:
+            # Simple text table rendering
+            out = []
+            if self._cols:
+                out.append(" | ".join(self._cols))
+                out.append("-" * max(10, len(out[0])))
+            for r in self._rows:
+                out.append(" | ".join(r))
+            return "\n".join(out)
+
+    class _ConsoleFallback:
+        def print(self, *args, **kwargs):
+            # Mimic rich.console.Console.print by delegating to built-in print
+            end = kwargs.get("end", "\n")
+            sep = kwargs.get("sep", " ")
+            for a in args:
+                if isinstance(a, _TableFallback):
+                    built = str(a)
+                    print(built, end=end)
+                else:
+                    print(a, end=end)
+
+    Table = _TableFallback
+    console = _ConsoleFallback()
 import os
 import yaml
-
-console = Console()
 
 
 def _atomic_write_text(path: Path, content: str, *, secure: bool = False) -> None:
