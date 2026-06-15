@@ -137,6 +137,26 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 
 
 ---
+## Architecture Overview
+
+CodeGraphContext transforms source code into a queryable knowledge graph that can be explored through the CLI or AI assistants via MCP.
+
+```mermaid
+flowchart TD
+    A[Code Repository] --> B[Tree-sitter / SCIP Indexing]
+    B --> C[Knowledge Graph]
+    C --> D[Graph Database]
+    D --> E[CLI Toolkit]
+    D --> F[MCP Server]
+    F --> G[AI Assistant]
+```
+
+### Workflow
+
+1. Source code is parsed using Tree-sitter or SCIP indexers.
+2. Relationships between functions, classes, imports, and calls are extracted.
+3. A knowledge graph is generated and stored in a graph database.
+4. Users can query the graph through the CLI or AI assistants using MCP.
 
 ## Supported Programming Languages
 
