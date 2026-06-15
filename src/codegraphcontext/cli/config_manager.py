@@ -922,7 +922,11 @@ def resolve_context(
     if local_cgc is not None:
         # Read local config.yaml if present
         local_yaml = local_cgc / "config.yaml"
-        local_db = load_config().get("DEFAULT_DATABASE", "falkordb")
+        local_db = (
+            os.environ.get("CGC_RUNTIME_DB_TYPE")
+            or os.environ.get("DEFAULT_DATABASE")
+            or load_config().get("DEFAULT_DATABASE", "falkordb")
+        )
         if local_yaml.exists():
             try:
                 with open(local_yaml, encoding="utf-8") as f:

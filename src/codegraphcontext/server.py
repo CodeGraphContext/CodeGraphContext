@@ -165,7 +165,7 @@ class MCPServer:
             ctx = resolve_context(cwd=self.cwd)
             self.resolved_context = ctx
 
-            if ctx.database:
+            if ctx.database and not os.environ.get('CGC_RUNTIME_DB_TYPE'):
                 os.environ['CGC_RUNTIME_DB_TYPE'] = ctx.database
 
             self.db_manager = get_database_manager(db_path=ctx.db_path)
