@@ -2068,7 +2068,8 @@ def build_function_call_groups(
                 _lang_imports_cache[caller_lang] = imports_map
             else:
                 filtered: dict = {}
-                for name, paths in imports_map.items():
+                # Snapshot so concurrent indexer updates cannot resize the map mid-iteration.
+                for name, paths in list(imports_map.items()):
                     same_lang = [p for p in paths if Path(p).suffix in exts]
                     if same_lang:
                         filtered[name] = same_lang
