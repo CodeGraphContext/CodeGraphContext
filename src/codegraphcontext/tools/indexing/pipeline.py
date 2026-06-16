@@ -29,6 +29,42 @@ from .resolution.inheritance import (
 )
 
 
+def _post_processing_step_count(path: Path, is_dependency: bool) -> int:
+    from ...cli.config_manager import get_config_value as _gcv
+
+    steps = 5  # inheritance, resolve calls, write calls, cpp, spring
+    if not is_dependency and path.is_dir():
+        steps += 3  # maven, gradle, mybatis
+    steps += 1  # orm
+    if (_gcv("ENABLE_VECTOR_RESOLVE") or "false").lower() == "true":
+        steps += 1
+    if (_gcv("ENABLE_INHERIT_RESOLVE") or "false").lower() == "true":
+        steps += 1
+    return steps
+
+
+def _set_phase_progress(
+    job_manager: JobManager,
+    job_id: Optional[str],
+    phase: str,
+    message: str,
+    completed: int,
+    total: int,
+    current_file: Optional[str] = None,
+) -> None:
+    if not job_id:
+        return
+    kwargs = {
+        "phase": phase,
+        "status_message": message,
+        "phase_completed": completed,
+        "phase_total": total,
+    }
+    if current_file is not None:
+        kwargs["current_file"] = current_file
+    job_manager.update_job(job_id, **kwargs)
+
+
 async def run_tree_sitter_index_async(
     path: Path,
     is_dependency: bool,
@@ -104,7 +140,23 @@ async def run_tree_sitter_index_async(
 
     # Parsing remains concurrent, but graph writes are ordered so shared nodes
     # such as imported modules receive deterministic canonical metadata.
-    for file_data in sorted(all_file_data, key=lambda data: str(data.get("path") or "")):
+    write_queue = sorted(all_file_data, key=lambda data: str(data.get("path") or ""))
+    write_total = len(write_queue)
+    _set_phase_progress(
+        job_manager, job_id, "writing", "Writing to graph...", 0, write_total, current_file=""
+    )
+
+    for write_index, file_data in enumerate(write_queue):
+        file_path_display = str(file_data.get("path") or "")
+        _set_phase_progress(
+            job_manager,
+            job_id,
+            "writing",
+            "Writing to graph...",
+            write_index,
+            write_total,
+            current_file=file_path_display,
+        )
         repo_path = Path(file_data.pop("_index_repo_path"))
         if "error" not in file_data:
             await asyncio.to_thread(
@@ -121,6 +173,15 @@ async def run_tree_sitter_index_async(
                 repo_path,
                 is_dependency,
             )
+        _set_phase_progress(
+            job_manager,
+            job_id,
+            "writing",
+            "Writing to graph...",
+            write_index + 1,
+            write_total,
+            current_file=file_path_display,
+        )
 
     all_file_data = [file_data for file_data in all_file_data if "error" not in file_data]
 
@@ -129,9 +190,13 @@ async def run_tree_sitter_index_async(
         f"Starting post-processing phase (inheritance + function calls)..."
     )
 
+    post_total = _post_processing_step_count(path, is_dependency)
+    post_done = 0
+
     t0 = time.time()
-    if job_id:
-        job_manager.update_job(job_id, status_message="Resolving inheritance links...")
+    _set_phase_progress(
+        job_manager, job_id, "post_processing", "Resolving inheritance links...", post_done, post_total
+    )
     info_logger(f"[INHERITS] Resolving inheritance links across {len(all_file_data)} files...")
     inheritance_batch, csharp_files = build_inheritance_and_csharp_files(all_file_data, imports_map)
     implements_batch = build_go_implements_links(all_file_data)
@@ -147,31 +212,51 @@ async def run_tree_sitter_index_async(
     writer.write_decorated_by_links(build_decorated_by_links(all_file_data, imports_map))
     t1 = time.time()
     info_logger(f"Inheritance links created in {t1 - t0:.1f}s. Starting function calls...")
+    post_done += 1
 
+    _set_phase_progress(
+        job_manager, job_id, "post_processing", "Resolving function calls...", post_done, post_total
+    )
     resolved_calls = build_function_call_groups(
         all_file_data,
         imports_map,
         None,
         diagnostics=call_resolution_diagnostics,
     )
-    if job_id:
-        job_manager.update_job(job_id, status_message="Writing function CALLS edges...")
+    post_done += 1
+    _set_phase_progress(
+        job_manager, job_id, "post_processing", "Writing function CALLS edges...", post_done, post_total
+    )
     writer.write_function_call_groups(*resolved_calls)
     t2 = time.time()
     info_logger(f"Function calls created in {t2 - t1:.1f}s. Total post-processing: {t2 - t0:.1f}s")
+    post_done += 1
 
     # ── C++: Class->Function edges (post-pass, after all files written) ───────
     # C++ method definitions live in .cpp while the Class node lives in .h.
     # The per-file write cannot create these edges reliably due to ordering;
     # this single repo-scoped pass runs after every node is in the graph.
-    if job_id:
-        job_manager.update_job(job_id, status_message="Linking C++ class-function edges...")
+    _set_phase_progress(
+        job_manager,
+        job_id,
+        "post_processing",
+        "Linking C++ class-function edges...",
+        post_done,
+        post_total,
+    )
     info_logger("[CPP] Linking C++ out-of-line method definitions to their classes...")
     writer.write_cpp_class_function_links(resolved_repo_path_str)
+    post_done += 1
 
     # ── Spring injection edges (#887) ─────────────────────────────────────────
-    if job_id:
-        job_manager.update_job(job_id, status_message="Processing Spring injection edges...")
+    _set_phase_progress(
+        job_manager,
+        job_id,
+        "post_processing",
+        "Processing Spring injection edges...",
+        post_done,
+        post_total,
+    )
     spring_inject_batch = []
     for fd in all_file_data:
         injections = fd.get("spring_injections")
@@ -195,11 +280,18 @@ async def run_tree_sitter_index_async(
                 })
     if endpoint_batch:
         writer.write_spring_endpoint_properties(endpoint_batch)
+    post_done += 1
 
     # ── Maven / Gradle build graph (#888) ────────────────────────────────────
     if not is_dependency and path.is_dir():
-        if job_id:
-            job_manager.update_job(job_id, status_message="Processing Maven build graph...")
+        _set_phase_progress(
+            job_manager,
+            job_id,
+            "post_processing",
+            "Processing Maven build graph...",
+            post_done,
+            post_total,
+        )
         try:
             from ...tools.languages.maven import parse_repo_maven
             maven_data = parse_repo_maven(path.resolve())
@@ -207,9 +299,16 @@ async def run_tree_sitter_index_async(
                 writer.write_maven_build_graph(maven_data, str(path.resolve()))
         except Exception as _me:
             info_logger(f"[MAVEN] Build graph failed (skipping): {_me}")
+        post_done += 1
 
-        if job_id:
-            job_manager.update_job(job_id, status_message="Processing Gradle build graph...")
+        _set_phase_progress(
+            job_manager,
+            job_id,
+            "post_processing",
+            "Processing Gradle build graph...",
+            post_done,
+            post_total,
+        )
         try:
             from ...tools.languages.gradle import parse_repo_gradle
             gradle_data = parse_repo_gradle(path.resolve())
@@ -217,10 +316,17 @@ async def run_tree_sitter_index_async(
                 writer.write_gradle_build_graph(gradle_data, str(path.resolve()))
         except Exception as _ge:
             info_logger(f"[GRADLE] Build graph failed (skipping): {_ge}")
+        post_done += 1
 
     # ── ORM / datasource code linkage (#843) ─────────────────────────────────
-    if job_id:
-        job_manager.update_job(job_id, status_message="Processing ORM mappings...")
+    _set_phase_progress(
+        job_manager,
+        job_id,
+        "post_processing",
+        "Processing ORM mappings...",
+        post_done,
+        post_total,
+    )
     orm_batch = []
     for fd in all_file_data:
         orm_mappings = fd.get("orm_mappings")
@@ -235,11 +341,18 @@ async def run_tree_sitter_index_async(
         writer.write_orm_mappings(orm_batch)
         writer.write_query_links(orm_batch)
         writer.write_spring_data_repo_links(orm_batch)
+    post_done += 1
 
     # ── MyBatis XML mapper READS / WRITES edges ───────────────────────────────
     if not is_dependency and path.is_dir():
-        if job_id:
-            job_manager.update_job(job_id, status_message="Processing MyBatis XML mappers...")
+        _set_phase_progress(
+            job_manager,
+            job_id,
+            "post_processing",
+            "Processing MyBatis XML mappers...",
+            post_done,
+            post_total,
+        )
         try:
             from ...tools.languages.mybatis import find_and_parse_mybatis_mappers
             mybatis_batch = find_and_parse_mybatis_mappers(path.resolve())
@@ -247,12 +360,19 @@ async def run_tree_sitter_index_async(
                 writer.write_mybatis_links(mybatis_batch)
         except Exception as _me:
             info_logger(f"[MYBATIS] Mapper parsing failed (skipping): {_me}")
+        post_done += 1
 
     # ── Phase 4: embedding generation (optional, config-gated) ────────────────
     from ...cli.config_manager import get_config_value as _gcv
     if (_gcv("ENABLE_VECTOR_RESOLVE") or "false").lower() == "true":
-        if job_id:
-            job_manager.update_job(job_id, status_message="Generating embeddings...")
+        _set_phase_progress(
+            job_manager,
+            job_id,
+            "post_processing",
+            "Generating embeddings...",
+            post_done,
+            post_total,
+        )
         try:
             from .embeddings import EmbeddingPipeline
             repo_path_str = path.resolve().as_posix()
@@ -261,11 +381,18 @@ async def run_tree_sitter_index_async(
             info_logger("[EMBED] Embedding pipeline complete.")
         except Exception as _ee:
             info_logger(f"[EMBED] Embedding pipeline failed (skipping): {_ee}")
+        post_done += 1
 
     # ── Phase 5: inheritance-aware re-resolution (optional, config-gated) ─────
     if (_gcv("ENABLE_INHERIT_RESOLVE") or "false").lower() == "true":
-        if job_id:
-            job_manager.update_job(job_id, status_message="Running inheritance re-resolution...")
+        _set_phase_progress(
+            job_manager,
+            job_id,
+            "post_processing",
+            "Running inheritance re-resolution...",
+            post_done,
+            post_total,
+        )
         try:
             from .resolution.post_resolution import run_inheritance_reresolve
             vector_resolver = None
@@ -280,6 +407,13 @@ async def run_tree_sitter_index_async(
             info_logger(f"[INHERIT-RESOLVE] Post-resolution complete: {improved} edges improved")
         except Exception as _ie:
             info_logger(f"[INHERIT-RESOLVE] Post-resolution failed (skipping): {_ie}")
+        post_done += 1
 
     if job_id:
-        job_manager.update_job(job_id, status=JobStatus.COMPLETED, end_time=datetime.now())
+        job_manager.update_job(
+            job_id,
+            status=JobStatus.COMPLETED,
+            end_time=datetime.now(),
+            phase_completed=post_total,
+            phase_total=post_total,
+        )

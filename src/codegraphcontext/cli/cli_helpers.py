@@ -232,11 +232,28 @@ async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, 
         while not indexing_task.done():
             job = graph_builder.job_manager.get_job(job_id)
             if job:
-                if job.total_files > 0:
-                    progress.update(task_id, total=job.total_files, completed=job.processed_files)
-                
-                # Prefer post-processing status over the last parsed file path
-                current_file = job.status_message or job.current_file or ""
+                if job.phase in ("writing", "post_processing") and job.phase_total > 0:
+                    description = job.status_message or (
+                        "Writing to graph..." if job.phase == "writing" else "Post-processing..."
+                    )
+                    progress.update(
+                        task_id,
+                        description=description,
+                        total=job.phase_total,
+                        completed=job.phase_completed,
+                    )
+                    current_file = job.current_file or ""
+                elif job.total_files > 0:
+                    progress.update(
+                        task_id,
+                        description="Indexing...",
+                        total=job.total_files,
+                        completed=job.processed_files,
+                    )
+                    current_file = job.current_file or ""
+                else:
+                    current_file = job.status_message or job.current_file or ""
+
                 if len(current_file) > 40:
                     current_file = "..." + current_file[-37:]
                 progress.update(task_id, filename=current_file)

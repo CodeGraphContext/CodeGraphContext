@@ -103,5 +103,5 @@ async def test_scip_pipeline_runs_build_function_call_groups(tmp_path: Path):
     writer.write_function_call_groups.assert_called_once_with(*fake_groups)
     writer.write_scip_call_edges.assert_called_once()
     job_manager.update_job.assert_any_call(
-        "job-1", status_message="Resolving function CALLS edges..."
+        "job-1", status_message="Resolving function calls...", phase_completed=1
     )

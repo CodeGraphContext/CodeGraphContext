@@ -227,6 +227,15 @@ async def run_scip_index_async(
         info_logger(
             f"[INHERITS] Resolving inheritance links across {len(files_data)} files..."
         )
+        if job_id:
+            job_manager.update_job(
+                job_id,
+                phase="post_processing",
+                status_message="Resolving inheritance links...",
+                phase_total=3,
+                phase_completed=0,
+                current_file=None,
+            )
         inheritance_batch, csharp_files = build_inheritance_and_csharp_files(
             list(files_data.values()), imports_map
         )
@@ -238,11 +247,27 @@ async def run_scip_index_async(
         )
         t_calls = time.time()
         if job_id:
-            job_manager.update_job(job_id, status_message="Resolving function CALLS edges...")
+            job_manager.update_job(
+                job_id,
+                status_message="Resolving function calls...",
+                phase_completed=1,
+            )
         resolved_calls = build_function_call_groups(all_file_data, imports_map, None)
+        if job_id:
+            job_manager.update_job(
+                job_id,
+                status_message="Writing function CALLS edges...",
+                phase_completed=2,
+            )
         writer.write_function_call_groups(*resolved_calls)
         info_logger(f"[CALLS] Tree-sitter call resolution complete in {time.time() - t_calls:.1f}s")
 
+        if job_id:
+            job_manager.update_job(
+                job_id,
+                status_message="Writing SCIP call edges...",
+                phase_completed=3,
+            )
         writer.write_scip_call_edges(files_data, name_from_symbol)
 
         if job_id:

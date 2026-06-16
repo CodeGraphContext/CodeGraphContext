@@ -28,6 +28,25 @@ class TestJobManager:
         assert job.status == JobStatus.RUNNING
         assert job.progress_percentage == 50.0
 
+    def test_update_job_phase_progress(self):
+        manager = JobManager()
+        job_id = manager.create_job("/tmp")
+
+        manager.update_job(
+            job_id,
+            phase="writing",
+            status_message="Writing to graph...",
+            phase_total=10,
+            phase_completed=4,
+            current_file="/tmp/example.py",
+        )
+
+        job = manager.get_job(job_id)
+        assert job.phase == "writing"
+        assert job.phase_total == 10
+        assert job.phase_completed == 4
+        assert job.status_message == "Writing to graph..."
+
     def test_job_not_found(self):
         manager = JobManager()
         job = manager.get_job("non_existent_id")

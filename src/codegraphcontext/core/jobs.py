@@ -8,7 +8,7 @@ import threading
 from datetime import datetime, timedelta
 from dataclasses import dataclass, asdict
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pathlib import Path
 
 
@@ -34,6 +34,10 @@ class JobInfo:
     processed_files: int = 0
     current_file: Optional[str] = None
     status_message: Optional[str] = None
+    # After parsing: "writing" (per-file graph writes) or "post_processing" (step-based).
+    phase: Literal["writing", "post_processing", None] = None
+    phase_total: int = 0
+    phase_completed: int = 0
     estimated_duration: Optional[float] = None
     actual_duration: Optional[float] = None
     errors: List[str] = None
