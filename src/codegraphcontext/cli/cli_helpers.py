@@ -850,7 +850,12 @@ def stats_helper(path: str = None, context: Optional[str] = None):
         db_manager.close_driver()
 
 
-def watch_helper(path: str, context: Optional[str] = None, use_polling: Optional[bool] = None):
+def watch_helper(
+    path: str,
+    context: Optional[str] = None,
+    use_polling: Optional[bool] = None,
+    sync_on_start: bool = False,
+):
     """Watch a directory for changes and auto-update the graph (blocking mode)."""
     import logging
     from ..core.watcher import CodeWatcher
@@ -913,11 +918,17 @@ def watch_helper(path: str, context: Optional[str] = None, use_polling: Optional
         
         # Add the directory to watch
         if is_indexed:
-            console.print("[green]✓[/green] Already indexed. Synchronizing current files...")
+            if sync_on_start:
+                console.print("[green]✓[/green] Already indexed. Synchronizing current files...")
+            else:
+                console.print("[green]✓[/green] Already indexed. Watching for future changes only.")
+                console.print(
+                    "[dim]Use 'cgc index --force' or 'cgc watch --sync-on-start' to reconcile existing changes.[/dim]"
+                )
             watcher.watch_directory(
                 str(path_obj),
                 perform_initial_scan=False,
-                sync_on_start=True,
+                sync_on_start=sync_on_start,
                 cgcignore_path=ctx.cgcignore_path,
             )
         else:
@@ -960,7 +971,7 @@ def watch_helper(path: str, context: Optional[str] = None, use_polling: Optional
     finally:
         watcher.stop()
         db_manager.close_driver()
-        console.print("[green]✓[/green] Watcher stopped. Graph is up to date.")
+        console.print("[green]✓[/green] Watcher stopped.")
 
 
 

@@ -1565,6 +1565,14 @@ def watch(
         "--poll",
         help="Use watchdog's polling observer for Docker bind mounts and network filesystems.",
     ),
+    sync_on_start: bool = typer.Option(
+        False,
+        "--sync-on-start",
+        help=(
+            "Synchronize already-indexed files before watching. "
+            "Defaults off; use 'cgc index --force' for a full re-index."
+        ),
+    ),
 ):
     """
     Watch a directory for file changes and automatically update the code graph.
@@ -1575,6 +1583,7 @@ def watch(
     
     The watcher will:
     - Perform an initial scan if the directory is not yet indexed
+    - Attach immediately for already-indexed directories unless --sync-on-start is passed
     - Monitor for file creation, modification, deletion, and moves
     - Automatically re-index affected files and update relationships
     
@@ -1584,12 +1593,13 @@ def watch(
         cgc watch .                    # Watch current directory
         cgc watch /path/to/project     # Watch specific directory
         cgc watch --poll .             # Use polling for Docker/NFS/SMB mounts
+        cgc watch --sync-on-start .    # Reconcile current files before watching
         cgc w .                        # Using shortcut alias
 
     Set CGC_WATCH_POLLING=1 to use polling without passing --poll.
     """
     _load_credentials()
-    watch_helper(path, context, use_polling=poll or None)
+    watch_helper(path, context, use_polling=poll or None, sync_on_start=sync_on_start)
 
 @app.command()
 def unwatch(
@@ -2846,9 +2856,22 @@ def visualize_abbrev(
 def watch_abbrev(
     path: str = typer.Argument(".", help="Path to watch"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+    poll: bool = typer.Option(
+        False,
+        "--poll",
+        help="Use watchdog's polling observer for Docker bind mounts and network filesystems.",
+    ),
+    sync_on_start: bool = typer.Option(
+        False,
+        "--sync-on-start",
+        help=(
+            "Synchronize already-indexed files before watching. "
+            "Defaults off; use 'cgc index --force' for a full re-index."
+        ),
+    ),
 ):
     """Shortcut for 'cgc watch'"""
-    watch(path, context=context)
+    watch(path, context=context, poll=poll, sync_on_start=sync_on_start)
 
 
 # ============================================================================

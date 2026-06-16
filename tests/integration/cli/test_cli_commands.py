@@ -378,6 +378,27 @@ def _matrix_command_set(entries: list[list[str]]) -> set[tuple[str, str]]:
     return covered
 
 
+@pytest.mark.parametrize(
+    ("args", "expected_sync_on_start"),
+    [
+        (["watch", "."], False),
+        (["watch", "--sync-on-start", "."], True),
+        (["w", "."], False),
+        (["w", "--sync-on-start", "."], True),
+    ],
+)
+def test_watch_sync_on_start_flag_is_explicit(monkeypatch, args, expected_sync_on_start):
+    calls = []
+    monkeypatch.setattr(cli_main, "_load_credentials", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_main, "watch_helper", lambda *call_args, **kwargs: calls.append((call_args, kwargs)))
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 0, result.output
+    assert calls
+    assert calls[0][1]["sync_on_start"] is expected_sync_on_start
+
+
 def test_cli_inventory_grouped_from_source():
     inventory = _inventory_from_main_source()
 
