@@ -47,7 +47,12 @@ def test_startup_sync_reconciles_current_and_deleted_files(tmp_path: Path):
         ]
     )
     assert graph_builder.update_file_in_graph.call_count == 2
-    graph_builder.delete_relationship_links.assert_called_once_with(repo.resolve())
+    refreshed_paths = {
+        str(changed_file.resolve()),
+        str(added_file.resolve()),
+    }
+    assert set(graph_builder.delete_outgoing_calls_from_files.call_args.args[0]) == refreshed_paths
+    assert set(graph_builder.delete_inherits_for_files.call_args.args[0]) == refreshed_paths
     graph_builder.link_function_calls.assert_called_once()
     graph_builder.link_inheritance.assert_called_once()
 

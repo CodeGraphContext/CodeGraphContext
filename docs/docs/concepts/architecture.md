@@ -50,8 +50,8 @@ The Persistence Layer abstracts database operations so that the engine can inter
 
 - **Database Abstraction API**: A client layer exposing methods to write batch transactions (`write_nodes`, `write_edges`) and query graph relationships via Cypher or native bindings.
 - **Embedded Engines**:
-  - **FalkorDB Lite (Default)**: Embedded in-memory graph engine (Unix only).
-  - **KuzuDB**: In-process C++ graph engine offering zero-dependency persistence on all platforms.
+  - **FalkorDB Lite (Default on Unix)**: Embedded in-memory graph engine when `falkordblite` is installed (Linux/macOS, Python 3.12+).
+  - **KuzuDB (Cross-platform fallback)**: In-process C++ graph engine used automatically on Windows or when FalkorDB Lite is unavailable.
   - **LadybugDB**: SQL-based embedded graph engine designed for concurrent read/write transactions.
 - **Networked Server Engines**:
   - **FalkorDB Remote**: Remote client linking to FalkorDB instances.

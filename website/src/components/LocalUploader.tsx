@@ -7,6 +7,12 @@ import { parseFilesIntoGraph } from "@/lib/parser";
 import JSZip from "jszip";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import {
+  RepoProvider,
+  detectProviderFromInput,
+  getExploreRoute,
+  parseRepoInput,
+} from "@/lib/repo-provider";
 
 const IGNORED_DIRS = new Set([
   'node_modules', '.git', '.github', 'dist', 'build', 'out', 'coverage',
@@ -148,9 +154,10 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
   const navigate = useNavigate();
   const [isParsing, setIsParsing] = useState(false);
   const [progress, setProgress] = useState({ text: "", value: 0 });
-  const [activeTab, setActiveTab] = useState<'folder' | 'zip' | 'cgc' | 'github'>('github');
-  const [githubUrl, setGithubUrl] = useState("");
-  const [githubPat, setGithubPat] = useState(() => localStorage.getItem('github_pat') || "");
+  const [activeTab, setActiveTab] = useState<'folder' | 'zip' | 'cgc' | 'remote'>('remote');
+  const [remoteRepoUrl, setRemoteRepoUrl] = useState("");
+  const [detectedProvider, setDetectedProvider] = useState<RepoProvider>("github");
+  const [pat, setPat] = useState(() => localStorage.getItem("github_pat") || "");
 
   const [config, setConfig] = useState(() => {
     try {
@@ -419,37 +426,44 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
     }
   };
 
-  const handleGithubFetch = async () => {
-    const input = githubUrl.trim();
-    if (!input) {
-      alert("Please enter a GitHub URL or owner/repo.");
-      return;
+  const syncPatForProvider = (provider: RepoProvider) => {
+    setDetectedProvider(provider);
+    const tokenKey = provider === "gitlab" ? "gitlab_pat" : "github_pat";
+    setPat(localStorage.getItem(tokenKey) || "");
+  };
+
+  const handleRepoUrlChange = (value: string) => {
+    setRemoteRepoUrl(value);
+    const nextProvider = detectProviderFromInput(value);
+    if (nextProvider !== detectedProvider) {
+      syncPatForProvider(nextProvider);
     }
+  };
 
-    let owner = "";
-    let repo = "";
-
-    if (input.includes("github.com")) {
-      const match = input.match(/github\.com\/([^/]+)\/([^/]+)/);
-      if (match) {
-        owner = match[1];
-        repo = match[2].replace(/\.git$/, "").split("/")[0];
-      }
+  const handlePatChange = (value: string) => {
+    setPat(value);
+    const tokenKey = detectedProvider === "gitlab" ? "gitlab_pat" : "github_pat";
+    if (value.trim()) {
+      localStorage.setItem(tokenKey, value.trim());
     } else {
-      const match = input.match(/^([^/]+)\/([^/]+)$/);
-      if (match) {
-        owner = match[1];
-        repo = match[2];
-      }
+      localStorage.removeItem(tokenKey);
     }
+  };
 
-    if (!owner || !repo) {
-      alert("Please enter a valid GitHub repository (e.g. sktime/sktime-mcp or https://github.com/sktime/sktime-mcp).");
+  const handleRemoteRepoFetch = async () => {
+    const input = remoteRepoUrl.trim();
+    if (!input) {
+      alert("Please enter a GitHub or GitLab URL, or owner/repo.");
       return;
     }
 
-    // Redirect user to the optimized Direct Repo route
-    navigate(`/${owner}/${repo}`);
+    const ref = parseRepoInput(input);
+    if (!ref) {
+      alert("Please enter a valid repository URL (e.g. https://gitlab.com/gitlab-org/gitlab or facebook/react).");
+      return;
+    }
+
+    navigate(getExploreRoute(ref));
   };
 
   return (
@@ -460,7 +474,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
         <button onClick={() => setActiveTab('folder')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'folder' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-purple-500/10 dark:hover:bg-purple-500/20'}`}>Folder</button>
         <button onClick={() => setActiveTab('zip')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'zip' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-purple-500/10 dark:hover:bg-purple-500/20'}`}>ZIP</button>
         <button onClick={() => setActiveTab('cgc')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'cgc' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-purple-500/10 dark:hover:bg-purple-500/20'}`}>CGC Bundle</button>
-        <button onClick={() => setActiveTab('github')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'github' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-purple-500/10 dark:hover:bg-purple-500/20'}`}>GitHub</button>
+        <button onClick={() => setActiveTab('remote')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'remote' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-purple-500/10 dark:hover:bg-purple-500/20'}`}>GitHub / GitLab</button>
       </div>
 
 
@@ -507,39 +521,54 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
             </motion.div>
           )}
 
-          {activeTab === 'github' && (
-            <motion.div key="github" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center w-full">
+          {activeTab === 'remote' && (
+            <motion.div key="remote" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center w-full">
 
               <h3 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white">Fetch Repository</h3>
-              <p className="text-gray-600 dark:text-gray-400 text-sm mb-6 max-w-[250px]">Pull raw files from a GitHub repository.</p>
+              <p className="text-gray-600 dark:text-gray-400 text-sm mb-6 max-w-[320px]">Pull raw files from a public GitHub or GitLab repository.</p>
 
               <div className="w-full space-y-3 mb-4">
                 <input
                   type="text"
-                  placeholder="https://github.com/facebook/react"
-                  value={githubUrl}
-                  onChange={e => setGithubUrl(e.target.value)}
+                  placeholder="GitHub or GitLab URL / owner/repo"
+                  value={remoteRepoUrl}
+                  onChange={e => handleRepoUrlChange(e.target.value)}
                   className="w-full bg-white/40 dark:bg-black/40 border border-gray-300 dark:border-white/20 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 px-5 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-sm"
                 />
+                <p className="text-[11px] text-gray-500 dark:text-gray-500 text-left leading-relaxed px-1">
+                  e.g.{" "}
+                  <button
+                    type="button"
+                    onClick={() => handleRepoUrlChange("https://github.com/facebook/react")}
+                    className="text-purple-400 hover:text-purple-300 underline-offset-2 hover:underline"
+                  >
+                    github.com/facebook/react
+                  </button>
+                  {" "}or{" "}
+                  <button
+                    type="button"
+                    onClick={() => handleRepoUrlChange("https://gitlab.com/fdroid/fdroidclient")}
+                    className="text-purple-400 hover:text-purple-300 underline-offset-2 hover:underline"
+                  >
+                    gitlab.com/fdroid/fdroidclient
+                  </button>
+                </p>
 
                 <input
                   type="password"
-                  placeholder="Personal Access Token (PAT) - Required for Private Repos"
-                  value={githubPat}
-                  onChange={e => {
-                    const val = e.target.value;
-                    setGithubPat(val);
-                    if (val.trim()) {
-                      localStorage.setItem('github_pat', val.trim());
-                    } else {
-                      localStorage.removeItem('github_pat');
-                    }
-                  }}
+                  placeholder="PAT for private repos — GitHub (ghp_...) or GitLab (glpat-...)"
+                  value={pat}
+                  onChange={e => handlePatChange(e.target.value)}
                   className="w-full bg-white/40 dark:bg-black/40 border border-gray-300 dark:border-white/20 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 px-5 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-sm"
                 />
+                {pat.trim() && remoteRepoUrl.trim() && (
+                  <p className="text-[10px] text-gray-500 text-left px-1">
+                    Saving to {detectedProvider === "gitlab" ? "GitLab" : "GitHub"} token store
+                  </p>
+                )}
               </div>
 
-              <Button onClick={handleGithubFetch} className="bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] w-full rounded-xl py-6 text-lg font-semibold shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+              <Button onClick={handleRemoteRepoFetch} className="bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] w-full rounded-xl py-6 text-lg font-semibold shadow-[0_0_20px_rgba(255,255,255,0.1)]">
                 Scan & Visualize
               </Button>
             </motion.div>

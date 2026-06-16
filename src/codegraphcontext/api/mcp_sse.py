@@ -8,16 +8,17 @@ from mcp.types import Tool, TextContent, ServerCapabilities, ToolsCapability
 from mcp.server.sse import SseServerTransport
 
 from codegraphcontext.api.router import get_server
-from codegraphcontext.tool_definitions import TOOLS
+from codegraphcontext.server import _strip_workspace_prefix, _apply_response_token_limit
 
 # Create the MCP Server instance using the SDK
 mcp_server = Server("CodeGraphContext")
 
 @mcp_server.list_tools()
 async def handle_list_tools() -> list[Tool]:
-    """List available tools."""
+    """List available tools (honors disabledTools from mcp.json)."""
+    server = get_server()
     tools = []
-    for name, defn in TOOLS.items():
+    for name, defn in server.tools.items():
         tools.append(Tool(
             name=name,
             description=defn["description"],
@@ -33,12 +34,16 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[TextConten
     
     # Execute via the existing handler logic
     result = await server.handle_tool_call(name, args)
+    result = _strip_workspace_prefix(result)
     
     if "error" in result:
         return [TextContent(type="text", text=f"Error: {result['error']}")]
     
-    # Format result as JSON string for the AI
-    return [TextContent(type="text", text=json.dumps(result, indent=2))]
+    # Format result as JSON string for the AI, with the same token budget
+    # the stdio transport applies.
+    response_text = json.dumps(result, indent=2)
+    response_text = _apply_response_token_limit(name, response_text)
+    return [TextContent(type="text", text=response_text)]
 
 # Create the SSE transport. 
 # The messages_url is where the client will POST JSON-RPC messages.

@@ -35,7 +35,7 @@ numpy.cgc
 #### metadata.json
 ```json
 {
-  "cgc_version": "0.1.0",
+  "cgc_version": "0.5.0",
   "exported_at": "2026-01-13T22:00:00",
   "repo": "numpy/numpy",
   "commit": "a1b2c3d4",
@@ -82,8 +82,12 @@ cgc export my-project.cgc --repo /path/to/project
 # Load a bundle (adds to existing graph)
 cgc bundle import numpy.cgc
 
-# Load and clear existing data
+# Load and clear existing data (interactive confirmation)
 cgc bundle import numpy.cgc --clear
+
+# Non-interactive / CI: skip confirmation when clearing
+cgc bundle import numpy.cgc --clear --yes
+cgc bundle load numpy --clear -y
 
 # Shortcut
 cgc load numpy.cgc

@@ -100,7 +100,7 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 ---
 
 ## Project Details
-- **Version:** 0.4.17
+- **Version:** 0.5.1
 - **Authors:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **License:** MIT License (See [LICENSE](LICENSE) for details)
 - **Website:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
@@ -128,11 +128,11 @@ A powerful **MCP server** and **CLI toolkit** that indexes local code into a gra
 ## Features
 -   **Code Indexing:** Analyzes code and builds a knowledge graph of its components.
 -   **Relationship Analysis:** Query for callers, callees, class hierarchies, call chains and more.
--   **Pre-indexed Bundles:** Load famous repositories instantly with `.cgc` bundles - no indexing required! ([Learn more](docs/BUNDLES.md))
--   **Live File Watching:** Watch directories for changes and automatically update the graph in real-time (`codegraphcontext watch`).
+-   **Pre-indexed Bundles:** Load famous repositories instantly with `.cgc` bundles - no indexing required! ([Learn more](docs/docs/guides/bundles.md))
+-   **Live File Watching:** Watch directories for changes and automatically update the graph in real-time (`cgc watch`).
 -   **Interactive Setup:** A user-friendly command-line wizard for easy setup.
 -   **Dual Mode:** Works as a standalone **CLI toolkit** for developers and as an **MCP server** for AI agents.
--   **Multi-Language Support:** Full support for 22 programming languages.
+-   **Multi-Language Support:** Full support for 23 programming languages.
 -   **Flexible Database Backend:** FalkorDB Lite (Default), KuzuDB, LadybugDB, FalkorDB Remote, Nornic DB, or Neo4j (all platforms via Docker/native).
 
 
@@ -163,7 +163,7 @@ CodeGraphContext supports multiple graph database backends to suit your environm
 
 | Feature | KuzuDB | LadybugDB | FalkorDB Lite | Neo4j / Nornic DB |
 | :--- | :--- | :--- | :--- | :--- |
-| **Typical default** | **Standard Default** (embedded, powered by KuzuDB) | **Specialized Embedded** (similar to Kuzu) | **Unix** (Python 3.12+, when `falkordblite` works) | When explicitly configured |
+| **Typical default** | Cross-platform fallback when FalkorDB Lite is unavailable | Optional embedded backend | **Default on Unix** (Python 3.12+, when `falkordblite` is installed) | When explicitly configured via `cgc config db` |
 | **Setup** | Zero-config / Embedded | Zero-config / Embedded | Zero-config / In-process | Docker / External |
 | **Platform** | **All (Windows Native, macOS, Linux)** | **All (Windows Native, macOS, Linux)** | Unix-only (Linux/macOS/WSL) | All Platforms |
 | **Use Case** | Desktop, IDE, Local development | Custom research projects | Specialized Unix development | Enterprise, Massive graphs |
@@ -210,8 +210,8 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
 - `tree-sitter-language-pack>=0.6.0` (not installed on Python 3.13)
 - `pyyaml`
 - `pathspec>=0.12.1`
-- `falkordb>=0.1.0`
-- `falkordblite>=0.1.0` (Unix only)
+- `falkordb>=1.0,<1.6`
+- `falkordblite>=0.7,<0.10` (Unix only, Python 3.12+)
 - `kuzu` (KuzuDB engine)
 - `fastapi>=0.100.0`
 - `uvicorn>=0.22.0`

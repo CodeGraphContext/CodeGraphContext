@@ -106,12 +106,15 @@ class ElixirTreeSitterParser:
                                             return self._get_node_text(ac), 'module', curr.start_point[0] + 1
                         elif keyword in FUNCTION_KEYWORDS:
                             for arg_child in curr.children:
-                                if arg_child.type == 'arguments':
-                                    for ac in arg_child.children:
-                                        if ac.type == 'call':
-                                            name_node = ac.child_by_field_name('target')
-                                            if name_node:
-                                                return self._get_node_text(name_node), 'function', curr.start_point[0] + 1
+                                if arg_child.type != 'arguments':
+                                    continue
+                                for ac in arg_child.children:
+                                    if ac.type == 'call':
+                                        name_node = ac.child_by_field_name('target')
+                                        if name_node:
+                                            return self._get_node_text(name_node), 'function', curr.start_point[0] + 1
+                                    elif ac.type == 'identifier':
+                                        return self._get_node_text(ac), 'function', curr.start_point[0] + 1
                         break
             curr = curr.parent
         return None, None, None

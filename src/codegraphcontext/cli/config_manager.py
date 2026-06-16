@@ -15,6 +15,19 @@ import yaml
 
 console = Console()
 
+
+def _atomic_write_text(path: Path, content: str, *, secure: bool = False) -> None:
+    """Write *content* to *path* atomically (temp file + replace)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, path)
+    if secure:
+        os.chmod(path, 0o600)
+
 # Configuration file location
 CONFIG_DIR = Path.home() / ".codegraphcontext"
 CONFIG_FILE = CONFIG_DIR / ".env"
@@ -385,30 +398,27 @@ def save_config(config: Dict[str, str], preserve_db_credentials: bool = True):
                 credentials_to_write[key] = config[key]
     
     try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            f.write("# CodeGraphContext Configuration\n")
-            f.write(f"# Location: {CONFIG_FILE}\n\n")
-            
-            # Write database credentials first if they exist
-            if credentials_to_write:
-                f.write("# ===== Database Credentials =====\n")
-                for key in sorted(DATABASE_CREDENTIAL_KEYS):
-                    if key in credentials_to_write:
-                        f.write(f"{key}={credentials_to_write[key]}\n")
-                f.write("\n")
-            
-            # Write configuration settings
-            f.write("# ===== Configuration Settings =====\n")
-            for key, value in sorted(config.items()):
-                # Skip database credentials (already written above)
-                if key in DATABASE_CREDENTIAL_KEYS:
-                    continue
-                    
-                description = CONFIG_DESCRIPTIONS.get(key, "")
-                if description:
-                    f.write(f"# {description}\n")
-                f.write(f"{key}={value}\n\n")
-        
+        lines = [
+            "# CodeGraphContext Configuration",
+            f"# Location: {CONFIG_FILE}",
+            "",
+        ]
+        if credentials_to_write:
+            lines.append("# ===== Database Credentials =====")
+            for key in sorted(DATABASE_CREDENTIAL_KEYS):
+                if key in credentials_to_write:
+                    lines.append(f"{key}={credentials_to_write[key]}")
+            lines.append("")
+        lines.append("# ===== Configuration Settings =====")
+        for key, value in sorted(config.items()):
+            if key in DATABASE_CREDENTIAL_KEYS:
+                continue
+            description = CONFIG_DESCRIPTIONS.get(key, "")
+            if description:
+                lines.append(f"# {description}")
+            lines.append(f"{key}={value}")
+            lines.append("")
+        _atomic_write_text(CONFIG_FILE, "\n".join(lines), secure=True)
         console.print(f"[green]✅ Configuration saved to {CONFIG_FILE}[/green]")
     except Exception as e:
         console.print(f"[red]Error saving config: {e}[/red]")
@@ -804,8 +814,10 @@ def save_context_config(cfg: ContextConfig) -> None:
     }
 
     try:
-        with open(CONTEXT_CONFIG_FILE, "w", encoding="utf-8") as f:
-            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+        _atomic_write_text(
+            CONTEXT_CONFIG_FILE,
+            yaml.dump(raw, default_flow_style=False, sort_keys=False),
+        )
     except Exception as e:
         console.print(f"[red]Error saving config.yaml: {e}[/red]")
 
@@ -887,10 +899,15 @@ def resolve_context(
 
         inherited_db = load_config().get("DEFAULT_DATABASE", "falkordb")
 
-        # Copy global .env into local context for easy per-repo tweaking
+        # Copy global .env into local context for easy per-repo tweaking.
+        # Guard against the self-copy case: when cwd is the home directory,
+        # local_cgc resolves to CONFIG_DIR itself, so `local_cgc / ".env"` is
+        # CONFIG_FILE. Copying a file onto itself raises shutil.SameFileError,
+        # which crashes resolve_context for any session started from home.
         import shutil
-        if CONFIG_FILE.exists():
-            shutil.copy2(CONFIG_FILE, local_cgc / ".env")
+        _target_env = local_cgc / ".env"
+        if CONFIG_FILE.exists() and _target_env.resolve() != CONFIG_FILE.resolve():
+            shutil.copy2(CONFIG_FILE, _target_env)
 
         local_yaml = local_cgc / "config.yaml"
         if not local_yaml.exists():
@@ -1172,8 +1189,10 @@ def _save_workspace_mappings(mappings: Dict[str, Dict[str, str]]) -> None:
             raw = {}
     raw["workspace_mappings"] = mappings
     try:
-        with open(CONTEXT_CONFIG_FILE, "w", encoding="utf-8") as f:
-            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+        _atomic_write_text(
+            CONTEXT_CONFIG_FILE,
+            yaml.dump(raw, default_flow_style=False, sort_keys=False),
+        )
     except Exception as e:
         console.print(f"[red]Error saving workspace mappings: {e}[/red]")
 

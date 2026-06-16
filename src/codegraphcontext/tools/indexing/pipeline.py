@@ -15,7 +15,18 @@ from .discovery import discover_files_to_index
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
 from .resolution.calls import build_function_call_groups
-from .resolution.inheritance import build_inheritance_and_csharp_files
+from .resolution.inheritance import (
+    build_companion_of_links,
+    build_decorated_by_links,
+    build_elixir_implements_links,
+    build_embeds_links,
+    build_go_implements_links,
+    build_haskell_implements_links,
+    build_inheritance_and_csharp_files,
+    build_metaclass_links,
+    build_partial_of_links,
+    build_part_of_links,
+)
 
 
 async def run_tree_sitter_index_async(
@@ -123,7 +134,17 @@ async def run_tree_sitter_index_async(
         job_manager.update_job(job_id, status_message="Resolving inheritance links...")
     info_logger(f"[INHERITS] Resolving inheritance links across {len(all_file_data)} files...")
     inheritance_batch, csharp_files = build_inheritance_and_csharp_files(all_file_data, imports_map)
+    implements_batch = build_go_implements_links(all_file_data)
+    implements_batch.extend(build_haskell_implements_links(all_file_data))
+    implements_batch.extend(build_elixir_implements_links(all_file_data))
     writer.write_inheritance_links(inheritance_batch, csharp_files, imports_map)
+    writer.write_implements_links(implements_batch)
+    writer.write_embeds_links(build_embeds_links(all_file_data))
+    writer.write_companion_of_links(build_companion_of_links(all_file_data))
+    writer.write_partial_of_links(build_partial_of_links(all_file_data))
+    writer.write_part_of_links(build_part_of_links(all_file_data))
+    writer.write_metaclass_links(build_metaclass_links(all_file_data, imports_map))
+    writer.write_decorated_by_links(build_decorated_by_links(all_file_data, imports_map))
     t1 = time.time()
     info_logger(f"Inheritance links created in {t1 - t0:.1f}s. Starting function calls...")
 

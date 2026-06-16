@@ -35,6 +35,11 @@ def create_graph_schema(driver: Any, db_manager: Any) -> None:
                 session.run("CREATE INDEX IF NOT EXISTS FOR (a:Annotation) ON (a.name, a.path, a.line_number)")
                 session.run("CREATE INDEX IF NOT EXISTS FOR (r:Record) ON (r.name, r.path, r.line_number)")
                 session.run("CREATE INDEX IF NOT EXISTS FOR (p:Property) ON (p.name, p.path, p.line_number)")
+                session.run("CREATE INDEX IF NOT EXISTS FOR (em:EnumMember) ON (em.name, em.path)")
+                session.run("CREATE INDEX IF NOT EXISTS FOR (o:Object) ON (o.name, o.path, o.line_number)")
+                session.run("CREATE INDEX IF NOT EXISTS FOR (mx:Mixin) ON (mx.name, mx.path, mx.line_number)")
+                session.run("CREATE INDEX IF NOT EXISTS FOR (ex:Extension) ON (ex.name, ex.path, ex.line_number)")
+                session.run("CREATE INDEX IF NOT EXISTS FOR (p:Parameter) ON (p.name, p.path, p.function_line_number)")
 
             if not is_falkordb:
                 session.run(

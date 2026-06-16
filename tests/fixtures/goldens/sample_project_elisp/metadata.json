@@ -1,0 +1,16 @@
+{
+  "cgc_version": "0.1.0",
+  "exported_at": "2026-06-11T13:10:29Z",
+  "format_version": "1.0.0",
+  "repo": "sample_project_elisp",
+  "repo_path": ".",
+  "is_dependency": false,
+  "commit": "c74cd26c",
+  "branch": "main",
+  "generator": "PYv0.5.0",
+  "name": "sample_project_elisp.cgc",
+  "graph_metrics": {
+    "total_nodes": 26,
+    "total_edges": 30
+  }
+}

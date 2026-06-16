@@ -4,6 +4,36 @@ CodeGraphContext (CGC) is configured using environment variables, local configur
 
 ---
 
+## Important defaults (read this first)
+
+These three points are the most common sources of confusion in older docs and issue reports:
+
+### Default database backend
+
+| Platform | What CGC uses by default |
+| :--- | :--- |
+| **Unix (Linux/macOS), Python 3.12+** | **FalkorDB Lite** when `falkordblite` is installed (`DEFAULT_DATABASE=falkordb`) |
+| **Windows**, or FalkorDB Lite unavailable | **KuzuDB** as the automatic fallback |
+| **Any platform** | Override anytime with `cgc config db <backend>` |
+
+KuzuDB is **not** the universal default—it is the cross-platform fallback when FalkorDB Lite cannot run.
+
+### Neo4j username key
+
+Use **`NEO4J_USERNAME`**, not `NEO4J_USER`. The latter is not a valid `cgc config set` key.
+
+```bash
+cgc config set NEO4J_USERNAME neo4j
+```
+
+### Project-local `.env` files
+
+Repository `.codegraphcontext/.env` and `.env` files are loaded **only in per-repo context mode** (or when `CGC_LOAD_PROJECT_ENV=1`). In **global** or **named** mode, `~/.codegraphcontext/.env` wins so cloned repos cannot override your credentials. Set `CGC_IGNORE_PROJECT_ENV=1` to force-skip project env.
+
+See [Project-Local Environment Files](#project-local-environment-files) below for the full precedence table.
+
+---
+
 ## The `cgc config` CLI Utility
 
 Use the `config` command group to inspect and modify settings from your terminal.
@@ -35,7 +65,7 @@ Quickly updates the `DEFAULT_DATABASE` key:
 cgc config db falkordb
 ```
 
-Valid database backend identifiers: `kuzudb`, `ladybugdb`, `falkordb` (Lite/embedded), `falkordb-remote`, and `neo4j`.
+Valid database backend identifiers: `kuzudb`, `ladybugdb`, `falkordb` (Lite/embedded), `falkordb-remote`, `neo4j`, and `nornic`.
 
 ### 4. Reset to Defaults
 Restores all keys to factory configurations:
@@ -121,12 +151,31 @@ Local embedded database instances are stored on disk. Use the settings below to 
 
 ---
 
+## Project-Local Environment Files
+
+Repository-level env files are **not** loaded in every mode:
+
+| File | When it applies |
+| :--- | :--- |
+| `~/.codegraphcontext/.env` | Always (global defaults) |
+| `<repo>/.codegraphcontext/.env` | **Per-repo mode only** (or when `CGC_LOAD_PROJECT_ENV=1`) |
+| `<repo>/.env` | **Per-repo mode only** (searched up to 5 parent directories) |
+
+In **global** or **named** context mode, a checked-in `.codegraphcontext/.env` inside a clone does **not** override your user config—this prevents accidental hijacking when indexing third-party repos.
+
+Override flags:
+
+- `CGC_IGNORE_PROJECT_ENV=1` — never load project-local env.
+- `CGC_LOAD_PROJECT_ENV=1` — always load project-local env (even outside per-repo mode).
+
+---
+
 ## Settings Precedence Levels
 
 CGC resolves configuration keys in the following hierarchical priority (highest level overrides lower levels):
 
-1. **CLI Flag Parameters**: Overrides passed during execution (e.g., `cgc index --db falkordb`).
-2. **Runtime Environment Variables**: System environment variables (shell/CI, e.g., `export DEFAULT_DATABASE=neo4j`).
-3. **Local Project Variables**: Values defined in `.codegraphcontext/.env` and `.env` in the current project directory.
-4. **User Global Settings**: Configurations stored in `~/.codegraphcontext/.env` (including settings persisted by `cgc config set`).
-5. **System Defaults**: Hardcoded fallback values defined within the Python package.
+1. **CLI flag parameters** — e.g. `cgc index --db neo4j`.
+2. **Runtime environment variables** — shell/CI exports and `CGC_RUNTIME_DB_TYPE`.
+3. **Project-local env** — `.codegraphcontext/.env` / `.env` (per-repo mode only; see above).
+4. **User global settings** — `~/.codegraphcontext/.env` (including values from `cgc config set`).
+5. **System defaults** — hardcoded fallbacks in the package.

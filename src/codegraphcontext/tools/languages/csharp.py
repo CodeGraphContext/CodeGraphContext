@@ -306,6 +306,7 @@ class CSharpTreeSitterParser:
                             "end_line": end_line,
                             "path": str(path),
                             "lang": self.language_name,
+                            "is_partial": bool(re.search(r"\bpartial\b", source_text)),
                         }
                         
                         # Add bases if found

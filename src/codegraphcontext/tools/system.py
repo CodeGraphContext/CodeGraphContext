@@ -98,8 +98,15 @@ class SystemTools:
             if _re.search(pattern, query_without_strings, _re.IGNORECASE):
                 return {"error": "This tool only supports read-only queries. Prohibited keywords like CREATE, MERGE, DELETE, SET, etc., are not allowed."}
 
+        # Only the Neo4j driver understands default_access_mode; other
+        # backends' session shims reject it.
+        backend = getattr(self.db_manager, "get_backend_type", lambda: "neo4j")()
+        session_kwargs: Dict[str, Any] = {}
+        if backend == "neo4j":
+            session_kwargs["default_access_mode"] = "READ"
+
         try:
-            with self.db_manager.get_driver().session(default_access_mode="READ") as session:
+            with self.db_manager.get_driver().session(**session_kwargs) as session:
                 result = session.run(cypher_query)
                 records = [record.data() for record in result]
                 return {

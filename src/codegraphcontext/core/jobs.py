@@ -122,12 +122,17 @@ class JobManager:
             return None
 
     def cleanup_old_jobs(self, max_age_hours: int = 24):
-        """Removes old, completed jobs from memory to prevent memory leaks."""
+        """Removes old jobs from memory to prevent memory leaks.
+
+        Finished jobs are aged by end_time; jobs that never finished (e.g.
+        crashed while PENDING/RUNNING) are aged by start_time so they don't
+        leak forever.
+        """
         cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
         with self.lock:
             jobs_to_remove = [
                 job_id for job_id, job in self.jobs.items()
-                if job.end_time and job.end_time < cutoff_time
+                if (job.end_time or job.start_time) < cutoff_time
             ]
             for job_id in jobs_to_remove:
                 del self.jobs[job_id]

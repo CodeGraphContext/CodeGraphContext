@@ -35,6 +35,7 @@ from .config_manager import (
     register_repo_in_context,
     ensure_first_run_bootstrap,
     ContextNotFoundError,
+    is_db_deletion_allowed,
 )
 
 console = Console()
@@ -673,14 +674,32 @@ def reindex_helper(path: str, context: Optional[str] = None):
         db_manager.close_driver()
 
 
-def update_helper(path: str, context: Optional[str] = None):
-    """Update/refresh index for a path (alias for reindex)."""
+def update_helper(path: str, context: Optional[str] = None, quiet: bool = False):
+    """Update/refresh index for a path (alias for reindex).
+
+    When *quiet* is True (e.g. when invoked from Git hooks with --quiet),
+    Rich console output, including progress rendering, is suppressed.
+    """
+    if quiet:
+        console.quiet = True
+        try:
+            reindex_helper(path, context)
+        finally:
+            console.quiet = False
+        return
     console.print("[cyan]Updating repository index...[/cyan]")
     reindex_helper(path, context)
 
 
 def clean_helper(context: Optional[str] = None):
     """Remove orphaned nodes and relationships from the database."""
+    if not is_db_deletion_allowed():
+        console.print(
+            "[bold red]Error:[/bold red] Database cleanup is disabled. "
+            "Set ALLOW_DB_DELETION=true in config to enable."
+        )
+        raise typer.Exit(code=1)
+
     services = _initialize_services(context)
     if not all(services[:3]):
         _fail_services_init()
@@ -738,6 +757,9 @@ def stats_helper(path: str = None, context: Optional[str] = None):
         if path:
             # Stats for specific repository
             path_obj = Path(path).resolve()
+            # Paths are stored with forward slashes (as_posix) in the graph DB,
+            # so lookups must use the same normalization on Windows too.
+            repo_path_str = path_obj.as_posix()
             console.print(f"[cyan]📊 Statistics for: {path_obj}[/cyan]\n")
             
             with db_manager.get_driver().session() as session:
@@ -746,7 +768,7 @@ def stats_helper(path: str = None, context: Optional[str] = None):
                 MATCH (r:Repository {path: $path})
                 RETURN r
                 """
-                result = session.run(repo_query, path=str(path_obj))
+                result = session.run(repo_query, path=repo_path_str)
                 if not result.single():
                     console.print(f"[red]Repository not found: {path_obj}[/red]")
                     return
@@ -755,20 +777,20 @@ def stats_helper(path: str = None, context: Optional[str] = None):
                 # Get stats using separate queries to handle depth and avoid Cartesian products
                 # 1. Files
                 file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as c"
-                file_count = session.run(file_query, path=str(path_obj)).single()["c"]
+                file_count = session.run(file_query, path=repo_path_str).single()["c"]
                 
                 # 2. Functions (including methods in classes)
                 func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(func) as c"
-                func_count = session.run(func_query, path=str(path_obj)).single()["c"]
+                func_count = session.run(func_query, path=repo_path_str).single()["c"]
                 
                 # 3. Classes
                 class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(c:Class) RETURN count(c) as c"
-                class_count = session.run(class_query, path=str(path_obj)).single()["c"]
+                class_count = session.run(class_query, path=repo_path_str).single()["c"]
                 
                 # 4. Modules (imported) - Note: Module nodes are outside the repo structure usually, connected via IMPORTS
                 # We need to traverse from files to modules
                 module_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File)-[:IMPORTS]->(m:Module) RETURN count(DISTINCT m) as c"
-                module_count = session.run(module_query, path=str(path_obj)).single()["c"]
+                module_count = session.run(module_query, path=repo_path_str).single()["c"]
 
                 table = Table(show_header=True, header_style="bold magenta")
                 table.add_column("Metric", style="cyan")
@@ -869,7 +891,7 @@ def watch_helper(path: str, context: Optional[str] = None, use_polling: Optional
             with code_finder.driver.session() as _s:
                 _r = _s.run(
                     "MATCH (n:File) WHERE n.path STARTS WITH $p RETURN count(n) AS c",
-                    p=str(path_obj) + "/"
+                    p=path_obj.as_posix() + "/"
                 )
                 _count = _r.single()["c"]
             if _count > 100:

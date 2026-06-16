@@ -30,14 +30,14 @@ def delete_repository(graph_builder: GraphBuilder, **args) -> Dict[str, Any]:
         return {
             "error": (
                 "Repository deletion is disabled. Set ALLOW_DB_DELETION=true in "
-                "~/.codegraphcontext/config.json to enable destructive MCP operations."
+                "~/.codegraphcontext/.env to enable destructive MCP operations."
             )
         }
 
-    repo_path = args.get("repo_path") or args.get("path")
-    if not repo_path or not str(repo_path).strip():
-        return {"error": "Repository path is required (repo_path)."}
+    repo_path = args.get("repo_path") or args.get("path") or args.get("repo")
 
+    if not repo_path:
+        return {"error": "Repository path is required (repo_path)."}
     repo_path = str(repo_path).strip()
     graph_name = args.get("graph_name")
     try:
@@ -47,11 +47,10 @@ def delete_repository(graph_builder: GraphBuilder, **args) -> Dict[str, Any]:
                 "success": True,
                 "message": f"Repository '{repo_path}' deleted successfully."
             }
-        else:
-                return {
-                "success": False,
-                "message": f"Repository '{repo_path}' not found in the graph."
-            }
+        return {
+            "success": False,
+            "message": f"Repository '{repo_path}' not found in the graph."
+        }
     except Exception as e:
         debug_log(f"Error deleting repository: {str(e)}")
         return {"error": f"Failed to delete repository: {str(e)}"}
@@ -154,7 +153,7 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
                 return {
                     "error": (
                         "Bundle import with clear_existing is disabled. Set "
-                        "ALLOW_DB_DELETION=true in ~/.codegraphcontext/config.json."
+                        "ALLOW_DB_DELETION=true in ~/.codegraphcontext/.env."
                     )
                 }
 

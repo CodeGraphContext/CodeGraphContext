@@ -85,8 +85,9 @@ app = typer.Typer(
 )
 console = Console(stderr=True)
 
-# Configure basic logging for the application.
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+# Configure basic logging for the application. Default to WARNING so CLI
+# output stays clean; the root --debug flag switches this to DEBUG.
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
 
 def get_version() -> str:
@@ -142,6 +143,7 @@ def mcp_start():
         # This typically happens if credentials are still not found after all checks.
         console.print(f"[bold red]Configuration Error:[/bold red] {e}")
         console.print("Please run `cgc neo4j setup` or use FalkorDB (default).")
+        raise typer.Exit(code=1) from e
     except KeyboardInterrupt:
         # Handle graceful shutdown on Ctrl+C.
         console.print("\n[bold yellow]Server stopped by user.[/bold yellow]")
@@ -177,8 +179,10 @@ def mcp_tools():
     except ValueError as e:
         console.print(f"[bold red]Error loading tools:[/bold red] {e}")
         console.print("Please ensure your database is configured correctly.")
+        raise typer.Exit(code=1) from e
     except Exception as e:
         console.print(f"[bold red]An unexpected error occurred:[/bold red] {e}")
+        raise typer.Exit(code=1) from e
 
 # Abbreviation for mcp setup
 @app.command("m", rich_help_panel="Shortcuts")
@@ -391,7 +395,6 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
     # IMPORTANT: DB-selection keys set in the shell must win over .env defaults.
     # E.g. `DEFAULT_DATABASE=falkordb cgc index …` must not be overridden by
     # DEFAULT_DATABASE=neo4j sitting in ~/.codegraphcontext/.env
-    DB_OVERRIDE_KEYS = {"CGC_RUNTIME_DB_TYPE", "DEFAULT_DATABASE"}
     for key, value in merged_config.items():
         if value is not None:  # Only set non-None values
             if key in runtime_env:
@@ -627,7 +630,7 @@ def bundle_export(
     
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, _, code_finder = services[:3]
     
     try:
@@ -697,7 +700,7 @@ def bundle_import(
     
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -789,6 +792,53 @@ def bundle_load(
         console.print(f"[bold red]Error: {e}[/bold red]")
         console.print("[dim]Use 'cgc registry list' to see available bundles[/dim]")
         raise typer.Exit(code=1)
+
+@bundle_app.command("merge")
+def bundle_merge(
+    ancestor: str = typer.Argument(..., help="Common ancestor version of the bundle (%O)"),
+    current: str = typer.Argument(..., help="Current branch version of the bundle (%A); also the merge result"),
+    other: str = typer.Argument(..., help="Other branch version of the bundle (%B)"),
+):
+    """
+    Git merge driver for .cgc bundle files.
+
+    Registered by `cgc hook install` as `merge.cgc-bundle.driver = cgc bundle
+    merge %O %A %B`. Git invokes it with temp files holding the ancestor (%O),
+    current (%A) and other (%B) versions; the merge result must be left in the
+    %A file and the driver must exit 0 for the merge to proceed.
+
+    Bundles are binary snapshots that cannot be merged line-by-line, so the
+    strategy is: if both sides are identical, accept either; otherwise keep
+    the current branch's version (already in the %A file) and warn that the
+    bundle should be regenerated with `cgc export` after the merge.
+    """
+    current_path = Path(current)
+    other_path = Path(other)
+
+    def _read_bytes(p: Path) -> bytes:
+        # A missing or empty temp file means the side has no content
+        # (e.g. the bundle is a new file on both branches → empty ancestor).
+        try:
+            return p.read_bytes() if p.exists() else b""
+        except OSError:
+            return b""
+
+    current_bytes = _read_bytes(current_path)
+    other_bytes = _read_bytes(other_path)
+
+    if current_bytes == other_bytes:
+        # Both branches have identical bundle contents; nothing to do.
+        raise typer.Exit(code=0)
+
+    # Keep the current branch's version (the %A file already contains it).
+    console.print(
+        "[yellow]⚠ Conflicting changes to a .cgc bundle were detected during merge. "
+        "Keeping the current branch's version.[/yellow]"
+    )
+    console.print(
+        "[yellow]The bundle may be stale — regenerate it with 'cgc export' after the merge.[/yellow]"
+    )
+    raise typer.Exit(code=0)
 
 # ============================================================================
 # HOOK COMMAND GROUP - Git integration
@@ -1146,11 +1196,18 @@ def doctor():
                         all_checks_passed = False
         elif default_db == "falkordb":
             try:
-                import falkordblite  # noqa: F401
-                console.print("   [green]✓[/green] FalkorDB Lite is installed")
+                from codegraphcontext.core import is_falkordb_usable
+
+                if is_falkordb_usable():
+                    console.print("   [green]✓[/green] FalkorDB Lite is installed")
+                else:
+                    raise ImportError("FalkorDB Lite is not available on this platform")
             except ImportError:
-                console.print("   [yellow]⚠[/yellow] FalkorDB Lite not installed (Python 3.12+ only)")
+                # falkordb is the configured/default backend, so a missing
+                # FalkorDB Lite means the database cannot work — fail the check.
+                console.print("   [red]✗[/red] FalkorDB Lite not installed (Python 3.12+ only)")
                 console.print("       Run: pip install falkordblite")
+                all_checks_passed = False
         else:
             console.print(f"   [yellow]⚠[/yellow] No connectivity probe for backend '{default_db}'")
     except Exception as e:
@@ -1275,7 +1332,7 @@ def update(
     _load_credentials()
     if path is None:
         path = str(Path.cwd())
-    update_helper(path, context)
+    update_helper(path, context, quiet=quiet)
 
 @app.command()
 def clean(
@@ -1344,7 +1401,7 @@ def delete(
         # Delete all repositories
         services = _initialize_services(context)
         if not all(services[:3]):
-            return
+            raise typer.Exit(code=1)
         db_manager, graph_builder, code_finder = services[:3]
         
         try:
@@ -1409,7 +1466,14 @@ def delete(
             console.print("[red]Error: Please provide a path or use --all to delete all repositories[/red]")
             console.print("Usage: cgc delete <path> or cgc delete --all")
             raise typer.Exit(code=1)
-        
+
+        if not config_manager.is_db_deletion_allowed():
+            console.print(
+                "[bold red]Error:[/bold red] Repository deletion is disabled. "
+                "Set ALLOW_DB_DELETION=true in config to enable."
+            )
+            raise typer.Exit(code=1)
+
         delete_helper(path, context)
 
 
@@ -1593,7 +1657,7 @@ def find_by_name(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
 
     # Resolve effective fuzzy setting: CLI flag wins, else config, else true.
@@ -1725,7 +1789,7 @@ def find_by_pattern(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -1818,7 +1882,7 @@ def find_by_type(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -1873,7 +1937,7 @@ def find_by_variable(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -1919,7 +1983,7 @@ def find_by_content_search(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -1978,7 +2042,7 @@ def find_by_decorator_search(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2026,7 +2090,7 @@ def find_by_argument_search(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2082,7 +2146,7 @@ def analyze_calls(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2138,7 +2202,7 @@ def analyze_callers(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2199,7 +2263,7 @@ def analyze_chain(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2269,7 +2333,7 @@ def analyze_kotlin_call_audit(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, _, code_finder = services[:3]
 
     try:
@@ -2329,7 +2393,7 @@ def analyze_dependencies(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2394,7 +2458,7 @@ def analyze_inheritance_tree(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2464,7 +2528,7 @@ def analyze_complexity(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
 
     _FILE_EXTENSIONS = ('.py', '.js', '.ts', '.jsx', '.tsx', '.go', '.rs', '.rb',
@@ -2541,7 +2605,7 @@ def analyze_dead_code(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2595,7 +2659,7 @@ def analyze_overrides(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2650,7 +2714,7 @@ def analyze_variable_usage(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2854,9 +2918,6 @@ def main(
         os.environ["CGC_RUNTIME_DB_TYPE"] = database
     # Initialize context object for sharing state with subcommands
     ctx.ensure_object(dict)
-    
-    if database:
-        os.environ["CGC_RUNTIME_DB_TYPE"] = database
 
     # Store visual flag in context for subcommands to access
     if visual:

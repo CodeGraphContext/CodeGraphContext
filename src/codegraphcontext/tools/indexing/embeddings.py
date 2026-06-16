@@ -1,32 +1,33 @@
 # src/codegraphcontext/tools/indexing/embeddings.py
-"""Batch embedding generation for Function nodes stored in Neo4j.
+"""Batch embedding generation for Function nodes across graph backends.
 
 Usage (after indexing is complete):
     from codegraphcontext.tools.indexing.embeddings import EmbeddingPipeline
     pipeline = EmbeddingPipeline(driver)
     pipeline.run(repo_path="/opt/repos/myapp")
 
-Embeddings are stored on each Function node as `embedding` (list[float]).
-A Neo4j vector index named "function_embeddings" is created on first run.
+Embeddings are stored on each Function node as ``embedding`` (list[float]).
+Neo4j additionally creates a vector index named ``function_embeddings``.
+Embedded backends (KùzuDB, LadybugDB) and FalkorDB store embeddings as node
+properties; similarity search uses in-process cosine scoring (see
+``vector_resolver``).
 
 Model selection (via env var CGC_EMBEDDING_MODEL):
   - "openai"         → text-embedding-3-small via OpenAI API  (requires OPENAI_API_KEY)
-  - "local"          → sentence-transformers/all-MiniLM-L6-v2 if available, else fastembed BAAI/bge-small-en-v1.5
+  - "local"          → sentence-transformers/all-MiniLM-L6-v2 if available, else fastembed
   - "fastembed"      → fastembed BAAI/bge-small-en-v1.5 (ONNX, no torch required)
   - any HF model ID  → loaded via sentence-transformers
-
-The embedding dimension is stored on the vector index (1536 for OpenAI, 384 for MiniLM).
 """
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from ...utils.debug_log import info_logger, warning_logger, error_logger
 
-# Embedding dimension constants
 _DIM_OPENAI = 1536
 _DIM_MINILM = 384
 _DIM_BGE_SMALL = 384
@@ -34,14 +35,37 @@ _DIM_BGE_SMALL = 384
 _VECTOR_INDEX_NAME = "function_embeddings"
 
 
-def _build_text(fn: Dict[str, Any]) -> str:
-    """Construct the text to embed for a Function node.
+def detect_graph_backend(driver: Any) -> str:
+    """Return a stable backend id for the active graph driver wrapper."""
+    if hasattr(driver, "get_backend_type"):
+        return driver.get_backend_type()
+    cls = type(driver).__name__
+    if cls == "Neo4jDriverWrapper":
+        return "neo4j"
+    if cls in ("FalkorDBDriverWrapper", "FalkorDBRemoteDriverWrapper"):
+        return "falkordb"
+    if cls in ("KuzuDriverWrapper", "LadybugDriverWrapper", "EmbeddedDriverWrapper"):
+        backend_id = getattr(driver, "_backend_id", None)
+        if backend_id:
+            return backend_id
+        return "kuzudb"
+    return "unknown"
 
-    We combine name, qualified_name, docstring, and parameter names
-    so that semantically similar functions are close in embedding space.
-    Never returns an empty string — falls back to "(anonymous)" so embedders
-    don't receive blank input.
-    """
+
+def cosine_similarity(a: List[float], b: List[float]) -> float:
+    """Cosine similarity between two equal-length vectors."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _build_text(fn: Dict[str, Any]) -> str:
+    """Construct the text to embed for a Function node."""
     parts: List[str] = []
     qname = fn.get("qualified_name") or fn.get("name") or ""
     if qname:
@@ -74,9 +98,7 @@ class _LocalEmbedder:
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError:
-            raise ImportError(
-                "sentence-transformers package required: pip install sentence-transformers"
-            )
+            raise ImportError("sentence-transformers package required: pip install sentence-transformers")
         self.model = SentenceTransformer(model_name)
         self.dim = self.model.get_sentence_embedding_dimension()
 
@@ -91,9 +113,7 @@ class _FastEmbedder:
         try:
             from fastembed import TextEmbedding
         except ImportError:
-            raise ImportError(
-                "fastembed package required: pip install fastembed"
-            )
+            raise ImportError("fastembed package required: pip install fastembed")
         self._model = TextEmbedding(model_name=model_name)
         self.dim = _DIM_BGE_SMALL
 
@@ -102,37 +122,37 @@ class _FastEmbedder:
 
 
 def _get_embedder(model_spec: Optional[str] = None):
-    """Return the appropriate embedder based on CGC_EMBEDDING_MODEL env var.
-
-    Falls back automatically: sentence-transformers → fastembed → error.
-    """
+    """Return the appropriate embedder based on CGC_EMBEDDING_MODEL env var."""
     spec = model_spec or os.environ.get("CGC_EMBEDDING_MODEL", "local")
     if spec == "openai":
         return _OpenAIEmbedder()
     if spec == "fastembed":
         return _FastEmbedder()
-    # "local" or a specific HF model ID — try sentence-transformers, fall back to fastembed
     if spec == "local":
         try:
             return _LocalEmbedder("sentence-transformers/all-MiniLM-L6-v2")
         except ImportError:
-            info_logger(
-                "sentence-transformers not available; falling back to fastembed (ONNX)"
-            )
+            info_logger("sentence-transformers not available; falling back to fastembed (ONNX)")
             return _FastEmbedder()
-    # Explicit HF model ID — must use sentence-transformers
     return _LocalEmbedder(spec)
 
 
 class EmbeddingPipeline:
-    """Reads Function nodes from Neo4j, generates embeddings, and writes them back."""
+    """Reads Function nodes, generates embeddings, and writes them back."""
 
     def __init__(self, driver: Any, batch_size: int = 256):
         self.driver = driver
         self.batch_size = batch_size
+        self._backend = detect_graph_backend(driver)
 
     def _ensure_vector_index(self, dim: int) -> None:
-        """Create the Neo4j vector index if it doesn't already exist."""
+        """Create a native vector index when the backend supports one."""
+        if self._backend != "neo4j":
+            info_logger(
+                f"[EMBED] Backend '{self._backend}' uses property storage "
+                "(cosine search in-process during vector resolve)"
+            )
+            return
         with self.driver.session() as session:
             try:
                 session.run(
@@ -149,19 +169,21 @@ class EmbeddingPipeline:
             except Exception as e:
                 warning_logger(f"[EMBED] Could not create vector index: {e}")
 
-    def _fetch_unembedded(self, repo_path: str) -> List[Tuple[str, str, Dict[str, Any]]]:
-        """Return (path, name, props) for Function nodes without an embedding.
+    def _unembedded_predicate(self) -> str:
+        if self._backend in ("kuzudb", "ladybugdb"):
+            return "(f.embedding IS NULL OR size(f.embedding) = 0)"
+        return "f.embedding IS NULL"
 
-        Uses STARTS WITH (not CONTAINS) so a repo at /opt/repos/myapp never
-        accidentally matches /opt/repos/myapp_extra.
-        """
+    def _fetch_unembedded(self, repo_path: str) -> List[Tuple[str, str, Dict[str, Any]]]:
+        """Return (path, name, props) for Function nodes without an embedding."""
         repo_path_prefix = repo_path.rstrip("/") + "/"
+        predicate = self._unembedded_predicate()
         with self.driver.session() as session:
             result = session.run(
-                """
+                f"""
                 MATCH (f:Function)
                 WHERE f.path STARTS WITH $repo_path_prefix
-                  AND f.embedding IS NULL
+                  AND {predicate}
                 RETURN f.path AS path, f.name AS name, f.line_number AS line_number,
                        f.qualified_name AS qualified_name,
                        f.docstring AS docstring,
@@ -196,12 +218,7 @@ class EmbeddingPipeline:
             )
 
     def invalidate_for_file(self, file_path: str) -> int:
-        """Clear embeddings for all Function nodes in the given file.
-
-        Called by the watcher after a file is modified so stale embeddings
-        are re-generated on the next EmbeddingPipeline.run() call.
-        Returns the number of functions cleared.
-        """
+        """Clear embeddings for all Function nodes in the given file."""
         with self.driver.session() as session:
             result = session.run(
                 """
@@ -239,7 +256,7 @@ class EmbeddingPipeline:
             try:
                 vectors = embedder.embed_batch(texts)
             except Exception as e:
-                error_logger(f"[EMBED] Batch {batch_num+1}/{n_batches} failed: {e}")
+                error_logger(f"[EMBED] Batch {batch_num + 1}/{n_batches} failed: {e}")
                 batch_num += 1
                 continue
 
@@ -256,12 +273,9 @@ class EmbeddingPipeline:
             total += len(write_rows)
             batch_num += 1
 
-            # Log every 10 batches so output is readable without being noisy
             if batch_num % 10 == 0 or batch_num == n_batches:
                 elapsed = time.time() - t0
                 pct = int(100 * total / len(nodes))
-                info_logger(
-                    f"[EMBED] batch {batch_num}/{n_batches} — {total}/{len(nodes)} ({pct}%) in {elapsed:.1f}s"
-                )
+                info_logger(f"[EMBED] batch {batch_num}/{n_batches} — {total}/{len(nodes)} ({pct}%) in {elapsed:.1f}s")
 
         info_logger(f"[EMBED] Done: {total} embeddings written in {time.time() - t0:.1f}s")
