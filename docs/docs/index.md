@@ -12,7 +12,7 @@ Recent improvements in the 0.5.0 line include cross-language call-graph resoluti
 
 - **Semantic AST Extraction**: Utilizes tree-sitter for syntax analysis and SCIP (Sourcegraph Code Intelligence Protocol) for static symbol resolution across multiple directories.
 - **Model Context Protocol (MCP) Integration**: Built-in MCP server support allows AI models and IDE agents (Cursor, Claude, VS Code, Windsurf) to query the codebase context dynamically.
-- **Pluggable Database Architecture**: FalkorDB Lite on Unix (Python 3.12+), KuzuDB as the cross-platform fallback, plus LadybugDB, FalkorDB Remote, Nornic, and Neo4j. See [configuration defaults](reference/config.md#important-defaults-read-this-first).
+- **Pluggable Database Architecture**: Supports FalkorDB Lite as the default local backend, LadybugDB, FalkorDB Remote, Nornic, and Neo4j for enterprise analytics and visual exploration. KuzuDB is archived upstream and fails to install on Python 3.14+, so legacy stores can only be migrated into a supported backend.
 - **Filesystem Synchronization**: Integrated directory watchers monitor file updates and update the graph incrementally.
 - **Portable Code Graphs**: Supports exporting and importing serialized graph representations as `.cgc` bundles for offline sharing and registry integration.
 
@@ -26,7 +26,7 @@ CGC acts as the translation layer between source code parsing engines, graph dat
 graph TD
     src[Source Code] --> parse[Tree-sitter & SCIP Ingestion]
     parse --> builder[Graph Builder & Linker]
-    builder --> db[Graph Storage: KuzuDB, FalkorDB, Neo4j]
+    builder --> db[Graph Storage: FalkorDB, LadybugDB, Neo4j]
     db --> cli[CGC CLI Client]
     db --> mcp[MCP Server Gateway]
     mcp --> ai[AI Assistant Interfaces]

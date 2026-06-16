@@ -6,28 +6,26 @@ This guide detail procedures for identifying, diagnosing, and resolving issues w
 
 ## 1. Engine Installation & Compilation Issues
 
-### KuzuDB Installation Errors (C++ Compiler Required)
-KuzuDB relies on a compiled C++ engine core. If `pip install kuzu` fails:
-- **Reason**: The pre-compiled wheel is not available for your system architecture/Python version, forcing a compile from source without build tools.
-- **Resolution**:
-  - **Linux**: Install build essentials: `sudo apt-get install build-essential python3-dev`
-  - **macOS**: Install developer CLI tools: `xcode-select --install`
-  - **Windows**: Install [Visual C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) via Visual Studio Installer.
+### Legacy KuzuDB Installation Errors
+KuzuDB is no longer a supported runtime backend. If `pip install kuzu` fails on a newer Python version, do not downgrade your main CGC environment just to keep using KuzuDB.
+
+- **Reason**: KuzuDB is archived upstream. On Python 3.14+, pip cannot use a compatible wheel, falls back to the `pyproject.toml`/setuptools build path, and fails with `Failed building wheel for kuzu`.
+- **Resolution**: Use the [KuzuDB migration guide](../guides/migrate-from-kuzudb.md) to run a temporary Docker container with an older Python image, install `kuzu` inside that container, and migrate the data into a supported backend.
 
 ### FalkorDB Lite Unix Dependencies
 FalkorDB Lite only runs on Linux/macOS and requires **Python 3.12+**.
 - **Reason**: Underlying shared libraries are not compiled for Windows or older Python interpreter versions.
-- **Resolution**: Switch the active database context backend to `kuzudb` which is fully cross-platform.
+- **Resolution**: Switch the active database backend to `ladybugdb`, `falkordb-remote`, or `neo4j`.
 
 ---
 
 ## 2. Database Connection Failures
 
 ### "No database backend available"
-- **Reason**: CGC is looking for KuzuDB, FalkorDB, or Neo4j, but the respective Python client packages are missing from the current virtual environment.
+- **Reason**: CGC is looking for FalkorDB, LadybugDB, Neo4j, or Nornic, but the respective Python client packages are missing from the current virtual environment.
 - **Resolution**: Verify package installations:
   ```bash
-  pip install kuzu neo4j falkordb
+  pip install falkordblite ladybug neo4j falkordb
   ```
 
 ### Neo4j Connection Refused / Auth Failures
@@ -88,6 +86,6 @@ cgc doctor
 The diagnostics engine performs the following tests:
 1. **Python Version**: Confirms interpreter meets version requirements.
 2. **Configuration Integrity**: Checks for syntax errors in `config.yaml`.
-3. **Database Driver Availability**: Checks imports for Kuzu, FalkorDB, and Neo4j.
+3. **Database Driver Availability**: Checks imports for the configured database backend.
 4. **Active Connection Health**: Attempts connection transactions to the configured database.
 5. **Permissions Audit**: Verifies write capability to target log and database storage directories.

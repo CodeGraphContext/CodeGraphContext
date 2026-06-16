@@ -176,7 +176,7 @@ flowchart LR
 -   **Interactive Setup:** A user-friendly command-line wizard for easy setup.
 -   **Dual Mode:** Works as a standalone **CLI toolkit** for developers and as an **MCP server** for AI agents.
 -   **Multi-Language Support:** Full support for 23 programming languages.
--   **Flexible Database Backend:** FalkorDB Lite (Default), KuzuDB, LadybugDB, FalkorDB Remote, Nornic DB, or Neo4j (all platforms via Docker/native).
+-   **Flexible Database Backend:** FalkorDB Lite (Default), LadybugDB, FalkorDB Remote, Nornic DB, or Neo4j (all platforms via Docker/native). KuzuDB is archived upstream and fails to install on Python 3.14+, so legacy KuzuDB stores are migration-only.
 
 
 ---
@@ -279,15 +279,14 @@ properties are not yet recorded.
 
 CodeGraphContext supports multiple graph database backends to suit your environment:
 
-| Feature | KuzuDB | LadybugDB | FalkorDB Lite | Neo4j / Nornic DB |
+| Feature | FalkorDB Lite | LadybugDB | FalkorDB Remote | Neo4j / Nornic DB |
 | :--- | :--- | :--- | :--- | :--- |
-| **Typical default** | Cross-platform fallback when FalkorDB Lite is unavailable | Optional embedded backend | **Default on Unix** (Python 3.12+, when `falkordblite` is installed) | When explicitly configured via `cgc config db` |
-| **Setup** | Zero-config / Embedded | Zero-config / Embedded | Zero-config / In-process | Docker / External |
-| **Platform** | **All (Windows Native, macOS, Linux)** | **All (Windows Native, macOS, Linux)** | Unix-only (Linux/macOS/WSL) | All Platforms |
-| **Use Case** | Desktop, IDE, Local development | Custom research projects | Specialized Unix development | Enterprise, Massive graphs |
-| **Requirement**| `pip install kuzu` | `pip install ladybug` | `pip install falkordblite` | Neo4j Server / Docker / Nornic Cloud |
-| **Speed** | ⚡ Extremely Fast | ⚡ Fast | 🚀 Scalable | 🌐 Network-dependent |
-| **Persistence**| Yes (to disk) | Yes (to disk) | Yes (to disk) | Yes (server-side) |
+| **Typical default** | **Unix** (Python 3.12+, when `falkordblite` works) | Embedded fallback | When explicitly configured | When explicitly configured |
+| **Setup** | Zero-config / In-process | Zero-config / Embedded | Docker / External | Docker / External / Cloud |
+| **Platform** | Unix-only (Linux/macOS/WSL) | All (Windows Native, macOS, Linux) | All Platforms | All Platforms |
+| **Use Case** | Local high-performance development | Local cross-platform operation | Shared graph server | Enterprise, massive graphs |
+| **Requirement**| `pip install falkordblite` | `pip install ladybug` | FalkorDB Server / Docker | Neo4j Server / Docker / Nornic Cloud |
+| **Persistence**| Yes (to disk) | Yes (to disk) | Server-backed | Server-backed |
 
 ---
 
@@ -299,7 +298,7 @@ When `SCIP_INDEXER=true` in your CGC config (`~/.codegraphcontext/.env`), some l
 
 **C#** uses **scip-dotnet** (Roslyn); you need a normal **`.csproj` / `.sln`** and a successful restore—no `compile_commands.json`.
 
-SCIP is **independent of which graph database** you use (Kuzu, Neo4j, etc.); the same flag applies to all backends.
+SCIP is **independent of which graph database** you use (FalkorDB, LadybugDB, Neo4j, etc.); the same flag applies to all backends.
 
 ---
 
@@ -330,7 +329,6 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
 - `pathspec>=0.12.1`
 - `falkordb>=1.0,<1.6`
 - `falkordblite>=0.7,<0.10` (Unix only, Python 3.12+)
-- `kuzu` (KuzuDB engine)
 - `fastapi>=0.100.0`
 - `uvicorn>=0.22.0`
 - `requests>=2.28.0`
@@ -356,8 +354,10 @@ _If you’re using CodeGraphContext in your project, feel free to open a PR and 
 3.  **Database Setup (Automatic):**
     CodeGraphContext uses an embedded graph database by default.
     - **FalkorDB Lite:** Default backend.
-    - **KuzuDB:** Cross-platform embedded backend.
+    - **LadybugDB:** Cross-platform embedded backend.
     - **Neo4j:** Run `codegraphcontext neo4j setup` to use an external server.
+
+    KuzuDB is archived upstream. On Python 3.14+, pip falls back to the `pyproject.toml`/setuptools build path and fails with `Failed building wheel for kuzu`. If you already have a KuzuDB database, migrate it before using a new Python environment. See `docs/docs/guides/migrate-from-kuzudb.md`.
 
 ### 🧪 Local Development Setup
 

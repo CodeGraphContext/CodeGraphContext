@@ -6,59 +6,16 @@ CodeGraphContext (CGC) implements a pluggable database architecture. A common in
 
 ## Backend Comparison Matrix
 
-| Feature / Metric | FalkorDB (Lite, Default) | KuzuDB | LadybugDB | FalkorDB (Remote) | Neo4j |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Type** | Embedded In-Memory | Embedded C++ | Embedded SQL | Remote Client | Remote Client |
-| **Operating System** | Linux / macOS | Cross-Platform | Cross-Platform | Cross-Platform | Cross-Platform |
-| **Setup Overhead** | None | None | None | Low (Docker) | Medium (Docker/Aura) |
-| **Read Latency** | Extremely Low | Very Low | Low | Low | Medium |
-| **Max Capacity** | RAM-Bounded | Large | Medium | Unlimited | Unlimited |
-| **Visualization** | CLI / Custom Web UI | CLI / Custom Web UI | CLI / Custom Web UI | Neo4j Client (via Cypher) | Neo4j Browser Console |
+| Feature / Metric | FalkorDB (Lite, Default) | LadybugDB | FalkorDB (Remote) | Neo4j |
+| :--- | :--- | :--- | :--- | :--- |
+| **Type** | Embedded In-Memory | Embedded SQL | Remote Client | Remote Client |
+| **Operating System** | Linux / macOS | Cross-Platform | Cross-Platform | Cross-Platform |
+| **Setup Overhead** | None | None | Low (Docker) | Medium (Docker/Aura) |
+| **Read Latency** | Extremely Low | Low | Low | Medium |
+| **Max Capacity** | RAM-Bounded | Medium | Unlimited | Unlimited |
+| **Visualization** | CLI / Custom Web UI | CLI / Custom Web UI | Neo4j Client (via Cypher) | Neo4j Browser Console |
 
----
-
-## 1. KuzuDB
-
-KuzuDB is an in-process property graph database management system. It requires zero configuration and stores graph data inside a directory on your filesystem.
-
-- **OLAP Optimized**: Designed for structured graph analysis and multi-hop queries.
-- **Cross-Platform**: Natively supports Windows, Linux, and macOS on Python 3.10+.
-- **Data Directory**: Graphs are saved inside the local `.codegraphcontext/` directory within the workspace.
-
-### Version Compatibility
-
-| Package | Declared bounds (`pyproject.toml`) | Versions |
-| :--- | :--- | :--- |
-| `kuzu` | Not declared | `0.10.0`, `0.11.0`, `0.11.1`, `0.11.2`, `0.11.3` |
-
-### Setup
-Ensure the driver is installed:
-```bash
-pip install kuzu
-```
-Select KuzuDB as the default backend:
-```bash
-cgc config db kuzudb
-```
-
----
-
-## 2. LadybugDB
-
-LadybugDB is an embedded graph database engine implemented over relational SQL drivers.
-
-- **Concurreny Safe**: Thread-safe operations suitable for concurrent watcher tasks.
-- **Relational Backend**: Uses SQLite/relational queries underneath to simulate property graph operations.
-
-### Setup
-Select LadybugDB as the default backend:
-```bash
-cgc config db ladybugdb
-```
-
----
-
-## 3. FalkorDB (Lite & Remote)
+## 1. FalkorDB (Lite & Remote)
 
 FalkorDB is a low-latency, high-performance graph database. It supports two execution modes.
 
@@ -94,13 +51,29 @@ Configure FalkorDB:
 cgc config db falkordb
 
 # For Remote: configure connections
+cgc config db falkordb-remote
 cgc config set FALKORDB_HOST 127.0.0.1
 cgc config set FALKORDB_PORT 6379
 ```
 
 ---
 
-## 4. Neo4j (Enterprise & Shared)
+## 2. LadybugDB
+
+LadybugDB is an embedded graph database engine implemented over relational SQL drivers.
+
+- **Concurreny Safe**: Thread-safe operations suitable for concurrent watcher tasks.
+- **Relational Backend**: Uses SQLite/relational queries underneath to simulate property graph operations.
+
+### Setup
+Select LadybugDB as the default backend:
+```bash
+cgc config db ladybugdb
+```
+
+---
+
+## 3. Neo4j (Enterprise & Shared)
 
 Neo4j is the enterprise standard for graph database clustering, management, and analysis.
 
@@ -158,5 +131,15 @@ When executing commands, CGC automatically resolves the active database connecti
 3. **Global Config File**: Reads the value set via `cgc config db`.
 4. **Fallback Auto-Detection**:
    - If `FALKORDB_HOST` env is present, connects to FalkorDB Remote.
-   - On Unix: Tries to initialize FalkorDB Lite -> KuzuDB -> Neo4j.
-   - On Windows: Tries to initialize KuzuDB -> Neo4j.
+   - On Unix: Tries to initialize FalkorDB Lite -> LadybugDB -> Neo4j.
+   - On Windows: Tries to initialize LadybugDB -> Neo4j.
+
+## Legacy KuzuDB Stores
+
+KuzuDB is no longer a runtime backend because its upstream repository is
+archived and does not support newer Python versions. On Python 3.14+, pip falls
+back to the `pyproject.toml`/setuptools build path and fails with
+`Failed building wheel for kuzu`. Existing KuzuDB databases can still be
+migrated into the selected supported backend. Use the
+[KuzuDB migration guide](../guides/migrate-from-kuzudb.md) to run that migration
+inside a Docker container with an older Python image.
