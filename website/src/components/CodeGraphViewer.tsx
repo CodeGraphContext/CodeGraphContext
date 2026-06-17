@@ -383,6 +383,25 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [hoverNode, setHoverNode] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('cgc_recent_searches');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const addRecentSearch = (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    setRecentSearches(prev => {
+      const updated = [trimmed, ...prev.filter(q => q !== trimmed)].slice(0, 8);
+      localStorage.setItem('cgc_recent_searches', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [focusSet, setFocusSet] = useState<{ nodes: Set<number>, links: Set<any> } | null>(null);
   const [simulationReady, setSimulationReady] = useState(false);
@@ -1438,9 +1457,30 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                     placeholder="Filter files..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        addRecentSearch(searchQuery);
+                      }
+                    }}
                     className={`w-full rounded-lg py-1.5 pl-9 pr-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all ${isDark ? 'bg-white/5 border border-white/8 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
                   />
                 </div>
+                {recentSearches.length > 0 && !isPathMode && !showConfig && (
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {recentSearches.map((q, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setSearchQuery(q);
+                          addRecentSearch(q);
+                        }}
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${isDark ? 'bg-white/5 border-white/10 text-gray-400 hover:text-white hover:bg-white/10' : 'bg-black/5 border-black/10 text-gray-600 hover:text-black hover:bg-black/10'}`}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Tree / Config / Path Mode */}
