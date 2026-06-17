@@ -678,6 +678,50 @@ class TestCrossLangCallResolutionPatterns:
         )
         assert edge["line_number"] == 363
 
+    def test_python_decorated_by_handles_imports_without_source(self, tmp_path):
+        caller_path = tmp_path / "models.py"
+        decorator_path = tmp_path / "decorators.py"
+        caller_path.write_text("from decorators import model_decorator\n\n@model_decorator\nclass Model:\n    pass\n")
+        decorator_path.write_text("def model_decorator(cls):\n    return cls\n")
+
+        file_data = {
+            "path": str(caller_path.resolve()),
+            "lang": "python",
+            "functions": [],
+            "classes": [
+                {
+                    "name": "Model",
+                    "line_number": 3,
+                    "decorators": ["@model_decorator"],
+                }
+            ],
+            "imports": [
+                {
+                    "name": "model_decorator",
+                    "full_import_name": "decorators.model_decorator",
+                    "alias": None,
+                    "line_number": 1,
+                    "lang": "python",
+                }
+            ],
+        }
+
+        edges = build_decorated_by_links(
+            [file_data], {"model_decorator": [str(decorator_path.resolve())]}
+        )
+
+        assert edges == [
+            {
+                "decorated_name": "Model",
+                "decorated_path": str(caller_path.resolve()),
+                "decorated_line": 3,
+                "decorated_context": "",
+                "decorator_name": "model_decorator",
+                "decorator_path": str(decorator_path.resolve()),
+                "line_number": 3,
+            }
+        ]
+
     def test_python_metaclass_links(self, manager):
         wrapper = _parser(manager, "python")
         parser = PythonTreeSitterParser(wrapper)

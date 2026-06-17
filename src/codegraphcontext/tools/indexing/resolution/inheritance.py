@@ -308,6 +308,17 @@ def _parse_decorator_name(dec_raw: str) -> str:
     return dec.split("(")[0].strip()
 
 
+def _build_local_imports_for_decorators(file_data: Dict[str, Any]) -> Dict[str, str]:
+    """Return alias/name -> import target across parser import shapes."""
+    local_imports: Dict[str, str] = {}
+    for imp in file_data.get("imports", []):
+        key = imp.get("alias") or imp.get("name")
+        target = imp.get("source") or imp.get("full_import_name") or imp.get("name")
+        if key and target:
+            local_imports[key] = target
+    return local_imports
+
+
 def _resolve_decorator_path(
     decorator_name: str,
     caller_file_path: str,
@@ -320,10 +331,11 @@ def _resolve_decorator_path(
         return caller_path
     if decorator_name in local_imports:
         imported = local_imports[decorator_name]
-        lookup = imported.split(".")[-1]
-        paths = imports_map.get(lookup, imports_map.get(imported, []))
-        if len(paths) == 1:
-            return str(Path(paths[0]).resolve().as_posix())
+        if imported:
+            lookup = str(imported).split(".")[-1]
+            paths = imports_map.get(lookup, imports_map.get(imported, []))
+            if len(paths) == 1:
+                return str(Path(paths[0]).resolve().as_posix())
     paths = imports_map.get(decorator_name, [])
     if len(paths) == 1:
         return str(Path(paths[0]).resolve().as_posix())
@@ -346,11 +358,7 @@ def build_decorated_by_links(
             for item in file_data.get(key, [])
             if item.get("name")
         }
-        local_imports = {
-            imp.get("alias") or imp.get("name"): imp.get("source")
-            for imp in file_data.get("imports", [])
-            if imp.get("name") or imp.get("alias")
-        }
+        local_imports = _build_local_imports_for_decorators(file_data)
 
         for entity_key, context_field in (("functions", "class_context"), ("classes", None)):
             for item in file_data.get(entity_key, []):
@@ -402,11 +410,7 @@ def build_metaclass_links(
             continue
         caller_file_path = str(Path(file_data["path"]).resolve().as_posix())
         local_class_names = {c["name"] for c in file_data.get("classes", [])}
-        local_imports = {
-            imp.get("alias") or imp.get("name"): imp.get("source")
-            for imp in file_data.get("imports", [])
-            if imp.get("name") or imp.get("alias")
-        }
+        local_imports = _build_local_imports_for_decorators(file_data)
 
         for class_item in file_data.get("classes", []):
             meta_name = class_item.get("metaclass")
