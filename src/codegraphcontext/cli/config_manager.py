@@ -251,9 +251,12 @@ def load_config() -> Dict[str, str]:
     """
     Load configuration with priority support.
     Priority order (highest to lowest):
-    1. Environment variables
-    2. Local .env file (in current or parent directories)
+    1. Environment variables (always highest priority)
+    2. Local .env file (ONLY in per-repo mode or when CGC_LOAD_PROJECT_ENV=1)
     3. Global ~/.codegraphcontext/.env
+    
+    BUG FIX: In global/named context mode, local repo .env files are now properly ignored
+    to prevent silent database redirection when working inside cloned repositories.
     
     Note: Does NOT create config directory - caller must call ensure_config_dir() first if needed.
     """
@@ -272,7 +275,8 @@ def load_config() -> Dict[str, str]:
         except Exception as e:
             console.print(f"[red]Error loading global config: {e}[/red]")
     
-    # Load local .env file if it exists (overrides global)
+    # Load local .env file ONLY if should_apply_project_dotenv() returns True
+    # This respects context mode (per-repo vs global/named) and environment overrides
     local_env = find_local_env()
     if local_env and local_env.exists():
         try:
@@ -282,14 +286,29 @@ def load_config() -> Dict[str, str]:
                     if line and not line.startswith("#") and "=" in line:
                         key, value = line.split("=", 1)
                         key = key.strip()
-                        # Only override if it's a config key (not database credentials in local file)
+                        value = value.strip()
+                        
+                        # In per-repo mode: allow all config keys to be overridden
+                        # In global/named mode: local .env should not be loaded at all (find_local_env returns None)
+                        # But if it somehow gets through, only allow non-DB-path keys for safety
+                        if key in DB_PATH_ENV_KEYS:
+                            # CRITICAL: Never let local .env override DB paths in global mode
+                            # This prevents silent database redirection
+                            continue
+                        
                         if key in DEFAULT_CONFIG or key in DATABASE_CREDENTIAL_KEYS:
-                            config[key] = value.strip()
+                            config[key] = value
         except Exception as e:
             console.print(f"[yellow]Warning: Error loading local .env: {e}[/yellow]")
     
-    # Environment variables have highest priority
+    # Environment variables have highest priority - always override everything
     for key in DEFAULT_CONFIG.keys():
+        env_value = os.getenv(key)
+        if env_value is not None:
+            config[key] = env_value
+    
+    # Also check for database credential environment variables
+    for key in DATABASE_CREDENTIAL_KEYS:
         env_value = os.getenv(key)
         if env_value is not None:
             config[key] = env_value

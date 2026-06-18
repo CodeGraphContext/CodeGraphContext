@@ -13,19 +13,6 @@
   ],
   "keywords": ["code graph", "MCP", "call graph", "complexity", "code analysis", "dead code", "graph intelligence"],
   "galleryBanner": { "color": "#1e1e2e", "theme": "dark" },
-  "activationEvents": [
-    "onCommand:cgc.openDashboard",
-    "onCommand:cgc.showCallGraph",
-    "onCommand:cgc.analyzeRelationships",
-    "onCommand:cgc.refreshIndex",
-    "onCommand:cgc.openEngineConfig",
-    "onCommand:cgc.showVariableImpact",
-    "onCommand:cgc.showClassHierarchy",
-    "onCommand:cgc.generateReport",
-    "onCommand:cgc.discoverContexts",
-    "onView:cgc-bundles",
-    "onView:cgc-control"
-  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -121,11 +108,13 @@
         {
           "id": "cgc-control",
           "name": "CGC Control Panel",
-          "type": "webview"
+          "type": "webview",
+          "icon": "$(dashboard)"
         },
         {
           "id": "cgc-bundles",
-          "name": "Bundles"
+          "name": "Bundles",
+          "icon": "$(package)"
         }
       ]
     },
