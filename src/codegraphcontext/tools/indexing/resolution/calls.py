@@ -1753,7 +1753,7 @@ def build_function_call_groups(
         return {
             imp.get("alias") or imp["name"].split(".")[-1]: imp["name"]
             for imp in fd.get("imports", [])
-            if not imp["name"].endswith(".*")
+            if imp.get("name") and not imp["name"].endswith(".*")
         }
 
     def file_package(fd: Dict[str, Any]) -> Optional[str]:
@@ -2144,12 +2144,12 @@ def build_function_call_groups(
         local_imports = {
             imp.get("alias") or imp["name"].split(".")[-1]: imp["name"]
             for imp in file_data.get("imports", [])
-            if not imp["name"].endswith(".*")
+            if imp.get("name") and not imp["name"].endswith(".*")
         }
         wildcard_imports = [
             imp["name"][:-2]
             for imp in file_data.get("imports", [])
-            if imp["name"].endswith(".*")
+            if imp.get("name") and imp["name"].endswith(".*")
         ]
         if wildcard_imports:
             local_imports["__wildcards__"] = wildcard_imports

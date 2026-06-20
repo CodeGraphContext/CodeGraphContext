@@ -682,7 +682,7 @@ def pre_scan_elisp(files: list[Path], parser_wrapper) -> dict:
                     imports_map.setdefault(variable["name"], []).append(resolved_path)
 
             for imp in parser._find_imports(tree.root_node, is_dependency=False):
-                if imp.get("import_type") == "provide":
+                if imp.get("import_type") == "provide" and imp.get("name"):
                     imports_map.setdefault(imp["name"], []).append(resolved_path)
         except Exception as e:
             warning_logger(

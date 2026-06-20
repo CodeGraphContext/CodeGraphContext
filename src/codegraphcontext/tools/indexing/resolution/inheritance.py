@@ -91,6 +91,7 @@ def build_inheritance_and_csharp_files(
         local_imports = {
             imp.get("alias") or imp["name"].split(".")[-1]: imp["name"]
             for imp in file_data.get("imports", [])
+            if imp.get("name")
         }
 
         for key in ["classes", "structs", "traits", "interfaces", "mixins", "enums", "extensions", "variables"]:
@@ -320,10 +321,12 @@ def _resolve_decorator_path(
         return caller_path
     if decorator_name in local_imports:
         imported = local_imports[decorator_name]
-        lookup = imported.split(".")[-1]
-        paths = imports_map.get(lookup, imports_map.get(imported, []))
-        if len(paths) == 1:
-            return str(Path(paths[0]).resolve().as_posix())
+        # imported can be None when the import entry lacks both "source" and "full_import_name"
+        if imported:
+            lookup = imported.split(".")[-1]
+            paths = imports_map.get(lookup, imports_map.get(imported, []))
+            if len(paths) == 1:
+                return str(Path(paths[0]).resolve().as_posix())
     paths = imports_map.get(decorator_name, [])
     if len(paths) == 1:
         return str(Path(paths[0]).resolve().as_posix())
@@ -347,7 +350,7 @@ def build_decorated_by_links(
             if item.get("name")
         }
         local_imports = {
-            imp.get("alias") or imp.get("name"): imp.get("source")
+            imp.get("alias") or imp.get("name"): imp.get("source") or imp.get("full_import_name")
             for imp in file_data.get("imports", [])
             if imp.get("name") or imp.get("alias")
         }
@@ -403,7 +406,7 @@ def build_metaclass_links(
         caller_file_path = str(Path(file_data["path"]).resolve().as_posix())
         local_class_names = {c["name"] for c in file_data.get("classes", [])}
         local_imports = {
-            imp.get("alias") or imp.get("name"): imp.get("source")
+            imp.get("alias") or imp.get("name"): imp.get("source") or imp.get("full_import_name")
             for imp in file_data.get("imports", [])
             if imp.get("name") or imp.get("alias")
         }

@@ -529,7 +529,8 @@ class GraphBuilder:
             class_names = {c['name'] for c in file_data.get('classes', [])}
             local_names = func_names | class_names
             local_imports = {imp.get('alias') or imp['name'].split('.')[-1]: imp['name'] 
-                            for imp in file_data.get('imports', [])}
+                            for imp in file_data.get('imports', [])
+                            if imp.get('name') and not imp['name'].endswith('.*')}
             
             for call in file_data.get('function_calls', []):
                 resolved = self._resolve_function_call(
