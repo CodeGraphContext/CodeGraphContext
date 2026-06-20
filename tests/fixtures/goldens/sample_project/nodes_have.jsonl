@@ -512,6 +512,11 @@
 {"_id": {"offset": 24, "table": 3}, "name": "parent_function", "lang": "python", "full_import_name": "..parent_mod.parent_function", "_labels": ["Module"]}
 {"_id": {"offset": 25, "table": 3}, "name": "functools", "lang": "python", "full_import_name": "functools", "_labels": ["Module"]}
 {"_id": {"offset": 26, "table": 3}, "name": "List", "lang": "python", "full_import_name": "typing.List", "_labels": ["Module"]}
+{"_id": {"offset": 27, "table": 3}, "name": "Dict", "lang": "python", "full_import_name": "typing.Dict", "_labels": ["Module"]}
+{"_id": {"offset": 28, "table": 3}, "name": "Union", "lang": "python", "full_import_name": "typing.Union", "_labels": ["Module"]}
+{"_id": {"offset": 29, "table": 3}, "name": "abstractmethod", "lang": "python", "full_import_name": "abc.abstractmethod", "_labels": ["Module"]}
+{"_id": {"offset": 30, "table": 3}, "name": "ParentClass", "lang": "python", "full_import_name": "..parent_mod.ParentClass", "_labels": ["Module"]}
 {"_id": {"offset": 0, "table": 23}, "name": "ABC", "_labels": ["ExternalClass"]}
 {"_id": {"offset": 1, "table": 23}, "name": "type", "_labels": ["ExternalClass"]}
 {"_id": {"offset": 2, "table": 23}, "name": "Enum", "_labels": ["ExternalClass"]}
+{"_id": {"offset": 3, "table": 23}, "name": "ParentClass", "_labels": ["ExternalClass"]}
