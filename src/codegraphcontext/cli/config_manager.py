@@ -727,10 +727,17 @@ def _default_global_db_path(database: str) -> str:
 
     New layout: ``~/.codegraphcontext/global/db/<backend>/``
     For backward-compat, we check:
-    1. FALKORDB_PATH in config (if database is falkordb)
-    2. Legacy flat path
-    3. New layout default
+    1. CGC_RUNTIME_DB_PATH environment variable (highest priority — works for all DBs)
+    2. FALKORDB_PATH in config (if database is falkordb)
+    3. Legacy flat path
+    4. New layout default
     """
+    # Generic env var override — highest priority for any backend.
+    # Useful for relocating the global DB to a path that avoids platform-specific
+    # encoding issues (e.g. non-ASCII characters in the Windows user profile path).
+    env_override = os.environ.get("CGC_RUNTIME_DB_PATH")
+    if env_override:
+        return env_override
     if database == "falkordb":
         custom_path = load_config().get("FALKORDB_PATH")
         if custom_path:
