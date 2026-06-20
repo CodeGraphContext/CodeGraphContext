@@ -2508,7 +2508,7 @@ def analyze_inheritance_tree(
 @analyze_app.command("complexity")
 def analyze_complexity(
     path: Optional[str] = typer.Argument(None, help="Function name or file path to analyze"),
-    threshold: int = typer.Option(10, "--threshold", "-t", help="Complexity threshold for warnings"),
+    threshold: Optional[int] = typer.Option(None, "--threshold", "-t", help="Complexity threshold for warnings (default: from config or 10)"),
     limit: int = typer.Option(20, "--limit", "-l", help="Maximum results to show"),
     file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path to scope analysis"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
@@ -2530,6 +2530,17 @@ def analyze_complexity(
     if not all(services[:3]):
         raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
+
+    # Read threshold from config if not explicitly provided via CLI
+    if threshold is None:
+        configured = config_manager.get_config_value("COMPLEXITY_THRESHOLD")
+        if configured is not None:
+            try:
+                threshold = int(configured)
+            except (ValueError, TypeError):
+                threshold = 10
+        else:
+            threshold = 10
 
     _FILE_EXTENSIONS = ('.py', '.js', '.ts', '.jsx', '.tsx', '.go', '.rs', '.rb',
                         '.java', '.cpp', '.c', '.cs', '.swift', '.kt', '.scala',
