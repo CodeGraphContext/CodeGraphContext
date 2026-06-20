@@ -489,6 +489,35 @@ If you installed CodeGraphContext using `pipx`, use the following configuration 
 
 ---
 
+## Token-Optimized Output (GCF)
+
+Reduce tool response tokens by ~62% with the opt-in [GCF](https://gcformat.com) output format:
+
+```bash
+pip install gcf-python
+CGC_OUTPUT_FORMAT=gcf codegraphcontext mcp start
+```
+
+Or add it to your MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "CodeGraphContext": {
+      "command": "codegraphcontext",
+      "args": ["mcp", "start"],
+      "env": {
+        "CGC_OUTPUT_FORMAT": "gcf"
+      }
+    }
+  }
+}
+```
+
+GCF encodes structured data with positional fields (keys declared once, values pipe-delimited). Code graph query results (symbols, relationships, callers, complexity) are exactly the data shape where GCF saves the most. 100% LLM comprehension on all frontier models. Falls back to JSON if `gcf-python` is not installed.
+
+---
+
 ## Natural Language Interaction Examples
 
 Once the server is running, you can interact with it through your AI assistant using plain English. Here are some examples of what you can say:

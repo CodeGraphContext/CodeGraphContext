@@ -14,6 +14,8 @@ from dataclasses import asdict
 
 from typing import Any, Dict, Coroutine, Optional, List, Set
 
+from .utils.gcf_encoder import encode_response
+
 from .prompts import LLM_SYSTEM_PROMPT
 from .core import get_database_manager
 from .core.jobs import JobManager, JobStatus
@@ -711,7 +713,7 @@ class MCPServer:
                             "error": {"code": -32000, "message": "Tool execution error", "data": result}
                         }
                     else:
-                        response_text = json.dumps(result, indent=2)
+                        response_text = encode_response(result)
                         response_text = _apply_response_token_limit(tool_name, response_text)
                         response = {
                             "jsonrpc": "2.0", "id": request_id,
