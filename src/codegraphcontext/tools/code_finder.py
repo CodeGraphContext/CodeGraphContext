@@ -1415,3 +1415,276 @@ class CodeFinder:
                     len(bad),
                 )
             return rows
+
+    def analyze_impact(
+        self,
+        target: str,
+        target_type: Optional[str] = None,
+        repo_path: Optional[str] = None,
+        depth: int = 3,
+    ) -> Dict[str, Any]:
+        """Analyze semantic code impact and propagation upstream."""
+        import subprocess
+        import shutil
+        from pathlib import Path
+
+        depth = _sanitize_depth(depth, default=3)
+
+        # 1. Resolve repo root
+        repo_root = repo_path
+        if not repo_root:
+            repos = self.list_indexed_repositories()
+            if repos and repos[0].get("path"):
+                repo_root = repos[0]["path"]
+            else:
+                repo_root = str(Path.cwd())
+
+        target_nodes = []
+        with self.driver.session() as session:
+            # Check if target matches a file path
+            file_query = """
+                MATCH (f:File)
+                WHERE f.path = $target OR f.path ENDS WITH $target
+                RETURN f.uid as uid, f.name as name, f.path as path, 'File' as type
+            """
+            res_file = session.run(file_query, target=target)
+            file_nodes = res_file.data()
+
+            if file_nodes:
+                # Target is a file. Add the file itself.
+                target_nodes.extend(file_nodes)
+                # Get all entities defined inside the file
+                contains_query = """
+                    MATCH (f:File)-[:CONTAINS*1..2]->(c)
+                    WHERE f.uid = $uid
+                      AND (c:Function OR c:Class OR c:Module OR c:Interface OR c:Struct OR c:Enum OR c:Record OR c:Mixin OR c:Extension OR c:Object OR c:Variable)
+                    RETURN c.uid as uid, c.name as name, c.path as path, labels(c) as labels
+                """
+                for fn in file_nodes:
+                    res_contains = session.run(contains_query, uid=fn["uid"])
+                    for row in res_contains:
+                        label_val = row.get("labels")
+                        node_type = (
+                            label_val[0]
+                            if isinstance(label_val, list)
+                            else str(label_val)
+                        )
+                        target_nodes.append({
+                            "uid": row["uid"],
+                            "name": row["name"],
+                            "path": row["path"],
+                            "type": node_type,
+                        })
+            else:
+                # Search by symbol name
+                symbol_query = """
+                    MATCH (c)
+                    WHERE (c:Function OR c:Class OR c:Module OR c:Interface OR c:Struct OR c:Enum OR c:Record OR c:Mixin OR c:Extension OR c:Object OR c:Variable)
+                      AND c.name = $target
+                    RETURN c.uid as uid, c.name as name, c.path as path, labels(c) as labels
+                """
+                res_sym = session.run(symbol_query, target=target)
+                for row in res_sym:
+                    label_val = row.get("labels")
+                    node_type = (
+                        label_val[0]
+                        if isinstance(label_val, list)
+                        else str(label_val)
+                    )
+                    target_nodes.append({
+                        "uid": row["uid"],
+                        "name": row["name"],
+                        "path": row["path"],
+                        "type": node_type,
+                    })
+
+        if not target_nodes:
+            return {
+                "target": {"name": target, "type": target_type or "Unknown", "path": ""},
+                "impact_score": 0.0,
+                "risk_level": "Low",
+                "warning": f"No code symbol or file named '{target}' was found in the graph.",
+                "affected_nodes": [],
+                "propagation_paths": [],
+                "explanations": [],
+                "risk_breakdown": {
+                    "depth_score": 0.0,
+                    "module_score": 0.0,
+                    "criticality_score": 0.0,
+                    "churn_score": 0.0,
+                },
+            }
+
+        target_uids = [n["uid"] for n in target_nodes]
+
+        # 2. Upstream change propagation query
+        propagation_query = f"""
+            MATCH p = (source)-[:CALLS|INHERITS|IMPLEMENTS|INJECTS|DECORATED_BY|IMPORTS*1..{depth}]->(target)
+            WHERE target.uid IN $target_uids
+            RETURN [n in nodes(p) | {{uid: n.uid, name: n.name, path: n.path, labels: labels(n)}}] as path_nodes,
+                   [rel in relationships(p) | {{type: type(rel), line_number: coalesce(rel.line_number, 0)}}] as path_rels
+        """
+
+        paths = []
+        affected_nodes_map = {}
+        with self.driver.session() as session:
+            res_prop = session.run(propagation_query, target_uids=target_uids)
+            for row in res_prop:
+                p_nodes = []
+                for node_data in row["path_nodes"]:
+                    label_val = node_data.get("labels")
+                    node_type = (
+                        label_val[0]
+                        if isinstance(label_val, list)
+                        else str(label_val)
+                    )
+                    p_nodes.append({
+                        "uid": node_data["uid"],
+                        "name": node_data["name"],
+                        "path": node_data["path"],
+                        "type": node_type,
+                    })
+                p_rels = row["path_rels"]
+                paths.append({"nodes": p_nodes, "relationships": p_rels})
+
+                # Record affected nodes
+                for idx, node in enumerate(p_nodes[:-1]):
+                    uid = node["uid"]
+                    dist = len(p_nodes) - 1 - idx
+                    if uid not in affected_nodes_map:
+                        affected_nodes_map[uid] = {
+                            "uid": uid,
+                            "name": node["name"],
+                            "type": node["type"],
+                            "path": node["path"],
+                            "depth": dist,
+                        }
+                    else:
+                        affected_nodes_map[uid]["depth"] = min(
+                            affected_nodes_map[uid]["depth"], dist
+                        )
+
+        # 3. Calculate Scoring Metrics
+        max_depth_seen = 0
+        if affected_nodes_map:
+            max_depth_seen = max(n["depth"] for n in affected_nodes_map.values())
+        depth_score = min(max_depth_seen * 1.6, 5.0)
+
+        affected_files = set(
+            n["path"] for n in affected_nodes_map.values() if n.get("path")
+        )
+        module_score = min(len(affected_files) * 0.75, 5.0)
+
+        in_degree = 0
+        with self.driver.session() as session:
+            criticality_query = """
+                MATCH (target)<-[r:CALLS|INHERITS|IMPLEMENTS|INJECTS|DECORATED_BY|IMPORTS]-()
+                WHERE target.uid IN $target_uids
+                RETURN count(r) as count
+            """
+            res_crit = session.run(criticality_query, target_uids=target_uids)
+            record = res_crit.single()
+            if record:
+                in_degree = record["count"]
+        criticality_score = min(in_degree * 0.2, 5.0)
+
+        max_commits = 0
+        target_files = set(n["path"] for n in target_nodes if n.get("path"))
+        for file_path in target_files:
+            commits = 0
+            if shutil.which("git"):
+                try:
+                    res_git = subprocess.run(
+                        ["git", "rev-list", "--count", "HEAD", "--", file_path],
+                        cwd=repo_root,
+                        capture_output=True,
+                        text=True,
+                        timeout=2.0,
+                    )
+                    if res_git.returncode == 0:
+                        commits = int(res_git.stdout.strip())
+                except Exception:
+                    pass
+            max_commits = max(max_commits, commits)
+        churn_score = min(max_commits * 0.05, 5.0)
+
+        impact_score = min(
+            10.0,
+            max(
+                1.0,
+                depth_score + module_score + criticality_score + churn_score,
+            ),
+        )
+        impact_score = round(impact_score, 1)
+
+        if impact_score >= 7.0:
+            risk_level = "High"
+        elif impact_score >= 4.0:
+            risk_level = "Medium"
+        else:
+            risk_level = "Low"
+
+        # 4. Generate Explanations and Suggestions
+        explanations = []
+        for path in paths:
+            nodes_list = path["nodes"]
+            rels_list = path["relationships"]
+            for i in range(len(rels_list)):
+                node_a = nodes_list[i]
+                node_b = nodes_list[i + 1]
+                rel = rels_list[i]
+                rel_type = rel["type"]
+                line_str = f" at line {rel['line_number']}" if rel["line_number"] > 0 else ""
+
+                if rel_type == "CALLS":
+                    explanation_text = f"'{node_a['name']}' ({node_a['type']}) calls '{node_b['name']}' ({node_b['type']}){line_str}."
+                    test_suggestion = f"Recommended: Run unit and integration tests for function/class '{node_a['name']}' to verify call contract validity."
+                elif rel_type in ("INHERITS", "IMPLEMENTS"):
+                    explanation_text = f"'{node_a['name']}' ({node_a['type']}) inherits from or implements '{node_b['name']}' ({node_b['type']})."
+                    test_suggestion = f"Recommended: Verify subclass implementation '{node_a['name']}' builds and maintains polymorphism correctness."
+                elif rel_type == "INJECTS":
+                    explanation_text = f"'{node_a['name']}' ({node_a['type']}) has a dependency injected of type '{node_b['name']}' ({node_b['type']})."
+                    test_suggestion = f"Recommended: Check Dependency Injection context and configuration for '{node_a['name']}'."
+                elif rel_type == "DECORATED_BY":
+                    explanation_text = f"'{node_a['name']}' ({node_a['type']}) is decorated by '{node_b['name']}' ({node_b['type']})."
+                    test_suggestion = f"Recommended: Validate decorator logic changes against target '{node_a['name']}'."
+                elif rel_type == "IMPORTS":
+                    explanation_text = f"File '{node_a['name']}' ({node_a['type']}) imports module/symbol '{node_b['name']}' ({node_b['type']}){line_str}."
+                    test_suggestion = f"Recommended: Perform namespace integration testing for '{node_a['name']}'."
+                else:
+                    explanation_text = f"'{node_a['name']}' depends on '{node_b['name']}' via {rel_type} relationship."
+                    test_suggestion = f"Recommended: Test dependent component '{node_a['name']}'."
+
+                if not any(e["text"] == explanation_text for e in explanations):
+                    explanations.append({
+                        "node_uid": node_a["uid"],
+                        "node_name": node_a["name"],
+                        "node_type": node_a["type"],
+                        "target_uid": node_b["uid"],
+                        "target_name": node_b["name"],
+                        "relationship_type": rel_type,
+                        "text": explanation_text,
+                        "suggestion": test_suggestion,
+                    })
+
+        primary_target = {
+            "name": target_nodes[0]["name"],
+            "type": target_nodes[0]["type"],
+            "path": target_nodes[0]["path"],
+        }
+
+        return {
+            "target": primary_target,
+            "impact_score": impact_score,
+            "risk_level": risk_level,
+            "affected_nodes": list(affected_nodes_map.values()),
+            "propagation_paths": paths,
+            "explanations": explanations,
+            "risk_breakdown": {
+                "depth_score": round(depth_score, 2),
+                "module_score": round(module_score, 2),
+                "criticality_score": round(criticality_score, 2),
+                "churn_score": round(churn_score, 2),
+            },
+        }
+

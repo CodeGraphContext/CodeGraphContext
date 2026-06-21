@@ -331,3 +331,29 @@ def find_datasource_nodes(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         debug_log(f"Error finding datasource nodes: {exc}")
         return {"error": str(exc)}
 
+
+def analyze_impact(code_finder: CodeFinder, **args) -> Dict[str, Any]:
+    """Tool to analyze code impact and change propagation."""
+    target = args.get("target")
+    target_type = args.get("target_type")
+    repo_path = args.get("repo_path")
+    depth = args.get("depth", 3)
+
+    if not target:
+        return {"error": "'target' is a required argument"}
+
+    try:
+        debug_log(f"Analyzing semantic impact for: {target}, target_type={target_type}, depth={depth}, repo_path={repo_path}")
+        results = code_finder.analyze_impact(
+            target=target,
+            target_type=target_type,
+            repo_path=repo_path,
+            depth=depth
+        )
+        return {
+            "success": True,
+            "results": results
+        }
+    except Exception as e:
+        debug_log(f"Error analyzing impact: {str(e)}")
+        return {"error": f"Failed to analyze impact: {str(e)}"}

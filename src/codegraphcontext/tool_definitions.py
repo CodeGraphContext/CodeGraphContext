@@ -385,5 +385,34 @@ TOOLS = {
                 "include_columns": {"type": "boolean"}
             }
         }
+    },
+
+    "analyze_impact": {
+        "name": "analyze_impact",
+        "description": "Analyze the potential semantic impact and blast radius of modifying a code symbol or file.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "The name of the function, class, module, or file path to analyze."
+                },
+                "target_type": {
+                    "type": "string",
+                    "enum": ["function", "class", "module", "file"],
+                    "description": "Optional: Explicitly specify the target type (auto-detected if omitted)."
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Optional: Limit traversal to a specific repository path."
+                },
+                "depth": {
+                    "type": "integer",
+                    "description": "Optional: Maximum traversal depth for change propagation (default: 3).",
+                    "default": 3
+                }
+            },
+            "required": ["target"]
+        }
     }
 }
