@@ -10,7 +10,7 @@ import {
   ChevronRight, ChevronDown, Folder, FolderOpen,
   PanelLeftClose, PanelLeftOpen,
   Layers, Check, X, Code2, Sun, Moon, ChevronUp, Route,
-  Download, UploadCloud, Menu, MessageSquare, Copy
+  Download, UploadCloud, Menu, MessageSquare, Copy, Loader2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
@@ -386,6 +386,13 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [focusSet, setFocusSet] = useState<{ nodes: Set<number>, links: Set<any> } | null>(null);
   const [simulationReady, setSimulationReady] = useState(false);
+
+  // AI query exploration states
+  const [isAIMode, setIsAIMode] = useState(false);
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResponse, setAiResponse] = useState<any | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Publish and Export parameters
   const { owner, repo } = useParams();
@@ -1335,6 +1342,97 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
     }
   }, [pathSource, pathTarget, filteredData, graphMode]);
 
+  const highlightAIQueryResultNodes = useCallback((responseObj = aiResponse) => {
+    if (!responseObj || !responseObj.nodes) return;
+    
+    const returnedNodeIds = new Set(responseObj.nodes.map((n: any) => n.id));
+    const pathNodes = new Set<any>();
+    const pathLinks = new Set<any>();
+
+    // Add all nodes from filteredData that are in returnedNodeIds
+    filteredData.nodes.forEach((node: any) => {
+      if (returnedNodeIds.has(node.id)) {
+        pathNodes.add(node.id);
+      }
+    });
+
+    // Add all links from filteredData that connect two nodes in the focus set
+    filteredData.links.forEach((link: any) => {
+      const u = typeof link.source === 'object' ? link.source.id : link.source;
+      const v = typeof link.target === 'object' ? link.target.id : link.target;
+      if (returnedNodeIds.has(u) && returnedNodeIds.has(v)) {
+        pathLinks.add(link);
+      }
+    });
+
+    setFocusSet({ nodes: pathNodes, links: pathLinks });
+
+    // Center and zoom on focused nodes
+    if (pathNodes.size > 0 && fgRef.current) {
+      let totalX = 0;
+      let totalY = 0;
+      let count = 0;
+      filteredData.nodes.forEach((node: any) => {
+        if (pathNodes.has(node.id) && Number.isFinite(node.x) && Number.isFinite(node.y)) {
+          totalX += node.x;
+          totalY += node.y;
+          count++;
+        }
+      });
+      if (count > 0) {
+        const avgX = totalX / count;
+        const avgY = totalY / count;
+        fgRef.current.centerAt(avgX, avgY, 800);
+        fgRef.current.zoom(2.0, 800);
+      }
+    }
+  }, [aiResponse, filteredData]);
+
+  const handleAIQuerySubmit = useCallback(async () => {
+    if (!aiQuery.trim()) return;
+    setAiLoading(true);
+    setAiError(null);
+    setAiResponse(null);
+    
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const backend = searchParams.get("backend");
+      const backendUrl = backend || window.location.origin;
+      const url = `${backendUrl.replace(/\/$/, "")}/api/ai_query`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: aiQuery,
+          repo_path: data.metadata?.path || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server error (${response.status})`);
+      }
+
+      const resData = await response.json();
+      if (resData.success) {
+        setAiResponse(resData);
+        // Automatically focus and zoom to the query result nodes
+        highlightAIQueryResultNodes(resData);
+      } else {
+        setAiError(resData.error || "An error occurred during AI analysis.");
+      }
+    } catch (err: any) {
+      console.error("AI Query Error:", err);
+      setAiError(err.message);
+      toast.error("AI Query Failed: " + err.message);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [aiQuery, data, highlightAIQueryResultNodes]);
+
   const getLinkColor = useCallback((link: any) => {
     const isFocused = focusSet ? focusSet.links.has(link) : true;
     const baseColor = edgeColors[link.type] || '#ffffff';
@@ -1397,14 +1495,35 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
 
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-bold flex items-center gap-2 tracking-tight uppercase" style={{ color: pal.text }}>
-                    <FileCode className="w-4 h-4 text-purple-400" />
-                    Project Tree
+                    {isAIMode ? (
+                      <>
+                        <MessageSquare className="w-4 h-4 text-purple-400 animate-pulse" />
+                        AI Explorer
+                      </>
+                    ) : (
+                      <>
+                        <FileCode className="w-4 h-4 text-purple-400" />
+                        Project Tree
+                      </>
+                    )}
                   </h2>
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => {
+                        setIsAIMode(!isAIMode);
+                        setIsPathMode(false);
+                        setShowConfig(false);
+                      }}
+                      title="AI Knowledge Explorer"
+                      className={`p-1.5 rounded-lg transition-colors ${isAIMode ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-white hover:bg-purple-500/10'}`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
                         setIsPathMode(!isPathMode);
                         setShowConfig(false);
+                        setIsAIMode(false);
                       }}
                       title="Path Finder"
                       className={`p-1.5 rounded-lg transition-colors ${isPathMode ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-white hover:bg-purple-500/10'}`}
@@ -1415,6 +1534,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                       onClick={() => {
                         setShowConfig(!showConfig);
                         setIsPathMode(false);
+                        setIsAIMode(false);
                       }}
                       title="Graph Settings"
                       className={`p-1.5 rounded-lg transition-colors ${showConfig ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-white hover:bg-purple-500/10'}`}
@@ -1431,21 +1551,128 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                   </div>
                 </div>
 
-                <div className="relative mb-2">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-                  <input
-                    type="text"
-                    placeholder="Filter files..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`w-full rounded-lg py-1.5 pl-9 pr-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all ${isDark ? 'bg-white/5 border border-white/8 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
-                  />
-                </div>
+                {!isAIMode && (
+                  <div className="relative mb-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+                    <input
+                      type="text"
+                      placeholder="Filter files..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className={`w-full rounded-lg py-1.5 pl-9 pr-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all ${isDark ? 'bg-white/5 border border-white/8 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Tree / Config / Path Mode */}
               <div className="flex-1 overflow-y-auto px-2 py-1 custom-scrollbar">
-                {isPathMode ? (
+                {isAIMode ? (
+                  <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
+                    <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                      <MessageSquare className="w-3 h-3 text-purple-400 animate-pulse" /> AI Knowledge Explorer
+                    </h3>
+                    <p className="text-[11px] text-gray-400 leading-relaxed">Ask natural language questions about your repository's code graph.</p>
+
+                    <div className="space-y-2 mt-2">
+                      <textarea
+                        placeholder="e.g., Which modules depend on AuthenticationService?"
+                        value={aiQuery}
+                        onChange={(e) => setAiQuery(e.target.value)}
+                        className={`w-full rounded-lg p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all min-h-[80px] resize-none ${isDark ? 'bg-white/5 border border-white/10 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
+                      />
+                      <Button
+                        size="sm"
+                        className="w-full text-xs bg-purple-500 hover:bg-purple-600 text-white flex items-center justify-center gap-2 py-2"
+                        disabled={aiLoading || !aiQuery.trim()}
+                        onClick={handleAIQuerySubmit}
+                      >
+                        {aiLoading ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Analyzing Code Graph...
+                          </>
+                        ) : (
+                          "Ask Assistant"
+                        )}
+                      </Button>
+                    </div>
+
+                    {/* Quick templates */}
+                    <div className="space-y-1.5 pt-2">
+                      <label className="text-[9px] text-gray-500 uppercase font-black tracking-wider block mb-1">Example Queries</label>
+                      <div className="space-y-1">
+                        {[
+                          "Which modules depend on AuthenticationService?",
+                          "Show all database-related components.",
+                          "What files would be affected if I modify UserController?",
+                          "Which classes have the highest dependency count?",
+                          "Show shortest path between API Gateway and Database Layer.",
+                          "Explain the repository architecture."
+                        ].map((q, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => setAiQuery(q)}
+                            className={`w-full text-left text-[10.5px] p-2 rounded-lg transition-colors border text-gray-400 hover:text-white ${isDark ? 'bg-white/5 border-white/5 hover:border-purple-500/30 hover:bg-purple-500/10' : 'bg-black/5 border-black/10 hover:border-purple-500/30 hover:bg-purple-500/5'}`}
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {aiError && (
+                      <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg mt-2 font-mono uppercase tracking-wide leading-normal">
+                        {aiError}
+                      </div>
+                    )}
+
+                    {aiResponse && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-4 pt-4 border-t border-white/10"
+                      >
+                        {aiResponse.translation_explanation && (
+                          <div className="p-2.5 rounded-lg bg-purple-500/5 border border-purple-500/10 text-[11px] text-purple-300 font-mono">
+                            <div className="font-bold text-[9px] uppercase tracking-wider text-purple-400 mb-1">Generated Cypher Query</div>
+                            <pre className="overflow-x-auto whitespace-pre-wrap select-all p-2 bg-black/40 rounded border border-white/5 text-[9.5px] max-h-[120px] custom-scrollbar">
+                              {aiResponse.cypher_query}
+                            </pre>
+                            <div className="mt-1.5 text-[9.5px] text-gray-500 leading-normal">{aiResponse.translation_explanation}</div>
+                          </div>
+                        )}
+
+                        <div className="space-y-2">
+                          <div className="font-bold text-[9px] uppercase tracking-wider text-gray-400 block mb-1">AI Explanation</div>
+                          <div className="whitespace-pre-wrap leading-relaxed text-[11.5px] text-gray-300 select-text p-3 rounded-lg bg-white/5 border border-white/10 font-sans max-h-[300px] overflow-y-auto custom-scrollbar">
+                            {aiResponse.explanation}
+                          </div>
+                        </div>
+
+                        {aiResponse.nodes && aiResponse.nodes.length > 0 && (
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="w-full text-xs"
+                              onClick={() => setFocusSet(null)}
+                            >
+                              Clear Highlights
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="w-full text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30"
+                              onClick={() => highlightAIQueryResultNodes(aiResponse)}
+                            >
+                              Refocus Nodes ({aiResponse.nodes.length})
+                            </Button>
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </motion.div>
+                ) : isPathMode ? (
                   <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
                     <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                       <Route className="w-3 h-3" /> Path Traversal
