@@ -3092,5 +3092,9 @@ def _write_datasource_graph(ingested: dict, context: Optional[str] = None) -> No
         db_manager.close_driver()
 
 
+from codegraphcontext.cli.simulator import simulate_app
+app.add_typer(simulate_app, name="simulate")
+
+
 if __name__ == "__main__":
     app()

@@ -401,6 +401,67 @@ class MCPServer:
     def find_datasource_nodes_tool(self, **args) -> Dict[str, Any]:
         return analysis_handlers.find_datasource_nodes(self.code_finder, **args)
 
+    def simulate_metrics_tool(self, **args) -> Dict[str, Any]:
+        from .core.simulator import CodeGraphTwin
+        repo_path = args.get("repo_path") or args.get("path") or str(self.cwd)
+        try:
+            twin = CodeGraphTwin(repo_path).load_from_db(self.db_manager)
+            return {"status": "ok", "metrics": twin.get_metrics_summary()}
+        except Exception as e:
+            return {"error": f"Failed to calculate simulation metrics: {e}"}
+
+    def simulate_architectural_change_tool(self, **args) -> Dict[str, Any]:
+        from .core.simulator import CodeGraphTwin
+        repo_path = args.get("repo_path") or args.get("path") or str(self.cwd)
+        changes = args.get("changes", [])
+        try:
+            baseline = CodeGraphTwin(repo_path).load_from_db(self.db_manager)
+            simulated = CodeGraphTwin(repo_path).load_from_db(self.db_manager)
+            
+            for step in changes:
+                stype = step.get("type")
+                if stype == "decompose":
+                    simulated.decompose_service(step.get("mapping", {}))
+                elif stype == "remove_dependency":
+                    simulated.remove_dependency(step.get("source"), step.get("target"), step.get("rel_type"))
+                elif stype == "add_dependency":
+                    simulated.add_dependency(step.get("source"), step.get("target"), step.get("rel_type"))
+                elif stype == "remove_node":
+                    simulated.remove_node(step.get("node_id"))
+                    
+            diff = baseline.compare_scenarios(simulated)
+            return {
+                "status": "ok",
+                "baseline_metrics": baseline.get_metrics_summary(),
+                "simulated_metrics": simulated.get_metrics_summary(),
+                "comparison": diff
+            }
+        except Exception as e:
+            return {"error": f"Failed to simulate architectural change: {e}"}
+
+    def analyze_architectural_evolution_tool(self, **args) -> Dict[str, Any]:
+        from .core.simulator import EvolutionTimeline
+        repo_path = args.get("repo_path") or args.get("path") or str(self.cwd)
+        commits = int(args.get("commits", 50))
+        try:
+            hotspots = EvolutionTimeline.analyze_hotspots(self.db_manager, repo_path, num_commits=commits)
+            growth = EvolutionTimeline.get_growth_trend(repo_path, num_commits=min(15, commits))
+            formatted_hotspots = []
+            for hs in hotspots:
+                formatted_hotspots.append({
+                    "relative_path": hs["relative_path"],
+                    "churn": hs["churn"],
+                    "complexity": hs["complexity"],
+                    "hotspot_score": hs["hotspot_score"]
+                })
+            return {
+                "status": "ok",
+                "hotspots": formatted_hotspots,
+                "growth_trend": growth
+            }
+        except Exception as e:
+            return {"error": f"Failed to analyze architectural evolution: {e}"}
+
     def discover_codegraph_contexts_tool(self, **args) -> Dict[str, Any]:
         from .utils.path_sandbox import is_path_allowed, clamp_discovery_depth
 
@@ -617,6 +678,9 @@ class MCPServer:
             "find_java_spring_endpoints": self.find_java_spring_endpoints_tool,
             "find_java_spring_beans": self.find_java_spring_beans_tool,
             "find_datasource_nodes": self.find_datasource_nodes_tool,
+            "simulate_metrics": self.simulate_metrics_tool,
+            "simulate_architectural_change": self.simulate_architectural_change_tool,
+            "analyze_architectural_evolution": self.analyze_architectural_evolution_tool,
         }
         handler = tool_map.get(tool_name)
         if handler:
