@@ -228,6 +228,7 @@ class _FakeCodeFinder:
 @pytest.fixture
 def ladybugdb_env():
     env = {
+        "ALLOW_DB_DELETION": "true",
         "DEFAULT_DATABASE": "ladybugdb",
         "CGC_RUNTIME_DB_TYPE": "ladybugdb",
     }
@@ -461,6 +462,7 @@ def test_all_canonical_cli_commands_run_with_ladybugdb(ladybugdb_env, cli_test_s
         ["bundle", "export", bundle_export],
         ["bundle", "import", bundle_file],
         ["bundle", "load", bundle_file],
+        ["bundle", "merge", bundle_file, bundle_file, bundle_file],
         ["hook", "install"],
         ["hook", "uninstall"],
         ["hook", "status"],

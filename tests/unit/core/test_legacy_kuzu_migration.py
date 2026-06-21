@@ -430,6 +430,180 @@ def test_maybe_migrate_legacy_kuzudb_prefers_explicit_db_path(monkeypatch):
     assert calls == [(target_manager, "/configured/falkordb")]
 
 
+def _install_backend_module(monkeypatch, module_name, class_name):
+    created = []
+    module = ModuleType(module_name)
+
+    class FakeManager:
+        def __init__(self, db_path=None):
+            self.db_path = db_path
+            self.backend_module = module_name
+            created.append(self)
+
+        def get_driver(self):
+            return object()
+
+    setattr(module, class_name, FakeManager)
+    monkeypatch.setitem(sys.modules, module_name, module)
+    return created
+
+
+@pytest.mark.parametrize(
+    (
+        "db_type",
+        "module_name",
+        "class_name",
+        "env",
+    ),
+    [
+        (
+            "ladybugdb",
+            "codegraphcontext.core.database_ladybug",
+            "LadybugDBManager",
+            {},
+        ),
+        (
+            "falkordb-remote",
+            "codegraphcontext.core.database_falkordb_remote",
+            "FalkorDBRemoteManager",
+            {"FALKORDB_HOST": "localhost"},
+        ),
+        (
+            "neo4j",
+            "codegraphcontext.core.database",
+            "DatabaseManager",
+            {
+                "NEO4J_URI": "bolt://localhost:7687",
+                "NEO4J_USERNAME": "neo4j",
+                "NEO4J_PASSWORD": "pw",
+            },
+        ),
+        (
+            "nornic",
+            "codegraphcontext.core.database_nornic",
+            "NornicDBManager",
+            {
+                "NORNIC_URI": "nornic://localhost",
+                "NORNIC_USERNAME": "nornic",
+                "NORNIC_PASSWORD": "pw",
+            },
+        ),
+    ],
+)
+def test_get_database_manager_runs_kuzu_migration_for_explicit_backends(
+    monkeypatch,
+    tmp_path,
+    db_type,
+    module_name,
+    class_name,
+    env,
+):
+    """Run migration against the backend the user explicitly selected."""
+    calls = []
+    created = _install_backend_module(monkeypatch, module_name, class_name)
+    monkeypatch.setenv("CGC_RUNTIME_DB_TYPE", db_type)
+    monkeypatch.delenv("DEFAULT_DATABASE", raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(core, "_is_ladybugdb_available", lambda: True)
+    monkeypatch.setattr(
+        core,
+        "_maybe_migrate_legacy_kuzudb",
+        lambda manager, db_path: calls.append((manager, db_path)),
+    )
+
+    manager = core.get_database_manager(db_path=str(tmp_path / db_type))
+
+    assert manager is created[0]
+    assert calls == [(manager, str(tmp_path / db_type))]
+
+
+def test_get_database_manager_runs_kuzu_migration_for_explicit_falkordb(
+    monkeypatch,
+    tmp_path,
+):
+    """Keep FalkorDB Lite as the migration target when it is selected."""
+    calls = []
+    created = _install_backend_module(
+        monkeypatch,
+        "codegraphcontext.core.database_falkordb",
+        "FalkorDBManager",
+    )
+    sys.modules[
+        "codegraphcontext.core.database_falkordb"
+    ].FalkorDBUnavailableError = RuntimeError
+    monkeypatch.setenv("CGC_RUNTIME_DB_TYPE", "falkordb")
+    monkeypatch.setattr(core, "is_falkordb_usable", lambda: True)
+    monkeypatch.setattr(
+        core,
+        "_maybe_migrate_legacy_kuzudb",
+        lambda manager, db_path: calls.append((manager, db_path)),
+    )
+
+    manager = core.get_database_manager(db_path=str(tmp_path / "falkordb"))
+
+    assert manager is created[0]
+    assert calls == [(manager, str(tmp_path / "falkordb"))]
+
+
+def test_get_database_manager_migrates_to_ladybug_fallback_path(
+    monkeypatch,
+    tmp_path,
+):
+    """When FalkorDB is unavailable, migrate into the Ladybug fallback store."""
+    calls = []
+    created = _install_backend_module(
+        monkeypatch,
+        "codegraphcontext.core.database_ladybug",
+        "LadybugDBManager",
+    )
+    monkeypatch.setenv("CGC_RUNTIME_DB_TYPE", "falkordb")
+    monkeypatch.setattr(core, "is_falkordb_usable", lambda: False)
+    monkeypatch.setattr(core, "_is_ladybugdb_available", lambda: True)
+    monkeypatch.setattr(core, "_is_neo4j_configured", lambda: False)
+    monkeypatch.setattr(core, "_is_nornic_configured", lambda: False)
+    monkeypatch.setattr(
+        core,
+        "_maybe_migrate_legacy_kuzudb",
+        lambda manager, db_path: calls.append((manager, db_path)),
+    )
+
+    manager = core.get_database_manager(db_path=str(tmp_path / "db" / "falkordb"))
+
+    assert manager is created[0]
+    assert manager.db_path == str(tmp_path / "db" / "ladybugdb")
+    assert calls == [(manager, str(tmp_path / "db" / "ladybugdb"))]
+
+
+def test_get_database_manager_migrates_to_default_ladybug_backend(
+    monkeypatch,
+    tmp_path,
+):
+    """Cover the zero-config replacement path after KuzuDB removal."""
+    calls = []
+    created = _install_backend_module(
+        monkeypatch,
+        "codegraphcontext.core.database_ladybug",
+        "LadybugDBManager",
+    )
+    monkeypatch.delenv("CGC_RUNTIME_DB_TYPE", raising=False)
+    monkeypatch.delenv("DEFAULT_DATABASE", raising=False)
+    monkeypatch.delenv("FALKORDB_HOST", raising=False)
+    monkeypatch.setattr(core, "is_falkordb_usable", lambda: False)
+    monkeypatch.setattr(core, "_is_ladybugdb_available", lambda: True)
+    monkeypatch.setattr(
+        core,
+        "_maybe_migrate_legacy_kuzudb",
+        lambda manager, db_path: calls.append((manager, db_path)),
+    )
+
+    manager = core.get_database_manager(db_path=str(tmp_path / "db" / "kuzudb"))
+
+    assert manager is created[0]
+    assert manager.db_path == str(tmp_path / "db" / "kuzudb")
+    assert calls == [(manager, str(tmp_path / "db" / "kuzudb"))]
+
+
 @pytest.mark.parametrize(
     ("record_count", "expected"),
     [
