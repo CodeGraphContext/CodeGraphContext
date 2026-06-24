@@ -16,11 +16,12 @@ def resolve_inheritance_link(
 ) -> Optional[Dict[str, Any]]:
     """Resolve a single inheritance link. Returns row dict or None."""
     import re
+
     if base_class_str == "object":
         return None
 
     # Unwrap JS/TS mixins like Swimmable(Flyable(Person)) -> Person
-    m = re.search(r'([A-Za-z0-9_.]+)(?:\s*\))*$', base_class_str)
+    m = re.search(r"([A-Za-z0-9_.]+)(?:\s*\))*$", base_class_str)
     if m:
         base_class_str = m.group(1)
 
@@ -69,7 +70,6 @@ def resolve_inheritance_link(
     }
 
 
-
 def build_inheritance_and_csharp_files(
     all_file_data: List[Dict[str, Any]], imports_map: dict
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -89,8 +89,7 @@ def build_inheritance_and_csharp_files(
                 local_class_names.add(item["name"])
 
         local_imports = {
-            imp.get("alias") or imp["name"].split(".")[-1]: imp["name"]
-            for imp in file_data.get("imports", [])
+            imp.get("alias") or imp["name"].split(".")[-1]: imp["name"] for imp in file_data.get("imports", [])
         }
 
         for key in ["classes", "structs", "traits", "interfaces", "mixins", "enums", "extensions", "variables"]:
@@ -122,9 +121,7 @@ def _expand_go_interface_methods(
         return cache[iface_name]
     required = set(interface_methods.get(iface_name, set()))
     for base in embedded_bases.get(iface_name, []):
-        required |= _expand_go_interface_methods(
-            base, interface_methods, embedded_bases, cache
-        )
+        required |= _expand_go_interface_methods(base, interface_methods, embedded_bases, cache)
     cache[iface_name] = required
     return required
 
@@ -159,9 +156,7 @@ def build_go_implements_links(
 
         expanded_required: Dict[str, set] = {}
         for iface_name in interface_methods:
-            _expand_go_interface_methods(
-                iface_name, interface_methods, embedded_bases, expanded_required
-            )
+            _expand_go_interface_methods(iface_name, interface_methods, embedded_bases, expanded_required)
 
         for struct in file_data.get("structs", []):
             struct_name = struct.get("name")
@@ -171,15 +166,17 @@ def build_go_implements_links(
             for iface_name, required in expanded_required.items():
                 if not required or not required.issubset(available):
                     continue
-                implements_batch.append({
-                    "child_name": struct_name,
-                    "child_label": "Struct",
-                    "parent_name": iface_name,
-                    "parent_label": "Interface",
-                    "path": file_path,
-                    "resolved_parent_file_path": file_path,
-                    "confidence_label": "INFERRED",
-                })
+                implements_batch.append(
+                    {
+                        "child_name": struct_name,
+                        "child_label": "Struct",
+                        "parent_name": iface_name,
+                        "parent_label": "Interface",
+                        "path": file_path,
+                        "resolved_parent_file_path": file_path,
+                        "confidence_label": "INFERRED",
+                    }
+                )
 
     return implements_batch
 
@@ -199,15 +196,17 @@ def build_haskell_implements_links(
             parent_name = instance.get("typeclass")
             if not child_name or not parent_name:
                 continue
-            implements_batch.append({
-                "child_name": child_name,
-                "child_label": "Class",
-                "parent_name": parent_name,
-                "parent_label": "Class",
-                "path": file_path,
-                "resolved_parent_file_path": file_path,
-                "confidence_label": "INFERRED",
-            })
+            implements_batch.append(
+                {
+                    "child_name": child_name,
+                    "child_label": "Class",
+                    "parent_name": parent_name,
+                    "parent_label": "Class",
+                    "path": file_path,
+                    "resolved_parent_file_path": file_path,
+                    "confidence_label": "INFERRED",
+                }
+            )
 
     return implements_batch
 
@@ -228,11 +227,13 @@ def build_partial_of_links(
             if not cls.get("is_partial"):
                 continue
             key = f"{namespace}::{cls.get('name')}"
-            groups.setdefault(key, []).append({
-                "name": cls.get("name"),
-                "path": file_path,
-                "line_number": cls.get("line_number"),
-            })
+            groups.setdefault(key, []).append(
+                {
+                    "name": cls.get("name"),
+                    "path": file_path,
+                    "line_number": cls.get("line_number"),
+                }
+            )
 
     for entries in groups.values():
         if len(entries) < 2:
@@ -245,15 +246,17 @@ def build_partial_of_links(
         )
         primary = entries[0]
         for part in entries[1:]:
-            partial_of_batch.append({
-                "child_name": part["name"],
-                "child_label": "Class",
-                "parent_name": primary["name"],
-                "parent_label": "Class",
-                "path": part["path"],
-                "resolved_parent_file_path": primary["path"],
-                "confidence_label": "INFERRED",
-            })
+            partial_of_batch.append(
+                {
+                    "child_name": part["name"],
+                    "child_label": "Class",
+                    "parent_name": primary["name"],
+                    "parent_label": "Class",
+                    "path": part["path"],
+                    "resolved_parent_file_path": primary["path"],
+                    "confidence_label": "INFERRED",
+                }
+            )
 
     return partial_of_batch
 
@@ -279,11 +282,13 @@ def build_part_of_links(
                 text = ""
             match = part_of_re.search(text)
             if match:
-                links.append({
-                    "main_file": str((file_path.parent / match.group(1)).resolve()),
-                    "part_file": str(file_path.resolve()),
-                    "direction": "part_of",
-                })
+                links.append(
+                    {
+                        "main_file": str((file_path.parent / match.group(1)).resolve()),
+                        "part_file": str(file_path.resolve()),
+                        "direction": "part_of",
+                    }
+                )
         for link in links:
             if link.get("direction") != "part_of":
                 continue
@@ -293,10 +298,12 @@ def build_part_of_links(
             if key in seen:
                 continue
             seen.add(key)
-            part_of_batch.append({
-                "child_path": child_path,
-                "parent_path": parent_path,
-            })
+            part_of_batch.append(
+                {
+                    "child_path": child_path,
+                    "parent_path": parent_path,
+                }
+            )
 
     return part_of_batch
 
@@ -341,10 +348,7 @@ def build_decorated_by_links(
     for file_data in all_file_data:
         caller_file_path = str(Path(file_data["path"]).resolve().as_posix())
         local_names = {
-            item["name"]
-            for key in ("functions", "classes")
-            for item in file_data.get(key, [])
-            if item.get("name")
+            item["name"] for key in ("functions", "classes") for item in file_data.get(key, []) if item.get("name")
         }
         local_imports = {
             imp.get("alias") or imp.get("name"): imp.get("source")
@@ -376,15 +380,17 @@ def build_decorated_by_links(
                     if key in seen:
                         continue
                     seen.add(key)
-                    decorated_by_batch.append({
-                        "decorated_name": item["name"],
-                        "decorated_path": caller_file_path,
-                        "decorated_line": item["line_number"],
-                        "decorated_context": decorated_context or "",
-                        "decorator_name": dec_name,
-                        "decorator_path": dec_path,
-                        "line_number": item["line_number"],
-                    })
+                    decorated_by_batch.append(
+                        {
+                            "decorated_name": item["name"],
+                            "decorated_path": caller_file_path,
+                            "decorated_line": item["line_number"],
+                            "decorated_context": decorated_context or "",
+                            "decorator_name": dec_name,
+                            "decorator_path": dec_path,
+                            "line_number": item["line_number"],
+                        }
+                    )
 
     return decorated_by_batch
 
@@ -423,14 +429,16 @@ def build_metaclass_links(
             if key in seen:
                 continue
             seen.add(key)
-            metaclass_batch.append({
-                "child_name": class_item["name"],
-                "path": caller_file_path,
-                "parent_name": meta_name,
-                "resolved_parent_file_path": resolved_path,
-                "line_number": class_item["line_number"],
-                "confidence_label": "EXTRACTED",
-            })
+            metaclass_batch.append(
+                {
+                    "child_name": class_item["name"],
+                    "path": caller_file_path,
+                    "parent_name": meta_name,
+                    "resolved_parent_file_path": resolved_path,
+                    "line_number": class_item["line_number"],
+                    "confidence_label": "EXTRACTED",
+                }
+            )
 
     return metaclass_batch
 
@@ -446,9 +454,7 @@ def build_companion_of_links(
         if file_data.get("lang") != "kotlin":
             continue
         file_path = str(Path(file_data["path"]).resolve().as_posix())
-        classes_by_name = {
-            cls["name"]: cls for cls in file_data.get("classes", []) if cls.get("name")
-        }
+        classes_by_name = {cls["name"]: cls for cls in file_data.get("classes", []) if cls.get("name")}
 
         for obj in file_data.get("objects", []):
             if obj.get("node_type") != "companion_object":
@@ -463,14 +469,16 @@ def build_companion_of_links(
             if key in seen:
                 continue
             seen.add(key)
-            companion_batch.append({
-                "companion_name": obj["name"],
-                "companion_path": file_path,
-                "companion_line": obj["line_number"],
-                "owner_name": owner_name,
-                "owner_path": file_path,
-                "owner_line": owner["line_number"],
-            })
+            companion_batch.append(
+                {
+                    "companion_name": obj["name"],
+                    "companion_path": file_path,
+                    "companion_line": obj["line_number"],
+                    "owner_name": owner_name,
+                    "owner_path": file_path,
+                    "owner_line": owner["line_number"],
+                }
+            )
 
     return companion_batch
 
@@ -500,13 +508,15 @@ def build_embeds_links(
                 if key in seen:
                     continue
                 seen.add(key)
-                embeds_batch.append({
-                    "child_name": struct_name,
-                    "parent_name": base_name,
-                    "path": file_path,
-                    "resolved_parent_file_path": file_path,
-                    "line_number": struct.get("line_number", 0),
-                })
+                embeds_batch.append(
+                    {
+                        "child_name": struct_name,
+                        "parent_name": base_name,
+                        "path": file_path,
+                        "resolved_parent_file_path": file_path,
+                        "line_number": struct.get("line_number", 0),
+                    }
+                )
 
     return embeds_batch
 
@@ -533,15 +543,17 @@ def build_elixir_implements_links(
             if key in seen:
                 continue
             seen.add(key)
-            implements_batch.append({
-                "child_name": for_type,
-                "child_label": "Module",
-                "parent_name": impl_name,
-                "parent_label": "Module",
-                "path": file_path,
-                "resolved_parent_file_path": file_path,
-                "line_number": module.get("line_number", 0),
-                "confidence_label": "EXTRACTED",
-            })
+            implements_batch.append(
+                {
+                    "child_name": for_type,
+                    "child_label": "Module",
+                    "parent_name": impl_name,
+                    "parent_label": "Module",
+                    "path": file_path,
+                    "resolved_parent_file_path": file_path,
+                    "line_number": module.get("line_number", 0),
+                    "confidence_label": "EXTRACTED",
+                }
+            )
 
     return implements_batch
