@@ -327,10 +327,14 @@ def _resolve_decorator_path(
         return caller_path
     if decorator_name in local_imports:
         imported = local_imports[decorator_name]
-        lookup = imported.split(".")[-1]
-        paths = imports_map.get(lookup, imports_map.get(imported, []))
-        if len(paths) == 1:
-            return str(Path(paths[0]).resolve().as_posix())
+        # imported may be None when an import entry has a name/alias but no
+        # `source` field (see build_decorated_by_links). Skip resolution rather
+        # than crashing on None.split().
+        if imported:
+            lookup = imported.split(".")[-1]
+            paths = imports_map.get(lookup, imports_map.get(imported, []))
+            if len(paths) == 1:
+                return str(Path(paths[0]).resolve().as_posix())
     paths = imports_map.get(decorator_name, [])
     if len(paths) == 1:
         return str(Path(paths[0]).resolve().as_posix())
