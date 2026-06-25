@@ -85,6 +85,7 @@ DEFAULT_CONFIG = {
     "CGC_EMBEDDING_BATCH_SIZE": "256",
     # Default fuzzy matching behavior for `cgc find name` (overridable per-command with --fuzzy/--no-fuzzy)
     "FUZZY_SEARCH": "true",
+    "REDACT_SECRETS": "false",
 }
 
 # Configuration key descriptions
@@ -151,6 +152,12 @@ CONFIG_DESCRIPTIONS = {
         "Enable fuzzy matching by default for `cgc find name` (true|false). "
         "Per-invocation overrides are available via --fuzzy / --no-fuzzy."
     ),
+    "REDACT_SECRETS": (
+        "Scan string literals and variable values for likely secrets (API keys, tokens, "
+        "passwords, connection strings) during indexing and replace them with [REDACTED] "
+        "before writing to the graph database. When false (default), secrets are still "
+        "detected and a warning is logged, but values are stored verbatim."
+    ),
 }
 
 # Valid values for each config key
@@ -172,6 +179,7 @@ CONFIG_VALIDATORS = {
     "ENABLE_VECTOR_RESOLVE": ["true", "false"],
     "CGC_EMBEDDING_MODEL": ["local", "openai"],
     "FUZZY_SEARCH": ["true", "false"],
+    "REDACT_SECRETS": ["true", "false"],
 }
 
 SUPPORTED_DATABASES: List[str] = CONFIG_VALIDATORS["DEFAULT_DATABASE"]
