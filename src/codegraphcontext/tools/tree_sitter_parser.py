@@ -9,6 +9,32 @@ if TYPE_CHECKING:
 
 from ..utils.tree_sitter_manager import get_tree_sitter_manager
 
+LANGUAGE_PARSERS = {
+    "python": lambda self: __import__("src.codegraphcontext.tools.languages.python", fromlist=["PythonTreeSitterParser"]).PythonTreeSitterParser(self),
+    "javascript": lambda self: __import__("src.codegraphcontext.tools.languages.javascript", fromlist=["JavascriptTreeSitterParser"]).JavascriptTreeSitterParser(self),
+    "go": lambda self: __import__("src.codegraphcontext.tools.languages.go", fromlist=["GoTreeSitterParser"]).GoTreeSitterParser(self),
+    "typescript": lambda self: __import__("src.codegraphcontext.tools.languages.typescript", fromlist=["TypescriptTreeSitterParser"]).TypescriptTreeSitterParser(self),
+    "tsx": lambda self: __import__("src.codegraphcontext.tools.languages.typescriptjsx", fromlist=["TypescriptJSXTreeSitterParser"]).TypescriptJSXTreeSitterParser(self),
+    "cpp": lambda self: __import__("src.codegraphcontext.tools.languages.cpp", fromlist=["CppTreeSitterParser"]).CppTreeSitterParser(self),
+    "rust": lambda self: __import__("src.codegraphcontext.tools.languages.rust", fromlist=["RustTreeSitterParser"]).RustTreeSitterParser(self),
+    "c": lambda self: __import__("src.codegraphcontext.tools.languages.c", fromlist=["CTreeSitterParser"]).CTreeSitterParser(self),
+    "java": lambda self: __import__("src.codegraphcontext.tools.languages.java", fromlist=["JavaTreeSitterParser"]).JavaTreeSitterParser(self),
+    "ruby": lambda self: __import__("src.codegraphcontext.tools.languages.ruby", fromlist=["RubyTreeSitterParser"]).RubyTreeSitterParser(self),
+    "c_sharp": lambda self: __import__("src.codegraphcontext.tools.languages.csharp", fromlist=["CSharpTreeSitterParser"]).CSharpTreeSitterParser(self),
+    "php": lambda self: __import__("src.codegraphcontext.tools.languages.php", fromlist=["PhpTreeSitterParser"]).PhpTreeSitterParser(self),
+    "lua": lambda self: __import__("src.codegraphcontext.tools.languages.lua", fromlist=["LuaTreeSitterParser"]).LuaTreeSitterParser(self),
+    "kotlin": lambda self: __import__("src.codegraphcontext.tools.languages.kotlin", fromlist=["KotlinTreeSitterParser"]).KotlinTreeSitterParser(self),
+    "scala": lambda self: __import__("src.codegraphcontext.tools.languages.scala", fromlist=["ScalaTreeSitterParser"]).ScalaTreeSitterParser(self),
+    "swift": lambda self: __import__("src.codegraphcontext.tools.languages.swift", fromlist=["SwiftTreeSitterParser"]).SwiftTreeSitterParser(self),
+    "haskell": lambda self: __import__("src.codegraphcontext.tools.languages.haskell", fromlist=["HaskellTreeSitterParser"]).HaskellTreeSitterParser(self),
+    "dart": lambda self: __import__("src.codegraphcontext.tools.languages.dart", fromlist=["DartTreeSitterParser"]).DartTreeSitterParser(self),
+    "perl": lambda self: __import__("src.codegraphcontext.tools.languages.perl", fromlist=["PerlTreeSitterParser"]).PerlTreeSitterParser(self),
+    "elixir": lambda self: __import__("src.codegraphcontext.tools.languages.elixir", fromlist=["ElixirTreeSitterParser"]).ElixirTreeSitterParser(self),
+    "elisp": lambda self: __import__("src.codegraphcontext.tools.languages.elisp", fromlist=["ElispTreeSitterParser"]).ElispTreeSitterParser(self),
+    "html": lambda self: __import__("src.codegraphcontext.tools.languages.html", fromlist=["HTMLTreeSitterParser"]).HTMLTreeSitterParser(self),
+    "css": lambda self: __import__("src.codegraphcontext.tools.languages.css", fromlist=["CSSTreeSitterParser"]).CSSTreeSitterParser(self),
+}
+
 
 class TreeSitterParser:
     """A generic parser wrapper for a specific language using tree-sitter."""
@@ -17,102 +43,13 @@ class TreeSitterParser:
         self.language_name = language_name
         self.ts_manager = get_tree_sitter_manager()
 
-        self.language: "Language" = self.ts_manager.get_language_safe(language_name)
-        self.parser = self.ts_manager.create_parser(language_name)
+        try:
+           self.language_specific_parser = LANGUAGE_PARSERS[self.language_name](self)
+        except KeyError:
+         raise ValueError(f"Invalid language name: {self.language_name}")
 
-        self.language_specific_parser = None
-        if self.language_name == "python":
-            from .languages.python import PythonTreeSitterParser
 
-            self.language_specific_parser = PythonTreeSitterParser(self)
-        elif self.language_name == "javascript":
-            from .languages.javascript import JavascriptTreeSitterParser
 
-            self.language_specific_parser = JavascriptTreeSitterParser(self)
-        elif self.language_name == "go":
-            from .languages.go import GoTreeSitterParser
-
-            self.language_specific_parser = GoTreeSitterParser(self)
-        elif self.language_name == "typescript":
-            from .languages.typescript import TypescriptTreeSitterParser
-
-            self.language_specific_parser = TypescriptTreeSitterParser(self)
-        elif self.language_name == "tsx":
-            from .languages.typescriptjsx import TypescriptJSXTreeSitterParser
-
-            self.language_specific_parser = TypescriptJSXTreeSitterParser(self)
-        elif self.language_name == "cpp":
-            from .languages.cpp import CppTreeSitterParser
-
-            self.language_specific_parser = CppTreeSitterParser(self)
-        elif self.language_name == "rust":
-            from .languages.rust import RustTreeSitterParser
-
-            self.language_specific_parser = RustTreeSitterParser(self)
-        elif self.language_name == "c":
-            from .languages.c import CTreeSitterParser
-
-            self.language_specific_parser = CTreeSitterParser(self)
-        elif self.language_name == "java":
-            from .languages.java import JavaTreeSitterParser
-
-            self.language_specific_parser = JavaTreeSitterParser(self)
-        elif self.language_name == "ruby":
-            from .languages.ruby import RubyTreeSitterParser
-
-            self.language_specific_parser = RubyTreeSitterParser(self)
-        elif self.language_name == "c_sharp":
-            from .languages.csharp import CSharpTreeSitterParser
-
-            self.language_specific_parser = CSharpTreeSitterParser(self)
-        elif self.language_name == "php":
-            from .languages.php import PhpTreeSitterParser
-
-            self.language_specific_parser = PhpTreeSitterParser(self)
-        elif self.language_name == "lua":
-            from .languages.lua import LuaTreeSitterParser
-
-            self.language_specific_parser = LuaTreeSitterParser(self)
-        elif self.language_name == "kotlin":
-            from .languages.kotlin import KotlinTreeSitterParser
-
-            self.language_specific_parser = KotlinTreeSitterParser(self)
-        elif self.language_name == "scala":
-            from .languages.scala import ScalaTreeSitterParser
-
-            self.language_specific_parser = ScalaTreeSitterParser(self)
-        elif self.language_name == "swift":
-            from .languages.swift import SwiftTreeSitterParser
-
-            self.language_specific_parser = SwiftTreeSitterParser(self)
-        elif self.language_name == "haskell":
-            from .languages.haskell import HaskellTreeSitterParser
-
-            self.language_specific_parser = HaskellTreeSitterParser(self)
-        elif self.language_name == "dart":
-            from .languages.dart import DartTreeSitterParser
-
-            self.language_specific_parser = DartTreeSitterParser(self)
-        elif self.language_name == "perl":
-            from .languages.perl import PerlTreeSitterParser
-
-            self.language_specific_parser = PerlTreeSitterParser(self)
-        elif self.language_name == "elixir":
-            from .languages.elixir import ElixirTreeSitterParser
-
-            self.language_specific_parser = ElixirTreeSitterParser(self)
-        elif self.language_name == "elisp":
-            from .languages.elisp import ElispTreeSitterParser
-
-            self.language_specific_parser = ElispTreeSitterParser(self)
-        elif self.language_name == "html":
-            from .languages.html import HTMLTreeSitterParser
-
-            self.language_specific_parser = HTMLTreeSitterParser(self)
-        elif self.language_name == "css":
-            from .languages.css import CSSTreeSitterParser
-
-            self.language_specific_parser = CSSTreeSitterParser(self)
 
     def parse(self, path: Path, is_dependency: bool = False, **kwargs) -> Dict:
         """Dispatches parsing to the language-specific parser."""
