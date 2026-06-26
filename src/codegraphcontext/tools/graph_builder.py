@@ -57,6 +57,7 @@ class GraphBuilder:
         self.driver = self.db_manager.get_driver()
         self._writer = GraphWriter(self.driver, db_manager=self.db_manager)
         self.last_call_resolution_diagnostics: list[Dict[str, Any]] = []
+        self.last_index_summary: Dict[str, Any] = {}
         self.parsers = {
             ".py": "python",
             ".ipynb": "python",
@@ -1163,6 +1164,7 @@ class GraphBuilder:
                     )
 
             self.last_call_resolution_diagnostics = []
+            self.last_index_summary = {}
             await run_tree_sitter_index_async(
                 path,
                 is_dependency,
@@ -1175,6 +1177,7 @@ class GraphBuilder:
                 self.parse_file,
                 self.add_minimal_file_node,
                 call_resolution_diagnostics=self.last_call_resolution_diagnostics,
+                index_summary=self.last_index_summary,
             )
         except Exception as e:
             error_message = str(e)

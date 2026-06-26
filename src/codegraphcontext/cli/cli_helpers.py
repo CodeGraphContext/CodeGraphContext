@@ -9,6 +9,7 @@ import time
 import os
 from typing import Optional, List, Dict, Any
 import typer
+from rich import box
 from rich.console import Console
 from rich.table import Table
 from rich.progress import (
@@ -82,6 +83,42 @@ def _print_call_resolution_diagnostics(graph_builder: GraphBuilder, limit: int =
             str(diagnostic.get("reason") or ""),
             f"{diagnostic.get('caller_file_path')}:{diagnostic.get('line_number')}",
         )
+    console.print(table)
+
+
+def _format_extension_counts(files_by_extension: Dict[str, int]) -> str:
+    if not files_by_extension:
+        return "None"
+    return ", ".join(
+        f"{extension}: {count}" for extension, count in files_by_extension.items()
+    )
+
+
+def _print_index_execution_summary(graph_builder: GraphBuilder) -> None:
+    summary = getattr(graph_builder, "last_index_summary", None)
+    if not summary:
+        return
+
+    table = Table(
+        title="CGC Index Execution Summary",
+        show_header=True,
+        header_style="bold cyan",
+        box=box.ASCII,
+    )
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Value", style="green", overflow="fold")
+    table.add_row("Total scanned files", str(summary.get("total_scanned_files", 0)))
+    table.add_row(
+        "Files by extension",
+        _format_extension_counts(summary.get("files_by_extension", {})),
+    )
+    table.add_row("Function nodes", str(summary.get("function_nodes", 0)))
+    table.add_row("Class nodes", str(summary.get("class_nodes", 0)))
+    table.add_row("CALLS edges", str(summary.get("call_edges", 0)))
+    table.add_row(
+        "Serialization seconds",
+        f"{summary.get('serialization_seconds', 0.0):.2f}",
+    )
     console.print(table)
 
 
@@ -315,6 +352,7 @@ def index_helper(path: str, context: Optional[str] = None):
         time_end = time.time()
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)
+        _print_index_execution_summary(graph_builder)
         console.print(f"[green]Successfully finished indexing: {path} in {elapsed:.2f} seconds[/green]")
         
         # Check if auto-watch is enabled
@@ -363,6 +401,7 @@ def add_package_helper(package_name: str, language: str, context: Optional[str] 
     try:
         asyncio.run(_run_index_with_progress(graph_builder, package_path, is_dependency=True, cgcignore_path=ctx.cgcignore_path))
         _print_call_resolution_diagnostics(graph_builder)
+        _print_index_execution_summary(graph_builder)
         console.print(f"[green]Successfully finished indexing package: {package_name}[/green]")
     except Exception as e:
         console.print(f"[bold red]An error occurred during package indexing:[/bold red] {e}")
@@ -666,6 +705,7 @@ def reindex_helper(path: str, context: Optional[str] = None):
         time_end = time.time()
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)
+        _print_index_execution_summary(graph_builder)
         console.print(f"[green]Successfully re-indexed: {path} in {elapsed:.2f} seconds[/green]")
     except Exception as e:
         console.print(f"[bold red]An error occurred during re-indexing:[/bold red] {e}")
