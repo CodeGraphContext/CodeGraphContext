@@ -84,6 +84,25 @@ EXTENSION_TO_SCIP: Dict[str, Tuple[str, str, str, str]] = {
 }
 
 
+def _resolve_scip_timeout(default: int = 300) -> int:
+    """Return the timeout (seconds) for the local SCIP indexer subprocess.
+
+    Reads ``SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS`` from the CGC config at call time (so live
+    config changes are respected without a server restart). Falls back to
+    *default* when the value is unset, non-numeric, or not positive.
+    """
+    from ..cli.config_manager import get_config_value
+
+    raw = get_config_value("SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS")
+    if raw is None:
+        return default
+    try:
+        value = int(str(raw).strip())
+    except (ValueError, TypeError):
+        return default
+    return value if value > 0 else default
+
+
 def is_scip_available(lang: str) -> bool:
     """Check whether the SCIP indexer (binary or docker) for this language is available."""
     has_docker = shutil.which("docker") is not None
@@ -149,7 +168,7 @@ class ScipIndexer:
                     cwd=str(project_path),
                     capture_output=True,
                     text=True,
-                    timeout=300,
+                    timeout=_resolve_scip_timeout(),
                 )
                 if result.returncode == 0 and output_file.exists():
                     info_logger(f"SCIP index written to {output_file}")

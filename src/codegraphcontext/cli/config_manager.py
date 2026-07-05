@@ -72,6 +72,7 @@ DEFAULT_CONFIG = {
     # SCIP indexer feature flag (default off — existing Tree-sitter behaviour unchanged)
     "SCIP_INDEXER": "false",
     "SCIP_LANGUAGES": "python,typescript,javascript,go,rust,java,dart,cpp,c,csharp",
+    "SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS": "300",
     "SKIP_EXTERNAL_RESOLUTION": "false",
     # 0 = unlimited; any positive integer caps MCP tool response size.
     "MAX_TOOL_RESPONSE_TOKENS": "0",
@@ -113,6 +114,7 @@ CONFIG_DESCRIPTIONS = {
     "INDEX_SOURCE": "Store full source code in graph database (for faster indexing use false, for better performance use true)",
     "SCIP_INDEXER": "Use SCIP-based indexing for higher accuracy call/inheritance resolution (requires scip-<lang> tools installed)",
     "SCIP_LANGUAGES": "Comma-separated languages to index via SCIP when SCIP_INDEXER=true (python,typescript,javascript,go,rust,java,dart,cpp,c,csharp)",
+    "SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS": "Timeout in seconds for the local SCIP indexer subprocess (default 300). Raise it for large repositories whose indexer runs longer than 5 minutes; a value <= 0 or non-numeric falls back to 300.",
     "SKIP_EXTERNAL_RESOLUTION": "Skip resolution attempts for external library method calls (recommended for enterprise large Java/Spring codebases)",
     "MAX_TOOL_RESPONSE_TOKENS": "Maximum tokens per MCP tool response (0 = unlimited). Truncates oversized payloads and appends a notice.",
     "TOOL_RESULT_LIMITS": "JSON object mapping tool names to max result counts, e.g. {\"find_code\": 20, \"analyze_code_relationships\": 10}. Missing keys use built-in defaults.",
