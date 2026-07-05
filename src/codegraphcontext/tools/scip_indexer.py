@@ -199,7 +199,7 @@ class ScipIndexer:
                     internal_cmd = repl
                 if lang == "go" and not binary:
                     # Specific override for scip-go if binary not found locally
-                    internal_cmd = ["scip-go", "index", ".", "--output", "/out/index.scip"]
+                    internal_cmd = ["scip-go", "index", "./...", "--output", "/out/index.scip"]
                 elif lang == "dart":
                     # Dart docker image doesn't have scip_dart pre-installed
                     internal_cmd = ["bash", "-c", "dart pub global activate scip_dart && dart pub get && dart pub global run scip_dart ./"]
@@ -381,7 +381,7 @@ class ScipIndexer:
                 return [binary, "index", "--infer-tsconfig", "--output", out]
 
         elif lang == "go":
-            return [binary, "index", ".", "--output", out]
+            return [binary, "index", "./...", "--output", out]
 
         elif lang == "rust":
             return [binary, "index", "--output", out]
