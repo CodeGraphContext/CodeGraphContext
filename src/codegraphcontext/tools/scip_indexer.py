@@ -121,6 +121,21 @@ def detect_project_lang(path: Path, scip_languages: List[str]) -> Optional[str]:
     return max(counts, key=counts.get)
 
 
+def _package_json_has_workspaces(package_json: Path) -> bool:
+    """True if package.json declares a `workspaces` field (yarn or npm workspaces).
+
+    yarn and npm share the same `workspaces` key (an array of globs, or an object
+    with a `packages` array). scip-typescript reads it via --yarn-workspaces;
+    there is no npm-specific flag. Fails closed on missing/invalid JSON.
+    """
+    try:
+        with open(package_json, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return False
+    return bool(isinstance(data, dict) and data.get("workspaces"))
+
+
 class ScipIndexer:
     """
     Handles running the external SCIP indexer binaries.
@@ -371,6 +386,14 @@ class ScipIndexer:
             return [binary, "index", ".", "--output", out]
 
         elif lang == "typescript":
+            # A monorepo has no root tsconfig.json — its packages are enumerated by
+            # pnpm-workspace.yaml or a package.json `workspaces` field — so the bare
+            # `index` fails and CGC silently falls back to Tree-sitter. Pass the
+            # matching workspace flag; single-project behaviour is unchanged.
+            if (project_path / "pnpm-workspace.yaml").exists():
+                return [binary, "index", "--pnpm-workspaces", "--output", out]
+            if _package_json_has_workspaces(project_path / "package.json"):
+                return [binary, "index", "--yarn-workspaces", "--output", out]
             return [binary, "index", "--output", out]
 
         elif lang == "javascript":
