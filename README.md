@@ -478,3 +478,4 @@ Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 If you have ideas for new features, integrations, or improvements, open an [issue](https://github.com/CodeGraphContext/CodeGraphContext/issues) or submit a Pull Request.
 
 Join discussions and help shape the future of CodeGraphContext.
+# TODO: improve readme formatting and structure
