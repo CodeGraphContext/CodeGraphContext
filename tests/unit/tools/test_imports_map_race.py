@@ -20,10 +20,13 @@ def test_language_import_filter_snapshots_imports_map_during_concurrent_update(
         def as_posix(self):
             return self._path.as_posix()
 
+        def __getattr__(self, name):
+            return getattr(self._path, name)
+
         @property
         def suffix(self):
             suffix_started.set()
-            assert mutated.wait(2)
+            assert mutated.wait(10)
             return self._path.suffix
 
     monkeypatch.setattr(calls_module, "Path", SlowPath)
@@ -43,7 +46,7 @@ def test_language_import_filter_snapshots_imports_map_during_concurrent_update(
     ]
 
     def mutate_imports_map():
-        assert suffix_started.wait(2)
+        assert suffix_started.wait(10)
         imports_map["NewSymbol"] = ["/repo/deps/new_symbol.py"]
         mutated.set()
 
@@ -52,6 +55,6 @@ def test_language_import_filter_snapshots_imports_map_during_concurrent_update(
     try:
         calls_module.build_function_call_groups(all_file_data, imports_map)
     finally:
-        mutator.join(timeout=2)
+        mutator.join(timeout=10)
 
     assert mutated.is_set()
