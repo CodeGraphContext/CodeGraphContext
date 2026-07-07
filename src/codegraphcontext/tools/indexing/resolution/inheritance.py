@@ -324,7 +324,7 @@ def _resolve_decorator_path(
         return caller_path
     if decorator_name in local_imports:
         imported = local_imports[decorator_name]
-        if not imported:
+        if not isinstance(imported, str) or not imported:
             return caller_path
         lookup = imported.split(".")[-1]
         paths = imports_map.get(lookup, imports_map.get(imported, []))
