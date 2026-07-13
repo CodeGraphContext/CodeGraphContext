@@ -134,7 +134,7 @@ Expected results include `foo-core.el` and `foo-ui.el`, function nodes such as `
 
 ### Solidity smoke check
 
-Solidity support uses the `solidity` grammar from `tree-sitter-language-pack` (JoranHonig/tree-sitter-solidity). There is no SCIP indexer in v1.
+Solidity support uses the `solidity` grammar from `tree-sitter-language-pack` (JoranHonig/tree-sitter-solidity). There is no SCIP indexer in v1 — Tree-sitter only.
 
 ```bash
 tmpdir=$(mktemp -d)
@@ -149,11 +149,29 @@ uv run python -m codegraphcontext query "MATCH (f:File) WHERE f.path ENDS WITH '
 uv run python -m codegraphcontext query "MATCH (c:Class) WHERE c.lang = 'solidity' RETURN c.name AS class ORDER BY class"
 uv run python -m codegraphcontext query "MATCH (fn:Function) WHERE fn.lang = 'solidity' RETURN fn.name AS function ORDER BY function"
 uv run python -m codegraphcontext query "MATCH (a)-[:INHERITS]->(b) RETURN a.name AS child, b.name AS parent ORDER BY child, parent"
+uv run python -m codegraphcontext query "MATCH (caller:Function)-[:CALLS]->(callee) WHERE caller.lang = 'solidity' RETURN caller.name AS caller_name, callee.name AS callee_name ORDER BY caller_name, callee_name"
+
+# Foundry remapping fixture
+uv run python -m codegraphcontext index tests/fixtures/sample_projects/sample_project_solidity_foundry --force
+uv run python -m codegraphcontext query "MATCH (f:File)-[i:IMPORTS]->(m:Module) WHERE f.name = 'App.sol' RETURN m.name, i.full_import_name"
 
 rm -rf "$tmpdir"
 ```
 
-Expected results include files such as `Greeter.sol` / `BaseGreeter.sol`, classes/interfaces such as `Greeter`, `BaseGreeter`, `IGreeter`, `MathLib`, functions such as `greet` / `bump` / `add`, and an inheritance link `Greeter -> BaseGreeter` (and `BaseGreeter -> IGreeter` when interfaces are linked).
+Expected results include files such as `Greeter.sol` / `BaseGreeter.sol` / `UsingCounter.sol`, classes/interfaces such as `Greeter`, `BaseGreeter`, `IGreeter`, `MathLib`, functions such as `greet` / `bump` / `add`, inheritance `Greeter -> BaseGreeter`, modifier CALLS (`nonEmpty`), `using for` rewrites (`MathLib.add`), emit CALLS (`Greeted`), and remapped imports for `App.sol` resolving `forge-std/Helper.sol` → `lib/helper/src/Helper.sol`.
+
+### Solidity limitations (v1)
+
+| Area | Behavior |
+|------|----------|
+| SCIP | Not supported — no standard `scip-solidity` batch indexer |
+| Yul / `assembly` | Parse-tolerant; bodies not modeled as a separate graph |
+| Remappings | Reads `foundry.toml` `remappings = [...]` and `remappings.txt` (longest prefix). Does not run `forge`. Dependencies only under ignored trees (e.g. `node_modules/`) stay unresolved unless remapped into an indexed path |
+| `delegatecall` / dynamic targets | Best-effort name matching only |
+| Events / custom errors | Declared as Class-like nodes; `emit` / `revert Error()` recorded as CALLS with `call_kind` `emit` / `revert_error` (no separate `EMITS` edge type) |
+| Modifiers | Invocations emit CALLS; deep inherited-modifier MRO is best-effort via normal call resolution |
+| Noise | Filters free built-ins (`require`, `keccak256`, …) and receivers `vm` / `msg` / `abi` / … |
+| Name collisions | Prefer path-qualified Cypher (`WHERE f.path CONTAINS '…'`) in monorepos that also contain TypeScript mirrors |
 
 ### Emacs Lisp SCIP follow-up
 

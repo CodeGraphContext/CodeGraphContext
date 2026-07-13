@@ -31,6 +31,7 @@ contract Greeter is BaseGreeter {
     function bump() public {
         greetCount = MathLib.add(greetCount, 1);
         setPrefix(prefix);
+        emit Greeted(msg.sender, prefix);
     }
 
     receive() external payable {}

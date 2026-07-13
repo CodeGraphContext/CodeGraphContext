@@ -1047,7 +1047,12 @@ class GraphBuilder:
                     index_source=index_source,
                 )
             else:
-                file_data = parser.parse(path, is_dependency, index_source=index_source)
+                file_data = parser.parse(
+                    path,
+                    is_dependency,
+                    index_source=index_source,
+                    repo_path=repo_path,
+                )
             file_data["repo_path"] = str(repo_path)
             return file_data
         except Exception as e:
