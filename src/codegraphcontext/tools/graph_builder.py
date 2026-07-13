@@ -92,6 +92,7 @@ class GraphBuilder:
             ".ex": "elixir",
             ".exs": "elixir",
             ".el": "elisp",
+            ".sol": "solidity",
             ".html": "html",
             ".css": "css",
         }

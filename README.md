@@ -151,7 +151,7 @@ CodeGraphContext provides comprehensive parsing and analysis for the following l
 | 🎨 | **Kotlin** | 🎯 | **Dart** | 🐪 | **Perl** |
 | 🌙 | **Lua** | 🚀 | **Scala** | λ | **Haskell** |
 | 💧 | **Elixir** | 📜 | **Emacs Lisp (elisp)** | 🌐 | **HTML** |
-| 🎨 | **CSS** | ⚛️ | **TSX** | | |
+| 🎨 | **CSS** | ⚛️ | **TSX** | ⛓️ | **Solidity** |
 
 Each language parser extracts functions, classes, methods, parameters, inheritance relationships, function calls, and imports to build a comprehensive code graph.
 

@@ -105,6 +105,10 @@ class TreeSitterParser:
             from .languages.elisp import ElispTreeSitterParser
 
             self.language_specific_parser = ElispTreeSitterParser(self)
+        elif self.language_name == "solidity":
+            from .languages.solidity import SolidityTreeSitterParser
+
+            self.language_specific_parser = SolidityTreeSitterParser(self)
         elif self.language_name == "html":
             from .languages.html import HTMLTreeSitterParser
 

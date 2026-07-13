@@ -132,6 +132,29 @@ rm -rf "$tmpdir"
 
 Expected results include `foo-core.el` and `foo-ui.el`, function nodes such as `foo-core-greet` and `foo-ui-render`, variable nodes such as `foo-core-count` and `foo-core-loud`, module nodes for `cl-lib`, `foo-core`, and `foo-ui`, and direct call edges including `foo-ui-render -> foo-core-greet` and `foo-core-greet -> foo-core-format`.
 
+### Solidity smoke check
+
+Solidity support uses the `solidity` grammar from `tree-sitter-language-pack` (JoranHonig/tree-sitter-solidity). There is no SCIP indexer in v1.
+
+```bash
+tmpdir=$(mktemp -d)
+export PYTHONPATH=src
+export DEFAULT_DATABASE=kuzudb
+export CGC_RUNTIME_DB_TYPE=kuzudb
+export CGC_RUNTIME_DB_PATH="$tmpdir/kuzu.db"
+
+uv run python -m codegraphcontext index tests/fixtures/sample_projects/sample_project_solidity --force
+
+uv run python -m codegraphcontext query "MATCH (f:File) WHERE f.path ENDS WITH '.sol' RETURN f.name AS file ORDER BY file"
+uv run python -m codegraphcontext query "MATCH (c:Class) WHERE c.lang = 'solidity' RETURN c.name AS class ORDER BY class"
+uv run python -m codegraphcontext query "MATCH (fn:Function) WHERE fn.lang = 'solidity' RETURN fn.name AS function ORDER BY function"
+uv run python -m codegraphcontext query "MATCH (a)-[:INHERITS]->(b) RETURN a.name AS child, b.name AS parent ORDER BY child, parent"
+
+rm -rf "$tmpdir"
+```
+
+Expected results include files such as `Greeter.sol` / `BaseGreeter.sol`, classes/interfaces such as `Greeter`, `BaseGreeter`, `IGreeter`, `MathLib`, functions such as `greet` / `bump` / `add`, and an inheritance link `Greeter -> BaseGreeter` (and `BaseGreeter -> IGreeter` when interfaces are linked).
+
 ### Emacs Lisp SCIP follow-up
 
 The initial Emacs Lisp implementation intentionally stays on the Tree-sitter pipeline. There is no standard `scip-elisp` indexer to register in `EXTENSION_TO_SCIP`, and the commonly used `elisp-refs` package is designed as an interactive Emacs reference finder rather than a batch indexer: it searches files recorded in the running Emacs `load-history`, renders results in a special buffer instead of emitting JSON or SCIP data, and exposes useful Lisp-2 function/variable heuristics only through internal APIs.
