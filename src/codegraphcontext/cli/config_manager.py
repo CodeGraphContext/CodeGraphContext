@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, List
 try:
     from rich.console import Console
     from rich.table import Table
-    console = Console()
+    console = Console(stderr=True)
 except Exception:
     # Lightweight fallback when 'rich' is not installed (tests or minimal envs)
     class _TableFallback:
@@ -52,7 +52,6 @@ except Exception:
 import os
 import yaml
 
-
 def _atomic_write_text(path: Path, content: str, *, secure: bool = False) -> None:
     """Write *content* to *path* atomically (temp file + replace)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,7 +65,19 @@ def _atomic_write_text(path: Path, content: str, *, secure: bool = False) -> Non
         os.chmod(path, 0o600)
 
 # Configuration file location
-CONFIG_DIR = Path.home() / ".codegraphcontext"
+def _xdg_home(env_name: str, xdg_name: str, fallback: str) -> Path:
+    explicit = os.getenv(env_name)
+    if explicit:
+        return Path(explicit).expanduser()
+    xdg_base = os.getenv(xdg_name)
+    if xdg_base:
+        return Path(xdg_base).expanduser() / "codegraphcontext"
+    return Path.home() / fallback / "codegraphcontext"
+
+
+CONFIG_DIR = _xdg_home("CGC_CONFIG_DIR", "XDG_CONFIG_HOME", ".config")
+DATA_DIR = _xdg_home("CGC_DATA_DIR", "XDG_DATA_HOME", ".local/share")
+CACHE_DIR = _xdg_home("CGC_CACHE_DIR", "XDG_CACHE_HOME", ".cache")
 CONFIG_FILE = CONFIG_DIR / ".env"
 
 # Keys that pin embedded DB directories; must not bleed across profiles via local .env
@@ -85,18 +96,18 @@ DATABASE_CREDENTIAL_KEYS = {
 # Default configuration values
 DEFAULT_CONFIG = {
     "DEFAULT_DATABASE": "falkordb",
-    "FALKORDB_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb"),
-    "FALKORDB_SOCKET_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb.sock"),
+    "FALKORDB_PATH": str(DATA_DIR / "global" / "db" / "falkordb"),
+    "FALKORDB_SOCKET_PATH": str(DATA_DIR / "global" / "db" / "falkordb.sock"),
     # Empty selects a deterministic port derived from each embedded DB socket.
     "FALKORDB_PORT": "",
-    "LADYBUGDB_PATH": str(CONFIG_DIR / "global" / "db" / "ladybugdb"),
+    "LADYBUGDB_PATH": str(DATA_DIR / "global" / "db" / "ladybugdb"),
     "INDEX_VARIABLES": "true",
     "ALLOW_DB_DELETION": "false",
     "DEBUG_LOGS": "false",
-    "DEBUG_LOG_PATH": str(Path.home() / "mcp_debug.log"),
+    "DEBUG_LOG_PATH": str(CACHE_DIR / "logs" / "debug.log"),
     "ENABLE_APP_LOGS": "CRITICAL",
     "LIBRARY_LOG_LEVEL": "WARNING",
-    "LOG_FILE_PATH": str(CONFIG_DIR / "logs" / "cgc.log"),
+    "LOG_FILE_PATH": str(CACHE_DIR / "logs" / "cgc.log"),
     "MAX_FILE_SIZE_MB": "10",
     "IGNORE_TEST_FILES": "false",
     "IGNORE_HIDDEN_FILES": "true",
@@ -859,7 +870,7 @@ class ContextConfig:
 
 def _default_db_path(context_name: str, database: str) -> str:
     """Return the canonical DB path for a named context."""
-    return str(CONFIG_DIR / "contexts" / context_name / "db" / database)
+    return str(DATA_DIR / "contexts" / context_name / "db" / database)
 
 
 _LEGACY_FALKORDB_PATH = CONFIG_DIR / "global" / "falkordb.db"
@@ -886,11 +897,14 @@ def _default_global_db_path(database: str) -> str:
         if custom_path:
             resolved = Path(custom_path).resolve()
             # Ignore paths from another profile/repo that leaked via local .env
-            if str(resolved).startswith(str(CONFIG_DIR.resolve())):
+            if (
+                str(resolved).startswith(str(CONFIG_DIR.resolve()))
+                or str(resolved).startswith(str(DATA_DIR.resolve()))
+            ):
                 return str(resolved)
         if _LEGACY_FALKORDB_PATH.exists():
             return str(_LEGACY_FALKORDB_PATH)
-    return str(CONFIG_DIR / "global" / "db" / database)
+    return str(DATA_DIR / "global" / "db" / database)
 
 
 def _migrate_legacy_config_yaml() -> None:
