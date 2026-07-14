@@ -849,7 +849,7 @@ class CodeFinder:
         """Find all direct and indirect callers of a specific function, returning edges."""
         depth = _sanitize_depth(depth)
         with self.driver.session() as session:
-            repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
+            repo_filter = "AND path_nodes[0].path STARTS WITH $repo_path" if repo_path else ""
             depth_str = f"1..{depth}" if depth > 1 else "1"
             
             # KùzuDB-optimized: matching on the path end node via nodes(p) indexing
@@ -891,7 +891,7 @@ class CodeFinder:
         """Find all direct and indirect callees of a specific function, returning edges."""
         depth = _sanitize_depth(depth)
         with self.driver.session() as session:
-            repo_filter = "AND callee.path STARTS WITH $repo_path" if repo_path else ""
+            repo_filter = "AND last_node.path STARTS WITH $repo_path" if repo_path else ""
             depth_str = f"1..{depth}" if depth > 1 else "1"
             
             if path:
