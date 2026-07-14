@@ -549,13 +549,10 @@ class CodeFinder:
                         caller.name as caller_function,
                         COALESCE(caller.path, caller_file.path) as caller_file_path,
                         caller.line_number as caller_line_number,
-                        caller.docstring as caller_docstring,
-                        caller.is_dependency as caller_is_dependency,
                         call.line_number as call_line_number,
                         call.args as call_args,
-                        call.full_call_name as full_call_name,
                         target.path as target_file_path
-                ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
+                ORDER BY caller.is_dependency ASC, caller_file_path, caller_line_number
                     LIMIT 20
                 """, function_name=function_name, path=path, repo_path=repo_path)
                 
@@ -569,13 +566,10 @@ class CodeFinder:
                             caller.name as caller_function,
                             COALESCE(caller.path, caller_file.path) as caller_file_path,
                             caller.line_number as caller_line_number,
-                            caller.docstring as caller_docstring,
-                            caller.is_dependency as caller_is_dependency,
                             call.line_number as call_line_number,
                             call.args as call_args,
-                            call.full_call_name as full_call_name,
                             target.path as target_file_path
-                    ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
+                    ORDER BY caller.is_dependency ASC, caller_file_path, caller_line_number
                         LIMIT 20
                     """, function_name=function_name, repo_path=repo_path)
                     results = result.data()
@@ -588,13 +582,10 @@ class CodeFinder:
                         caller.name as caller_function,
                         caller.path as caller_file_path,
                         caller.line_number as caller_line_number,
-                        caller.docstring as caller_docstring,
-                        caller.is_dependency as caller_is_dependency,
                         call.line_number as call_line_number,
                         call.args as call_args,
-                        call.full_call_name as full_call_name,
                         target.path as target_file_path
-                ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
+                ORDER BY caller.is_dependency ASC, caller_file_path, caller_line_number
                     LIMIT 20
                 """, function_name=function_name, repo_path=repo_path)
                 results = result.data()
@@ -1207,8 +1198,14 @@ class CodeFinder:
         try:
             if query_type == "find_callers":
                 results = self.who_calls_function(target, context, repo_path=repo_path)
+                # Hoist target_file_path (constant across rows) to the envelope once,
+                # instead of repeating the absolute path in every row (payload slimming).
+                target_file_path = next((r.pop("target_file_path", None) for r in results), None) if results else None
+                for r in results:
+                    r.pop("target_file_path", None)
                 return {
-                    "query_type": "find_callers", "target": target, "context": context, "results": results,
+                    "query_type": "find_callers", "target": target, "context": context,
+                    "target_file_path": target_file_path, "results": results,
                     "summary": f"Found {len(results)} functions that call '{target}'"
                 }
             
