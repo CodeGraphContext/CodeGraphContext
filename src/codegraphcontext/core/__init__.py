@@ -197,18 +197,16 @@ def get_database_manager(
         db_type = db_type.lower()
         if db_type == "falkordb":
             if not is_falkordb_usable():
-                mgr = _try_fallback_backends(
-                    db_path,
-                    ('ladybugdb', 'neo4j', 'nornic'),
-                    reason="FalkorDB Lite is not supported or not installed here.",
+                message = (
+                    "FalkorDB Lite disabled after earlier failure."
+                    if _FALKORDB_DISABLED
+                    else "FalkorDB Lite is not supported or not installed."
                 )
-                if mgr is not None:
-                    return mgr
                 raise ValueError(
-                    "Database set to 'falkordb' but FalkorDB Lite is not "
-                    "installed or not supported on this OS.\n"
-                    "Install 'falkordblite' or configure 'ladybugdb', "
-                    "'neo4j', or 'nornic'."
+                    f"Database set to 'falkordb' but {message}\n"
+                    "Explicit FalkorDB selection is strict and will not "
+                    "fall back to LadybugDB. Fix FalkorDB Lite or choose "
+                    "another backend explicitly."
                 )
 
             from .database_falkordb import (
@@ -232,14 +230,13 @@ def get_database_manager(
                 return mgr
             except FalkorDBUnavailableError as falkor_err:
                 mark_falkordb_unavailable()
-                mgr = _try_fallback_backends(
-                    db_path,
-                    ('ladybugdb', 'neo4j', 'nornic'),
-                    reason=f"FalkorDB Lite was requested but is not functional ({falkor_err}).",
-                )
-                if mgr is not None:
-                    return mgr
-                raise
+                raise ValueError(
+                    "Database set to 'falkordb' but FalkorDB Lite is not "
+                    f"functional: {falkor_err}.\n"
+                    "Explicit FalkorDB selection is strict and will not "
+                    "fall back to LadybugDB. Fix FalkorDB Lite or choose "
+                    "another backend explicitly."
+                ) from falkor_err
 
         if db_type == "falkordb-remote":
             if not _is_falkordb_remote_configured():

@@ -166,24 +166,19 @@ def _initialize_services(
         if isinstance(e, FalkorDBUnavailableError):
             from ..core import mark_falkordb_unavailable
             mark_falkordb_unavailable()
-            console.print(f"[yellow]⚠ FalkorDB Lite is not functional in this environment: {e}[/yellow]")
-            console.print("[cyan]Falling back to LadybugDB for a reliable experience...[/cyan]")
-
-            # Close the broken driver/socket
+            console.print(
+                f"[bold red]FalkorDB Lite is not functional:[/bold red] {e}"
+            )
+            console.print(
+                "Explicit FalkorDB selection is strict; not falling back to "
+                "LadybugDB. Fix FalkorDB Lite or choose another backend "
+                "explicitly."
+            )
             try:
                 db_manager.close_driver()
             except Exception:
                 pass
-
-            # Re-initialize explicitly with LadybugDB
-            from ..core.database_ladybug import LadybugDBManager
-            db_manager = LadybugDBManager()
-            try:
-                db_manager.get_driver()
-                console.print("[green]✓[/green] Successfully switched to LadybugDB fallback")
-            except Exception as ladybug_e:
-                console.print(f"[bold red]Critical Error:[/bold red] Both FalkorDB and LadybugDB failed: {ladybug_e}")
-                return None, None, None, ctx
+            return None, None, None, ctx
         else:
             selected_db = (
                 os.environ.get("CGC_RUNTIME_DB_TYPE")
