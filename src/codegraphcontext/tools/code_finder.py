@@ -858,7 +858,7 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
@@ -873,7 +873,7 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, repo_path=repo_path)
             return result.data()
@@ -896,7 +896,7 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
@@ -910,7 +910,7 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, repo_path=repo_path)
             return result.data()
