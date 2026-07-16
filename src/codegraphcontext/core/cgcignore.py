@@ -163,7 +163,10 @@ class CGCIgnoreMatcher:
             if is_root_anchored:
                 regex_str = r'\A' + regex_str
             else:
-                regex_str = r'(?:.*/)?' + regex_str
+                # Anchor to a path-segment boundary so a directory pattern like
+                # `out/` matches the segment `out`, not the substring inside
+                # `layout/` / `checkout/` (match_file applies the regex via re.search).
+                regex_str = r'(?:\A|.*/)' + regex_str
                 
             if is_dir_only:
                 # Must match a directory (so it must have trailing slash, or children)
