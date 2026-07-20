@@ -174,7 +174,7 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
                                     if not props and hasattr(node, 'items'):
                                         try:
                                             props = dict(node.items())
-                                        except: pass
+                                        except Exception: pass
                                 
                                 # Extract name/label for frontend
                                 # Prefer 'name' property, fallback to 'label', then 'path' or 'Unknown'

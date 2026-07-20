@@ -404,14 +404,14 @@ class CGCBundle:
             try:
                 result = session.run("SHOW CONSTRAINTS")
                 schema["constraints"] = [dict(record) for record in result]
-            except:
+            except Exception:
                 pass
             
             # Get indexes
             try:
                 result = session.run("SHOW INDEXES")
                 schema["indexes"] = [dict(record) for record in result]
-            except:
+            except Exception:
                 pass
         
         return schema

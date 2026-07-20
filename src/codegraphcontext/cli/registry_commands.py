@@ -412,7 +412,7 @@ def load_bundle_command(bundle_name: str, clear_existing: bool = False):
                             stats["nodes"] = int(part.split(":")[1].strip().replace(",", ""))
                         elif "Edges:" in part:
                             stats["edges"] = int(part.split(":")[1].strip().replace(",", ""))
-                except:
+                except (ValueError, KeyError, IndexError):
                     pass
             
             return (True, message, stats)

@@ -301,7 +301,7 @@ class LadybugDBManager:
             while not self._pool.empty():
                 try:
                     self._pool.get_nowait()
-                except:
+                except queue.Empty:
                     break
             self._db = None
 
