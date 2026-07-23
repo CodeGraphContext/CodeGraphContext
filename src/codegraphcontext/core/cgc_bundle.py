@@ -25,7 +25,7 @@ import zipfile
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import subprocess
 
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
@@ -284,7 +284,7 @@ class CGCBundle:
         """Extract metadata about the repository and indexing process."""
         metadata = {
             "cgc_version": self.VERSION,
-            "exported_at": datetime.now().isoformat(),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
             "format_version": "1.0"
         }
         
@@ -599,7 +599,7 @@ class CGCBundle:
         stats = {
             "total_nodes": node_count,
             "total_edges": edge_count,
-            "generated_at": datetime.now().isoformat()
+            "generated_at": datetime.now(timezone.utc).isoformat()
         }
         
         with self.db_manager.get_driver().session() as session:
