@@ -897,12 +897,20 @@ def save_context_config(cfg: ContextConfig) -> None:
             "cgcignore_path": ctx.cgcignore_path,
         }
 
-    raw = {
-        "version": cfg.version,
-        "mode": cfg.mode,
-        "default_context": cfg.default_context,
-        "contexts": contexts_raw,
-    }
+    # Read-merge the existing file first so that unrelated top-level sections
+    # (e.g. ``workspace_mappings``) are preserved instead of being wiped out.
+    raw: Dict[str, Any] = {}
+    if CONTEXT_CONFIG_FILE.exists():
+        try:
+            with open(CONTEXT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+        except Exception:
+            raw = {}
+
+    raw["version"] = cfg.version
+    raw["mode"] = cfg.mode
+    raw["default_context"] = cfg.default_context
+    raw["contexts"] = contexts_raw
 
     try:
         _atomic_write_text(
