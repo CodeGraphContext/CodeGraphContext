@@ -84,6 +84,25 @@ EXTENSION_TO_SCIP: Dict[str, Tuple[str, str, str, str]] = {
 }
 
 
+def _resolve_scip_timeout(default: int = 300) -> int:
+    """Return the timeout (seconds) for the local SCIP indexer subprocess.
+
+    Reads ``SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS`` from the CGC config at call time (so live
+    config changes are respected without a server restart). Falls back to
+    *default* when the value is unset, non-numeric, or not positive.
+    """
+    from ..cli.config_manager import get_config_value
+
+    raw = get_config_value("SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS")
+    if raw is None:
+        return default
+    try:
+        value = int(str(raw).strip())
+    except (ValueError, TypeError):
+        return default
+    return value if value > 0 else default
+
+
 def is_scip_available(lang: str) -> bool:
     """Check whether the SCIP indexer (binary or docker) for this language is available."""
     has_docker = shutil.which("docker") is not None
@@ -121,6 +140,21 @@ def detect_project_lang(path: Path, scip_languages: List[str]) -> Optional[str]:
     return max(counts, key=counts.get)
 
 
+def _package_json_has_workspaces(package_json: Path) -> bool:
+    """True if package.json declares a `workspaces` field (yarn or npm workspaces).
+
+    yarn and npm share the same `workspaces` key (an array of globs, or an object
+    with a `packages` array). scip-typescript reads it via --yarn-workspaces;
+    there is no npm-specific flag. Fails closed on missing/invalid JSON.
+    """
+    try:
+        with open(package_json, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return False
+    return bool(isinstance(data, dict) and data.get("workspaces"))
+
+
 class ScipIndexer:
     """
     Handles running the external SCIP indexer binaries.
@@ -149,7 +183,7 @@ class ScipIndexer:
                     cwd=str(project_path),
                     capture_output=True,
                     text=True,
-                    timeout=300,
+                    timeout=_resolve_scip_timeout(),
                 )
                 if result.returncode == 0 and output_file.exists():
                     info_logger(f"SCIP index written to {output_file}")
@@ -199,7 +233,7 @@ class ScipIndexer:
                     internal_cmd = repl
                 if lang == "go" and not binary:
                     # Specific override for scip-go if binary not found locally
-                    internal_cmd = ["scip-go", "index", ".", "--output", "/out/index.scip"]
+                    internal_cmd = ["scip-go", "index", "./...", "--output", "/out/index.scip"]
                 elif lang == "dart":
                     # Dart docker image doesn't have scip_dart pre-installed
                     internal_cmd = ["bash", "-c", "dart pub global activate scip_dart && dart pub get && dart pub global run scip_dart ./"]
@@ -371,6 +405,14 @@ class ScipIndexer:
             return [binary, "index", ".", "--output", out]
 
         elif lang == "typescript":
+            # A monorepo has no root tsconfig.json — its packages are enumerated by
+            # pnpm-workspace.yaml or a package.json `workspaces` field — so the bare
+            # `index` fails and CGC silently falls back to Tree-sitter. Pass the
+            # matching workspace flag; single-project behaviour is unchanged.
+            if (project_path / "pnpm-workspace.yaml").exists():
+                return [binary, "index", "--pnpm-workspaces", "--output", out]
+            if _package_json_has_workspaces(project_path / "package.json"):
+                return [binary, "index", "--yarn-workspaces", "--output", out]
             return [binary, "index", "--output", out]
 
         elif lang == "javascript":
@@ -381,7 +423,7 @@ class ScipIndexer:
                 return [binary, "index", "--infer-tsconfig", "--output", out]
 
         elif lang == "go":
-            return [binary, "index", ".", "--output", out]
+            return [binary, "index", "./...", "--output", out]
 
         elif lang == "rust":
             return [binary, "index", "--output", out]

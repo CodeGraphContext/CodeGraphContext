@@ -14,6 +14,8 @@ from dataclasses import asdict
 
 from typing import Any, Dict, Coroutine, Optional, List, Set
 
+from .utils.gcf_encoder import encode_response
+
 from .prompts import LLM_SYSTEM_PROMPT
 from .core import get_database_manager
 from .core.jobs import JobManager, JobStatus
@@ -91,33 +93,74 @@ def _strip_workspace_prefix(obj):
 _CHARS_PER_TOKEN = 4
 
 
-def _apply_response_token_limit(tool_name: str, text: str) -> str:
-    """Truncate *text* to the configured token budget and append a notice.
+def _effective_char_limit(max_tokens: int, max_chars_direct: int) -> int:
+    """Return the effective character budget from both config knobs.
 
-    Reads ``MAX_TOOL_RESPONSE_TOKENS`` from the CGC config at call time so
-    that live config changes are respected without a server restart.
-    Returns *text* unchanged when the limit is 0 (unlimited) or not set.
+    Picks the stricter (smallest) non-zero value.  Returns 0 when both
+    are zero, meaning no limit is active.
+    """
+    candidates = [c for c in (max_tokens * _CHARS_PER_TOKEN, max_chars_direct) if c > 0]
+    return min(candidates) if candidates else 0
+
+
+def _limit_source_label(max_tokens: int, max_chars_direct: int, effective: int) -> str:
+    """Human-readable description of which config key produced *effective*."""
+    token_chars = max_tokens * _CHARS_PER_TOKEN
+    both_active = token_chars > 0 and max_chars_direct > 0
+    if both_active:
+        winner = "MAX_TOOL_RESPONSE_TOKENS" if token_chars <= max_chars_direct else "MAX_PROMPT_CHARS"
+        return f"{winner} ({effective} chars)"
+    if token_chars > 0:
+        return f"MAX_TOOL_RESPONSE_TOKENS ({max_tokens} tokens → {effective} chars)"
+    return f"MAX_PROMPT_CHARS ({effective} chars)"
+
+
+def _apply_response_token_limit(tool_name: str, text: str) -> str:
+    """Truncate *text* to the configured budget and append a visible notice.
+
+    Reads two independent config knobs at call time so live changes are
+    respected without a server restart:
+
+    * ``MAX_TOOL_RESPONSE_TOKENS`` — token-based cap (4 chars/token)
+    * ``MAX_PROMPT_CHARS``         — direct character cap
+
+    The stricter non-zero value wins.  When both are 0 the text is returned
+    unchanged.  A structured warning is printed to stdout whenever truncation
+    fires so operators can trace oversized payloads.
     """
     from .cli.config_manager import get_config_value
 
-    raw = get_config_value("MAX_TOOL_RESPONSE_TOKENS") or "0"
+    raw_tokens = get_config_value("MAX_TOOL_RESPONSE_TOKENS") or "0"
     try:
-        max_tokens = int(raw)
+        max_tokens = int(raw_tokens)
     except ValueError:
         max_tokens = 0
 
-    if max_tokens <= 0:
-        return text  # unlimited
+    raw_chars = get_config_value("MAX_PROMPT_CHARS") or "0"
+    try:
+        max_chars_direct = int(raw_chars)
+    except ValueError:
+        max_chars_direct = 0
 
-    max_chars = max_tokens * _CHARS_PER_TOKEN
-    if len(text) <= max_chars:
+    max_chars = _effective_char_limit(max_tokens, max_chars_direct)
+    if max_chars <= 0 or len(text) <= max_chars:
         return text
 
+    label = _limit_source_label(max_tokens, max_chars_direct, max_chars)
     notice = (
-        f"Response truncated: output exceeded MAX_TOOL_RESPONSE_TOKENS "
-        f"({max_tokens} tokens) for tool '{tool_name}'. "
+        f"[CGC] Response truncated: output exceeded {label} "
+        f"for tool '{tool_name}'. "
         "Increase the limit or narrow your query for full results."
     )
+
+    print(
+        f"[CGC WARNING] Truncation fired | tool={tool_name} | "
+        f"original_chars={len(text)} | truncated_chars={max_chars} | "
+        f"limit={label}",
+        file=sys.stderr,
+        flush=True,
+    )
+
     budget = max(0, max_chars - 200)
     try:
         payload = json.loads(text)
@@ -165,7 +208,7 @@ class MCPServer:
             ctx = resolve_context(cwd=self.cwd)
             self.resolved_context = ctx
 
-            if ctx.database:
+            if ctx.database and not os.environ.get('CGC_RUNTIME_DB_TYPE'):
                 os.environ['CGC_RUNTIME_DB_TYPE'] = ctx.database
 
             self.db_manager = get_database_manager(db_path=ctx.db_path)
@@ -711,7 +754,7 @@ class MCPServer:
                             "error": {"code": -32000, "message": "Tool execution error", "data": result}
                         }
                     else:
-                        response_text = json.dumps(result, indent=2)
+                        response_text = encode_response(result)
                         response_text = _apply_response_token_limit(tool_name, response_text)
                         response = {
                             "jsonrpc": "2.0", "id": request_id,

@@ -8,12 +8,49 @@ Also manages the context system (config.yaml) alongside the existing .env file.
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from rich.console import Console
-from rich.table import Table
+try:
+    from rich.console import Console
+    from rich.table import Table
+    console = Console()
+except Exception:
+    # Lightweight fallback when 'rich' is not installed (tests or minimal envs)
+    class _TableFallback:
+        def __init__(self, show_header=True, header_style=None):
+            self._cols = []
+            self._rows = []
+
+        def add_column(self, name, **_kwargs):
+            self._cols.append(name)
+
+        def add_row(self, *cells):
+            self._rows.append([str(c) for c in cells])
+
+        def __str__(self) -> str:
+            # Simple text table rendering
+            out = []
+            if self._cols:
+                out.append(" | ".join(self._cols))
+                out.append("-" * max(10, len(out[0])))
+            for r in self._rows:
+                out.append(" | ".join(r))
+            return "\n".join(out)
+
+    class _ConsoleFallback:
+        def print(self, *args, **kwargs):
+            # Mimic rich.console.Console.print by delegating to built-in print
+            end = kwargs.get("end", "\n")
+            sep = kwargs.get("sep", " ")
+            for a in args:
+                if isinstance(a, _TableFallback):
+                    built = str(a)
+                    print(built, end=end)
+                else:
+                    print(a, end=end)
+
+    Table = _TableFallback
+    console = _ConsoleFallback()
 import os
 import yaml
-
-console = Console()
 
 
 def _atomic_write_text(path: Path, content: str, *, secure: bool = False) -> None:
@@ -72,9 +109,14 @@ DEFAULT_CONFIG = {
     # SCIP indexer feature flag (default off — existing Tree-sitter behaviour unchanged)
     "SCIP_INDEXER": "false",
     "SCIP_LANGUAGES": "python,typescript,javascript,go,rust,java,dart,cpp,c,csharp",
+    "SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS": "300",
     "SKIP_EXTERNAL_RESOLUTION": "false",
     # 0 = unlimited; any positive integer caps MCP tool response size.
     "MAX_TOOL_RESPONSE_TOKENS": "0",
+    # 0 = unlimited; any positive integer caps response size in raw characters.
+    # When both MAX_TOOL_RESPONSE_TOKENS and MAX_PROMPT_CHARS are set, the
+    # stricter (smaller) effective character budget wins.
+    "MAX_PROMPT_CHARS": "0",
     # JSON object mapping tool names to integer result-count limits.
     # Example: {"find_code": 20, "analyze_code_relationships": 10, "find_dead_code": 30}
     "TOOL_RESULT_LIMITS": "{}",
@@ -85,6 +127,9 @@ DEFAULT_CONFIG = {
     "CGC_EMBEDDING_BATCH_SIZE": "256",
     # Default fuzzy matching behavior for `cgc find name` (overridable per-command with --fuzzy/--no-fuzzy)
     "FUZZY_SEARCH": "true",
+    # Default LLM model names used for graph queries when no value is explicitly configured
+    "OPENAI_MODEL": "gpt-4o",
+    "ANTHROPIC_MODEL": "claude-3-5-sonnet-20241022",
 }
 
 # Configuration key descriptions
@@ -113,8 +158,10 @@ CONFIG_DESCRIPTIONS = {
     "INDEX_SOURCE": "Store full source code in graph database (for faster indexing use false, for better performance use true)",
     "SCIP_INDEXER": "Use SCIP-based indexing for higher accuracy call/inheritance resolution (requires scip-<lang> tools installed)",
     "SCIP_LANGUAGES": "Comma-separated languages to index via SCIP when SCIP_INDEXER=true (python,typescript,javascript,go,rust,java,dart,cpp,c,csharp)",
+    "SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS": "Timeout in seconds for the local SCIP indexer subprocess (default 300). Raise it for large repositories whose indexer runs longer than 5 minutes; a value <= 0 or non-numeric falls back to 300.",
     "SKIP_EXTERNAL_RESOLUTION": "Skip resolution attempts for external library method calls (recommended for enterprise large Java/Spring codebases)",
     "MAX_TOOL_RESPONSE_TOKENS": "Maximum tokens per MCP tool response (0 = unlimited). Truncates oversized payloads and appends a notice.",
+    "MAX_PROMPT_CHARS": "Maximum characters per MCP tool response (0 = unlimited). When set alongside MAX_TOOL_RESPONSE_TOKENS the stricter limit wins. Truncated payloads receive a visible [CGC] notice and a stdout warning is emitted.",
     "TOOL_RESULT_LIMITS": "JSON object mapping tool names to max result counts, e.g. {\"find_code\": 20, \"analyze_code_relationships\": 10}. Missing keys use built-in defaults.",
     # Post-indexing resolution phases
     "ENABLE_INHERIT_RESOLVE": (
@@ -150,6 +197,16 @@ CONFIG_DESCRIPTIONS = {
     "FUZZY_SEARCH": (
         "Enable fuzzy matching by default for `cgc find name` (true|false). "
         "Per-invocation overrides are available via --fuzzy / --no-fuzzy."
+    ),
+    "OPENAI_MODEL": (
+        "Default OpenAI model used for graph queries. "
+        "Requires OPENAI_API_KEY environment variable. "
+        "Default: gpt-4o"
+    ),
+    "ANTHROPIC_MODEL": (
+        "Default Anthropic model used for graph queries. "
+        "Requires ANTHROPIC_API_KEY environment variable. "
+        "Default: claude-3-5-sonnet-20241022"
     ),
 }
 
@@ -208,6 +265,25 @@ __pycache__/
 coverage/
 .next/
 """
+
+
+def resolve_model_name(provider: str, configured_value: Optional[str] = None) -> str:
+    """Get the model it should use for an LLM provider.
+
+    If the user configured a model, it uses that. Otherwise, it falls back to the default
+    model for the provider (like OPENAI_MODEL or ANTHROPIC_MODEL).
+
+    Args:
+        provider: The name of the provider, like "openai" or "anthropic" (case-insensitive).
+        configured_value: The model name from the user's config, if they set one.
+
+    Returns:
+        The model name it should use, or an empty string if it doesn't know the provider.
+    """
+    if configured_value and configured_value.strip():
+        return configured_value.strip()
+    key = f"{provider.upper()}_MODEL"
+    return DEFAULT_CONFIG.get(key, "")
 
 
 def normalize_config_path(value: str, *, absolute: bool = False, base_dir: Optional[Path] = None) -> str:
@@ -480,6 +556,14 @@ def validate_config_value(key: str, value: str) -> tuple[bool, Optional[str]]:
         except ValueError:
             return False, "MAX_TOOL_RESPONSE_TOKENS must be an integer (0 = unlimited)"
 
+    if key == "MAX_PROMPT_CHARS":
+        try:
+            limit = int(value)
+            if limit < 0:
+                return False, "MAX_PROMPT_CHARS must be 0 (unlimited) or a positive integer"
+        except ValueError:
+            return False, "MAX_PROMPT_CHARS must be an integer (0 = unlimited)"
+
     if key == "TOOL_RESULT_LIMITS":
         import json as _json
         try:
@@ -727,10 +811,17 @@ def _default_global_db_path(database: str) -> str:
 
     New layout: ``~/.codegraphcontext/global/db/<backend>/``
     For backward-compat, we check:
-    1. FALKORDB_PATH in config (if database is falkordb)
-    2. Legacy flat path
-    3. New layout default
+    1. CGC_RUNTIME_DB_PATH environment variable (highest priority — works for all DBs)
+    2. FALKORDB_PATH in config (if database is falkordb)
+    3. Legacy flat path
+    4. New layout default
     """
+    # Generic env var override — highest priority for any backend.
+    # Useful for relocating the global DB to a path that avoids platform-specific
+    # encoding issues (e.g. non-ASCII characters in the Windows user profile path).
+    env_override = os.environ.get("CGC_RUNTIME_DB_PATH")
+    if env_override:
+        return env_override
     if database == "falkordb":
         custom_path = load_config().get("FALKORDB_PATH")
         if custom_path:
@@ -922,7 +1013,11 @@ def resolve_context(
     if local_cgc is not None:
         # Read local config.yaml if present
         local_yaml = local_cgc / "config.yaml"
-        local_db = load_config().get("DEFAULT_DATABASE", "falkordb")
+        local_db = (
+            os.environ.get("CGC_RUNTIME_DB_TYPE")
+            or os.environ.get("DEFAULT_DATABASE")
+            or load_config().get("DEFAULT_DATABASE", "falkordb")
+        )
         if local_yaml.exists():
             try:
                 with open(local_yaml, encoding="utf-8") as f:

@@ -1,6 +1,8 @@
 # src/codegraphcontext/api/mcp_sse.py
 import json
 import asyncio
+import logging
+import anyio
 from fastapi import Request, Response
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
@@ -8,6 +10,8 @@ from mcp.types import Tool, TextContent, ServerCapabilities, ToolsCapability
 from mcp.server.sse import SseServerTransport
 from codegraphcontext.api.router import get_server
 from codegraphcontext.server import _strip_workspace_prefix, _apply_response_token_limit
+
+logger = logging.getLogger(__name__)
 
 # Create the MCP Server instance using the SDK
 mcp_server = Server("CodeGraphContext")
@@ -46,22 +50,31 @@ sse = SseServerTransport("/api/v1/mcp/messages")
 
 async def handle_sse(request: Request):
     """Entry point for the SSE connection."""
-    async with sse.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
-        await mcp_server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="CodeGraphContext",
-                server_version="0.1.0",
-                capabilities=ServerCapabilities(
-                    tools=ToolsCapability(listChanged=False)
+    logger.info("SSE client connected")
+    try:
+        async with sse.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
+            await mcp_server.run(
+                read_stream,
+                write_stream,
+                InitializationOptions(
+                    server_name="CodeGraphContext",
+                    server_version="0.1.0",
+                    capabilities=ServerCapabilities(
+                        tools=ToolsCapability(listChanged=False)
+                    )
                 )
             )
-        )
+    except anyio.EndOfStream:
+        logger.debug("SSE client disconnected cleanly (stream ended)")
+    except Exception as exc:
+        logger.debug("SSE connection closed: %s", type(exc).__name__)
+    finally:
+        logger.info("SSE client disconnected — handler exited, resources freed")
+
 
 async def handle_messages(request: Request):
     """Endpoint for receiving messages from the client.
-    
+
     Uses a buffer framing collector to ensure the full JSON-RPC payload
     is received before processing. This prevents crashes caused by large
     responses being split across SSE line boundaries.
@@ -86,4 +99,7 @@ async def handle_messages(request: Request):
             media_type="application/json"
         )
 
-    await sse.handle_post_message(request.scope, request.receive, request._send)
+    try:
+        await sse.handle_post_message(request.scope, request.receive, request._send)
+    except Exception as exc:
+        logger.debug("Message handler closed: %s", type(exc).__name__)

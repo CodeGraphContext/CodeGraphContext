@@ -1296,26 +1296,60 @@ def doctor():
 
 
 @app.command()
+@app.command()
 def index(
     path: Optional[str] = typer.Argument(None, help="Path to the directory or file to index. Defaults to the current directory."),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use (overrides mode/default)"),
+    summarize: bool = typer.Option(False, "--summarize", "-s", help="Show a summary of the indexed codebase after indexing"),
 ):
     """
     Indexes a directory or file by adding it to the code graph.
     If no path is provided, it indexes the current directory.
-    
+
     Use --force to delete the existing index and rebuild from scratch.
+    Use --summarize to display a summary after indexing.
     """
     _load_credentials()
     if path is None:
         path = str(Path.cwd())
-    
-    if force:
-        console.print("[yellow]Force re-indexing (--force flag detected)[/yellow]")
-        reindex_helper(path, context)
-    else:
-        index_helper(path, context)
+
+    try:
+        if force:
+            console.print("[yellow]Force re-indexing (--force flag detected)[/yellow]")
+            reindex_helper(path, context)
+        else:
+            index_helper(path, context)
+    except Exception as e:
+        if str(e):
+            console.print(f"[red]An error occurred during indexing: {e}[/red]")
+
+    if summarize:
+        import os
+
+        py_files = []
+        for root, dirs, files in os.walk(path):
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['venv', '__pycache__', 'node_modules']]
+            for file in files:
+                if file.endswith('.py'):
+                    py_files.append(os.path.join(root, file))
+
+        total_lines = 0
+        for f in py_files:
+            try:
+                with open(f, 'r', encoding='utf-8', errors='ignore') as fp:
+                    total_lines += len(fp.readlines())
+            except:
+                pass
+
+        console.print("\n[bold cyan]📊 Codebase Summary:[/bold cyan]")
+        console.print(f"  • Path indexed     : [green]{path}[/green]")
+        console.print(f"  • Python files     : [yellow]{len(py_files)}[/yellow]")
+        console.print(f"  • Total lines      : [yellow]{total_lines}[/yellow]")
+        console.print(f"\n  • Run [bold]cgc analyze complexity[/bold] to find complex functions")
+        console.print(f"  • Run [bold]cgc analyze dead-code[/bold] to find unused code")
+        console.print(f"  • Run [bold]cgc list[/bold] to see all indexed repositories")
+        console.print("\n[dim]Tip: Use --summarize anytime after indexing to see this.[/dim]")
 
 @app.command()
 def update(
@@ -1519,6 +1553,7 @@ def report(
 @app.command()
 def visualize(
     repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Path to the repository to visualize."),
+    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host interface to bind to."),
     port: int = typer.Option(8000, "--port", "-p", help="Port to run the visualizer server on."),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use")
 ):
@@ -1526,7 +1561,7 @@ def visualize(
     Launches the interactive UI to visualize the code graph.
     """
     _load_credentials()
-    visualize_helper(repo, port, context)
+    visualize_helper(repo, host, port, context)
 
 @app.command("list")
 def list_repositories(
@@ -1565,6 +1600,14 @@ def watch(
         "--poll",
         help="Use watchdog's polling observer for Docker bind mounts and network filesystems.",
     ),
+    sync_on_start: bool = typer.Option(
+        False,
+        "--sync-on-start",
+        help=(
+            "Synchronize already-indexed files before watching. "
+            "Defaults off; use 'cgc index --force' for a full re-index."
+        ),
+    ),
 ):
     """
     Watch a directory for file changes and automatically update the code graph.
@@ -1575,6 +1618,7 @@ def watch(
     
     The watcher will:
     - Perform an initial scan if the directory is not yet indexed
+    - Attach immediately for already-indexed directories unless --sync-on-start is passed
     - Monitor for file creation, modification, deletion, and moves
     - Automatically re-index affected files and update relationships
     
@@ -1584,12 +1628,13 @@ def watch(
         cgc watch .                    # Watch current directory
         cgc watch /path/to/project     # Watch specific directory
         cgc watch --poll .             # Use polling for Docker/NFS/SMB mounts
+        cgc watch --sync-on-start .    # Reconcile current files before watching
         cgc w .                        # Using shortcut alias
 
     Set CGC_WATCH_POLLING=1 to use polling without passing --poll.
     """
     _load_credentials()
-    watch_helper(path, context, use_polling=poll or None)
+    watch_helper(path, context, use_polling=poll or None, sync_on_start=sync_on_start)
 
 @app.command()
 def unwatch(
@@ -2508,7 +2553,7 @@ def analyze_inheritance_tree(
 @analyze_app.command("complexity")
 def analyze_complexity(
     path: Optional[str] = typer.Argument(None, help="Function name or file path to analyze"),
-    threshold: int = typer.Option(10, "--threshold", "-t", help="Complexity threshold for warnings"),
+    threshold: Optional[int] = typer.Option(None, "--threshold", "-t", help="Complexity threshold for warnings (default: from config or 10)"),
     limit: int = typer.Option(20, "--limit", "-l", help="Maximum results to show"),
     file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path to scope analysis"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
@@ -2530,6 +2575,17 @@ def analyze_complexity(
     if not all(services[:3]):
         raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
+
+    # Read threshold from config if not explicitly provided via CLI
+    if threshold is None:
+        configured = config_manager.get_config_value("COMPLEXITY_THRESHOLD")
+        if configured is not None:
+            try:
+                threshold = int(configured)
+            except (ValueError, TypeError):
+                threshold = 10
+        else:
+            threshold = 10
 
     _FILE_EXTENSIONS = ('.py', '.js', '.ts', '.jsx', '.tsx', '.go', '.rs', '.rb',
                         '.java', '.cpp', '.c', '.cs', '.swift', '.kt', '.scala',
@@ -2846,9 +2902,22 @@ def visualize_abbrev(
 def watch_abbrev(
     path: str = typer.Argument(".", help="Path to watch"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+    poll: bool = typer.Option(
+        False,
+        "--poll",
+        help="Use watchdog's polling observer for Docker bind mounts and network filesystems.",
+    ),
+    sync_on_start: bool = typer.Option(
+        False,
+        "--sync-on-start",
+        help=(
+            "Synchronize already-indexed files before watching. "
+            "Defaults off; use 'cgc index --force' for a full re-index."
+        ),
+    ),
 ):
     """Shortcut for 'cgc watch'"""
-    watch(path, context=context)
+    watch(path, context=context, poll=poll, sync_on_start=sync_on_start)
 
 
 # ============================================================================
