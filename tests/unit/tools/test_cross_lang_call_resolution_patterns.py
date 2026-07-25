@@ -699,6 +699,43 @@ class TestCrossLangCallResolutionPatterns:
             for row in links
         )
 
+    def test_python_imported_decorator_resolution(self):
+        caller_path = str(Path("/tmp/example.py").resolve())
+        decorator_path = str(Path("/tmp/dataclasses.py").resolve().as_posix())
+
+        file_data = {
+            "path": caller_path,
+            "lang": "python",
+            "functions": [
+                {
+                    "name": "hello",
+                    "line_number": 10,
+                    "decorators": ["@dataclass"],
+                    "class_context": None,
+                }
+            ],
+            "classes": [],
+            "imports": [
+                {
+                    "name": "dataclass",
+                    "alias": None,
+                    "full_import_name": "dataclasses.dataclass",
+                }
+            ],
+        }
+
+        imports_map = {
+            "dataclass": [decorator_path]
+        }
+
+        links = build_decorated_by_links([file_data], imports_map)
+
+        assert len(links) == 1
+
+        assert links[0]["decorated_name"] == "hello"
+        assert links[0]["decorator_name"] == "dataclass"
+        assert links[0]["decorator_path"] == decorator_path
+
     def test_kotlin_companion_of_links(self, manager):
         wrapper = _parser(manager, "kotlin")
         parser = KotlinTreeSitterParser(wrapper)
