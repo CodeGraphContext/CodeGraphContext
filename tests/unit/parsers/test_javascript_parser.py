@@ -66,6 +66,38 @@ const add = (a, b) => {
     assert "fs" in import_names or "path" in import_names
 
 
+def test_parse_javascript_cyclomatic_complexity(js_parser, temp_test_dir):
+    code = """
+function simple() {
+    return 1;
+}
+
+function complex(x) {
+    if (x > 0) {
+        for (let i = 0; i < x; i++) {
+            if (i % 2 === 0 && x > 5) {
+                console.log(i);
+            }
+        }
+    } else if (x < 0) {
+        return -1;
+    }
+    return 0;
+}
+"""
+    f = temp_test_dir / "complexity.js"
+    f.write_text(code)
+
+    result = js_parser.parse(f)
+
+    functions_by_name = {fn["name"]: fn for fn in result["functions"]}
+
+    assert "cyclomatic_complexity" in functions_by_name["simple"]
+    assert functions_by_name["simple"]["cyclomatic_complexity"] == 1
+
+    assert functions_by_name["complex"]["cyclomatic_complexity"] > 1
+
+
 def test_parse_javascript_function_calls(js_parser, temp_test_dir):
     code = """
 function main() {
