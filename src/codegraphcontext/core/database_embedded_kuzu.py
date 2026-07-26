@@ -237,6 +237,32 @@ class EmbeddedGraphManager(GraphQueryInterface):
                 line_number INT64, args STRING[], full_call_name STRING, args_key STRING, confidence DOUBLE, resolution_tier INT64, 
                 confidence_label STRING, source STRING, resolution_method STRING, called_name STRING
             """, True),
+            # Same bindings as CALLS. writer.py emits HEURISTIC_CALLS for
+            # resolution tier >= 8, but the table was never declared here, so on
+            # Kùzu those edges could not be written and every query matching
+            # [:CALLS|HEURISTIC_CALLS] failed outright with
+            # "Binder exception: Table HEURISTIC_CALLS does not exist" —
+            # which broke `cgc analyze dead-code` completely on this backend.
+            ("HEURISTIC_CALLS", """
+                FROM Function TO Function, FROM Function TO Class, FROM Function TO Interface, FROM Function TO Trait, 
+                FROM Function TO Struct, FROM Function TO Enum, FROM Function TO Record, FROM Function TO `Union`,
+                FROM Function TO Mixin, FROM Function TO Extension, FROM Function TO Object, FROM Function TO Parameter,
+                FROM Class TO Function, FROM Class TO Class, FROM Class TO Interface, FROM Class TO Trait, 
+                FROM Class TO Struct, FROM Class TO Enum, FROM Class TO Record, FROM Class TO `Union`,
+                FROM Interface TO Function, FROM Interface TO Class, FROM Interface TO Interface,
+                FROM Trait TO Function, FROM Trait TO Class, FROM Trait TO Interface,
+                FROM Mixin TO Function, FROM Mixin TO Class, FROM Mixin TO Interface,
+                FROM Extension TO Function, FROM Extension TO Class, FROM Extension TO Interface,
+                FROM Object TO Function, FROM Object TO Class, FROM Object TO Interface,
+                FROM `Union` TO Function, FROM `Union` TO Class, FROM `Union` TO Interface,
+                FROM `Macro` TO Function, FROM `Macro` TO Class, FROM `Macro` TO Interface,
+                FROM File TO Function, FROM File TO Class, FROM File TO Interface, FROM File TO Trait, 
+                FROM File TO Struct, FROM File TO Enum, FROM File TO Record, FROM File TO `Union`,
+                FROM Function TO File,
+                FROM Variable TO Function, FROM Variable TO Class, FROM Variable TO Interface,
+                line_number INT64, args STRING[], full_call_name STRING, args_key STRING, confidence DOUBLE, resolution_tier INT64, 
+                confidence_label STRING, source STRING, resolution_method STRING, called_name STRING
+            """, True),
             ("IMPORTS", "FROM File TO Module, alias STRING, full_import_name STRING, imported_name STRING, line_number INT64", False),
             ("INHERITS", """
                 FROM Class TO Class, FROM Class TO Trait, FROM Class TO Interface, FROM Class TO Struct, FROM Class TO Enum, FROM Class TO `Union`, FROM Class TO Record, FROM Class TO Mixin, FROM Class TO Extension, FROM Class TO Module, FROM Class TO Object, FROM Class TO ExternalClass,

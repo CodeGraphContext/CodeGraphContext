@@ -34,9 +34,17 @@ def create_graph_schema(driver: Any, db_manager: Any) -> None:
     """Create constraints and indexes. *driver* must support .session() context manager."""
     backend_type = getattr(db_manager, "get_backend_type", lambda: "neo4j")()
     # FalkorDB (both embedded and remote) has a confirmed null-pointer crash in
-    # EnforceUniqueEntity when composite UNIQUE constraints are used with MERGE.
-    # Skip all CREATE CONSTRAINT statements for FalkorDB backends; the indices
-    # created below are sufficient for MERGE to perform correct deduplication.
+    # EnforceUniqueEntity when composite UNIQUE constraints are used with MERGE,
+    # so all CREATE CONSTRAINT statements are skipped for FalkorDB backends.
+    #
+    # Be precise about what that costs: there are then NO uniqueness constraints
+    # on FalkorDB — `CALL db.constraints()` returns []. Indexes do not enforce
+    # uniqueness; they only make the MERGE lookup fast. Deduplication holds
+    # because MERGE deduplicates within an UNWIND and FalkorDB serialises writes
+    # per graph, not because the schema guarantees it. That assumption breaks
+    # with an external writer or a future FalkorDB executing writes
+    # concurrently. (The previous comment claimed the indexes were "sufficient
+    # for MERGE to perform correct deduplication", which overstates it.)
     is_falkordb = backend_type.startswith("falkordb")
 
     with driver.session() as session:

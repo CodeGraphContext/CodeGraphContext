@@ -206,6 +206,11 @@ class PythonTreeSitterParser:
                 "decorators": [],
                 "lang": self.language_name,
                 "is_dependency": False,
+                # Not a function anyone wrote — it is the module-level frame
+                # that top-level calls get attributed to. Marked so counts and
+                # the dead-code report can exclude it instead of presenting it
+                # as a real, unused function.
+                "is_synthetic": True,
             }
             if index_source:
                 module_func["source"] = self._get_node_text(root_node)
