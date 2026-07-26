@@ -289,9 +289,16 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
             if auto_load:
                 console.print("[cyan]Using existing bundle for loading...[/cyan]")
                 return str(output_path)
-            return
+            return False
         output_path.unlink()
-    
+
+    from ..utils.path_sandbox import is_safe_download_url
+
+    if not is_safe_download_url(download_url):
+        console.print("[bold red]Refusing to download from untrusted URL.[/bold red]")
+        console.print("[dim]Only HTTPS downloads from approved hosts are allowed.[/dim]")
+        raise typer.Exit(code=1)
+
     # Download with progress bar
     try:
         console.print(f"[cyan]Downloading {clean_filename}...[/cyan]")
@@ -435,8 +442,8 @@ def load_bundle_command(bundle_name: str, clear_existing: bool = False):
                             stats["nodes"] = int(part.split(":")[1].strip().replace(",", ""))
                         elif "Edges:" in part:
                             stats["edges"] = int(part.split(":")[1].strip().replace(",", ""))
-                except:
-                    pass
+                except Exception as parse_exc:
+                    console.print(f"[dim]Could not parse bundle stats from message: {parse_exc}[/dim]")
             
             return (True, message, stats)
         else:

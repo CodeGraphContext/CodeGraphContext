@@ -73,7 +73,7 @@ def install_hooks(start: Path | str | None = None, *, force: bool = False) -> Ho
             )
         hook_path.write_text(script, encoding="utf-8")
         mode = hook_path.stat().st_mode
-        hook_path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        hook_path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP)
 
     _ensure_gitattributes(repo.root)
     _configure_merge_driver(repo.root)

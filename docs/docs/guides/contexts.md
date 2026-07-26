@@ -84,6 +84,8 @@ cgc index .
 
 Graphs are completely isolated, and commands run within a repository only inspect the local database.
 
+When you first index in per-repo mode, CGC auto-creates `.codegraphcontext/` and seeds a local `config.yaml` from your global `DEFAULT_DATABASE`. Project-local `.codegraphcontext/.env` and `.env` files are loaded **only in this mode** (unless you set `CGC_LOAD_PROJECT_ENV=1`). In global or named mode, global `~/.codegraphcontext/.env` wins so cloned repos cannot override your credentials.
+
 ---
 
 ### 3. Named Context Mode

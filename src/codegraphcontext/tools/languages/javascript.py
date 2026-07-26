@@ -484,9 +484,9 @@ class JavascriptTreeSitterParser:
         for node, capture_name in execute_query(self.language, query_str, root_node):
             # Placeholder for JS call extraction logic
             if capture_name == 'name':
-                # Traverse up to find the call_expression
+                # Traverse up to find the call/new expression
                 call_node = node.parent
-                while call_node and call_node.type != 'call_expression' and call_node.type != 'program':
+                while call_node and call_node.type not in ('call_expression', 'new_expression') and call_node.type != 'program':
                     call_node = call_node.parent
                 
                 name = self._get_node_text(node)

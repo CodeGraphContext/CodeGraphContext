@@ -2,6 +2,7 @@
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, List
 import logging
+import re
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
 
@@ -113,7 +114,7 @@ class PerlTreeSitterParser:
             root_node = tree.root_node
 
             functions = self._find_functions(root_node)
-            classes = self._find_classes(root_node)
+            classes = self._find_classes(root_node, source_code)
             imports = self._find_imports(root_node)
             function_calls = self._find_calls(root_node)
             variables = self._find_variables(root_node)
@@ -190,7 +191,7 @@ class PerlTreeSitterParser:
                 functions.append(func_data)
         return functions
 
-    def _find_classes(self, root_node):
+    def _find_classes(self, root_node, source_code: str = ""):
         classes = []
         query_str = PERL_QUERIES['classes']
         for node, capture_name in execute_query(self.language, query_str, root_node):
@@ -202,10 +203,33 @@ class PerlTreeSitterParser:
                 "name": name,
                 "line_number": node.start_point[0] + 1,
                 "end_line": node.end_point[0] + 1,
-                "bases": [], # Bases are often set via 'use base' or 'use parent'
+                "bases": [],
                 "lang": self.language_name,
                 "is_dependency": False,
             })
+
+        if source_code:
+            current_package = None
+            isa_re = re.compile(
+                r"^\s*our\s+@ISA\s*=\s*(?:qw\(([^)]+)\)|\(([^)]+)\))\s*;",
+                re.MULTILINE,
+            )
+            package_re = re.compile(r"^\s*package\s+([\w:]+)\s*;", re.MULTILINE)
+            package_bases: Dict[str, List[str]] = {}
+            for line in source_code.splitlines():
+                pkg_match = package_re.match(line)
+                if pkg_match:
+                    current_package = pkg_match.group(1)
+                    continue
+                isa_match = isa_re.match(line)
+                if isa_match and current_package:
+                    raw = isa_match.group(1) or isa_match.group(2) or ""
+                    package_bases[current_package] = [
+                        part.strip() for part in raw.split() if part.strip()
+                    ]
+            for cls in classes:
+                cls["bases"] = package_bases.get(cls["name"], [])
+
         return classes
 
     def _find_imports(self, root_node):
@@ -239,6 +263,10 @@ class PerlTreeSitterParser:
         calls = []
         query_str = PERL_QUERIES['calls']
         for node, capture_name in execute_query(self.language, query_str, root_node):
+            # Only the @name captures carry the call name; @call captures the
+            # whole expression and must not be emitted as a call record.
+            if capture_name != "name":
+                continue
             name = self._get_node_text(node)
             context, context_type, context_line = self._get_parent_context(node)
             
@@ -257,6 +285,9 @@ class PerlTreeSitterParser:
         variables = []
         query_str = PERL_QUERIES['variables']
         for node, capture_name in execute_query(self.language, query_str, root_node):
+            # Skip the @variable container capture; only @name is the varname.
+            if capture_name != "name":
+                continue
             name = self._get_node_text(node)
             context, _, _ = self._get_parent_context(node)
             
@@ -283,7 +314,9 @@ def pre_scan_perl(files: List[Path], parser_wrapper) -> Dict[str, List[str]]:
             with open(path, "r", encoding="utf-8", errors='ignore') as f:
                 content = f.read()
             tree = parser_wrapper.parser.parse(bytes(content, "utf8"))
-            for node, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
+            for node, capture_name in execute_query(parser_wrapper.language, query_str, tree.root_node):
+                if capture_name != "name":
+                    continue
                 name = node.text.decode('utf-8')
                 if name not in name_to_files:
                     name_to_files[name] = []

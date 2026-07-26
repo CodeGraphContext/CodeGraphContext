@@ -55,6 +55,25 @@ def _normalize_prefix(p) -> str:
     return _normalize_path(p) + "/"
 
 
+def _cypher_label(label: str, backend: str) -> str:
+    """Format a node label for Cypher; Kùzu reserves some identifiers and needs backticks."""
+    if backend in ("kuzudb", "ladybugdb") and label in ("Union", "Macro", "Property"):
+        return f"`{label}`"
+    return label
+
+
+def _called_context_clause(called_label: str) -> str:
+    """Match CALLS targets that store scope in context, class_context, or module_context."""
+    if called_label in ("Function", "Variable"):
+        return (
+            'AND (row.called_context = "" OR row.called_context IS NULL '
+            "OR called.context = row.called_context "
+            "OR called.class_context = row.called_context "
+            "OR called.module_context = row.called_context)"
+        )
+    return ""
+
+
 def _is_binder_exception(e: Exception) -> bool:
     err_str = str(e).lower()
     return "binder" in err_str or "cannot find a valid label" in err_str
@@ -271,10 +290,12 @@ class GraphWriter:
                 (file_data.get("extensions", []), "Extension"),
                 (file_data.get("modules", []), "Module"),
                 (file_data.get("objects", []), "Object"),
+                (file_data.get("enum_members", []), "EnumMember"),
             ]
 
             params_batch: List[Dict[str, Any]] = []
             class_fn_batch: List[Dict[str, Any]] = []
+            enum_member_batch: List[Dict[str, Any]] = []
             nested_fn_batch: List[Dict[str, Any]] = []
 
             for item_list, label in item_mappings:
@@ -287,6 +308,14 @@ class GraphWriter:
                     if label == "Function" and "cyclomatic_complexity" not in row:
                         row["cyclomatic_complexity"] = 1
                     batch.append(sanitize_props(row))
+                    if label == "EnumMember":
+                        enum_member_batch.append(
+                            {
+                                "class_name": item.get("enum_name"),
+                                "class_line": item.get("enum_line_number", -1),
+                                "member_name": item["name"],
+                            }
+                        )
                     if label == "Function":
                         for arg_name in item.get("args", []):
                             params_batch.append(
@@ -308,9 +337,15 @@ class GraphWriter:
                                 }
                             )
                         if item.get("context_type") == "function_definition":
+                            outer_ctx = item.get("context")
+                            outer_name = (
+                                outer_ctx[0]
+                                if isinstance(outer_ctx, (tuple, list)) and outer_ctx
+                                else outer_ctx
+                            )
                             nested_fn_batch.append(
                                 {
-                                    "outer": item["context"],
+                                    "outer": outer_name,
                                     "inner_name": item["name"],
                                     "inner_line": item["line_number"],
                                 }
@@ -413,6 +448,25 @@ class GraphWriter:
                     batch=unique_params,
                     file_path=file_path_str,
                 )
+
+            if enum_member_batch:
+                for label in ("Class", "Enum"):
+                    try:
+                        session.run(
+                            f"""
+                            UNWIND $batch AS row
+                            MATCH (c:{label} {{name: row.class_name, path: $file_path}})
+                            MATCH (m:EnumMember {{name: row.member_name, path: $file_path}})
+                            WHERE row.class_line < 0 OR c.line_number = row.class_line
+                            MERGE (c)-[:CONTAINS]->(m)
+                            """,
+                            batch=enum_member_batch,
+                            file_path=file_path_str,
+                        )
+                    except Exception as e:
+                        if _is_binder_exception(e):
+                            continue
+                        raise e
 
             if class_fn_batch:
                 for label in ("Class", "Module", "Interface", "Struct", "Record", "Trait", "Object", "Mixin"):
@@ -614,15 +668,20 @@ class GraphWriter:
         file_to_class: List[Dict] = None,
         file_to_interface: List[Dict] = None,
         file_to_object: List[Dict] = None,
+        fn_to_param: List[Dict] = None,
+        fn_to_file: List[Dict] = None,
     ) -> None:
         batch_size = 1000
 
-        backend = (
-            getattr(self._db_manager, "get_backend_type", None)
-            or getattr(self.driver, "get_backend_type", None)
-            or (lambda: "neo4j")
-        )()
+        backend = get_backend_type(self.driver, self._db_manager)
         calls_keyword = "CREATE" if backend in ("neo4j", "nornic") else "MERGE"
+        # Neo4j-only fast/slow MATCH split (PR #1192 perf). Embedded backends keep the
+        # unified name+path MATCH + line WHERE filter for parity with FalkorDB/Neo4j.
+        use_fast_slow_split = backend in ("neo4j", "nornic")
+        info_logger(
+            f"[CALLS] backend={backend}, using {calls_keyword} for CALLS edges"
+            + (", fast/slow MATCH split" if use_fast_slow_split else ", unified MATCH")
+        )
 
         fn_to_fn = fn_to_fn or []
         fn_to_class = fn_to_class or []
@@ -632,19 +691,21 @@ class GraphWriter:
         file_to_class = file_to_class or []
         file_to_interface = file_to_interface or []
         file_to_object = file_to_object or []
+        fn_to_param = fn_to_param or []
+        fn_to_file = fn_to_file or []
 
         queries = [
             (fn_to_fn, "Function", "Function"),
             (fn_to_class, "Function", "Class"),
             (fn_to_interface, "Function", "Interface"),
             (fn_to_object, "Function", "Object"),
+            (fn_to_param, "Function", "Parameter"),
+            (fn_to_file, "Function", "File"),
             (file_to_fn, "File", "Function"),
             (file_to_class, "File", "Class"),
             (file_to_interface, "File", "Interface"),
             (file_to_object, "File", "Object"),
         ]
-
-        backend = get_backend_type(self.driver, self._db_manager)
         def _work(session):
             for batch_data, caller_label, called_label in queries:
                 if not batch_data:
@@ -710,50 +771,136 @@ class GraphWriter:
                         unique_calls.append(row)
                 sanitized_batch = unique_calls
 
-                labels_with_context = {"Function", "Variable"}
-                called_context_clause = ""
-                if called_label in labels_with_context:
-                    called_context_clause = 'AND (row.called_context = "" OR called.context = row.called_context)'
+                called_context_clause = _called_context_clause(called_label)
 
-                if caller_label == "File":
-                    q = f"""
-                        UNWIND $batch AS row
-                        MATCH (caller:File {{path: row.caller_file_path}})
-                        MATCH (called:{called_label} {{name: row.called_name, path: row.called_file_path}})
-                        WHERE (row.called_line_number <= 0 OR called.line_number = row.called_line_number)
-                          {called_context_clause}
-                        {calls_keyword} (caller)-[call:CALLS {{line_number: row.line_number, full_call_name: row.full_call_name, args_key: row.args_key}}]->(called)
+                caller_match = (
+                    f"MATCH (caller:File {{path: row.caller_file_path}})"
+                    if caller_label == "File"
+                    else f"MATCH (caller:`{caller_label}` {{name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number}})"
+                )
+                set_clause = """
                         SET call.args = row.args
                         SET call.confidence = row.confidence
                         SET call.resolution_tier = row.resolution_tier
-                        SET call.confidence_label = row.confidence_label
-                    """
-                else:
-                    q = f"""
-                        UNWIND $batch AS row
-                        MATCH (caller:{caller_label} {{name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number}})
-                        MATCH (called:{called_label} {{name: row.called_name, path: row.called_file_path}})
-                        WHERE (row.called_line_number <= 0 OR called.line_number = row.called_line_number)
-                          {called_context_clause}
-                        {calls_keyword} (caller)-[call:CALLS {{line_number: row.line_number, full_call_name: row.full_call_name, args_key: row.args_key}}]->(called)
-                        SET call.args = row.args
-                        SET call.confidence = row.confidence
-                        SET call.resolution_tier = row.resolution_tier
-                        SET call.confidence_label = row.confidence_label
-                    """
+                        SET call.confidence_label = row.confidence_label"""
+                create_clause = f"{calls_keyword} (caller)-[call:CALLS {{line_number: row.line_number, full_call_name: row.full_call_name, args_key: row.args_key}}]->(called)"
 
-                t0 = time.time()
-                for i in range(0, len(sanitized_batch), batch_size):
-                    batch = sanitized_batch[i : i + batch_size]
+                def _run_call_batch(q: str, sub_batch: List[Dict[str, Any]]) -> None:
+                    if not sub_batch:
+                        return
+                    captured_q, captured_b = q, sub_batch
+
+                    def _batch_work(tx, _q=captured_q, _b=captured_b):
+                        tx.run(_q, batch=_b)
+
                     try:
-                        session.run(q, batch=batch)
+                        if hasattr(session, "execute_write"):
+                            session.execute_write(_batch_work)
+                        elif hasattr(session, "write_transaction"):
+                            session.write_transaction(_batch_work)
+                        else:
+                            session.run(q, batch=sub_batch)
                     except Exception as e:
                         if _is_binder_exception(e):
-                            continue
+                            return
                         raise e
-                info_logger(f"[CALLS] {caller_label}-to-{called_label}: {len(sanitized_batch)} edges written in {time.time()-t0:.1f}s")
 
-        execute_write_operation(self.driver, backend, _work)
+                t0 = time.time()
+                total = len(sanitized_batch)
+
+                if use_fast_slow_split:
+                    if called_label == "Parameter":
+                        q_with_line = f"""
+                            UNWIND $batch AS row
+                            {caller_match}
+                            MATCH (called:Parameter {{name: row.called_name, path: row.called_file_path, function_line_number: row.called_line_number}})
+                            {create_clause}{set_clause}
+                        """
+                        q_without_line = q_with_line
+                    elif called_label == "File":
+                        q_with_line = f"""
+                            UNWIND $batch AS row
+                            {caller_match}
+                            MATCH (called:File {{path: row.called_file_path}})
+                            {create_clause}{set_clause}
+                        """
+                        q_without_line = q_with_line
+                    else:
+                        q_with_line = f"""
+                            UNWIND $batch AS row
+                            {caller_match}
+                            MATCH (called:`{called_label}` {{name: row.called_name, path: row.called_file_path, line_number: row.called_line_number}})
+                            {"WHERE " + called_context_clause.lstrip("AND ") if called_context_clause else ""}
+                            {create_clause}{set_clause}
+                        """
+                        q_without_line = f"""
+                            UNWIND $batch AS row
+                            {caller_match}
+                            MATCH (called:`{called_label}` {{name: row.called_name, path: row.called_file_path}})
+                            {"WHERE " + called_context_clause.lstrip("AND ") if called_context_clause else ""}
+                            {create_clause}{set_clause}
+                        """
+
+                    fast_total = sum(1 for r in sanitized_batch if r.get("called_line_number", 0) > 0)
+                    slow_total = total - fast_total
+                    info_logger(
+                        f"[CALLS] {caller_label}-to-{called_label}: {total} edges — "
+                        f"fast path (line known): {fast_total} ({100*fast_total//total if total else 0}%), "
+                        f"slow path: {slow_total} ({100*slow_total//total if total else 0}%)"
+                    )
+                    for i in range(0, total, batch_size):
+                        batch = sanitized_batch[i : i + batch_size]
+                        batch_with_line = [r for r in batch if r.get("called_line_number", 0) > 0]
+                        batch_without_line = [r for r in batch if r.get("called_line_number", 0) <= 0]
+                        for q, sub_batch in ((q_with_line, batch_with_line), (q_without_line, batch_without_line)):
+                            _run_call_batch(q, sub_batch)
+                        written_so_far = min(i + batch_size, total)
+                        info_logger(
+                            f"[CALLS] {caller_label}-to-{called_label}: "
+                            f"{written_so_far}/{total} edges written ({time.time()-t0:.1f}s elapsed)"
+                        )
+                else:
+                    line_where = (
+                        "WHERE (row.called_line_number <= 0 OR called.line_number = row.called_line_number)"
+                    )
+                    if called_context_clause:
+                        line_where += f" {called_context_clause}"
+
+                    if called_label == "Parameter":
+                        q_unified = f"""
+                            UNWIND $batch AS row
+                            {caller_match}
+                            MATCH (called:Parameter {{name: row.called_name, path: row.called_file_path, function_line_number: row.called_line_number}})
+                            {create_clause}{set_clause}
+                        """
+                    elif called_label == "File":
+                        q_unified = f"""
+                            UNWIND $batch AS row
+                            {caller_match}
+                            MATCH (called:File {{path: row.called_file_path}})
+                            {create_clause}{set_clause}
+                        """
+                    else:
+                        q_unified = f"""
+                            UNWIND $batch AS row
+                            {caller_match}
+                            MATCH (called:`{called_label}` {{name: row.called_name, path: row.called_file_path}})
+                            {line_where}
+                            {create_clause}{set_clause}
+                        """
+
+                    for i in range(0, total, batch_size):
+                        _run_call_batch(q_unified, sanitized_batch[i : i + batch_size])
+                        written_so_far = min(i + batch_size, total)
+                        info_logger(
+                            f"[CALLS] {caller_label}-to-{called_label}: "
+                            f"{written_so_far}/{total} edges written ({time.time()-t0:.1f}s elapsed)"
+                        )
+
+                info_logger(f"[CALLS] {caller_label}-to-{called_label}: {total} edges written in {time.time()-t0:.1f}s")
+
+        with self.driver.session() as session:
+            _work(session)
         info_logger("[CALLS] All relationships processed.")
 
     def _create_csharp_inheritance_and_interfaces(
@@ -845,15 +992,17 @@ class GraphWriter:
             internal_batch = [r for r in inheritance_batch if r.get("resolved_parent_file_path") != "__external__"]
             external_batch = [r for r in inheritance_batch if r.get("resolved_parent_file_path") == "__external__"]
 
-            labels = ("Class", "Trait", "Interface", "Struct", "Enum", "Union", "Record", "Mixin", "Extension", "Module", "Object")
+            labels = ("Class", "Trait", "Interface", "Struct", "Enum", "Union", "Record", "Mixin", "Extension", "Module", "Object", "Variable")
             for child_label in labels:
+                child_cypher = _cypher_label(child_label, backend)
                 for parent_label in labels:
+                    parent_cypher = _cypher_label(parent_label, backend)
                     try:
                         session.run(
                             f"""
                             UNWIND $batch AS row
-                            MATCH (child:`{child_label}` {{name: row.child_name, path: row.path}})
-                            MATCH (parent:`{parent_label}` {{name: row.parent_name, path: row.resolved_parent_file_path}})
+                            MATCH (child:{child_cypher} {{name: row.child_name, path: row.path}})
+                            MATCH (parent:{parent_cypher} {{name: row.parent_name, path: row.resolved_parent_file_path}})
                             MERGE (child)-[r:INHERITS]->(parent)
                             SET r.confidence_label = coalesce(row.confidence_label, 'EXTRACTED')
                         """,
@@ -865,11 +1014,12 @@ class GraphWriter:
                         raise e
 
             for child_label in labels:
+                child_cypher = _cypher_label(child_label, backend)
                 try:
                     session.run(
                         f"""
                         UNWIND $batch AS row
-                        MATCH (child:`{child_label}` {{name: row.child_name, path: row.path}})
+                        MATCH (child:{child_cypher} {{name: row.child_name, path: row.path}})
                         MERGE (parent:ExternalClass {{name: row.parent_name}})
                         MERGE (child)-[r:INHERITS]->(parent)
                         SET r.confidence_label = coalesce(row.confidence_label, 'INFERRED')
@@ -887,6 +1037,236 @@ class GraphWriter:
 
         execute_write_operation(self.driver, backend, _work)
         info_logger(f"[INHERITS] Complete: {len(inheritance_batch)} inheritance links processed.")
+
+    def write_implements_links(self, implements_batch: List[Dict[str, Any]]) -> None:
+        if not implements_batch:
+            return
+
+        backend = get_backend_type(self.driver, self._db_manager)
+
+        def _work(session):
+            for row in implements_batch:
+                child_label = _cypher_label(row.get("child_label", "Struct"), backend)
+                parent_label = _cypher_label(row.get("parent_label", "Interface"), backend)
+                try:
+                    session.run(
+                        f"""
+                        MATCH (child:{child_label} {{name: $child_name, path: $path}})
+                        MATCH (parent:{parent_label} {{name: $parent_name, path: $resolved_parent_file_path}})
+                        MERGE (child)-[r:IMPLEMENTS]->(parent)
+                        SET r.confidence_label = coalesce($confidence_label, 'INFERRED')
+                        """,
+                        child_name=row["child_name"],
+                        path=row["path"],
+                        parent_name=row["parent_name"],
+                        resolved_parent_file_path=row["resolved_parent_file_path"],
+                        confidence_label=row.get("confidence_label", "INFERRED"),
+                    )
+                except Exception as e:
+                    if _is_binder_exception(e):
+                        continue
+                    raise e
+
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(f"[IMPLEMENTS] Complete: {len(implements_batch)} implementation links processed.")
+
+    def write_partial_of_links(self, partial_of_batch: List[Dict[str, Any]]) -> None:
+        if not partial_of_batch:
+            return
+
+        backend = get_backend_type(self.driver, self._db_manager)
+
+        def _work(session):
+            for row in partial_of_batch:
+                child_label = _cypher_label(row.get("child_label", "Class"), backend)
+                parent_label = _cypher_label(row.get("parent_label", "Class"), backend)
+                try:
+                    session.run(
+                        f"""
+                        MATCH (child:{child_label} {{name: $child_name, path: $path}})
+                        MATCH (parent:{parent_label} {{name: $parent_name, path: $resolved_parent_file_path}})
+                        MERGE (child)-[r:PARTIAL_OF]->(parent)
+                        SET r.confidence_label = coalesce($confidence_label, 'INFERRED')
+                        """,
+                        child_name=row["child_name"],
+                        path=row["path"],
+                        parent_name=row["parent_name"],
+                        resolved_parent_file_path=row["resolved_parent_file_path"],
+                        confidence_label=row.get("confidence_label", "INFERRED"),
+                    )
+                except Exception as e:
+                    if _is_binder_exception(e):
+                        continue
+                    raise e
+
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(f"[PARTIAL_OF] Complete: {len(partial_of_batch)} partial class links processed.")
+
+    def write_part_of_links(self, part_of_batch: List[Dict[str, Any]]) -> None:
+        if not part_of_batch:
+            return
+
+        backend = get_backend_type(self.driver, self._db_manager)
+
+        def _work(session):
+            for row in part_of_batch:
+                try:
+                    session.run(
+                        """
+                        MATCH (child:File {path: $child_path})
+                        MATCH (parent:File {path: $parent_path})
+                        MERGE (child)-[r:PART_OF]->(parent)
+                        """,
+                        child_path=row["child_path"],
+                        parent_path=row["parent_path"],
+                    )
+                except Exception as e:
+                    if _is_binder_exception(e):
+                        continue
+                    raise e
+
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(f"[PART_OF] Complete: {len(part_of_batch)} library part links processed.")
+
+    def write_decorated_by_links(self, decorated_by_batch: List[Dict[str, Any]]) -> None:
+        if not decorated_by_batch:
+            return
+
+        backend = get_backend_type(self.driver, self._db_manager)
+
+        def _work(session):
+            for row in decorated_by_batch:
+                try:
+                    session.run(
+                        """
+                        MATCH (decorated:Function {
+                            name: $decorated_name,
+                            path: $decorated_path,
+                            line_number: $decorated_line
+                        })
+                        WHERE $decorated_context = "" OR decorated.context = $decorated_context
+                        MATCH (decorator:Function {
+                            name: $decorator_name,
+                            path: $decorator_path
+                        })
+                        MERGE (decorated)-[r:DECORATED_BY]->(decorator)
+                        SET r.line_number = $line_number
+                        """,
+                        decorated_name=row["decorated_name"],
+                        decorated_path=row["decorated_path"],
+                        decorated_line=row["decorated_line"],
+                        decorated_context=row.get("decorated_context", ""),
+                        decorator_name=row["decorator_name"],
+                        decorator_path=row["decorator_path"],
+                        line_number=row.get("line_number", row["decorated_line"]),
+                    )
+                except Exception as e:
+                    if _is_binder_exception(e):
+                        continue
+                    raise e
+
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(f"[DECORATED_BY] Complete: {len(decorated_by_batch)} decorator links processed.")
+
+    def write_metaclass_links(self, metaclass_batch: List[Dict[str, Any]]) -> None:
+        if not metaclass_batch:
+            return
+
+        backend = get_backend_type(self.driver, self._db_manager)
+
+        def _work(session):
+            for row in metaclass_batch:
+                try:
+                    session.run(
+                        """
+                        MATCH (child:Class {name: $child_name, path: $path})
+                        MATCH (parent:Class {name: $parent_name, path: $resolved_parent_file_path})
+                        MERGE (child)-[r:METACLASS]->(parent)
+                        SET r.line_number = $line_number
+                        SET r.confidence_label = coalesce($confidence_label, 'EXTRACTED')
+                        """,
+                        child_name=row["child_name"],
+                        path=row["path"],
+                        parent_name=row["parent_name"],
+                        resolved_parent_file_path=row["resolved_parent_file_path"],
+                        line_number=row.get("line_number", 0),
+                        confidence_label=row.get("confidence_label", "EXTRACTED"),
+                    )
+                except Exception as e:
+                    if _is_binder_exception(e):
+                        continue
+                    raise e
+
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(f"[METACLASS] Complete: {len(metaclass_batch)} metaclass links processed.")
+
+    def write_companion_of_links(self, companion_batch: List[Dict[str, Any]]) -> None:
+        if not companion_batch:
+            return
+
+        backend = get_backend_type(self.driver, self._db_manager)
+
+        def _work(session):
+            for row in companion_batch:
+                try:
+                    session.run(
+                        """
+                        MATCH (companion:Object {
+                            name: $companion_name,
+                            path: $companion_path,
+                            line_number: $companion_line
+                        })
+                        MATCH (owner:Class {
+                            name: $owner_name,
+                            path: $owner_path,
+                            line_number: $owner_line
+                        })
+                        MERGE (companion)-[r:COMPANION_OF]->(owner)
+                        """,
+                        companion_name=row["companion_name"],
+                        companion_path=row["companion_path"],
+                        companion_line=row["companion_line"],
+                        owner_name=row["owner_name"],
+                        owner_path=row["owner_path"],
+                        owner_line=row["owner_line"],
+                    )
+                except Exception as e:
+                    if _is_binder_exception(e):
+                        continue
+                    raise e
+
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(f"[COMPANION_OF] Complete: {len(companion_batch)} companion links processed.")
+
+    def write_embeds_links(self, embeds_batch: List[Dict[str, Any]]) -> None:
+        if not embeds_batch:
+            return
+
+        backend = get_backend_type(self.driver, self._db_manager)
+
+        def _work(session):
+            for row in embeds_batch:
+                try:
+                    session.run(
+                        """
+                        MATCH (child:Struct {name: $child_name, path: $path})
+                        MATCH (parent:Struct {name: $parent_name, path: $resolved_parent_file_path})
+                        MERGE (child)-[r:EMBEDS]->(parent)
+                        SET r.line_number = $line_number
+                        """,
+                        child_name=row["child_name"],
+                        path=row["path"],
+                        parent_name=row["parent_name"],
+                        resolved_parent_file_path=row["resolved_parent_file_path"],
+                        line_number=row.get("line_number", 0),
+                    )
+                except Exception as e:
+                    if _is_binder_exception(e):
+                        continue
+                    raise e
+
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(f"[EMBEDS] Complete: {len(embeds_batch)} embed links processed.")
 
     def write_scip_call_edges(
         self, files_data: Dict[str, Any], name_from_symbol: Callable[[str], str]
@@ -951,7 +1331,8 @@ class GraphWriter:
                 """
                 MATCH (f:File {path: $path})
                 OPTIONAL MATCH (f)-[:CONTAINS]->(element)
-                DETACH DELETE f, element
+                OPTIONAL MATCH (element)-[:HAS_PARAMETER]->(p:Parameter)
+                DETACH DELETE f, element, p
             """,
                 path=file_path_str,
             )
@@ -1512,8 +1893,11 @@ class GraphWriter:
         backend = get_backend_type(self.driver, self._db_manager)
 
         def _delete_repo_node(session):
-            session.run("MATCH (r:Repository {path: $path}) DETACH DELETE r", path=repo_path_str)
-
+            session.run("""
+MATCH (r:Repository {path: $path})
+OPTIONAL MATCH (r)-[:CONTAINS*]->(n)
+DETACH DELETE r, n
+""", path=repo_path_str)
         execute_write_operation(self.driver, backend, _delete_repo_node)
         info_logger(f"Deleted repository and its contents from graph: {repo_path_str}")
         return True
@@ -1532,6 +1916,10 @@ class GraphWriter:
             (
                 "MATCH (n:ExternalFunction) WHERE NOT ()-[]->(n) "
                 "WITH n LIMIT 5000 DETACH DELETE n RETURN count(n) AS deleted"
+            ),
+            (
+                "MATCH (p:Parameter) WHERE NOT ()-[:HAS_PARAMETER]->(p) "
+                "WITH p LIMIT 5000 DETACH DELETE p RETURN count(p) AS deleted"
             ),
         ]
         for query in dangling_queries:

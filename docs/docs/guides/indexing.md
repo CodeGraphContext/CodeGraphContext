@@ -48,7 +48,15 @@ The command resolves the package's installation path on your system, parses its 
 
 ---
 
-## 3. Real-Time Directory Watchers
+## 3. SCIP and `.cgcignore`
+
+When `SCIP_INDEXER=true`, external SCIP tools run on eligible source files. SCIP ingestion **respects `.cgcignore`** the same way Tree-sitter indexing does—ignored paths are not passed to SCIP indexers.
+
+C and C++ SCIP requires a `compile_commands.json` in the project (or under `build/` / `cmake-build-*/`). Without it, CGC logs a warning and falls back to Tree-sitter for those files.
+
+---
+
+## 4. Real-Time Directory Watchers
 
 For active development, run a filesystem watcher in the background to capture file writes and incrementally sync the graph.
 
@@ -83,9 +91,11 @@ sequenceDiagram
   cgc unwatch /path/to/project
   ```
 
+On startup, each watcher **reconciles** the graph with disk: files present on disk but missing from the graph are indexed, and graph entries for deleted files are removed before live monitoring begins.
+
 ---
 
-## 4. Ingest Filters (`.cgcignore`)
+## 5. Ingest Filters (`.cgcignore`)
 
 To prevent compiling bloated indices or parsing build artifacts, define ignore rules in a `.cgcignore` file in the root of your repository or context directory.
 

@@ -17,7 +17,10 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"], # In production, restrict this
-        allow_credentials=True,
+        # Credentials must stay disabled while origins is a wildcard; the
+        # combination is rejected by browsers and would leak cookie-authed
+        # responses to any site.
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )

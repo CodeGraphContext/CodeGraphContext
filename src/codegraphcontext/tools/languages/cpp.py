@@ -582,11 +582,23 @@ class CppTreeSitterParser:
                 context_name, context_type, context_line = self._get_parent_context(node)
                 class_context, _, _ = self._get_parent_context(node, types=("class_specifier",))
 
+                args: list[str] = []
+                call_expr = node
+                while call_expr and call_expr.type != "call_expression":
+                    call_expr = call_expr.parent
+                if call_expr:
+                    arguments_node = call_expr.child_by_field_name("arguments")
+                    if arguments_node:
+                        for child in arguments_node.children:
+                            if child.type in ("(", ")", ","):
+                                continue
+                            args.append(self._get_node_text(child))
+
                 call_data = {
                     "name": func_name,
                     "full_name": raw_text,
                     "line_number": node.start_point[0] + 1,
-                    "args": [],
+                    "args": args,
                     "inferred_obj_type": inferred_obj_type,
                     "context": (context_name, context_type, context_line),
                     "class_context": class_context,

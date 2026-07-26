@@ -215,7 +215,14 @@ class FalkorDBManager:
                             info_logger(f"FalkorDB Lite connection established successfully")
                             info_logger(f"Graph name: {self.graph_name}")
                         except Exception as e:
-                            info_logger(f"Initial ping check: {e}")
+                            # A wrapper that cannot run RETURN 1 is unusable; raise the
+                            # typed error so the caller's fallback logic engages instead
+                            # of returning a broken manager.
+                            self._driver = None
+                            self._graph = None
+                            raise FalkorDBUnavailableError(
+                                f"FalkorDB Lite connected but failed the initial health check: {e}"
+                            ) from e
                             
                     except ImportError as e:
                         error_logger(
@@ -298,6 +305,33 @@ class FalkorDBManager:
         
         info_logger("Starting FalkorDB Lite worker subprocess...")
         self._process = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        # Drain stdout/stderr continuously so a long-running chatty worker cannot
+        # fill the OS pipe buffers and block the server. The (bounded) captured
+        # output is still available for the startup failure report below.
+        self._stdout_lines = []
+        self._stderr_lines = []
+
+        def _drain(stream, buf, limit=200):
+            try:
+                for line in iter(stream.readline, b''):
+                    buf.append(line)
+                    if len(buf) > limit:
+                        del buf[:len(buf) - limit]
+            except Exception:
+                pass
+            finally:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+        self._drain_threads = [
+            threading.Thread(target=_drain, args=(self._process.stdout, self._stdout_lines), daemon=True),
+            threading.Thread(target=_drain, args=(self._process.stderr, self._stderr_lines), daemon=True),
+        ]
+        for t in self._drain_threads:
+            t.start()
         
         # 3. Wait for Readiness. The Unix socket can appear before Redis has
         # loaded the FalkorDB module, so validate GRAPH.QUERY instead of
@@ -326,7 +360,12 @@ class FalkorDBManager:
             
             # Check if process died
             if self._process.poll() is not None:
-                out, err = self._process.communicate()
+                # The drain threads own the pipes (communicate() would race with
+                # them); give them a moment to flush the remaining output.
+                for t in self._drain_threads:
+                    t.join(timeout=1)
+                out = b''.join(self._stdout_lines)
+                err = b''.join(self._stderr_lines)
                 returncode = self._process.returncode
 
                 # Exit 0 means the worker detected an already-running FalkorDB instance.

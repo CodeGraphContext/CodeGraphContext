@@ -46,8 +46,8 @@ class HTMLTreeSitterParser:
         root_node = tree.root_node
 
         tags = []
-        classes = set()
-        ids = set()
+        classes = {}  # name -> line number of first occurrence
+        ids = {}  # name -> line number of first occurrence
         imports = []
 
         # Find tags, classes, and ids
@@ -79,20 +79,27 @@ class HTMLTreeSitterParser:
                     pass 
             elif capture_name == 'attr_value':
                 parent_attr = node.parent.parent # quoted_attribute_value -> attribute
-                attr_name_node = parent_attr.child_by_field_name('name')
+                # The HTML grammar exposes no 'name' field on attribute nodes;
+                # locate the attribute_name child by type instead.
+                attr_name_node = next(
+                    (c for c in parent_attr.children if c.type == 'attribute_name'), None
+                )
                 if attr_name_node:
                     attr_name = self._get_node_text(attr_name_node).lower()
                     attr_value = self._get_node_text(node)
+                    line_number = node.start_point[0] + 1
                     if attr_name == 'class':
                         for cls in attr_value.split():
-                            classes.add(cls)
+                            classes.setdefault(cls, line_number)
                     elif attr_name == 'id':
-                        ids.add(attr_value)
+                        ids.setdefault(attr_value, line_number)
                     elif attr_name == 'src' or attr_name == 'href':
                         # Check tag name
                         tag_node = parent_attr.parent # start_tag
                         if tag_node:
-                            tag_name_node = tag_node.child_by_field_name('name')
+                            tag_name_node = next(
+                                (c for c in tag_node.children if c.type == 'tag_name'), None
+                            )
                             if tag_name_node:
                                 tag_name = self._get_node_text(tag_name_node).lower()
                                 if tag_name in ('script', 'link', 'img', 'a'):
@@ -111,8 +118,16 @@ class HTMLTreeSitterParser:
         return {
             "path": str(path),
             "functions": [], # Maybe map components here?
-            "classes": [{"name": c, "type": "css_class"} for c in classes],
-            "variables": [{"name": i, "type": "html_id"} for i in ids],
+            "classes": [
+                {"name": c, "type": "css_class", "line_number": line,
+                 "lang": self.language_name, "is_dependency": is_dependency}
+                for c, line in classes.items()
+            ],
+            "variables": [
+                {"name": i, "type": "html_id", "line_number": line,
+                 "lang": self.language_name, "is_dependency": is_dependency}
+                for i, line in ids.items()
+            ],
             "imports": imports,
             "function_calls": [],
             "is_dependency": is_dependency,

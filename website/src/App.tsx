@@ -12,7 +12,7 @@ import Privacy from "./pages/Privacy";
 import PRReviewerPage from "./pages/PRReviewerPage";
 import ScrollButtons from "@/components/ScrollButtons";
 import Navbar from "./components/Navbar";
-
+import MoveToTop from "./components/MoveToTop";
 // Removed AOS for instant loading
 
 const queryClient = new QueryClient();
@@ -32,7 +32,7 @@ const App: React.FC = () => {
             <Toaster />
             <Sonner />
             <Navbar />
-            <ScrollButtons />
+            <MoveToTop />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/pre-indexed" element={<Index />} />
@@ -41,6 +41,7 @@ const App: React.FC = () => {
               <Route path="/pr-reviewer" element={<PRReviewerPage />} />
               <Route path="/pr-reviewer/:owner/:repo/pull/:prNumber" element={<PRReviewerPage />} />
               <Route path="/github/:owner/:repo" element={<Explore />} />
+              <Route path="/gitlab/*" element={<Explore />} />
               <Route path="/:owner/:repo" element={<Explore />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />

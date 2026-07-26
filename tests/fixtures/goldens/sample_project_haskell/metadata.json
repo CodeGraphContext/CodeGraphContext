@@ -1,16 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-06-07T18:01:15Z",
+  "exported_at": "2026-07-25T16:56:26Z",
   "format_version": "1.0.0",
   "repo": "sample_project_haskell",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "f3f62d33",
-  "branch": "fix/e2e-security-followup",
-  "generator": "PYv0.4.16",
+  "commit": "8bd1a8f7",
+  "branch": "main",
+  "generator": "PYv0.5.1",
   "name": "sample_project_haskell.cgc",
   "graph_metrics": {
     "total_nodes": 45,
-    "total_edges": 50
+    "total_edges": 57
   }
 }

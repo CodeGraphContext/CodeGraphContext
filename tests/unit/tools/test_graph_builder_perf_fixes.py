@@ -384,7 +384,10 @@ class TestCreateAllFunctionCallsV3:
         calls = self._run(file_data)
         call_write = next(c for c in calls if "CALLS" in c["query"])
 
-        assert "called.line_number = row.called_line_number" in call_write["query"]
+        # The CALLS write now matches the target line inline in the MATCH
+        # pattern (`{... line_number: row.called_line_number}`) rather than a
+        # WHERE equality.
+        assert "line_number: row.called_line_number" in call_write["query"]
         assert "called.context = row.called_context" in call_write["query"]
         assert call_write["kwargs"]["batch"][0]["called_line_number"] == 20
         assert call_write["kwargs"]["batch"][0]["called_context"] == ""
@@ -461,6 +464,7 @@ class TestCreateAllFunctionCallsV3:
         call_queries = [c["query"] for c in calls if "CALLS" in c.get("query", "")]
         labels_found = any(
             ":Function" in q or ":Class" in q or ":File" in q
+            or ":`Function`" in q or ":`Class`" in q or ":`File`" in q
             for q in call_queries
         )
         assert labels_found, "Expected label-specific MATCH in CALLS queries"
@@ -1139,11 +1143,13 @@ class TestWriteOrmMappingsDatasourceName:
     def _make_writer(self):
         from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
         mock_driver = MagicMock()
-        mock_session = MagicMock()
-        mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
-        mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+        mock_session = MagicMock(spec=["run", "__enter__", "__exit__"])
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_driver.session.return_value = mock_session
         writer = GraphWriter.__new__(GraphWriter)
         writer.driver = mock_driver
+        writer._db_manager = None
         return writer, mock_session
 
     def test_on_match_set_present_in_write_orm_mappings(self):

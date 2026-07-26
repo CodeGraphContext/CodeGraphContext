@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -15,7 +16,46 @@ from .discovery import discover_files_to_index
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
 from .resolution.calls import build_function_call_groups
-from .resolution.inheritance import build_inheritance_and_csharp_files
+from .resolution.inheritance import (
+    build_companion_of_links,
+    build_decorated_by_links,
+    build_elixir_implements_links,
+    build_embeds_links,
+    build_go_implements_links,
+    build_haskell_implements_links,
+    build_inheritance_and_csharp_files,
+    build_metaclass_links,
+    build_partial_of_links,
+    build_part_of_links,
+)
+
+
+def build_index_summary(
+    files: List[Path],
+    parsers: Dict[str, str],
+    all_file_data: List[Dict[str, Any]],
+    resolved_call_groups: tuple,
+    serialization_seconds: float,
+) -> Dict[str, Any]:
+    """Build CLI-facing metrics for a completed Tree-sitter indexing run."""
+    extension_counts = Counter()
+    for file in files:
+        extension = file.suffix or file.name
+        language = parsers.get(file.suffix, "generic")
+        extension_counts[f"{extension} ({language})"] += 1
+
+    function_nodes = sum(len(file_data.get("functions", [])) for file_data in all_file_data)
+    class_nodes = sum(len(file_data.get("classes", [])) for file_data in all_file_data)
+    call_edges = sum(len(group) for group in resolved_call_groups)
+
+    return {
+        "total_scanned_files": len(files),
+        "files_by_extension": dict(sorted(extension_counts.items())),
+        "function_nodes": function_nodes,
+        "class_nodes": class_nodes,
+        "call_edges": call_edges,
+        "serialization_seconds": serialization_seconds,
+    }
 
 
 async def run_tree_sitter_index_async(
@@ -30,6 +70,7 @@ async def run_tree_sitter_index_async(
     parse_file: Callable[[Path, Path, bool], Dict[str, Any]],
     add_minimal_file_node: Callable[[Path, Path, bool], None],
     call_resolution_diagnostics: Optional[List[Dict[str, Any]]] = None,
+    index_summary: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Parse all discovered files, write symbols, then inheritance + CALLS."""
     if job_id:
@@ -91,6 +132,8 @@ async def run_tree_sitter_index_async(
         if processed_count % 50 == 0:
             info_logger(f"Processed {processed_count}/{len(files)} files...")
 
+    serialization_start = time.time()
+
     # Parsing remains concurrent, but graph writes are ordered so shared nodes
     # such as imported modules receive deterministic canonical metadata.
     for file_data in sorted(all_file_data, key=lambda data: str(data.get("path") or "")):
@@ -123,7 +166,17 @@ async def run_tree_sitter_index_async(
         job_manager.update_job(job_id, status_message="Resolving inheritance links...")
     info_logger(f"[INHERITS] Resolving inheritance links across {len(all_file_data)} files...")
     inheritance_batch, csharp_files = build_inheritance_and_csharp_files(all_file_data, imports_map)
+    implements_batch = build_go_implements_links(all_file_data)
+    implements_batch.extend(build_haskell_implements_links(all_file_data))
+    implements_batch.extend(build_elixir_implements_links(all_file_data))
     writer.write_inheritance_links(inheritance_batch, csharp_files, imports_map)
+    writer.write_implements_links(implements_batch)
+    writer.write_embeds_links(build_embeds_links(all_file_data))
+    writer.write_companion_of_links(build_companion_of_links(all_file_data))
+    writer.write_partial_of_links(build_partial_of_links(all_file_data))
+    writer.write_part_of_links(build_part_of_links(all_file_data))
+    writer.write_metaclass_links(build_metaclass_links(all_file_data, imports_map))
+    writer.write_decorated_by_links(build_decorated_by_links(all_file_data, imports_map))
     t1 = time.time()
     info_logger(f"Inheritance links created in {t1 - t0:.1f}s. Starting function calls...")
 
@@ -259,6 +312,18 @@ async def run_tree_sitter_index_async(
             info_logger(f"[INHERIT-RESOLVE] Post-resolution complete: {improved} edges improved")
         except Exception as _ie:
             info_logger(f"[INHERIT-RESOLVE] Post-resolution failed (skipping): {_ie}")
+
+    if index_summary is not None:
+        index_summary.clear()
+        index_summary.update(
+            build_index_summary(
+                files,
+                parsers,
+                all_file_data,
+                resolved_calls,
+                time.time() - serialization_start,
+            )
+        )
 
     if job_id:
         job_manager.update_job(job_id, status=JobStatus.COMPLETED, end_time=datetime.now())

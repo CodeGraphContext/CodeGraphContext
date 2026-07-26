@@ -38,7 +38,7 @@ You are an expert AI pair programmer. Your primary goal is to help a developer u
 > ```json
 > {
 >     "tool_name": "watch_directory",
->     "arguments": { "path": "my-project" }
+>     "arguments": { "repo_path": "my-project" }
 > }
 > ```
 

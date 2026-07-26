@@ -285,6 +285,7 @@ class GoTreeSitterParser:
                     "end_line": func_node.end_point[0] + 1,
                     "args": args,
                     "class_context": class_context,
+                    "receiver_type": receiver_type,
                     "decorators": [],
                     "lang": self.language_name,
                     "is_dependency": False,
@@ -427,28 +428,67 @@ class GoTreeSitterParser:
         return structs
 
 
+    def _extract_interface_methods(self, interface_type_node: Any) -> tuple[list[str], list[str]]:
+        methods: list[str] = []
+        embedded: list[str] = []
+        if not interface_type_node:
+            return methods, embedded
+        for child in interface_type_node.children:
+            if child.type in ("method_elem", "method_spec"):
+                name_node = child.child_by_field_name("name")
+                if name_node:
+                    methods.append(self._get_node_text(name_node))
+            elif child.type == "type_elem":
+                for sub in child.children:
+                    if sub.type == "type_identifier":
+                        embedded.append(self._get_node_text(sub))
+        return methods, embedded
+
     def _find_interfaces(self, root_node):
         interfaces = []
         interface_query_str = GO_QUERIES['interfaces']
+        pending: Dict[int, Dict[str, Any]] = {}
         for node, capture_name in execute_query(self.language, interface_query_str, root_node):
-            if capture_name == 'name':
+            if capture_name == "interface_node":
+                pending[node.id] = {"interface_node": node, "name": None, "body": None}
+            elif capture_name == "name":
                 interface_node = self._find_type_declaration_for_name(node)
                 if interface_node:
-                    name = self._get_node_text(node)
-                    class_data = {
-                        "name": name,
-                        "line_number": interface_node.start_point[0] + 1,
-                        "end_line": interface_node.end_point[0] + 1,
-                        "bases": [],
-                        "decorators": [],
-                        "lang": self.language_name,
-                        "is_dependency": False,
-                    }
-                    if self.index_source:
-                        class_data["source"] = self._get_node_text(interface_node)
-                        class_data["docstring"] = self._get_docstring(interface_node)
-                        
-                    interfaces.append(class_data)
+                    entry = pending.setdefault(
+                        interface_node.id,
+                        {"interface_node": interface_node, "name": None, "body": None},
+                    )
+                    entry["name"] = self._get_node_text(node)
+            elif capture_name == "interface_body":
+                type_spec = node.parent
+                interface_node = type_spec.parent if type_spec else None
+                if interface_node:
+                    entry = pending.setdefault(
+                        interface_node.id,
+                        {"interface_node": interface_node, "name": None, "body": None},
+                    )
+                    entry["body"] = node
+
+        for entry in pending.values():
+            name = entry.get("name")
+            interface_node = entry.get("interface_node")
+            if not name or not interface_node:
+                continue
+            methods, embedded = self._extract_interface_methods(entry.get("body"))
+            class_data = {
+                "name": name,
+                "line_number": interface_node.start_point[0] + 1,
+                "end_line": interface_node.end_point[0] + 1,
+                "bases": embedded,
+                "methods": methods,
+                "decorators": [],
+                "lang": self.language_name,
+                "is_dependency": False,
+            }
+            if self.index_source:
+                class_data["source"] = self._get_node_text(interface_node)
+                class_data["docstring"] = self._get_docstring(interface_node)
+            interfaces.append(class_data)
         return interfaces
 
     def _find_type_declaration_for_name(self, name_node):

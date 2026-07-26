@@ -43,7 +43,10 @@ PHP_QUERIES = {
         ) @call_node
         
         (member_call_expression
-            name: (name) @name
+            name: [
+                (name) @name
+                (variable_name) @dynamic_method
+            ]
         ) @call_node
         
         (scoped_call_expression
@@ -152,9 +155,48 @@ class PhpTreeSitterParser:
             curr = curr.parent
         return None, None, None
 
+    def _get_enclosing_class_name(self, node: Any) -> Optional[str]:
+        curr = node.parent
+        while curr:
+            if curr.type in ("class_declaration", "interface_declaration", "trait_declaration"):
+                name_node = curr.child_by_field_name("name")
+                return self._get_node_text(name_node) if name_node else None
+            curr = curr.parent
+        return None
+
     def _get_node_text(self, node: Any) -> str:
         if not node: return ""
         return node.text.decode("utf-8")
+
+    def _parse_trait_method_map(self, class_source: str) -> Dict[str, Tuple[str, str]]:
+        """Map callable names to (trait, method) from PHP use-trait conflict blocks."""
+        method_map: Dict[str, Tuple[str, str]] = {}
+        use_match = re.search(
+            r"use\s+([\w\\,\s]+)\s*\{([^}]+)\}",
+            class_source,
+            re.DOTALL,
+        )
+        if not use_match:
+            return method_map
+        body = use_match.group(2)
+        for alias_match in re.finditer(
+            r"([\w\\]+)::(\w+)\s+as\s+(\w+)\s*;",
+            body,
+        ):
+            trait, method, alias = alias_match.groups()
+            method_map[alias] = (trait.split("\\")[-1], method)
+        for instead_match in re.finditer(
+            r"([\w\\]+)::(\w+)\s+insteadof\s+([\w\\,\s]+)\s*;",
+            body,
+        ):
+            trait, method, losers = instead_match.groups()
+            trait_name = trait.split("\\")[-1]
+            method_map[method] = (trait_name, method)
+            for loser in re.findall(r"[\w\\]+", losers):
+                loser_name = loser.split("\\")[-1]
+                if loser_name != trait_name:
+                    method_map.setdefault(method, (trait_name, method))
+        return method_map
 
     def _parse_functions(self, captures: list, source_code: str, path: Path, var_type_map: dict) -> list[Dict[str, Any]]:
         functions = []
@@ -269,6 +311,10 @@ class PhpTreeSitterParser:
                                             if specifier.type in ('name', 'qualified_name'):
                                                 bases.append(self._get_node_text(specifier))
 
+                        trait_method_map = {}
+                        if capture_name == "class":
+                            trait_method_map = self._parse_trait_method_map(source_text)
+
                         type_data = {
                             "name": type_name,
                             "line_number": start_line,
@@ -276,6 +322,7 @@ class PhpTreeSitterParser:
                             "bases": bases,
                             "path": str(path),
                             "lang": self.language_name,
+                            "trait_method_map": trait_method_map,
                         }
                         if self.index_source:
                             type_data["source"] = source_text
@@ -395,10 +442,11 @@ class PhpTreeSitterParser:
             # actually execute_query returns (node, capture_name).
             
             # Let's handle 'name' capture which gives us the function name
-            if capture_name == "name":
+            if capture_name in ("name", "dynamic_method"):
                 try:
                     call_name = self._get_node_text(node)
                     line_number = node.start_point[0] + 1
+                    is_dynamic_method = capture_name == "dynamic_method"
                     
                     # Ensure we identify the full call node
                     call_node = node.parent
@@ -409,7 +457,7 @@ class PhpTreeSitterParser:
                          continue # It might be a name inside object creation or something we handle otherwise
 
                     # Avoid duplicates
-                    call_key = f"{call_name}_{line_number}"
+                    call_key = f"{call_node.start_byte}_{call_node.end_byte}"
                     if call_key in seen_calls:
                         continue
                     seen_calls.add(call_key)
@@ -434,6 +482,8 @@ class PhpTreeSitterParser:
                              full_name = f"{receiver}.{call_name}"
                              if receiver.startswith("$"):
                                  inferred_obj_type = var_type_map.get((ctx_name, receiver))
+                        if is_dynamic_method:
+                            call_name = call_name.lstrip("$")
                     elif call_node.type == 'scoped_call_expression':
                          # Class::method()
                         scope_node = call_node.child_by_field_name('scope')
@@ -449,10 +499,12 @@ class PhpTreeSitterParser:
                         "args": args,
                         "inferred_obj_type": inferred_obj_type,
                         "context": (ctx_name, ctx_type, ctx_line),
-                        "class_context": (ctx_name, ctx_line) if ctx_type and ("class" in ctx_type or "interface" in ctx_type or "trait" in ctx_type) else (None, None),
+                        "class_context": self._get_enclosing_class_name(node),
                         "lang": self.language_name,
                         "is_dependency": False,
                     }
+                    if is_dynamic_method:
+                        call_data["call_kind"] = "dynamic_member"
                     calls.append(call_data)
                 except Exception as e:
                     error_logger(f"Error parsing call: {e}")

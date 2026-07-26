@@ -24,7 +24,10 @@ spec:
           name: bolt
         env:
         - name: NEO4J_AUTH
-          value: "neo4j/codegraph123"
+          valueFrom:
+            secretKeyRef:
+              name: neo4j-auth
+              key: auth
         - name: NEO4J_PLUGINS
           value: '["apoc"]'
         - name: NEO4J_dbms_security_procedures_unrestricted
@@ -67,7 +70,7 @@ metadata:
   labels:
     app: neo4j
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   ports:
   - port: 7474
     targetPort: 7474
