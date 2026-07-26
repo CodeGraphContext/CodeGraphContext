@@ -32,6 +32,10 @@ async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_di
     
     project_path_str = project_path.resolve().as_posix()
     dotenv_path_str = (Path.home() / ".codegraphcontext" / ".env").as_posix()
+    # The CALLS edge dump is ~650 entries. Printing it to stdout floods the
+    # Actions step log and GitHub truncates the whole step — including the
+    # comparison table. Pass it through a file so only the small diff is logged.
+    edges_out_str = (temp_test_dir / f"{db_type}_calls_edges.json").as_posix()
     
     # Construct a python command to run the indexing
     cmd = f"""
@@ -108,8 +112,9 @@ async def run():
 
     db_mgr.close_driver()
     stats["REL_CALLS_DISTINCT"] = len(set(calls_edges))
+    with open(r'{edges_out_str}', "w") as _f:
+        json.dump(calls_edges, _f)
     print("STATS_JSON:" + json.dumps(stats))
-    print("CALLS_EDGES_JSON:" + json.dumps(calls_edges))
 
 async def main():
     try:
@@ -143,12 +148,17 @@ asyncio.run(main())
         
     # Extract stats from stdout
     stats = {}
-    calls_edges = []
     for line in stdout.decode().splitlines():
         if line.startswith("STATS_JSON:"):
             stats = json.loads(line[len("STATS_JSON:"):])
-        elif line.startswith("CALLS_EDGES_JSON:"):
-            calls_edges = json.loads(line[len("CALLS_EDGES_JSON:"):])
+            break
+
+    calls_edges = []
+    try:
+        with open(edges_out_str) as _f:
+            calls_edges = json.load(_f)
+    except (OSError, ValueError):
+        pass
 
     return duration, stats, calls_edges
 
