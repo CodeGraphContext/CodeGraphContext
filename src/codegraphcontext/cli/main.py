@@ -1157,6 +1157,10 @@ def doctor():
     console.print("[bold cyan]🏥 Running CodeGraphContext Diagnostics...[/bold cyan]\n")
     
     all_checks_passed = True
+    # Warnings are not failures, but printing "All diagnostics passed! System is
+    # healthy." while a ⚠ is on screen is misleading — `doctor` is the command
+    # people run when something is already wrong.
+    warnings_found = False
 
     config_manager.ensure_first_run_bootstrap()
     config_manager.ensure_config_file()
@@ -1294,6 +1298,32 @@ def doctor():
 
                 if is_falkordb_usable():
                     console.print("   [green]✓[/green] FalkorDB Lite is installed")
+                    # An import probe is not a connection check. This section is
+                    # titled "Checking Database Connection" and the neo4j /
+                    # falkordb-remote branches genuinely connect, so the default
+                    # backend must too — otherwise `doctor` reports a healthy
+                    # system without ever touching the database.
+                    try:
+                        from codegraphcontext.core import get_database_manager
+
+                        probe_manager = get_database_manager()
+                        try:
+                            with probe_manager.get_driver().session() as probe_session:
+                                probe_session.run("RETURN 1")
+                            console.print("   [green]✓[/green] FalkorDB Lite connection successful")
+                            backend_in_use = probe_manager.get_backend_type()
+                            if backend_in_use != "falkordb":
+                                console.print(
+                                    f"   [yellow]⚠[/yellow] Configured backend is 'falkordb' but "
+                                    f"'{backend_in_use}' is actually active"
+                                )
+                                warnings_found = True
+                        finally:
+                            probe_manager.close_driver()
+                    except Exception as conn_error:
+                        console.print("   [red]✗[/red] FalkorDB Lite connection failed")
+                        console.print(f"       Reason: {conn_error}")
+                        all_checks_passed = False
                 else:
                     raise ImportError("FalkorDB Lite is not available on this platform")
             except ImportError:
@@ -1304,6 +1334,7 @@ def doctor():
                 all_checks_passed = False
         else:
             console.print(f"   [yellow]⚠[/yellow] No connectivity probe for backend '{default_db}'")
+            warnings_found = True
     except Exception as e:
         console.print(f"   [red]✗[/red] Database check error: {e}")
         all_checks_passed = False
@@ -1333,6 +1364,7 @@ def doctor():
             console.print(f"   [green]✓[/green] {len(available)}/{len(probe_langs)} probed parsers OK: {', '.join(available)}")
             if unavailable:
                 console.print(f"   [yellow]⚠[/yellow] Unavailable: {', '.join(unavailable)}")
+                warnings_found = True
         except ImportError:
             console.print("   [red]✗[/red] tree-sitter-language-pack not installed")
             all_checks_passed = False
@@ -1358,6 +1390,7 @@ def doctor():
                 all_checks_passed = False
         else:
             console.print("   [yellow]⚠[/yellow] Config directory doesn't exist, will be created on first use")
+            warnings_found = True
     except Exception as e:
         console.print(f"   [red]✗[/red] Permission check error: {e}")
         all_checks_passed = False
@@ -1370,11 +1403,17 @@ def doctor():
         console.print(f"   [green]✓[/green] cgc command found at: {cgc_path}")
     else:
         console.print("   [yellow]⚠[/yellow] cgc command not in PATH (using python -m cgc)")
+        warnings_found = True
     
     # Final summary
     console.print("\n" + "=" * 60)
-    if all_checks_passed:
+    if all_checks_passed and not warnings_found:
         console.print("[bold green]✅ All diagnostics passed! System is healthy.[/bold green]")
+    elif all_checks_passed:
+        console.print(
+            "[bold yellow]✅ No failures, but some checks reported warnings "
+            "(⚠ above).[/bold yellow]"
+        )
     else:
         console.print("[bold yellow]⚠️  Some issues detected. Please review the output above.[/bold yellow]")
         console.print("\n[cyan]Common fixes:[/cyan]")
@@ -1609,6 +1648,7 @@ def delete(
 def report(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path. Defaults to CGC_REPORT.md in the current directory."),
     java: bool = typer.Option(False, "--java", "-j", help="Include Spring/Maven Java sections."),
+    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Repository root to scope the report to. Defaults to auto-detection from the current directory."),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
@@ -1627,7 +1667,15 @@ def report(
     db_manager, _, _, _ = _initialize_services(context)
     try:
         from codegraphcontext.tools.report_generator import generate_report
-        report_text = generate_report(db_manager, output_path=output_path, include_java=java)
+        # Without --repo the generator silently picks the repo with the most
+        # indexed files, which is disclosed only in the report body.
+        scoped_repo = Path(repo).expanduser().resolve().as_posix() if repo else None
+        report_text = generate_report(
+            db_manager,
+            output_path=output_path,
+            include_java=java,
+            repo_path=scoped_repo,
+        )
         console.print(f"[green]✓[/green] Report written to [bold]{output_path}[/bold]")
         # Print a short preview (first ~40 lines)
         preview_lines = report_text.splitlines()[:40]
