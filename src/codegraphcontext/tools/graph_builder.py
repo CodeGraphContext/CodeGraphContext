@@ -97,6 +97,8 @@ class GraphBuilder:
         }
         
         # Files that should be added to the graph as minimal File nodes, even if not parsed
+        # Keep in sync with discovery._GENERIC_EXTENSIONS / _GENERIC_FILENAMES.
+        # Dotfiles have no suffix, so they must be matched by name, not extension.
         self.generic_extensions = {
             ".toml", ".sh", ".yaml", ".yml", ".json", ".ini", ".cfg", ".md", ".txt",
             ".bat", ".ps1"
@@ -1065,11 +1067,22 @@ class GraphBuilder:
             else:
                 file_data = parser.parse(path, is_dependency, index_source=index_source)
             file_data["repo_path"] = str(repo_path)
+            # Most parsers catch their own exceptions and return {"path", "error"}
+            # rather than raising, so the handler below never sees them. Flag the
+            # failure here so it is distinguishable from the benign "generic file"
+            # and "no parser" returns above, which share the same shape.
+            if "error" in file_data:
+                file_data["parse_failed"] = True
             return file_data
         except Exception as e:
             error_logger(f"Error parsing {path} with {parser.language_name} parser: {e}")
             debug_log(f"[parse_file] Error parsing {path}: {e}")
-            return {"path": str(path), "error": str(e)}
+            # `parse_failed` distinguishes a genuine parser failure from the
+            # benign "generic file type" / "no parser" returns above, which
+            # otherwise share the same shape. Without it a broken parse and a
+            # .md file take the identical branch in the pipeline and the run
+            # still reports "Successfully finished indexing".
+            return {"path": str(path), "error": str(e), "parse_failed": True}
 
     def estimate_processing_time(self, path: Path) -> Optional[Tuple[int, float]]:
         """Estimate the time required to index a repository.

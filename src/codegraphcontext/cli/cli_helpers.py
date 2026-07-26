@@ -112,6 +112,9 @@ def _print_index_execution_summary(graph_builder: GraphBuilder) -> None:
         "Files by extension",
         _format_extension_counts(summary.get("files_by_extension", {})),
     )
+    failed_files = summary.get("failed_files", 0)
+    if failed_files:
+        table.add_row("[red]Files failed to parse[/red]", f"[red]{failed_files}[/red]")
     table.add_row("Function nodes", str(summary.get("function_nodes", 0)))
     table.add_row("Class nodes", str(summary.get("class_nodes", 0)))
     table.add_row("CALLS edges", str(summary.get("call_edges", 0)))

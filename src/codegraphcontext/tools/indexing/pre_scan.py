@@ -114,7 +114,19 @@ def pre_scan_for_imports(
     registry = _get_registry()
     for ext, file_list in files_by_ext.items():
         scanner = registry.get(ext)
-        if scanner:
-            imports_map.update(scanner(file_list, get_parser))
+        if not scanner:
+            continue
+        # dict.update() *replaces* the value list, so in a polyglot repo a
+        # symbol defined in two languages kept only the last-scanned
+        # language's paths — e.g. a Java `Widget` disappeared behind a Python
+        # `Widget`, and cross-file CALLS/INHERITS resolution for it then fell
+        # to a lower-confidence tier or failed outright. Merge instead.
+        for name, paths in scanner(file_list, get_parser).items():
+            if not paths:
+                imports_map.setdefault(name, [])
+                continue
+            bucket = imports_map.setdefault(name, [])
+            seen = set(bucket)
+            bucket.extend(p for p in paths if not (p in seen or seen.add(p)))
 
     return imports_map
