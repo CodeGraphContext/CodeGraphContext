@@ -357,14 +357,25 @@ class GraphWriter:
                             )
                         if item.get("context_type") == "function_definition":
                             outer_ctx = item.get("context")
-                            outer_name = (
-                                outer_ctx[0]
-                                if isinstance(outer_ctx, (tuple, list)) and outer_ctx
-                                else outer_ctx
-                            )
+                            is_seq = isinstance(outer_ctx, (tuple, list)) and outer_ctx
+                            outer_name = outer_ctx[0] if is_seq else outer_ctx
+                            # The parser already reports the enclosing function's
+                            # line (_get_parent_context returns name, type, line)
+                            # but it was discarded, so the MATCH below keyed on
+                            # name alone. Any file with two same-named functions
+                            # — i.e. the same method name on two classes, which
+                            # is extremely common — got a false CONTAINS edge.
+                            if is_seq and len(outer_ctx) > 2 and isinstance(outer_ctx[2], int):
+                                outer_line = outer_ctx[2]
+                            else:
+                                # Parsers that flatten `context` to a bare name
+                                # report the line separately.
+                                raw_line = item.get("context_line", -1)
+                                outer_line = raw_line if isinstance(raw_line, int) else -1
                             nested_fn_batch.append(
                                 {
                                     "outer": outer_name,
+                                    "outer_line": outer_line,
                                     "inner_name": item["name"],
                                     "inner_line": item["line_number"],
                                 }
@@ -512,6 +523,7 @@ class GraphWriter:
                     """
                     UNWIND $batch AS row
                     MATCH (outer:Function {name: row.outer, path: $file_path})
+                    WHERE row.outer_line < 0 OR outer.line_number = row.outer_line
                     MATCH (inner:Function {name: row.inner_name, path: $file_path, line_number: row.inner_line})
                     MERGE (outer)-[:CONTAINS]->(inner)
                 """,

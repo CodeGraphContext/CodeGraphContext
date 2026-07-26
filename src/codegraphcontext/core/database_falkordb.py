@@ -20,6 +20,7 @@ import re
 from pathlib import Path
 from typing import Optional, Tuple
 
+from codegraphcontext.utils.cypher_ddl import ddl_kind, is_schema_ddl
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 
 # ---------------------------------------------------------------------------
@@ -678,18 +679,24 @@ class FalkorDBSessionWrapper:
 
     def _translate_schema_query(self, query: str) -> str:
         """Translate Neo4j schema queries to FalkorDB/RedisGraph syntax."""
-        q_upper = query.upper()
-        
-        # Handle Fulltext Indexes (Not supported in same syntax, skip for now)
-        if "CREATE FULLTEXT INDEX" in q_upper:
+        # Classify on the statement's leading keyword, not by searching the
+        # whole text: a substring test also matches these words inside a string
+        # literal, which silently replaced ordinary data queries with
+        # "RETURN 1" — a fabricated result of the wrong shape, with no error.
+        kind = ddl_kind(query)
+        if kind is None:
+            return query
+
+        # Fulltext indexes: not supported in the same syntax, skip for now.
+        if kind == "fulltext":
             return "RETURN 1"
-            
-        # Handle Constraints through GRAPH.CONSTRAINT in run()
-        if "CREATE CONSTRAINT" in q_upper:
+
+        # Constraints go through GRAPH.CONSTRAINT in run().
+        if kind == "constraint":
             return "RETURN 1"
-            
-        # Handle Regular Indexes
-        elif "CREATE INDEX" in q_upper:
+
+        # Handle regular indexes
+        if kind == "index":
             # Remove "IF NOT EXISTS"
             query = re.sub(r'\s+IF NOT EXISTS', '', query, flags=re.IGNORECASE)
             # Remove Index Name: CREATE INDEX name FOR -> CREATE INDEX FOR
