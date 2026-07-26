@@ -236,7 +236,7 @@ class JavaToolkit:
         where = " AND ".join(conditions)
         return self._run(
             f"""
-            MATCH (caller)-[c:CALLS]->(callee)
+            MATCH (caller)-[c:CALLS|HEURISTIC_CALLS]->(callee)
             WHERE {where}
             RETURN caller.name AS caller, callee.name AS callee,
                    c.resolution_tier AS resolution_tier, caller.path AS file
