@@ -18,7 +18,7 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
     ]
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 source_code = f.read()
                 tree = parser_wrapper.parser.parse(bytes(source_code, "utf8"))
             for query_str in query_strings:
@@ -81,7 +81,7 @@ class TypescriptJSXTreeSitterParser(TypescriptTreeSitterParser):
         Indexes components, functions, imports, and exports.
         """
         self.index_source = index_source
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
             source_code = f.read()
         tree = self.parser.parse(bytes(source_code, "utf8"))
         root_node = tree.root_node
