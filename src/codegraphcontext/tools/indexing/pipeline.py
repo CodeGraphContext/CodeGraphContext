@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from ...core.jobs import JobManager, JobStatus
-from ...utils.debug_log import debug_log, error_logger, info_logger
+from ...utils.debug_log import debug_log, error_logger, info_logger, warning_logger
 from .discovery import discover_files_to_index
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
@@ -136,23 +136,40 @@ async def run_tree_sitter_index_async(
 
     # Parsing remains concurrent, but graph writes are ordered so shared nodes
     # such as imported modules receive deterministic canonical metadata.
+    # One unwritable file must not abort the run. There is no transaction here,
+    # so an exception escaping this loop left a partially written graph with no
+    # rollback and every remaining file silently unindexed.
+    write_failures: List[Dict[str, Any]] = []
     for file_data in sorted(all_file_data, key=lambda data: str(data.get("path") or "")):
         repo_path = Path(file_data.pop("_index_repo_path"))
-        if "error" not in file_data:
-            await asyncio.to_thread(
-                writer.add_file_to_graph,
-                file_data,
-                repo_name,
-                imports_map,
-                repo_path_str=resolved_repo_path_str,
-            )
-        elif not file_data.get("unsupported"):
-            await asyncio.to_thread(
-                add_minimal_file_node,
-                Path(file_data["path"]),
-                repo_path,
-                is_dependency,
-            )
+        try:
+            if "error" not in file_data:
+                await asyncio.to_thread(
+                    writer.add_file_to_graph,
+                    file_data,
+                    repo_name,
+                    imports_map,
+                    repo_path_str=resolved_repo_path_str,
+                )
+            elif not file_data.get("unsupported"):
+                await asyncio.to_thread(
+                    add_minimal_file_node,
+                    Path(file_data["path"]),
+                    repo_path,
+                    is_dependency,
+                )
+        except Exception as exc:  # noqa: BLE001 - keep indexing the other files
+            path = file_data.get("path")
+            write_failures.append({"path": path, "error": str(exc)})
+            error_logger(f"Failed to write {path} to the graph: {exc}")
+            file_data["error"] = str(exc)
+            file_data["parse_failed"] = True
+
+    if write_failures:
+        warning_logger(
+            f"{len(write_failures)} file(s) could not be written to the graph; "
+            "the rest of the repository was still indexed."
+        )
 
     all_file_data = [file_data for file_data in all_file_data if "error" not in file_data]
 
