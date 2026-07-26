@@ -829,6 +829,7 @@ def bundle_load(
     bundle_name: str = typer.Argument(..., help="Bundle name or path to load (e.g., 'numpy' or 'numpy.cgc')"),
     clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before loading"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation when using --clear"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
     Load a pre-indexed bundle (download if needed, then import).
@@ -849,7 +850,7 @@ def bundle_load(
     
     # If it's an absolute path or has .cgc extension and exists, use it directly
     if bundle_path.is_absolute() or (bundle_path.suffix == '.cgc' and bundle_path.exists()):
-        bundle_import(str(bundle_path), clear=clear, yes=yes)
+        bundle_import(str(bundle_path), clear=clear, yes=yes, context=context)
         return
     
     # Add .cgc extension if not present
@@ -859,7 +860,7 @@ def bundle_load(
     # Check if exists locally
     if bundle_path.exists():
         console.print(f"[dim]Found local bundle: {bundle_path}[/dim]")
-        bundle_import(str(bundle_path), clear=clear, yes=yes)
+        bundle_import(str(bundle_path), clear=clear, yes=yes, context=context)
         return
     
     # Try to download from registry
@@ -877,7 +878,7 @@ def bundle_load(
         
         if downloaded_path:
             # Import the downloaded bundle
-            bundle_import(downloaded_path, clear=clear, yes=yes)
+            bundle_import(downloaded_path, clear=clear, yes=yes, context=context)
         else:
             console.print(f"[bold red]Failed to download bundle '{name}'[/bold red]")
             raise typer.Exit(code=1)
@@ -1015,9 +1016,12 @@ def load_shortcut(
     bundle_name: str = typer.Argument(..., help="Bundle name or path to load"),
     clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before loading"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation when using --clear"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """Shortcut for 'cgc bundle load'"""
-    bundle_load(bundle_name, clear, yes=yes)
+    # Must pass `context` explicitly: invoked as a plain function, Typer does not
+    # resolve defaults, so an omitted parameter keeps its OptionInfo sentinel.
+    bundle_load(bundle_name, clear, yes=yes, context=context)
 
 # ============================================================================
 # REGISTRY COMMAND GROUP - Browse and Download Bundles
@@ -1118,7 +1122,7 @@ def registry_download(
     
     if load and bundle_path:
         console.print("\n[cyan]Loading bundle...[/cyan]")
-        bundle_import(bundle_path, clear=False)
+        bundle_import(bundle_path, clear=False, yes=False, context=None)
 
 @registry_app.command("request")
 def registry_request(
@@ -1414,9 +1418,18 @@ def index(
             reindex_helper(path, context)
         else:
             index_helper(path, context)
+    except typer.Exit:
+        # typer.Exit subclasses RuntimeError and str() is empty, so the handler
+        # below caught it, printed nothing, and returned 0 — every helper that
+        # raised `typer.Exit(code=1)` (missing path, failed indexing) silently
+        # became a success. Re-raise control flow before catching errors.
+        raise
     except Exception as e:
         if str(e):
             console.print(f"[red]An error occurred during indexing: {e}[/red]")
+        else:
+            console.print("[red]An error occurred during indexing.[/red]")
+        raise typer.Exit(code=1)
 
     if summarize:
         import os
@@ -2961,10 +2974,13 @@ def cypher_legacy(
 def index_abbrev(
     path: Optional[str] = typer.Argument(None, help="Path to index"),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)"),
+    summarize: bool = typer.Option(False, "--summarize", "-s", help="Display a codebase summary after indexing"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use")
 ):
     """Shortcut for 'cgc index'"""
-    index(path, force=force, context=context)
+    # `summarize` must be passed explicitly: omitted, it keeps its OptionInfo
+    # sentinel, which is truthy — so `cgc i` always printed the summary.
+    index(path, force=force, summarize=summarize, context=context)
 
 @app.command("ls", rich_help_panel="Shortcuts")
 def list_abbrev(
