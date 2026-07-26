@@ -1,4 +1,5 @@
 """Regression tests for command-to-command delegation and `cgc index` exit codes."""
+import re
 import ast
 import inspect
 from unittest.mock import patch
@@ -11,6 +12,20 @@ from codegraphcontext.cli import main as cli_main
 from codegraphcontext.cli.main import app
 
 runner = CliRunner()
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI escapes and collapse whitespace.
+
+    Rich emits colour codes (and soft-wraps) whenever it thinks the terminal
+    supports them — which it does in CI but not always locally. Asserting on
+    raw `result.output` therefore passes on a dev machine and fails in CI with
+    the expected text plainly visible, just interleaved with \x1b[1;36m codes.
+    """
+    return " ".join(_ANSI_RE.sub("", text).split())
+
 
 
 def _command_functions(tree):
@@ -112,4 +127,4 @@ def test_index_still_exits_zero_on_success():
 def test_bundle_load_accepts_a_context_flag():
     result = runner.invoke(app, ["bundle", "load", "--help"])
     assert result.exit_code == 0
-    assert "--context" in " ".join(result.output.split())
+    assert "--context" in _plain(result.output)

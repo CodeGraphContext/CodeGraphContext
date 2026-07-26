@@ -1,3 +1,4 @@
+import re
 """Regression tests for CLI exit codes and short-flag conventions."""
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -10,6 +11,20 @@ from codegraphcontext.cli import cli_helpers
 from codegraphcontext.cli.main import app
 
 runner = CliRunner()
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI escapes and collapse whitespace.
+
+    Rich emits colour codes (and soft-wraps) whenever it thinks the terminal
+    supports them — which it does in CI but not always locally. Asserting on
+    raw `result.output` therefore passes on a dev machine and fails in CI with
+    the expected text plainly visible, just interleaved with \x1b[1;36m codes.
+    """
+    return " ".join(_ANSI_RE.sub("", text).split())
+
 
 
 def _services():
@@ -65,13 +80,13 @@ def test_short_h_is_help_on_subcommands(command):
     `visualize`, so `cgc visualize -h` failed with 'requires an argument'."""
     result = runner.invoke(app, [command, "-h"])
     assert result.exit_code == 0
-    assert "Usage:" in result.output
+    assert "Usage:" in _plain(result.output)
 
 
 def test_visualize_host_moved_to_capital_h():
     result = runner.invoke(app, ["visualize", "--help"])
     assert result.exit_code == 0
-    normalised = " ".join(result.output.split())
+    normalised = _plain(result.output)
     assert "--host -H" in normalised
 
 
