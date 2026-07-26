@@ -16,8 +16,10 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
     """
     Tool implementation for executing a read-only Cypher query.
 
-    Write protection uses keyword validation on every backend. Neo4j sessions
-    also request READ access mode at the protocol layer.
+    Write protection is layered: the regex guard rejects write keywords on
+    every backend, and the session is additionally opened in READ access mode
+    so the database itself refuses writes. Neo4j honours ``default_access_mode``
+    natively; FalkorDB routes READ sessions through ``GRAPH.RO_QUERY``.
     """
     cypher_query = args.get("cypher_query")
     graph_name = args.get("graph_name")
@@ -33,7 +35,10 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
 
     backend = getattr(db_manager, "get_backend_type", lambda: "neo4j")()
     session_kwargs: Dict[str, Any] = {}
-    if backend == "neo4j":
+    # Backends that enforce read access at the session/protocol layer.
+    # Neo4j honours default_access_mode natively; the FalkorDB wrapper routes
+    # READ sessions through GRAPH.RO_QUERY (see FalkorDBSessionWrapper).
+    if backend in ("neo4j", "falkordb", "falkordb-remote"):
         session_kwargs["default_access_mode"] = "READ"
 
     try:

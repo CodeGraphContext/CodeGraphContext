@@ -494,11 +494,21 @@ class FalkorDBDriverWrapper:
     
     def __init__(self, graph):
         self.graph = graph
-    
+
     def session(self, **kwargs):
-        """Returns a session-like object for FalkorDB."""
-        return FalkorDBSessionWrapper(self.graph)
-    
+        """Returns a session-like object for FalkorDB.
+
+        Neo4j-specific kwargs are accepted and ignored, except
+        ``default_access_mode``: when it requests READ access we route the
+        session through FalkorDB's server-enforced read-only command
+        (``GRAPH.RO_QUERY``). This gives the user-facing query path real
+        write protection at the database layer instead of relying solely on
+        the regex guard.
+        """
+        access_mode = kwargs.get("default_access_mode")
+        read_only = isinstance(access_mode, str) and access_mode.strip().upper() in ("READ", "R")
+        return FalkorDBSessionWrapper(self.graph, read_only=read_only)
+
     def close(self):
         """FalkorDB Lite doesn't need explicit close for sessions."""
         pass
@@ -508,14 +518,35 @@ class FalkorDBSessionWrapper:
     """
     Wrapper class to provide Neo4j session-like interface for FalkorDB Lite.
     """
-    
-    def __init__(self, graph):
+
+    def __init__(self, graph, read_only: bool = False):
         self.graph = graph
-    
+        self.read_only = read_only
+
     def run(self, query, **parameters):
         """
         Execute a Cypher query on FalkorDB.
+
+        Read-only sessions use ``graph.ro_query`` (GRAPH.RO_QUERY), which the
+        FalkorDB server refuses to run for any write operation. This is the
+        session-level enforcement layer for user-facing read queries; the
+        write-oriented constraint/schema translation below is skipped entirely
+        so that a smuggled write cannot be silently rewritten into a success.
         """
+        if self.read_only:
+            try:
+                ro_query = getattr(self.graph, "ro_query", None)
+                if callable(ro_query):
+                    result = ro_query(query, parameters)
+                else:
+                    # Older FalkorDB clients lack ro_query; fall back to the
+                    # normal path. The regex guard is still the gate here.
+                    result = self.graph.query(query, parameters)
+                return FalkorDBResultWrapper(result)
+            except Exception as e:
+                error_logger(f"FalkorDB read-only query failed: {query[:100]}... Error: {e}")
+                raise
+
         constraint_command = self._translate_constraint_command(query)
         if constraint_command is not None:
             try:

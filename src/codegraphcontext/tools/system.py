@@ -86,23 +86,20 @@ class SystemTools:
         if not cypher_query:
             return {"error": "Cypher query cannot be empty."}
 
-        import re as _re
-        forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'DETACH', 'SET', 'REMOVE', 'DROP', 'LOAD', 'FOREACH']
-        forbidden_patterns = [r'CALL\s+apoc\b', r'CALL\s*\{']
-        string_literal_pattern = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
-        query_without_strings = _re.sub(string_literal_pattern, '', cypher_query)
-        for keyword in forbidden_keywords:
-            if _re.search(r'\b' + keyword + r'\b', query_without_strings, _re.IGNORECASE):
-                return {"error": "This tool only supports read-only queries. Prohibited keywords like CREATE, MERGE, DELETE, SET, etc., are not allowed."}
-        for pattern in forbidden_patterns:
-            if _re.search(pattern, query_without_strings, _re.IGNORECASE):
-                return {"error": "This tool only supports read-only queries. Prohibited keywords like CREATE, MERGE, DELETE, SET, etc., are not allowed."}
+        # Use the shared, hardened guard (word-boundary keywords, string/comment
+        # stripping, multi-statement blocking, dbms/db.*/write-apoc coverage)
+        # rather than a local blocklist that can drift out of sync.
+        from ..utils.cypher_readonly import is_read_only_cypher, read_only_rejection_message
+        if not is_read_only_cypher(cypher_query):
+            return {"error": read_only_rejection_message()}
 
-        # Only the Neo4j driver understands default_access_mode; other
-        # backends' session shims reject it.
+        # Defense in depth: also open the session in READ access mode so the
+        # database refuses writes even if a payload slips past the regex guard.
+        # Neo4j honours default_access_mode natively; the FalkorDB wrapper routes
+        # READ sessions through GRAPH.RO_QUERY.
         backend = getattr(self.db_manager, "get_backend_type", lambda: "neo4j")()
         session_kwargs: Dict[str, Any] = {}
-        if backend == "neo4j":
+        if backend in ("neo4j", "falkordb", "falkordb-remote"):
             session_kwargs["default_access_mode"] = "READ"
 
         try:
