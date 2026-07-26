@@ -433,7 +433,7 @@ def test_cli_inventory_grouped_from_source():
         assert inventory["context"] == {"list", "create", "delete", "mode", "default"}
 
 
-def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
+def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs, tmp_path):
     bundle_file = str(cli_test_stubs["bundle_file"])
     bundle_export = str(cli_test_stubs["bundle_export"])
 
@@ -520,6 +520,19 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
                 ["datasource", "mysql", "--host", "localhost", "--user", "root", "--password", "pw", "--database", "demo"],
                 ["datasource", "cassandra", "--host", "localhost", "--keyspace", "demo"],
                 ["datasource", "redis", "--host", "localhost"],
+            ]
+        )
+    if "prompt" in source_inventory:
+        # The prompt sub-app was added without matrix entries, so this test —
+        # which asserts every command in the source inventory is smoke-tested —
+        # has been failing on main. `add` and `remove` take a path argument.
+        prompt_file = tmp_path / "ci-prompt.md"
+        prompt_file.write_text("# ci prompt\n", encoding="utf-8")
+        command_matrix.extend(
+            [
+                ["prompt", "list"],
+                ["prompt", "add", str(prompt_file)],
+                ["prompt", "remove", str(prompt_file)],
             ]
         )
 
