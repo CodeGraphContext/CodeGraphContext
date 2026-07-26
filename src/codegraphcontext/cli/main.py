@@ -83,6 +83,8 @@ app = typer.Typer(
     name="cgc",
     help="CodeGraphContext: An MCP server for AI-powered code analysis.",
     add_completion=True,
+    # `-h` is accepted as --help on every command, not just at the root.
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 console = Console(stderr=True)
 
@@ -1390,7 +1392,6 @@ def doctor():
 
 
 @app.command()
-@app.command()
 def index(
     path: Optional[str] = typer.Argument(None, help="Path to the directory or file to index. Defaults to the current directory."),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)"),
@@ -1647,7 +1648,9 @@ def report(
 @app.command()
 def visualize(
     repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Path to the repository to visualize."),
-    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host interface to bind to."),
+    # `-h` is --help everywhere else in the CLI; use -H so `cgc visualize -h`
+    # doesn't fail with "Option '-h' requires an argument".
+    host: str = typer.Option("127.0.0.1", "--host", "-H", help="Host interface to bind to."),
     port: int = typer.Option(8000, "--port", "-p", help="Port to run the visualizer server on."),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use")
 ):
