@@ -165,6 +165,10 @@ def find_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
 
 # ── Spring-aware handlers (#887 / #889) ───────────────────────────────────────
 
+#: Row cap shared by the Java/Spring tools; surfaced via `truncated`.
+_SPRING_ROW_LIMIT = 100
+
+
 def find_java_spring_endpoints(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """Return all Spring HTTP endpoint functions, optionally filtered by method or path."""
     http_method = args.get("http_method")
@@ -187,20 +191,25 @@ def find_java_spring_endpoints(code_finder: CodeFinder, **args) -> Dict[str, Any
         params["repo_path"] = repo_path
 
     where_clause = " AND ".join(conditions)
+    params["spring_row_limit"] = _SPRING_ROW_LIMIT
     query = f"""
         MATCH (fn:Function)
         WHERE {where_clause}
         RETURN fn.http_method AS method, fn.http_path AS path,
                fn.name AS handler, fn.path AS file, fn.line_number AS line_number
         ORDER BY fn.http_path, fn.http_method
-        LIMIT 100
+        LIMIT $spring_row_limit
     """
 
     try:
         with code_finder.driver.session() as session:
             result = session.run(query, **params)
             rows = [dict(r) for r in result]
-        return {"success": True, "endpoints": rows, "count": len(rows)}
+        response = {"success": True, "endpoints": rows, "count": len(rows)}
+        if len(rows) >= _SPRING_ROW_LIMIT:
+            response["result_limit"] = _SPRING_ROW_LIMIT
+            response["truncated"] = True
+        return response
     except Exception as exc:
         debug_log(f"Error finding Spring endpoints: {exc}")
         return {"error": str(exc)}
@@ -223,6 +232,7 @@ def find_java_spring_beans(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         params["repo_path"] = repo_path
 
     where_clause = " AND ".join(conditions)
+    params["spring_row_limit"] = _SPRING_ROW_LIMIT
     query = f"""
         MATCH (c:Class)
         WHERE {where_clause}
@@ -231,14 +241,18 @@ def find_java_spring_beans(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         RETURN c.name AS name, c.spring_stereotype AS stereotype,
                c.path AS file, c.line_number AS line_number, injection_count
         ORDER BY stereotype, name
-        LIMIT 100
+        LIMIT $spring_row_limit
     """
 
     try:
         with code_finder.driver.session() as session:
             result = session.run(query, **params)
             rows = [dict(r) for r in result]
-        return {"success": True, "beans": rows, "count": len(rows)}
+        response = {"success": True, "beans": rows, "count": len(rows)}
+        if len(rows) >= _SPRING_ROW_LIMIT:
+            response["result_limit"] = _SPRING_ROW_LIMIT
+            response["truncated"] = True
+        return response
     except Exception as exc:
         debug_log(f"Error finding Spring beans: {exc}")
         return {"error": str(exc)}

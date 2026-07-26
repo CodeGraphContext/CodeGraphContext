@@ -178,7 +178,7 @@ cgc unwatch <PATH>
 cgc watching
 ```
 
-On startup, watchers reconcile the graph with the filesystem (add missing files, remove deleted paths) before monitoring changes.
+With `--sync-on-start`, watchers reconcile the graph with the filesystem (add missing files, remove deleted paths) before monitoring changes. This is off by default.
 
 ---
 

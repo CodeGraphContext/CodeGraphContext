@@ -239,7 +239,13 @@ TOOLS = {
 
     "delete_repository": {
         "name": "delete_repository",
-        "description": "Delete a repository from the graph.",
+        "description": (
+            "DESTRUCTIVE AND IRREVERSIBLE. Permanently deletes a repository and "
+            "every node and relationship belonging to it from the graph. There is "
+            "no undo, and recovering the data requires a full re-index, which can "
+            "take a long time on a large repository. Only call this when the user "
+            "has explicitly asked for that repository to be removed."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -289,12 +295,29 @@ TOOLS = {
 
     "load_bundle": {
         "name": "load_bundle",
-        "description": "Load a pre-indexed bundle.",
+        "description": (
+            "Load a pre-indexed graph bundle (.cgc) into the database. Note that "
+            "clear_existing=True is DESTRUCTIVE AND IRREVERSIBLE — see its "
+            "description before setting it."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "bundle_name": {"type": "string"},
-                "clear_existing": {"type": "boolean", "default": False},
+                "bundle_name": {
+                    "type": "string",
+                    "description": "Name of the bundle to load from the registry, or a path to a local .cgc file."
+                },
+                "clear_existing": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "DESTRUCTIVE AND IRREVERSIBLE. When true, the existing "
+                        "repository data is deleted from the graph before the bundle "
+                        "is imported — this discards previously indexed content, not "
+                        "just a previous copy of this bundle. Leave false unless the "
+                        "user has explicitly asked to replace what is already indexed."
+                    )
+                },
                 "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["bundle_name"]
