@@ -53,7 +53,7 @@
 | `cgc analyze tree` | `<class>` `--file` | Visualize class inheritance hierarchy. |
 | `cgc analyze complexity` | `[path]` `--threshold` `--limit` | List functions with high cyclomatic complexity. Default threshold: 10. |
 | `cgc analyze dead-code` | `--exclude` | Find potentially unused functions (0 callers). |
-| `cgc analyze overrides` | `<class>` `--file` | Show methods that override parent class methods. |
+| `cgc analyze overrides` | `<function_name>` | Show implementations of a function across different classes. |
 | `cgc analyze variable` | `<var_name>` `--file` | Analyze variable usage and assignments. |
 
 ---
@@ -66,7 +66,7 @@
 | `cgc find pattern` | `<pattern>` `--case-sensitive` | Find elements using fuzzy substring matching. |
 | `cgc find type` | `<type>` `--limit` | List all nodes of a specific type (function, class, module). |
 | `cgc find variable` | `<name>` | Find variables by name across the codebase. |
-| `cgc find content` | `<text>` `--case-sensitive` | Search for text content within code (docstrings, comments). |
+| `cgc find content` | `<text>` | Search for text content within code (docstrings, comments). |
 | `cgc find decorator` | `<name>` | Find all functions/classes with a specific decorator. |
 | `cgc find argument` | `<name>` | Find all functions that have a specific argument name. |
 
@@ -113,7 +113,7 @@
 | Command | Arguments | Description |
 |---------|-----------|-------------|
 | `cgc doctor` | None | Run system diagnostics (DB, dependencies, permissions). |
-| `cgc visualize` | `[query]` | Generate link to Neo4j Browser. *(Alias: `cgc v`)* |
+| `cgc visualize` | `--repo <path>` `--host <host>` `--port <port>` | Launch the local interactive graph UI. *(Alias: `cgc v`)* |
 | `cgc query` | `<query>` | Execute raw Cypher query against DB. |
 | `cgc help` | None | Show main help message with all commands. |
 | `cgc version` | None | Show application version. |

@@ -27,7 +27,7 @@ Use `cgc version` (or `cgc --version`) to print the installed release (currently
 
 | Command | Usage | Notes |
 | :--- | :--- | :--- |
-| **`index`** | `cgc index [PATH] [--force] [--dependency]` | Shortcut: `cgc i`. Incremental by default; `--force` rebuilds from scratch. |
+| **`index`** | `cgc index [PATH] [--force] [--summarize]` | Shortcut: `cgc i`. Incremental by default; `--force` rebuilds from scratch and `--summarize` prints an indexing summary. |
 | **`clean`** | `cgc clean` | Purges orphaned nodes and dangling relationships. |
 | **`stats`** | `cgc stats` | Repository and node counts for the active context. |
 | **`delete`** | `cgc delete <repo_path>` | Shortcut: `cgc rm`. Removes one indexed repository. |
@@ -69,7 +69,7 @@ cgc analyze <subcommand> [args] [options]
 | `analyze tree <class>` | Class inheritance tree. |
 | `analyze complexity <function>` | Cyclomatic complexity for one function. |
 | `analyze dead-code` | Unreferenced functions/files (with optional filters). |
-| `analyze overrides <class>` | Methods overridden in subclasses. |
+| `analyze overrides <function>` | Implementations of a function across different classes. |
 | `analyze variable <name>` | Variable scope and modification sites. |
 | `analyze kotlin-call-audit` | Kotlin-specific call resolution audit. |
 
@@ -91,7 +91,7 @@ cgc query "MATCH (n)-[r]->(m) RETURN n,r,m LIMIT 50" --visual
 Generate `CGC_REPORT.md` with god-node, complexity, and coupling metrics.
 
 ```bash
-cgc report [--include-java]
+cgc report [--java]
 ```
 
 #### `visualize`
