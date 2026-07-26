@@ -1,8 +1,10 @@
-from typing import Any, Dict
+# src/codegraphcontext/tools/handlers/management_handlers.py
+from typing import Any, Dict, Optional
 from dataclasses import asdict
 from datetime import datetime
 from ...core.jobs import JobManager, JobStatus
 from ...utils.debug_log import debug_log
+from ...utils.tool_limits import get_tool_result_limit
 from ..code_finder import CodeFinder
 from ..graph_builder import GraphBuilder
 
@@ -21,7 +23,21 @@ def list_indexed_repositories(code_finder: CodeFinder, **args) -> Dict[str, Any]
 
 def delete_repository(graph_builder: GraphBuilder, **args) -> Dict[str, Any]:
     """Tool to delete a repository from the graph."""
-    repo_path = args.get("repo_path")
+    from ...cli.config_manager import is_db_deletion_allowed
+
+    if not is_db_deletion_allowed():
+        return {
+            "error": (
+                "Repository deletion is disabled. Set ALLOW_DB_DELETION=true in "
+                "~/.codegraphcontext/.env to enable destructive MCP operations."
+            )
+        }
+
+    repo_path = args.get("repo_path") or args.get("path") or args.get("repo")
+
+    if not repo_path:
+        return {"error": "Repository path is required (repo_path)."}
+    repo_path = str(repo_path).strip()
     try:
         debug_log(f"Deleting repository: {repo_path}")
         if graph_builder.delete_repository_from_graph(repo_path):
@@ -29,11 +45,10 @@ def delete_repository(graph_builder: GraphBuilder, **args) -> Dict[str, Any]:
                 "success": True,
                 "message": f"Repository '{repo_path}' deleted successfully."
             }
-        else:
-                return {
-                "success": False,
-                "message": f"Repository '{repo_path}' not found in the graph."
-            }
+        return {
+            "success": False,
+            "message": f"Repository '{repo_path}' not found in the graph."
+        }
     except Exception as e:
         debug_log(f"Error deleting repository: {str(e)}")
         return {"error": f"Failed to delete repository: {str(e)}"}
@@ -127,14 +142,43 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     
     try:
         debug_log(f"Loading bundle: {bundle_name}")
-        
-        # Check if bundle exists locally
-        bundle_path = Path(bundle_name)
-        
+
+        if clear_existing:
+            from ...cli.config_manager import is_db_deletion_allowed
+
+            if not is_db_deletion_allowed():
+                return {
+                    "error": (
+                        "Bundle import with clear_existing is disabled. Set "
+                        "ALLOW_DB_DELETION=true in ~/.codegraphcontext/.env."
+                    )
+                }
+
+        from ...utils.path_sandbox import is_path_allowed, sanitize_bundle_filename, is_safe_download_url
+
+        def _ensure_allowed_bundle_path(candidate: Path) -> Optional[Dict[str, Any]]:
+            resolved = candidate.resolve()
+            if not is_path_allowed(resolved):
+                return {
+                    "error": (
+                        f"Bundle path '{resolved}' is outside allowed roots. "
+                        "Use a bundle under the workspace or CGC_ALLOWED_ROOTS."
+                    )
+                }
+            return None
+
+        bundle_path = Path(bundle_name).resolve()
+        sandbox_error = _ensure_allowed_bundle_path(bundle_path)
+        if sandbox_error:
+            return sandbox_error
+
         # If it doesn't exist as-is, try with .cgc extension
         if not bundle_path.exists() and not str(bundle_name).endswith('.cgc'):
-            bundle_path = Path(f"{bundle_name}.cgc")
-        
+            bundle_path = Path(f"{bundle_name}.cgc").resolve()
+            sandbox_error = _ensure_allowed_bundle_path(bundle_path)
+            if sandbox_error:
+                return sandbox_error
+
         if not bundle_path.exists():
             # Try to download from registry
             debug_log(f"Bundle {bundle_name} not found locally, checking registry...")
@@ -143,11 +187,18 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
             if not download_url:
                 return {"error": f"Bundle not found locally or in registry: {bundle_name}. {error}"}
             
-            # Determine output filename from metadata
-            filename = bundle_meta.get('bundle_name', f"{bundle_name}.cgc")
-            # Save to current working directory
-            target_path = Path.cwd() / filename
-            
+            if not is_safe_download_url(download_url):
+                return {"error": f"Refusing to download bundle from untrusted URL: {download_url}"}
+
+            filename = sanitize_bundle_filename(
+                bundle_meta.get('bundle_name', f"{bundle_name}.cgc"),
+                default=f"{bundle_name}.cgc",
+            )
+            target_path = (Path.cwd() / filename).resolve()
+            sandbox_error = _ensure_allowed_bundle_path(target_path)
+            if sandbox_error:
+                return sandbox_error
+
             debug_log(f"Downloading bundle to {target_path}...")
             try:
                 BundleRegistry.download_file(download_url, target_path)
@@ -171,9 +222,14 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
             stats = {}
             # Parse simple stats from message if possible, or just return success
             if "Nodes:" in message:
-                 # Best effort parsing, not critical
-                 pass
-                 
+                import re as _re
+                nodes_match = _re.search(r'Nodes:\s*(\d+)', message)
+                edges_match = _re.search(r'Edges:\s*(\d+)', message)
+                if nodes_match:
+                    stats["nodes"] = int(nodes_match.group(1))
+                if edges_match:
+                    stats["edges"] = int(edges_match.group(1))
+
             return {
                 "success": True,
                 "message": message,
@@ -196,16 +252,15 @@ def search_registry_bundles(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     
     try:
         debug_log(f"Searching registry for: {query}")
-        
-        # Fetch directly from core registry
+
         bundles = BundleRegistry.fetch_available_bundles()
-        
+
         if not bundles:
             return {
                 "success": True,
                 "bundles": [],
                 "total": 0,
-                "message": "No bundles found in registry"
+                "message": "No bundles found in registry",
             }
         
         # Filter by query if provided
@@ -236,16 +291,33 @@ def search_registry_bundles(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         
         # Sort by name
         bundles.sort(key=lambda b: (b.get('name', ''), b.get('full_name', '')))
-        
-        return {
+
+        limit = get_tool_result_limit("search_registry_bundles")
+        truncated = False
+        if limit and len(bundles) > limit:
+            bundles = bundles[:limit]
+            truncated = True
+
+        response = {
             "success": True,
             "bundles": bundles,
             "total": len(bundles),
             "query": query if query else "all",
-            "unique_only": unique_only
+            "unique_only": unique_only,
         }
+        if truncated:
+            response["result_limit"] = limit
+            response["truncated"] = True
+        return response
     
     except Exception as e:
+        from ...core.bundle_registry import RegistryUnavailableError
+        if isinstance(e, RegistryUnavailableError):
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Bundle registry unreachable — internet connection required.",
+            }
         debug_log(f"Error searching registry: {str(e)}")
         return {"error": f"Failed to search registry: {str(e)}"}
 
@@ -262,7 +334,7 @@ def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         with code_finder.db_manager.get_driver().session() as session:
             if repo_path:
                 # Stats for specific repository
-                repo_path_obj = str(Path(repo_path).resolve())
+                repo_path_obj = Path(repo_path).resolve().as_posix()
                 
                 # Check if repository exists
                 repo_query = """
@@ -276,59 +348,50 @@ def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
                         "error": f"Repository not found: {repo_path_obj}"
                     }
                 
-                # Get stats for specific repo
-                stats_query = """
-                MATCH (r:Repository {path: $path})-[:CONTAINS]->(f:File)
-                WITH r, count(f) as file_count, f
-                OPTIONAL MATCH (f)-[:CONTAINS]->(func:Function)
-                OPTIONAL MATCH (f)-[:CONTAINS]->(cls:Class)
-                OPTIONAL MATCH (f)-[:IMPORTS]->(m:Module)
-                RETURN 
-                    file_count,
-                    count(DISTINCT func) as function_count,
-                    count(DISTINCT cls) as class_count,
-                    count(DISTINCT m) as module_count
-                """
-                result = session.run(stats_query, path=repo_path_obj)
-                record = result.single()
+                # 1. Files
+                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as c"
+                file_count = session.run(file_query, path=repo_path_obj).single()["c"]
+                
+                # 2. Functions
+                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(func) as c"
+                func_count = session.run(func_query, path=repo_path_obj).single()["c"]
+                
+                # 3. Classes
+                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(cls:Class) RETURN count(cls) as c"
+                class_count = session.run(class_query, path=repo_path_obj).single()["c"]
+                
+                # 4. Modules (imported)
+                module_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File)-[:IMPORTS]->(m:Module) RETURN count(DISTINCT m) as c"
+                module_count = session.run(module_query, path=repo_path_obj).single()["c"]
                 
                 return {
                     "success": True,
                     "repository": repo_path_obj,
                     "stats": {
-                        "files": record["file_count"] if record else 0,
-                        "functions": record["function_count"] if record else 0,
-                        "classes": record["class_count"] if record else 0,
-                        "modules": record["module_count"] if record else 0
+                        "files": file_count,
+                        "functions": func_count,
+                        "classes": class_count,
+                        "modules": module_count
                     }
                 }
             else:
                 # Overall database stats
-                stats_query = """
-                MATCH (r:Repository)
-                OPTIONAL MATCH (f:File)
-                OPTIONAL MATCH (func:Function)
-                OPTIONAL MATCH (cls:Class)
-                OPTIONAL MATCH (m:Module)
-                RETURN 
-                    count(DISTINCT r) as repo_count,
-                    count(DISTINCT f) as file_count,
-                    count(DISTINCT func) as function_count,
-                    count(DISTINCT cls) as class_count,
-                    count(DISTINCT m) as module_count
-                """
-                result = session.run(stats_query)
-                record = result.single()
+                repo_count = session.run("MATCH (r:Repository) RETURN count(r) as c").single()["c"]
                 
-                if record and record["repo_count"] > 0:
+                if repo_count > 0:
+                    file_count = session.run("MATCH (f:File) RETURN count(f) as c").single()["c"]
+                    func_count = session.run("MATCH (func:Function) RETURN count(func) as c").single()["c"]
+                    class_count = session.run("MATCH (cls:Class) RETURN count(cls) as c").single()["c"]
+                    module_count = session.run("MATCH (m:Module) RETURN count(m) as c").single()["c"]
+                    
                     return {
                         "success": True,
                         "stats": {
-                            "repositories": record["repo_count"],
-                            "files": record["file_count"],
-                            "functions": record["function_count"],
-                            "classes": record["class_count"],
-                            "modules": record["module_count"]
+                            "repositories": repo_count,
+                            "files": file_count,
+                            "functions": func_count,
+                            "classes": class_count,
+                            "modules": module_count
                         }
                     }
                 else:

@@ -1,0 +1,16 @@
+{
+  "cgc_version": "0.1.0",
+  "exported_at": "2026-07-25T16:56:44Z",
+  "format_version": "1.0.0",
+  "repo": "sample_project_javascript",
+  "repo_path": ".",
+  "is_dependency": false,
+  "commit": "8bd1a8f7",
+  "branch": "main",
+  "generator": "PYv0.5.1",
+  "name": "sample_project_javascript.cgc",
+  "graph_metrics": {
+    "total_nodes": 236,
+    "total_edges": 308
+  }
+}

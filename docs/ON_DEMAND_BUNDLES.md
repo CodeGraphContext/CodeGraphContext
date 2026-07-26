@@ -168,8 +168,11 @@ GET /api/bundle-status?repo=owner/repo
 **Cause:** Repository exceeds 1GB size limit
 
 **Solution:**
+
 - This is a safety limit to prevent long-running workflows
+
 - Consider increasing the limit in `/website/api/trigger-bundle.ts` if needed
+
 - Or add the repository to the weekly pre-indexed list instead
 
 ### Issue: "Bundle generation failed"

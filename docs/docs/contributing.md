@@ -1,47 +1,73 @@
 # Contributing to CodeGraphContext
 
-We welcome contributions! Please follow these steps:
+Thank you for your interest in contributing to CodeGraphContext (CGC). We welcome contributions from the community to improve the performance, language support, and tooling capabilities of the engine.
 
-## General Guidelines
+---
 
-*   Ensure your code adheres to the existing style and conventions of the project.
-*   Write clear, concise, and well-documented code.
-*   All new features or bug fixes should be accompanied by appropriate tests.
-*   Keep your pull requests focused on a single feature or bug fix.
+## Development Principles
 
-## Setting up Your Development Environment
+- **Code Quality**: Adhere to PEP 8 standards for Python codebase.
+- **Robust Testing**: Every bug fix, driver implementation, or parser extension must be accompanied by unit or integration tests.
+- **Focused Commits**: Keep pull requests focused on a single change set.
+- **Maintain Documentation**: Update references and guides if code changes alter command arguments or configurations.
 
-1.  Fork the repository.
-2.  Set up your development environment: `pip install -e ".[dev]"`
-3.  Create a new branch for your feature or bugfix (e.g., `git checkout -b feature/my-new-feature`).
+---
 
-## Debugging
+## Setting Up the Development Workspace
 
-To enable debug mode for detailed logging, locate the `debug_mode` variable in `src/codegraphcontext/tools/graph_builder.py` and set its value to `1`.
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/CodeGraphContext/CodeGraphContext.git
+   cd CodeGraphContext
+   ```
 
-```python
-# src/codegraphcontext/tools/graph_builder.py
-debug_mode = 1
+2. **Initialize Virtual Environment**:
+   Initialize an isolated python environment and install dependencies:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -e ".[dev]"
+   ```
+
+---
+
+## Development Workflows
+
+### Debug Logging
+Enable verbose debug logs during execution by setting the environment variable:
+```bash
+export CGC_LOG_LEVEL=DEBUG
+cgc index
 ```
 
-## Running Tests
+### Running the Test Suite
+The testing pipeline utilizes `pytest`. Ensure all checks pass locally before pushing changes:
 
-Tests are located in the `tests/` directory and are run using `pytest`.
+```bash
+# Run all unit and integration tests
+pytest
 
-1.  Navigate to the root of the `CodeGraphContext` directory.
-2.  Run all tests using the command: `pytest`
-3.  To run specific tests, you can provide the path to the test file, for example: `pytest tests/test_tools.py`
-4.  **Skipping Re-indexing:** To speed up test runs, especially during development, you can set the `CGC_SKIP_REINDEX` environment variable to `true`. This will prevent the test suite from re-indexing the sample project if it's already indexed.
-    ```bash
-    CGC_SKIP_REINDEX=true pytest
-    ```
+# Test a specific driver module
+pytest tests/unit/core/test_database_kuzu_compat.py
 
-## Submitting Changes
+# Run tests bypassing re-indexing cache
+CGC_SKIP_REINDEX=true pytest
+```
 
-1.  Write your code and add corresponding tests in the `tests/` directory.
-2.  Ensure all tests pass and your code lints without errors.
-3.  Commit your changes with a descriptive commit message.
-4.  Submit a pull request to the `main` branch.
+*Note: Integration tests for remote databases like Neo4j require a running local database instance (refer to docker-compose.yml).*
 
+### Formatting & Linting
+We enforce formatting and static checks via `ruff`. Run linting checks before committing:
 
-<!-- "Failed to check job status: 'JobManager' object has no attribute 'JobStatus'" -->
+```bash
+ruff check .
+ruff format .
+```
+
+---
+
+## Pull Request Guidelines
+
+1. **Feature Branches**: Branch from `main` using descriptive naming (e.g., `feat/ladybug-concurrency` or `fix/mcp-json-rpc`).
+2. **Commit Styling**: Write clear, descriptive commit logs.
+3. **Submission**: Open a pull request against the `main` branch. Detail the modification, verify unit test runs, and link to open issue tickets if applicable.

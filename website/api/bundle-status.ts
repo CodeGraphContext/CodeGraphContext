@@ -41,8 +41,9 @@ export default async function handler(req: any, res: any) {
 
         // If repo is provided, check manifest for bundle
         if (repo) {
+            const hfRepo = process.env.HF_REGISTRY_REPO || 'codegraphcontext/bundles';
             const manifestResponse = await fetch(
-                `https://github.com/${process.env.GITHUB_REPOSITORY || 'CodeGraphContext/CodeGraphContext'}/releases/download/on-demand-bundles/manifest.json`
+                `https://huggingface.co/datasets/${hfRepo}/raw/main/manifest.json`
             );
 
             if (!manifestResponse.ok) {

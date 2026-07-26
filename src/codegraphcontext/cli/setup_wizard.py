@@ -1,3 +1,4 @@
+# src/codegraphcontext/cli/setup_wizard.py
 from InquirerPy import prompt
 from rich.console import Console
 import subprocess
@@ -10,8 +11,17 @@ import sys
 import shutil
 import yaml 
 from codegraphcontext.core.database import DatabaseManager
+from codegraphcontext.cli.config_manager import normalize_config_path
 
 console = Console()
+
+def _check_write_access(path: Path) -> bool:
+    target = path if path.exists() else path.parent
+
+    while not target.exists() and target != target.parent:
+        target = target.parent
+
+    return os.access(target, os.W_OK)
 
 # Constants for Docker Neo4j setup
 DEFAULT_NEO4J_URI = "neo4j://localhost:7687"
@@ -19,17 +29,84 @@ DEFAULT_NEO4J_USERNAME = "neo4j"
 DEFAULT_NEO4J_BOLT_PORT = 7687
 DEFAULT_NEO4J_HTTP_PORT = 7474
 
+def _save_neo4j_credentials(creds):
+    """
+    Save Neo4j credentials to .env file (database setup only).
+    Does NOT generate MCP config or configure IDE.
+    """
+    from codegraphcontext.cli.config_manager import load_config, save_config, ensure_config_dir
+    
+    ensure_config_dir()
+    
+    # Load existing config (or defaults if no file exists)
+    config = load_config()
+    
+    # Update Neo4j credentials
+    config["NEO4J_URI"] = creds.get('uri', '')
+    config["NEO4J_USERNAME"] = creds.get('username', 'neo4j')
+    config["NEO4J_PASSWORD"] = creds.get('password', '')
+    
+    # Set default database to neo4j
+    config["DEFAULT_DATABASE"] = "neo4j"
+    
+    # Save config (preserves all other settings)
+    save_config(config, preserve_db_credentials=False)
+    
+    console.print("\n[bold green]✅ Neo4j setup complete![/bold green]")
+    console.print(f"[cyan]📝 Credentials saved to ~/.codegraphcontext/.env[/cyan]")
+    console.print(f"[cyan]🔧 Default database set to 'neo4j'[/cyan]")
+    console.print("\n[dim]You can now use cgc commands with Neo4j:[/dim]")
+    console.print("[dim]  • cgc index .          - Index your code[/dim]")
+    console.print("[dim]  • cgc find function    - Search your codebase[/dim]")
+    console.print("\n[dim]To use cgc as an MCP server in your IDE, run:[/dim]")
+    console.print("[dim]  cgc mcp setup[/dim]")
+
+
+def _validate_neo4j_credentials(creds):
+    """Validate Neo4j credentials and test the connection."""
+    is_valid, validation_error = DatabaseManager.validate_config(
+        creds.get("uri", ""),
+        creds.get("username", ""),
+        creds.get("password", ""),
+    )
+
+    if not is_valid:
+        console.print(validation_error)
+        console.print("\n[red]❌ Invalid configuration. Please try again.[/red]\n")
+        return False
+
+    console.print("[green]✅ Configuration format is valid[/green]")
+    console.print("\n[cyan]🔗 Testing connection...[/cyan]")
+
+    is_connected, error_msg = DatabaseManager.test_connection(
+        creds.get("uri", ""),
+        creds.get("username", ""),
+        creds.get("password", ""),
+    )
+
+    if not is_connected:
+        console.print(error_msg)
+        console.print("\n[red]❌ Connection test failed.[/red]\n")
+        return False
+
+    console.print("[green]✅ Connection successful![/green]")
+    return True
+
+
 def _generate_mcp_json(creds):
     """Generates and prints the MCP JSON configuration."""
-    cgc_path = shutil.which("cgc") or sys.executable
+    cgc_path = shutil.which("cgc")
+    pipx_path = shutil.which("pipx")
 
-    if "python" in Path(cgc_path).name:
-        # fallback to running as module if no cgc binary is found
+    if cgc_path:
         command = cgc_path
-        args = ["-m", "cgc", "mcp", "start"]
+        args = ["mcp", "start"]
+    elif pipx_path:
+        command = pipx_path
+        args = ["run", "codegraphcontext", "mcp", "start"]
     else:
-        command = cgc_path
-        args = ["mcp","start"]
+        command = sys.executable
+        args = ["-m", "codegraphcontext", "mcp", "start"]
 
     mcp_config = {
         "mcpServers": {
@@ -51,10 +128,11 @@ def _generate_mcp_json(creds):
                         "list_indexed_repositories", "delete_repository", "list_watched_paths", 
                         "unwatch_directory", "visualize_graph_query"
                     ],
+                    "disabledTools": [],
                     "disabled": False
                 },
-                "disabled": False,
-                "alwaysAllow": []
+                "disabled": False 
+        
             }
         }
     }
@@ -65,19 +143,28 @@ def _generate_mcp_json(creds):
 
     # Also save to a file for convenience
     mcp_file = Path.cwd() / "mcp.json"
-    with open(mcp_file, "w") as f:
-        json.dump(mcp_config, f, indent=2)
+
+    if not _check_write_access(mcp_file):
+        console.print(
+            f"[bold red]Permission denied:[/bold red] Cannot write to {mcp_file}"
+        )
+        console.print(
+            "[yellow]Please check file permissions or choose a writable directory.[/yellow]"
+        )
+        return
+
+    try:
+        with open(mcp_file, "w") as f:
+            json.dump(mcp_config, f, indent=2)
+    except PermissionError:
+        console.print(
+            f"[bold red]Permission denied while writing:[/bold red] {mcp_file}"
+        )
+        return
     console.print(f"\n[cyan]For your convenience, the configuration has also been saved to: {mcp_file}[/cyan]")
 
-    # Also save to a .env file for convenience
-    env_file = Path.home() / ".codegraphcontext" / ".env"
-    env_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(env_file, "w") as f:
-        f.write(f"NEO4J_URI={creds.get('uri', '')}\n")
-        f.write(f"NEO4J_USERNAME={creds.get('username', 'neo4j')}\n")
-        f.write(f"NEO4J_PASSWORD={creds.get('password', '')}\n")
-
-    console.print(f"[cyan]Neo4j credentials also saved to: {env_file}[/cyan]")
+    # Also save credentials to .env using the proper function
+    _save_neo4j_credentials(creds)
     _configure_ide(mcp_config)
 
 
@@ -105,16 +192,160 @@ def convert_mcp_json_to_yaml():
     if json_path.exists():
         with open(json_path, "r") as json_file:
             mcp_config = json.load(json_file)
-        with open(yaml_path, "w") as yaml_file:
-            yaml.dump(mcp_config, yaml_file, default_flow_style=False)
+        if not _check_write_access(yaml_path):
+            console.print(
+                f"[bold red]Permission denied:[/bold red] Cannot write to {yaml_path}"
+            )
+            return
+
+        try:
+            with open(yaml_path, "w") as yaml_file:
+                yaml.dump(mcp_config, yaml_file, default_flow_style=False)
+        except PermissionError:
+            console.print(
+                f"[bold red]Permission denied while writing:[/bold red] {yaml_path}"
+            )
+            return
         console.print(f"[green]Generated devfile.yaml for Amazon Q Developer at {yaml_path}[/green]")
+
+def _print_opencode_mcp_instructions(mcp_config: dict) -> None:
+    """OpenCode manages MCP in its own UI; we only print the stdio snippet + doc link."""
+    console.print("\n[bold cyan]OpenCode[/bold cyan]")
+    console.print(
+        "Register a stdio MCP server in OpenCode using the same command, args, and env as below "
+        "(mirror your generated mcp.json so OpenCode and the CLI share one database)."
+    )
+    console.print(
+        "\n[dim]Vendor guide:[/dim] https://opencode.ai/docs/ko/mcp-servers/#_top"
+    )
+    console.print("\n[bold]Suggested MCP server JSON:[/bold]")
+    console.print(json.dumps(mcp_config, indent=2))
+
+def _configure_goose(mcp_config):
+    """Configures Goose CLI with the MCP server."""
+    # Define paths
+    paths = [
+        Path.home() / ".config" / "goose" / "config.yaml", # Linux/macOS
+        Path.home() / "AppData" / "Roaming" / "Block" / "goose" / "config.yaml", # Windows default
+        Path.home() / "AppData" / "Roaming" / "goose" / "config.yaml" # Windows alternative
+    ]
+    
+    target_path = None
+    for path in paths:
+        if path.exists():
+            target_path = path
+            break
+            
+    if not target_path:
+        # Check parents
+        for path in paths:
+            if path.parent.exists():
+                target_path = path
+                break
+                
+    if not target_path:
+        # If no config found, default to the first standard path and ensure directory exists
+        target_path = paths[0]
+        
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            console.print(f"[green]Created new configuration directory at: {target_path.parent}[/green]")
+        except PermissionError:
+            console.print(
+                f"[bold red]Permission denied:[/bold red] Cannot create {target_path.parent}"
+            )
+            console.print(
+                "[yellow]Please run with appropriate permissions or create the directory manually.[/yellow]"
+            )
+            return
+            
+        except Exception as e:
+             console.print(f"[yellow]Current paths checked: {[str(p) for p in paths]}[/yellow]")
+             console.print(f"[yellow]Could not create configuration directory: {e}[/yellow]")
+             console.print("Please add the MCP configuration manually.")
+             return
+
+    console.print(f"Using configuration file at: {target_path}")
+
+    try:
+        # Load existing config or start fresh
+        if target_path.exists():
+            with open(target_path, "r") as f:
+                try:
+                    config = yaml.safe_load(f) or {}
+                except yaml.YAMLError as e:
+                    console.print(f"[red]Error parsing existing Goose configuration: {e}[/red]")
+                    console.print("[yellow]Aborting to prevent data loss. Please fix your config.yaml and try again.[/yellow]")
+                    return
+        else:
+            config = {}
+            
+        if "extensions" in config and not isinstance(config["extensions"], dict):
+            console.print("[red]Error: The 'extensions' field in the Goose configuration must be a mapping (dictionary).[/red]")
+            console.print("[yellow]Aborting to prevent overwriting an invalid 'extensions' value. Please fix your config.yaml and try again.[/yellow]")
+            return
+
+        if "extensions" not in config:
+            config["extensions"] = {}
+            
+        # Transform mcp_config to Goose format
+        if "mcpServers" in mcp_config and "CodeGraphContext" in mcp_config["mcpServers"]:
+            cgc_config = mcp_config["mcpServers"]["CodeGraphContext"]
+            
+            # Ensure args are in list format before writing Goose configuration
+            cmd = cgc_config.get("command", "cgc")
+            raw_args = cgc_config.get("args")
+
+            if raw_args is None:
+                args = ["mcp", "start"]
+            elif isinstance(raw_args, str):
+                # Allow a single string and treat it as a single argument
+                args = [raw_args]
+            elif isinstance(raw_args, list):
+                args = raw_args
+            else:
+                console.print("[red]Error: Invalid type for 'args' in MCP configuration. Expected a list of arguments or a string.[/red]")
+                return
+            
+            goose_ext = {
+                "enabled": True,
+                "name": "CodeGraphContext",
+                "type": "stdio",
+                "cmd": cmd,
+                "args": args,
+                "envs": cgc_config.get("env", {})
+            }
+            
+            config["extensions"]["codegraphcontext"] = goose_ext
+            
+            if not _check_write_access(target_path):
+                console.print(
+                    f"[bold red]Permission denied:[/bold red] Cannot write to {target_path}"
+                )
+                return
+
+            try:
+                with open(target_path, "w") as f:
+                    yaml.dump(config, f, default_flow_style=False)
+            except PermissionError:
+                console.print(
+                    f"[bold red]Permission denied while writing:[/bold red] {target_path}"
+                )
+                return
+                
+            console.print(f"[green]Successfully updated Goose configuration.[/green]")
+        else:
+            console.print("[red]Error: Invalid MCP configuration structure.[/red]")
+        
+    except Exception as e:
+        console.print(f"[red]Failed to update Goose configuration: {e}[/red]")
 
 def _configure_ide(mcp_config):
     """Asks user for their IDE and configures it automatically."""
     questions = [
         {
             "type": "confirm",
-            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider)?",
+            "message": "Automatically configure your IDE/CLI (VS Code, Cursor, Windsurf, Zed, Claude, Gemini, Cline, RooCode, ChatGPT Codex, Amazon Q Developer, Aider, Kiro, Goose, Antigravity, OpenCode)?",
             "name": "configure_ide",
             "default": True,
         }
@@ -128,7 +359,7 @@ def _configure_ide(mcp_config):
         {
             "type": "list",
             "message": "Choose your IDE/CLI to configure:",
-            "choices": ["VS Code", "Cursor", "Windsurf", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "None of the above"],
+            "choices": ["VS Code", "Cursor", "Windsurf", "Zed", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity", "OpenCode", "None of the above"],
             "name": "ide_choice",
         }
     ]
@@ -139,13 +370,24 @@ def _configure_ide(mcp_config):
         console.print("\n[cyan]You can add the MCP server manually to your IDE/CLI.[/cyan]")
         return
 
+    if ide_choice == "OpenCode":
+        _print_opencode_mcp_instructions(mcp_config)
+        console.print(
+            "\n[green]When you have pasted this into OpenCode, reload MCP and run "
+            "`cgc mcp start` from a terminal to verify the server starts cleanly.[/green]"
+        )
+        return
 
-    if ide_choice in ["VS Code", "Cursor/CLI", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "Windsurf", "RooCode", "Amazon Q Developer , JetBrainsAI", "Aider"]:
+    if ide_choice in ["VS Code", "Cursor", "Windsurf", "Zed", "Claude code", "Gemini CLI", "ChatGPT Codex", "Cline", "RooCode", "Amazon Q Developer", "JetBrainsAI", "Aider", "Kiro", "Goose", "Antigravity"]:
         console.print(f"\n[bold cyan]Configuring for {ide_choice}...[/bold cyan]")
 
         if ide_choice == "Amazon Q Developer":
             convert_mcp_json_to_yaml()
             return  
+        
+        if ide_choice == "Goose":
+            _configure_goose(mcp_config)
+            return
         
         config_paths = {
             "VS Code": [
@@ -153,7 +395,7 @@ def _configure_ide(mcp_config):
                 Path.home() / "Library" / "Application Support" / "Code" / "User" / "settings.json",
                 Path.home() / "AppData" / "Roaming" / "Code" / "User" / "settings.json"
             ],
-            "Cursor/CLI": [
+            "Cursor": [
                 Path.home() / ".cursor" / "settings.json",
                 Path.home() / ".config" / "cursor" / "settings.json",
                 Path.home() / "Library" / "Application Support" / "cursor" / "settings.json",
@@ -166,6 +408,10 @@ def _configure_ide(mcp_config):
                 Path.home() / "Library" / "Application Support" / "windsurf" / "settings.json",
                 Path.home() / "AppData" / "Roaming" / "windsurf" / "settings.json",
                 Path.home() / ".config" / "Windsurf" / "User" / "settings.json",
+            ],
+            "Zed": [
+                Path.home() / ".config" / "zed" / "settings.json",
+                Path.home() / "AppData" / "Roaming" / "Zed" / "settings.json"
             ],
             "Claude code": [
                 Path.home() / ".claude.json"
@@ -198,6 +444,16 @@ def _configure_ide(mcp_config):
                 Path.home() / "Library" / "Application Support" / "aider" / "settings.json",
                 Path.home() / "AppData" / "Roaming" / "aider" / "settings.json",
                 Path.home() / ".config" / "Aider" / "User" / "settings.json",
+            ],
+            "Kiro": [
+                Path.home() / ".kiro" / "settings" / "mcp.json",                                   # macOS / Linux / Windows (user-level global)
+                Path.home() / ".config" / "kiro" / "settings" / "mcp.json",                         # Linux (XDG config)
+                Path.home() / "AppData" / "Roaming" / "Kiro" / "settings" / "mcp.json",             # Windows
+            ],
+            "Antigravity": [
+                Path.home() / ".antigravity" / "mcp_settings.json",                                # macOS / Linux / Windows (user-level global)
+                Path.home() / ".config" / "antigravity" / "mcp_settings.json",                     # Linux (XDG config)
+                Path.home() / "AppData" / "Roaming" / "Antigravity" / "mcp_settings.json",         # Windows
             ]
         }
 
@@ -235,14 +491,33 @@ def _configure_ide(mcp_config):
             console.print(f"[red]Error: Configuration file at {target_path} is not a valid JSON object.[/red]")
             return
 
-        if "mcpServers" not in settings:
-            settings["mcpServers"] = {}
-        
-        settings["mcpServers"].update(mcp_config["mcpServers"])
+        if ide_choice == "Zed":
+            if "context_servers" not in settings:
+                settings["context_servers"] = {}
+            settings["context_servers"].update(mcp_config["mcpServers"])
+        else:
+            if "mcpServers" not in settings:
+                settings["mcpServers"] = {}
+            settings["mcpServers"].update(mcp_config["mcpServers"])
 
         try:
-            with open(target_path, "w") as f:
-                json.dump(settings, f, indent=2)
+            if not _check_write_access(target_path):
+                console.print(
+                    f"[bold red]Permission denied:[/bold red] Cannot write to {target_path}"
+                )
+                console.print(
+                    "[yellow]Please check file permissions or run with appropriate privileges.[/yellow]"
+                )
+                return
+
+            try:
+                with open(target_path, "w") as f:
+                    json.dump(settings, f, indent=2)
+            except PermissionError:
+                console.print(
+                    f"[bold red]Permission denied while writing:[/bold red] {target_path}"
+                )
+                return
             console.print(f"[green]Successfully updated {ide_choice} configuration.[/green]")
         except Exception as e:
             console.print(f"[red]Failed to write to configuration file: {e}[/red]")
@@ -260,6 +535,12 @@ def run_command(command, console, shell=False, check=True, input_text=None):
     Returns the completed process object on success, None on failure.
     """
     cmd_str = command if isinstance(command, str) else ' '.join(command)
+    
+    # Mask passwords from being printed out
+    if "set-initial-password" in cmd_str:
+        import re
+        cmd_str = re.sub(r'(set-initial-password\s+)(\S+)', r'\g<1>********', cmd_str)
+        
     console.print(f"[cyan]$ {cmd_str}[/cyan]")
     try:
         process = subprocess.run(
@@ -341,35 +622,36 @@ def configure_mcp_client():
                     if line and not line.startswith("#") and "=" in line:
                         key, value = line.split("=", 1)
                         key = key.strip()
-                        if key in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"]:
+                        if key in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE"]:
                             env_vars[key] = value.strip()
         except Exception:
             pass
     
-    # Add all configuration values, converting relative paths to absolute
+    # Add all configuration values, normalizing path-related settings
     for key, value in config.items():
         # Skip database credentials (already added above)
         if key in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"]:
             continue
         
-        # Convert relative paths to absolute for path-related configs
+        # Expand ~/$VARS and convert relative paths to absolute for MCP env
         if "PATH" in key and value:
-            path_obj = Path(value)
-            if not path_obj.is_absolute():
-                value = str(path_obj.resolve())
+            value = normalize_config_path(value, absolute=True)
         
         env_vars[key] = value
     
     # Generate MCP configuration
-    cgc_path = shutil.which("cgc") or sys.executable
+    cgc_path = shutil.which("cgc")
+    pipx_path = shutil.which("pipx")
 
-    if "python" in Path(cgc_path).name:
-        # fallback to running as module if no cgc binary is found
-        command = cgc_path
-        args = ["-m", "cgc", "mcp", "start"]
-    else:
+    if cgc_path:
         command = cgc_path
         args = ["mcp", "start"]
+    elif pipx_path:
+        command = pipx_path
+        args = ["run", "codegraphcontext", "mcp", "start"]
+    else:
+        command = sys.executable
+        args = ["-m", "codegraphcontext", "mcp", "start"]
 
     # Create MCP config with complete env section
     mcp_config = {
@@ -388,6 +670,7 @@ def configure_mcp_client():
                         "list_indexed_repositories", "delete_repository", "list_watched_paths", 
                         "unwatch_directory", "visualize_graph_query"
                     ],
+                    "disabledTools": [],
                     "disabled": False
                 },
                 "disabled": False,
@@ -402,8 +685,21 @@ def configure_mcp_client():
 
     # Save to file for convenience
     mcp_file = Path.cwd() / "mcp.json"
-    with open(mcp_file, "w") as f:
-        json.dump(mcp_config, f, indent=2)
+
+    if not _check_write_access(mcp_file):
+        console.print(
+            f"[bold red]Permission denied:[/bold red] Cannot write to {mcp_file}"
+        )
+        return
+
+    try:
+        with open(mcp_file, "w") as f:
+            json.dump(mcp_config, f, indent=2)
+    except PermissionError:
+        console.print(
+            f"[bold red]Permission denied while writing:[/bold red] {mcp_file}"
+        )
+        return
     console.print(f"\n[cyan]Configuration saved to: {mcp_file}[/cyan]")
     
     # Configure IDE automatically
@@ -489,6 +785,19 @@ def setup_existing_db():
                 console.print(f"[red]❌ Failed to parse credentials file: {e}[/red]")
                 return
 
+        if creds and not _validate_neo4j_credentials(creds):
+            retry = prompt([
+                {
+                    "type": "confirm",
+                    "message": "Connection failed. Would you like to re-enter the details instead of saving these credentials?",
+                    "name": "retry",
+                    "default": True,
+                }
+            ])
+            if retry.get("retry"):
+                return setup_existing_db()
+            console.print("[yellow]Proceeding with the provided credentials anyway.[/yellow]")
+
     elif cred_method: # Manual entry
         console.print("Please enter your Neo4j connection details.")
         
@@ -504,43 +813,18 @@ def setup_existing_db():
             if not manual_creds: 
                 return # User cancelled
             
-            # Validate the user input
-            console.print("\n[cyan]🔍 Validating configuration...[/cyan]")
-            is_valid, validation_error = DatabaseManager.validate_config(
-                manual_creds.get("uri", ""),
-                manual_creds.get("username", ""),
-                manual_creds.get("password", "")
-            )
-            
-            if not is_valid:
-                console.print(validation_error)
-                console.print("\n[red]❌ Invalid configuration. Please try again.[/red]\n")
-                continue  # Ask for input again
-            
-            console.print("[green]✅ Configuration format is valid[/green]")
-            
-            # Test the connection
-            console.print("\n[cyan]🔗 Testing connection...[/cyan]")
-            is_connected, error_msg = DatabaseManager.test_connection(
-                manual_creds.get("uri", ""),
-                manual_creds.get("username", ""),
-                manual_creds.get("password", "")
-            )
-            
-            if not is_connected:
-                console.print(error_msg)
+            if not _validate_neo4j_credentials(manual_creds):
                 retry = prompt([{"type": "confirm", "message": "Connection failed. Try again with different credentials?", "name": "retry", "default": True}])
                 if not retry.get("retry"):
                     return
                 continue  # Ask for input again
-            
-            console.print("[green]✅ Connection successful![/green]")
+
             creds = manual_creds
             break  # Exit loop with valid credentials
 
 
     if creds.get("uri") and creds.get("password"):
-        _generate_mcp_json(creds)
+        _save_neo4j_credentials(creds)
     else:
         console.print("[red]❌ Incomplete credentials. Please try again.[/red]")
 
@@ -607,6 +891,19 @@ def setup_hosted_db():
                 console.print(f"[red]❌ Failed to parse credentials file: {e}[/red]")
                 return
 
+        if creds and not _validate_neo4j_credentials(creds):
+            retry = prompt([
+                {
+                    "type": "confirm",
+                    "message": "Connection failed. Would you like to re-enter the details instead of saving these credentials?",
+                    "name": "retry",
+                    "default": True,
+                }
+            ])
+            if retry.get("retry"):
+                return setup_hosted_db()
+            console.print("[yellow]Proceeding with the provided credentials anyway.[/yellow]")
+
     elif cred_method: # Manual entry
         console.print("Please enter your remote Neo4j connection details.")
         
@@ -622,43 +919,18 @@ def setup_hosted_db():
             if not manual_creds:
                 return # User cancelled
             
-            # Validate the user input
-            console.print("\n[cyan]🔍 Validating configuration...[/cyan]")
-            is_valid, validation_error = DatabaseManager.validate_config(
-                manual_creds.get("uri", ""),
-                manual_creds.get("username", ""),
-                manual_creds.get("password", "")
-            )
-            
-            if not is_valid:
-                console.print(validation_error)
-                console.print("\n[red]❌ Invalid configuration. Please try again.[/red]\n")
-                continue  # Ask for input again
-            
-            console.print("[green]✅ Configuration format is valid[/green]")
-            
-            # Test the connection
-            console.print("\n[cyan]🔗 Testing connection...[/cyan]")
-            is_connected, error_msg = DatabaseManager.test_connection(
-                manual_creds.get("uri", ""),
-                manual_creds.get("username", ""),
-                manual_creds.get("password", "")
-            )
-            
-            if not is_connected:
-                console.print(error_msg)
+            if not _validate_neo4j_credentials(manual_creds):
                 retry = prompt([{"type": "confirm", "message": "Connection failed. Try again with different credentials?", "name": "retry", "default": True}])
                 if not retry.get("retry"):
                     return
                 continue  # Ask for input again
-            
-            console.print("[green]✅ Connection successful![/green]")
+
             creds = manual_creds
             break  
 
 
     if creds.get("uri") and creds.get("password"):
-        _generate_mcp_json(creds)
+        _save_neo4j_credentials(creds)
     else:
         console.print("[red]❌ Incomplete credentials. Please try again.[/red]")
 
@@ -681,7 +953,7 @@ def setup_local_db():
         if platform.system() == "Darwin":
             # lazy import to avoid circular import
             from .setup_macos import setup_macos_binary
-            setup_macos_binary(console, prompt, run_command, _generate_mcp_json)
+            setup_macos_binary(console, prompt, run_command, _save_neo4j_credentials)
         else:
             setup_local_binary()
 
@@ -742,6 +1014,7 @@ volumes:
 
     # Validate configuration format before attempting Docker operations
     console.print("\n[cyan]🔍 Validating configuration...[/cyan]")
+    from codegraphcontext.core.database import DatabaseManager
     is_valid, validation_error = DatabaseManager.validate_config(
         DEFAULT_NEO4J_URI, 
         DEFAULT_NEO4J_USERNAME, 
@@ -801,6 +1074,7 @@ volumes:
                 
                 # updated test_connection method
                 console.print(f"[yellow]Testing connection... (attempt {attempt + 1}/{max_attempts})[/yellow]")
+                from codegraphcontext.core.database import DatabaseManager
                 is_connected, error_msg = DatabaseManager.test_connection(DEFAULT_NEO4J_URI, DEFAULT_NEO4J_USERNAME, password)
                 
                 if is_connected:
@@ -829,7 +1103,7 @@ volumes:
                 "password": password
             }
 
-            _generate_mcp_json(creds)
+            _save_neo4j_credentials(creds)
             
             console.print("\n[bold green]🎉 Setup complete![/bold green]")
             console.print("Neo4j is running at:")
@@ -924,5 +1198,5 @@ def setup_local_binary():
         "username": "neo4j",
         "password": new_password
     }
-    _generate_mcp_json(creds)
+    _save_neo4j_credentials(creds)
     console.print("\n[bold green]All done! Your local Neo4j instance is ready to use.[/bold green]")

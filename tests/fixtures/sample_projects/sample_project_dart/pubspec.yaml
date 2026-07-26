@@ -1,0 +1,15 @@
+name: sample_project_dart
+description: A sample Dart project for testing CodeGraphContext.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  meta: ^1.11.0
+  http: ^1.1.0
+
+dev_dependencies:
+  lints: ^3.0.0
+  test: ^1.24.0

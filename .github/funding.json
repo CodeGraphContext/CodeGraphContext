@@ -1,0 +1,98 @@
+{
+    "$schema": "https://fundingjson.org/schema/v1.1.0.json",
+    "version": "v1.1.0",
+    "entity": {
+        "type": "individual",
+        "role": "maintainer",
+        "name": "Shashank Shekhar Singh",
+        "email": "codegraphcontext@gmail.com",
+        "phone": "",
+        "description": "Maintainer of CodeGraphContext, an open-source developer tooling project focused on graph-based code understanding for AI and large-scale software systems.",
+        "webpageUrl": {
+            "url": "https://www.linkedin.com/in/shashank-shekhar-singh-121128254"
+        }
+    },
+    "projects": [
+        {
+            "guid": "codegraphcontext",
+            "name": "CodeGraphContext",
+            "description": "CodeGraphContext is an open-source developer infrastructure tool that indexes source code into a continuously updated graph, enabling AI assistants and engineering teams to understand real-world codebases with accuracy and context.",
+            "webpageUrl": {
+                "url": "https://codegraphcontext.vercel.app/"
+            },
+            "repositoryUrl": {
+                "url": "https://github.com/CodeGraphContext/CodeGraphContext"
+            },
+            "licenses": [
+                "spdx:MIT"
+            ],
+            "tags": [
+                "developer-tools",
+                "industry-tooling",
+                "ai-infrastructure",
+                "code-analysis",
+                "knowledge-graph",
+                "mcp",
+                "open-source"
+            ]
+        }
+    ],
+    "funding": {
+        "channels": [
+            {
+                "guid": "bank-transfer",
+                "type": "bank",
+                "address": "shashankshekharsingh1205@gmail.com",
+                "description": "Will accept direct bank transfers. Please e-mail me for details."
+            },
+            {
+                "guid": "github-sponsors",
+                "type": "payment-provider",
+                "address": "https://github.com/sponsors/Shashankss1205",
+                "description": "Project maintainer will accept payments through GitHub Sponsors."
+            }
+        ],
+        "plans": [
+            {
+                "guid": "core-maintenance",
+                "status": "active",
+                "name": "Core Maintenance & Reliability (Tier 1)",
+                "description": "Ensures CodeGraphContext stays stable and up-to-date with rapid changes in the AI ecosystem (MCP updates, new language CLIs). Covers CI/CD costs for graph testing and critical bug fixes.",
+                "amount": 1000,
+                "currency": "USD",
+                "frequency": "monthly",
+                "channels": [
+                    "bank-transfer",
+                    "github-sponsors"
+                ]
+            },
+            {
+                "guid": "feature-velocity",
+                "status": "active",
+                "name": "Feature Velocity & Growth (Tier 2)",
+                "description": "Accelerates development of Semantic Search (GraphRAG) and high-priority Roadmap items like SCIP indexing for Python. Enables adding support for 5+ new languages/frameworks per year.",
+                "amount": 2000,
+                "currency": "USD",
+                "frequency": "monthly",
+                "channels": [
+                    "bank-transfer",
+                    "github-sponsors"
+                ]
+            },
+            {
+                "guid": "ecosystem-scaling",
+                "status": "active",
+                "name": "Ecosystem Scaling & Infrastructure (Stretch)",
+                "description": "Builds the 'CGC Cloud' infrastructure for shared team contexts and scales contributor programs (bounties for complex issues). Positions CGC as essential AI infrastructure.",
+                "amount": 4000,
+                "currency": "USD",
+                "frequency": "monthly",
+                "channels": [
+                    "bank-transfer",
+                    "github-sponsors"
+                ]
+            }
+        ],
+        "history": null
+    }
+}

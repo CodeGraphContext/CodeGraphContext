@@ -1,12 +1,17 @@
 # src/codegraphcontext/tools/system.py
+from __future__ import annotations
 import logging
 from dataclasses import asdict
-from typing import Any, Dict
+from typing import Any, Dict, TYPE_CHECKING
 from datetime import datetime, timedelta
 
-from neo4j.exceptions import CypherSyntaxError
+try:
+    from neo4j.exceptions import CypherSyntaxError
+except ImportError:
+    CypherSyntaxError = type('CypherSyntaxError', (Exception,), {})
 
-from ..core.database import DatabaseManager
+if TYPE_CHECKING:
+    from ..core.database import DatabaseManager
 from ..core.jobs import JobManager, JobStatus
 from ..utils.debug_log import debug_log
 
@@ -81,12 +86,27 @@ class SystemTools:
         if not cypher_query:
             return {"error": "Cypher query cannot be empty."}
 
-        forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
-        if any(keyword in cypher_query.upper() for keyword in forbidden_keywords):
-            return {"error": "This tool only supports read-only queries."}
+        import re as _re
+        forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'DETACH', 'SET', 'REMOVE', 'DROP', 'LOAD', 'FOREACH']
+        forbidden_patterns = [r'CALL\s+apoc\b', r'CALL\s*\{']
+        string_literal_pattern = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
+        query_without_strings = _re.sub(string_literal_pattern, '', cypher_query)
+        for keyword in forbidden_keywords:
+            if _re.search(r'\b' + keyword + r'\b', query_without_strings, _re.IGNORECASE):
+                return {"error": "This tool only supports read-only queries. Prohibited keywords like CREATE, MERGE, DELETE, SET, etc., are not allowed."}
+        for pattern in forbidden_patterns:
+            if _re.search(pattern, query_without_strings, _re.IGNORECASE):
+                return {"error": "This tool only supports read-only queries. Prohibited keywords like CREATE, MERGE, DELETE, SET, etc., are not allowed."}
+
+        # Only the Neo4j driver understands default_access_mode; other
+        # backends' session shims reject it.
+        backend = getattr(self.db_manager, "get_backend_type", lambda: "neo4j")()
+        session_kwargs: Dict[str, Any] = {}
+        if backend == "neo4j":
+            session_kwargs["default_access_mode"] = "READ"
 
         try:
-            with self.db_manager.get_driver().session() as session:
+            with self.db_manager.get_driver().session(**session_kwargs) as session:
                 result = session.run(cypher_query)
                 records = [record.data() for record in result]
                 return {

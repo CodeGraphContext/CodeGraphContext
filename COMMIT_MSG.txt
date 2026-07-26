@@ -1,0 +1,9 @@
+fix: 3个Windows反斜杠路径回归测试在Linux CI上跳过
+
+- test_finds_repo_stored_with_backslash_path
+- test_normalized_path_used_for_lookup
+- test_normalized_path_used
+
+根因: str(tmp_path).replace('/', '\\') 在Linux上生成的
+是相对路径(不以盘符开头)，Path().resolve() 拼上cwd后
+产生正反斜杠混用的畸形路径。

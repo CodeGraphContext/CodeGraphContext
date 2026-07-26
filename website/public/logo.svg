@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 120" width="100%" height="100%">
+  <defs>
+    <!-- Glowing effects -->
+    <filter id="glow-purple" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <filter id="glow-blue" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+
+    <!-- Gradients -->
+    <linearGradient id="grad-purple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#C084FC" />
+      <stop offset="100%" stop-color="#8B5CF6" />
+    </linearGradient>
+    <linearGradient id="grad-blue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60A5FA" />
+      <stop offset="100%" stop-color="#3B82F6" />
+    </linearGradient>
+    <linearGradient id="grad-cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22D3EE" />
+      <stop offset="100%" stop-color="#06B6D4" />
+    </linearGradient>
+    <linearGradient id="text-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="60%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#A855F7" />
+    </linearGradient>
+    <linearGradient id="line-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A855F7" stop-opacity="0.8" />
+      <stop offset="50%" stop-color="#3B82F6" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#06B6D4" stop-opacity="0.8" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background for preview/standalone viewing (transparent in practice) -->
+  <rect width="100%" height="100%" fill="none" />
+
+  <!-- LOGO ICON (Left side) -->
+  <g transform="translate(10, 0)">
+    <!-- Connection lines -->
+    <line x1="60" y1="30" x2="35" y2="70" stroke="url(#line-grad)" stroke-width="2" stroke-dasharray="2 2" />
+    <line x1="60" y1="30" x2="85" y2="70" stroke="url(#line-grad)" stroke-width="2" />
+    <line x1="35" y1="70" x2="60" y2="95" stroke="url(#line-grad)" stroke-width="2" />
+    <line x1="85" y1="70" x2="60" y2="95" stroke="url(#line-grad)" stroke-width="2" stroke-dasharray="2 2" />
+    <line x1="60" y1="30" x2="60" y2="95" stroke="url(#line-grad)" stroke-width="1.5" />
+    <line x1="35" y1="70" x2="85" y2="70" stroke="url(#line-grad)" stroke-width="1.5" />
+
+    <!-- Outer decorative orbiting rings -->
+    <circle cx="60" cy="62" r="45" fill="none" stroke="#8B5CF6" stroke-width="1" stroke-opacity="0.2" stroke-dasharray="4 8" />
+    <circle cx="60" cy="62" r="52" fill="none" stroke="#3B82F6" stroke-width="0.75" stroke-opacity="0.15" />
+
+    <!-- Node 1: Top (Purple) -->
+    <g filter="url(#glow-purple)">
+      <circle cx="60" cy="30" r="8" fill="url(#grad-purple)" />
+      <circle cx="60" cy="30" r="12" fill="none" stroke="#C084FC" stroke-width="1" stroke-opacity="0.5" />
+    </g>
+
+    <!-- Node 2: Left (Blue) -->
+    <g filter="url(#glow-blue)">
+      <circle cx="35" cy="70" r="7" fill="url(#grad-blue)" />
+    </g>
+
+    <!-- Node 3: Right (Cyan) -->
+    <g filter="url(#glow-blue)">
+      <circle cx="85" cy="70" r="7" fill="url(#grad-cyan)" />
+    </g>
+
+    <!-- Node 4: Bottom (Purple-Blue) -->
+    <g filter="url(#glow-purple)">
+      <circle cx="60" cy="95" r="6" fill="url(#grad-purple)" />
+    </g>
+
+    <!-- Node 5: Center Core (Glowing Brain / Intelligence Core) -->
+    <g filter="url(#glow-purple)" filter="url(#shadow)">
+      <circle cx="60" cy="62" r="14" fill="#1E1B4B" stroke="url(#line-grad)" stroke-width="2.5" />
+      <circle cx="60" cy="62" r="18" fill="none" stroke="#22D3EE" stroke-width="1" stroke-opacity="0.4" stroke-dasharray="3 3" />
+      
+      <!-- Inside Core symbol: Stylized Code brackets < > -->
+      <path d="M55 58 L49 62 L55 66 M65 58 L71 62 L65 66" stroke="#22D3EE" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+      <!-- Center glowing dot -->
+      <circle cx="60" cy="62" r="2.5" fill="#FFFFFF" />
+    </g>
+  </g>
+
+  <!-- TYPOGRAPHY / TEXT (Right side) -->
+  <!-- "CodeGraph" part -->
+  <text x="135" y="70" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="34" fill="url(#text-grad)" letter-spacing="-0.5">CodeGraph</text>
+  
+  <!-- "Context" part -->
+  <text x="317" y="70" font-family="system-ui, -apple-system, sans-serif" font-weight="300" font-size="34" fill="#A855F7" letter-spacing="-0.5">Context</text>
+
+  <!-- Subtitle / Tagline -->
+  <text x="137" y="92" font-family="system-ui, -apple-system, sans-serif" font-weight="500" font-size="12" fill="#9CA3AF" letter-spacing="3.5" opacity="0.8">AI-POWERED KNOWLEDGE GRAPHS</text>
+</svg>

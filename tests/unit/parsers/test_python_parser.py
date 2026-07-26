@@ -29,10 +29,11 @@ class TestPythonParser:
         """Parse a simple python file and verify output."""
         code = "def hello():\n    print('world')"
         f = temp_test_dir / "test.py"
-        f.write_text(code)
+        f.write_text(code, encoding="utf-8")
 
         # Act
         result = parser.parse(str(f))
+        assert isinstance(result, dict)
 
         # Assert
         # We expect a list of nodes/edges or a structure containing them
@@ -43,8 +44,79 @@ class TestPythonParser:
         
         assert "functions" in result
         funcs = result["functions"]
-        assert len(funcs) == 1
-        assert funcs[0]["name"] == "hello"
+        # The parser appends a synthetic "<module>" frame for module-level
+        # context (see _attach_module_context); exclude it when asserting on
+        # user-defined functions.
+        user_funcs = [f for f in funcs if f["name"] != "<module>"]
+        assert len(user_funcs) == 1
+        assert user_funcs[0]["name"] == "hello"
+
+    def test_module_level_call_uses_module_context(self, parser, temp_test_dir):
+        """Top-level executable calls should be linked from a synthetic module frame."""
+        code = "from pkg.utils import helper\n\nresult = helper()\n"
+        f = temp_test_dir / "__main__.py"
+        f.write_text(code, encoding="utf-8")
+
+        result = parser.parse(str(f))
+        assert isinstance(result, dict)
+
+        module_func = next(
+            func for func in result["functions"]
+            if func["name"] == "<module>"
+        )
+        helper_call = next(
+            call for call in result["function_calls"]
+            if call["name"] == "helper"
+        )
+
+        assert module_func["line_number"] == 1
+        assert module_func["context_type"] == "module"
+        assert helper_call["context"] == ("<module>", "module", 1)
+
+    def test_duplicate_import_keeps_earliest_source_line(self, parser, temp_test_dir):
+        """Duplicate imports should be stable regardless of capture traversal order."""
+        code = (
+            "import os\n\n"
+            "def env_based_import():\n"
+            "    if os.getenv('USE_UJSON') == '1':\n"
+            "        try:\n"
+            "            import ujson as json\n"
+            "        except Exception:\n"
+            "            import json\n"
+            "    else:\n"
+            "        import json\n"
+            "    return json.dumps({'a': 1})\n"
+        )
+        f = temp_test_dir / "imports.py"
+        f.write_text(code)
+
+        result = parser.parse(str(f))
+        json_import = next(
+            imp for imp in result["imports"]
+            if imp["name"] == "json" and imp["full_import_name"] == "json"
+        )
+
+        assert json_import["line_number"] == 8
+
+    def test_nested_module_level_calls_attribute_to_outer_callee(self, parser, temp_test_dir):
+        """Nested call expressions attribute inner calls to the outer callee."""
+        code = (
+            "def f1(x): return x + 1\n"
+            "def f2(x): return x * 2\n"
+            "def f3(x): return x - 3\n\n"
+            "result = f1(f2(f3(10)))\n"
+        )
+        f = temp_test_dir / "function_chains.py"
+        f.write_text(code)
+
+        result = parser.parse(str(f))
+        calls = {call["name"]: call for call in result["function_calls"]}
+
+        assert calls["f1"]["context"] == ("<module>", "module", 1)
+        assert calls["f2"]["context"][0] == "f1"
+        assert calls["f2"]["context"][1] == "nested_call"
+        assert calls["f3"]["context"][0] == "f2"
+        assert calls["f3"]["context"][1] == "nested_call"
 
     def test_parse_class_with_method(self, parser, temp_test_dir):
         """Parse a class with a method."""
@@ -54,9 +126,10 @@ class Greeter:
         return f"Hello {name}"
 """
         f = temp_test_dir / "classes.py"
-        f.write_text(code)
+        f.write_text(code, encoding="utf-8")
 
         result = parser.parse(str(f))
+        assert isinstance(result, dict)
 
         assert "classes" in result
         classes = result["classes"]
@@ -67,4 +140,3 @@ class Greeter:
         # Depending on implementation, methods might be in 'functions' with parent info
         # or inside 'classes'.
         # Let's assume they are captured.
-

@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/csharp.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 import re
@@ -64,7 +65,7 @@ CSHARP_QUERIES = {
                 (identifier) @name
                 (member_access_expression
                     name: (identifier) @name
-                )
+                ) @full_name
             ]
         )
         
@@ -75,6 +76,7 @@ CSHARP_QUERIES = {
             ]
         )
     """,
+
 }
 
 class CSharpTreeSitterParser:
@@ -109,6 +111,10 @@ class CSharpTreeSitterParser:
                 }
 
             tree = self.parser.parse(bytes(source_code, "utf8"))
+
+            # Extract namespace declaration for package_name (e.g. "com.ea.nucleus.billing")
+            namespace_match = re.search(r'\bnamespace\s+([\w.]+)', source_code)
+            package_name = namespace_match.group(1) if namespace_match else None
 
             parsed_functions = []
             parsed_classes = []
@@ -156,6 +162,7 @@ class CSharpTreeSitterParser:
                 "function_calls": parsed_calls,
                 "is_dependency": is_dependency,
                 "lang": self.language_name,
+                "package_name": package_name,
             }
 
         except Exception as e:
@@ -193,7 +200,7 @@ class CSharpTreeSitterParser:
                     
                     if name_captures:
                         name_node = name_captures[0][0]
-                        func_name = source_code[name_node.start_byte:name_node.end_byte]
+                        func_name = self._get_node_text(name_node)
                         
                         params_captures = [
                             (n, cn) for n, cn in captures 
@@ -208,13 +215,13 @@ class CSharpTreeSitterParser:
                         # Extract attributes applied to this function
                         attributes = []
                         if node.parent and node.parent.type == "attribute_list":
-                            attr_text = source_code[node.parent.start_byte:node.parent.end_byte]
+                            attr_text = self._get_node_text(node.parent)
                             attributes.append(attr_text)
 
                         # Find containing class/struct/interface
                         class_context = self._find_containing_type(node, source_code)
 
-                        source_text = source_code[node.start_byte:node.end_byte]
+                        source_text = self._get_node_text(node)
                         
                         func_data = {
                             "name": func_name,
@@ -268,7 +275,7 @@ class CSharpTreeSitterParser:
                     
                     if name_captures:
                         name_node = name_captures[0][0]
-                        type_name = source_code[name_node.start_byte:name_node.end_byte]
+                        type_name = self._get_node_text(name_node)
                         
                         # Extract base classes/interfaces
                         bases = []
@@ -279,13 +286,19 @@ class CSharpTreeSitterParser:
                         
                         if bases_captures:
                             bases_node = bases_captures[0][0]
-                            bases_text = source_code[bases_node.start_byte:bases_node.end_byte]
+                            bases_text = self._get_node_text(bases_node)
                             # Parse base list: ": BaseClass, IInterface1, IInterface2"
                             bases_text = bases_text.strip().lstrip(':').strip()
                             if bases_text:
-                                bases = [b.strip() for b in bases_text.split(',')]
+                                raw_bases = [b.strip() for b in bases_text.split(',')]
+                                # records might have base calls like : Person(name, age)
+                                # we want just Person
+                                for rb in raw_bases:
+                                    base_name = rb.split('(')[0].strip()
+                                    if base_name:
+                                        bases.append(base_name)
                         
-                        source_text = source_code[node.start_byte:node.end_byte]
+                        source_text = self._get_node_text(node)
                         
                         type_data = {
                             "name": type_name,
@@ -293,6 +306,7 @@ class CSharpTreeSitterParser:
                             "end_line": end_line,
                             "path": str(path),
                             "lang": self.language_name,
+                            "is_partial": bool(re.search(r"\bpartial\b", source_text)),
                         }
                         
                         # Add bases if found
@@ -316,7 +330,7 @@ class CSharpTreeSitterParser:
         for node, capture_name in captures:
             if capture_name == "import":
                 try:
-                    import_text = source_code[node.start_byte:node.end_byte]
+                    import_text = self._get_node_text(node)
                     # Match: using System.Collections.Generic; or using static System.Math;
                     import_match = re.search(r'using\s+(?:static\s+)?([^;]+)', import_text)
                     if import_match:
@@ -368,17 +382,28 @@ class CSharpTreeSitterParser:
         calls = []
         seen_calls = set()
         
+        # Build a map of node id to its full_name text
+        full_names = {}
+        for node, capture_name in captures:
+            if capture_name == "full_name":
+                full_names[node.id] = self._get_node_text(node)
+
         for node, capture_name in captures:
             if capture_name == "name":
                 try:
-                    call_name = source_code[node.start_byte:node.end_byte]
+                    call_name = self._get_node_text(node)
                     line_number = node.start_point[0] + 1
                     
-                    # Avoid duplicates
+                    # Avoid duplicates at the same line for the same name
                     call_key = f"{call_name}_{line_number}"
                     if call_key in seen_calls:
                         continue
                     seen_calls.add(call_key)
+                    
+                    # Check if this name is part of a member_access_expression
+                    full_call_name = call_name
+                    if node.parent and node.parent.id in full_names:
+                        full_call_name = full_names[node.parent.id]
                     
                     # Get context
                     context_name, context_type, context_line = self._get_parent_context(node)
@@ -386,7 +411,7 @@ class CSharpTreeSitterParser:
 
                     call_data = {
                         "name": call_name,
-                        "full_name": call_name,
+                        "full_name": full_call_name,
                         "line_number": line_number,
                         "args": [],
                         "inferred_obj_type": None,
@@ -401,6 +426,7 @@ class CSharpTreeSitterParser:
                     continue
 
         return calls
+
     
 
     def _extract_parameters(self, params_node) -> list[str]:
@@ -431,7 +457,7 @@ class CSharpTreeSitterParser:
                 # Find the name of this type
                 for child in current.children:
                     if child.type == 'identifier':
-                        return source_code[child.start_byte:child.end_byte]
+                        return self._get_node_text(child)
             current = current.parent
         return None
 
@@ -452,20 +478,20 @@ class CSharpTreeSitterParser:
                     
                     if name_captures:
                         name_node = name_captures[0][0]
-                        prop_name = source_code[name_node.start_byte:name_node.end_byte]
+                        prop_name = self._get_node_text(name_node)
                         
                         # Get property type from node children
                         prop_type = None
                         for child in node.children:
                             if child.type in ['predefined_type', 'identifier', 'generic_name', 'nullable_type', 'array_type']:
-                                prop_type = source_code[child.start_byte:child.end_byte]
+                                prop_type = self._get_node_text(child)
                                 break
                         
                         
                         # Find containing class/struct
                         class_context = self._find_containing_type(node, source_code)
                         
-                        source_text = source_code[node.start_byte:node.end_byte]
+                        source_text = self._get_node_text(node)
                         
                         prop_data = {
                             "name": prop_name,

@@ -22,6 +22,8 @@ LANGUAGE_FILES = [
     "java.py",
     "ruby.py",
     "csharp.py",
+    "dart.py",
+    "perl.py",
 ]
 
 LANGUAGES_DIR = Path(__file__).resolve().parent.parent / "src" / "codegraphcontext" / "tools" / "languages"

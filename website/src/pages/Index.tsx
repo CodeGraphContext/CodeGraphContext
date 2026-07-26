@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import HeroSection from "../components/HeroSection";
 import FeaturesSection from "../components/FeaturesSection";
 import InstallationSection from "../components/InstallationSection";
@@ -8,46 +10,57 @@ import Footer from "../components/Footer";
 import TestimonialSection from "../components/TestimonialSection";
 import SocialMentionsTimeline from "../components/SocialMentionsTimeline";
 import ComparisonTable from "../components/ComparisonTable";
-import BundleGeneratorSection from "../components/BundleGeneratorSection";
 import BundleRegistrySection from "../components/BundleRegistrySection";
 
 const Index = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.pathname === "/pre-indexed" || location.hash === "#bundle-registry") {
+      const timer = setTimeout(() => {
+        const el = document.getElementById("bundle-registry");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [location.pathname, location.hash]);
+
   return (
-    <main className="min-h-screen overflow-x-hidden pt-16">
-      <div data-aos="fade-in">
+    <main className="pt-16">
+      <div>
         <HeroSection />
       </div>
-      <div data-aos="fade-up" id="demo">
+      <div id="demo">
         <DemoSection />
       </div>
-      <div data-aos="fade-up">
+      <div>
         <ComparisonTable />
       </div>
-      <div data-aos="fade-up" id="features">
+      <div id="features">
         <FeaturesSection />
       </div>
-      <div data-aos="fade-up" id="installation">
+      <div id="installation">
         <InstallationSection />
       </div>
-      <div data-aos="fade-up" id="bundleregistry">
+      <div id="bundle-registry">
         <BundleRegistrySection />
       </div>
-      <div data-aos="fade-up" id="bundlegenerator">
-        <BundleGeneratorSection />
-      </div>
-      <div data-aos="fade-up" id="examples">
+
+      <div id="examples">
         <ExamplesSection />
       </div>
-      <div data-aos="fade-up" id="testimonials">
+      <div id="testimonials">
         <TestimonialSection />
       </div>
-      <div data-aos="fade-up" id="cookbook">
+      <div id="cookbook">
         <CookbookSection />
       </div>
-      <div data-aos="fade-up" id="socialmentions">
+      <div id="socialmentions">
         <SocialMentionsTimeline />
       </div>
-      <div data-aos="fade-up" data-aos-anchor-placement="top-bottom">
+      <div>
         <Footer />
       </div>
     </main>

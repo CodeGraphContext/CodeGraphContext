@@ -8,15 +8,17 @@ This folder contains a set of PHP files demonstrating major aspects/nuances of P
 ## Project Structure
 
 sample_project_php/\
-├── classes_objects.php\
-├── database.php\
-├── edgecases.php\
-├── error_handling.php\
-├── file_handling.php \
-├── functions.php\
-├── generators_iterators.php\
-├── globals_superglobals.php\
-├── inheritance.php\
+├── src/                    # PSR-4 source files
+├── repro/                  # Simplified reproduction cases
+├── classes_objects.php
+├── database.php
+├── edgecases.php
+├── error_handling.php
+├── file_handling.php 
+├── functions.php
+├── generators_iterators.php
+├── globals_superglobals.php
+├── inheritance.php
 └── interfaces_traits.php
 
 ### Features Covered

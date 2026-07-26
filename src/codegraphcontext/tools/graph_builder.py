@@ -1,249 +1,178 @@
+# src/codegraphcontext/tools/graph_builder.py
 
 # src/codegraphcontext/tools/graph_builder.py
+"""Facade for graph indexing.
+
+Implementation lives in the ``indexing/`` subpackage, including
+parsers, persistence, resolution, and schema management.
+"""
+from __future__ import annotations
+
 import asyncio
-import pathspec
-from pathlib import Path
-from typing import Any, Coroutine, Dict, Optional, Tuple
+import os
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
-from ..core.database import DatabaseManager
-from ..core.jobs import JobManager, JobStatus
-from ..utils.debug_log import debug_log, info_logger, error_logger, warning_logger
-
-# New imports for tree-sitter (using tree-sitter-language-pack)
-from tree_sitter import Language, Parser
-from ..utils.tree_sitter_manager import get_tree_sitter_manager
 from ..cli.config_manager import get_config_value
+if TYPE_CHECKING:
+    from ..core.database import DatabaseManager
+from ..core.jobs import JobManager, JobStatus
+from ..utils.debug_log import debug_log, error_logger, info_logger, warning_logger
+from .indexing.constants import DEFAULT_IGNORE_PATTERNS
+from .indexing.persistence.writer import GraphWriter, sort_import_rows_for_metadata
+from .indexing.pipeline import run_tree_sitter_index_async
+from .indexing.pre_scan import pre_scan_for_imports
+from .indexing.resolution.calls import build_function_call_groups, resolve_function_call
+from .indexing.resolution.inheritance import build_inheritance_and_csharp_files
+from .indexing.sanitize import MAX_STR_LEN, sanitize_props
+from .indexing.schema import create_graph_schema
+from .indexing.scip_pipeline import name_from_symbol, run_scip_index_async
+from .tree_sitter_parser import TreeSitterParser
 
-
-class TreeSitterParser:
-    """A generic parser wrapper for a specific language using tree-sitter."""
-
-    def __init__(self, language_name: str):
-        self.language_name = language_name
-        self.ts_manager = get_tree_sitter_manager()
-        
-        # Get the language (cached) and create a new parser for this instance
-        self.language: Language = self.ts_manager.get_language_safe(language_name)
-        # In tree-sitter 0.25+, Parser takes language in constructor
-        self.parser = Parser(self.language)
-
-        self.language_specific_parser = None
-        if self.language_name == 'python':
-            from .languages.python import PythonTreeSitterParser
-            self.language_specific_parser = PythonTreeSitterParser(self)
-        elif self.language_name == 'javascript':
-            from .languages.javascript import JavascriptTreeSitterParser
-            self.language_specific_parser = JavascriptTreeSitterParser(self)
-        elif self.language_name == 'go':
-            from .languages.go import GoTreeSitterParser
-            self.language_specific_parser = GoTreeSitterParser(self)
-        elif self.language_name == 'typescript':
-            from .languages.typescript import TypescriptTreeSitterParser
-            self.language_specific_parser = TypescriptTreeSitterParser(self)
-        elif self.language_name == 'cpp':
-            from .languages.cpp import CppTreeSitterParser
-            self.language_specific_parser = CppTreeSitterParser(self)
-        elif self.language_name == 'rust':
-            from .languages.rust import RustTreeSitterParser
-            self.language_specific_parser = RustTreeSitterParser(self)
-        elif self.language_name == 'c':
-            from .languages.c import CTreeSitterParser
-            self.language_specific_parser = CTreeSitterParser(self)
-        elif self.language_name == 'java':
-            from .languages.java import JavaTreeSitterParser
-            self.language_specific_parser = JavaTreeSitterParser(self)
-        elif self.language_name == 'ruby':
-            from .languages.ruby import RubyTreeSitterParser
-            self.language_specific_parser = RubyTreeSitterParser(self)
-        elif self.language_name == 'c_sharp':
-            from .languages.csharp import CSharpTreeSitterParser
-            self.language_specific_parser = CSharpTreeSitterParser(self)
-        elif self.language_name == 'php':
-            from .languages.php import PhpTreeSitterParser
-            self.language_specific_parser = PhpTreeSitterParser(self)
-        elif self.language_name == 'kotlin':
-            from .languages.kotlin import KotlinTreeSitterParser
-            self.language_specific_parser = KotlinTreeSitterParser(self)
-        elif self.language_name == 'scala':
-            from .languages.scala import ScalaTreeSitterParser
-            self.language_specific_parser = ScalaTreeSitterParser(self)
-        elif self.language_name == 'swift':
-            from .languages.swift import SwiftTreeSitterParser
-            self.language_specific_parser = SwiftTreeSitterParser(self)
-        elif self.language_name == 'haskell':
-            from .languages.haskell import HaskellTreeSitterParser
-            self.language_specific_parser = HaskellTreeSitterParser(self)
-
-
-
-    def parse(self, path: Path, is_dependency: bool = False, **kwargs) -> Dict:
-        """Dispatches parsing to the language-specific parser."""
-        if self.language_specific_parser:
-            return self.language_specific_parser.parse(path, is_dependency, **kwargs)
-        else:
-            raise NotImplementedError(f"No language-specific parser implemented for {self.language_name}")
 
 class GraphBuilder:
-    """Module for building and managing the Neo4j code graph."""
+    """Build and manage the code graph.
+
+    Provides a high-level facade over the indexing pipeline, including
+    repository ingestion, file parsing, call resolution, and inheritance
+    linking for Neo4j, FalkorDB, and Kùzu backends.
+    """
 
     def __init__(self, db_manager: DatabaseManager, job_manager: JobManager, loop: asyncio.AbstractEventLoop):
+        """Initialize GraphBuilder.
+
+        Parameters
+        ----------
+        db_manager : DatabaseManager
+            Active database manager instance.
+        job_manager : JobManager
+            Job manager for tracking indexing progress.
+        loop : asyncio.AbstractEventLoop
+            Event loop for async operations.
+        """
         self.db_manager = db_manager
         self.job_manager = job_manager
         self.loop = loop
         self.driver = self.db_manager.get_driver()
+        self._writer = GraphWriter(self.driver, db_manager=self.db_manager)
+        self.last_call_resolution_diagnostics: list[Dict[str, Any]] = []
+        self.last_index_summary: Dict[str, Any] = {}
         self.parsers = {
-            '.py': TreeSitterParser('python'),
-            '.ipynb': TreeSitterParser('python'),
-            '.js': TreeSitterParser('javascript'),
-            '.jsx': TreeSitterParser('javascript'),
-            '.mjs': TreeSitterParser('javascript'),
-            '.cjs': TreeSitterParser('javascript'),
-            '.go': TreeSitterParser('go'),
-            '.ts': TreeSitterParser('typescript'),
-            '.tsx': TreeSitterParser('typescript'),
-            '.cpp': TreeSitterParser('cpp'),
-            '.h': TreeSitterParser('cpp'),
-            '.hpp': TreeSitterParser('cpp'),
-            '.rs': TreeSitterParser('rust'),
-            '.c': TreeSitterParser('c'),
-            # '.h': TreeSitterParser('c'), # Need to write an algo for distinguishing C vs C++ headers
-            '.java': TreeSitterParser('java'),
-            '.rb': TreeSitterParser('ruby'),
-            '.java': TreeSitterParser('java'),
-            '.rb': TreeSitterParser('ruby'),
-            '.cs': TreeSitterParser('c_sharp'),
-            '.php': TreeSitterParser('php'),
-            '.kt': TreeSitterParser('kotlin'),
-            '.scala': TreeSitterParser('scala'),
-            '.sc': TreeSitterParser('scala'),
-            '.swift': TreeSitterParser('swift'),
-            '.hs': TreeSitterParser('haskell'),
+            ".py": "python",
+            ".ipynb": "python",
+            ".js": "javascript",
+            ".jsx": "javascript",
+            ".mjs": "javascript",
+            ".cjs": "javascript",
+            ".go": "go",
+            ".ts": "typescript",
+            ".mts": "typescript",
+            ".cts": "typescript",
+            ".d.ts": "typescript",
+            ".tsx": "tsx",
+            ".cpp": "cpp",
+            ".h": "cpp",
+            ".hpp": "cpp",
+            ".hh": "cpp",
+            ".rs": "rust",
+            ".c": "c",
+            ".java": "java",
+            ".rb": "ruby",
+            ".cs": "c_sharp",
+            ".php": "php",
+            ".kt": "kotlin",
+            ".scala": "scala",
+            ".sc": "scala",
+            ".swift": "swift",
+            ".hs": "haskell",
+            ".dart": "dart",
+            ".pl": "perl",
+            ".pm": "perl",
+            ".lua": "lua",
+            ".ex": "elixir",
+            ".exs": "elixir",
+            ".el": "elisp",
+            ".html": "html",
+            ".css": "css",
         }
+        
+        # Files that should be added to the graph as minimal File nodes, even if not parsed
+        self.generic_extensions = {
+            ".toml", ".sh", ".yaml", ".yml", ".json", ".ini", ".cfg", ".md", ".txt", ".env",
+            ".bat", ".ps1", ".dockerignore", ".gitignore"
+        }
+        self.generic_filenames = {
+            "Dockerfile", "Makefile"
+        }
+        
+        import threading
+        self._parsed_cache = threading.local()
         self.create_schema()
 
-    # A general schema creation based on common features across languages
-    def create_schema(self):
-        """Create constraints and indexes in Neo4j."""
-        # When adding a new node type with a unique key, add its constraint here.
-        with self.driver.session() as session:
+    def get_parser(self, extension: str) -> Optional[TreeSitterParser]:
+        """Gets or creates a TreeSitterParser for the given extension (thread-local)."""
+        lang_name = self.parsers.get(extension)
+        if not lang_name:
+            return None
+
+        if not hasattr(self._parsed_cache, 'parsers'):
+            self._parsed_cache.parsers = {}
+
+        if lang_name not in self._parsed_cache.parsers:
             try:
-                session.run("CREATE CONSTRAINT repository_path IF NOT EXISTS FOR (r:Repository) REQUIRE r.path IS UNIQUE")
-                session.run("CREATE CONSTRAINT path IF NOT EXISTS FOR (f:File) REQUIRE f.path IS UNIQUE")
-                session.run("CREATE CONSTRAINT directory_path IF NOT EXISTS FOR (d:Directory) REQUIRE d.path IS UNIQUE")
-                session.run("CREATE CONSTRAINT function_unique IF NOT EXISTS FOR (f:Function) REQUIRE (f.name, f.path, f.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT class_unique IF NOT EXISTS FOR (c:Class) REQUIRE (c.name, c.path, c.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT trait_unique IF NOT EXISTS FOR (t:Trait) REQUIRE (t.name, t.path, t.line_number) IS UNIQUE") # Added trait constraint
-                session.run("CREATE CONSTRAINT interface_unique IF NOT EXISTS FOR (i:Interface) REQUIRE (i.name, i.path, i.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT macro_unique IF NOT EXISTS FOR (m:Macro) REQUIRE (m.name, m.path, m.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT variable_unique IF NOT EXISTS FOR (v:Variable) REQUIRE (v.name, v.path, v.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT module_name IF NOT EXISTS FOR (m:Module) REQUIRE m.name IS UNIQUE")
-                session.run("CREATE CONSTRAINT struct_cpp IF NOT EXISTS FOR (cstruct: Struct) REQUIRE (cstruct.name, cstruct.path, cstruct.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT enum_cpp IF NOT EXISTS FOR (cenum: Enum) REQUIRE (cenum.name, cenum.path, cenum.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT union_cpp IF NOT EXISTS FOR (cunion: Union) REQUIRE (cunion.name, cunion.path, cunion.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT annotation_unique IF NOT EXISTS FOR (a:Annotation) REQUIRE (a.name, a.path, a.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT record_unique IF NOT EXISTS FOR (r:Record) REQUIRE (r.name, r.path, r.line_number) IS UNIQUE")
-                session.run("CREATE CONSTRAINT property_unique IF NOT EXISTS FOR (p:Property) REQUIRE (p.name, p.path, p.line_number) IS UNIQUE")
-                
-                # Indexes for language attribute
-                session.run("CREATE INDEX function_lang IF NOT EXISTS FOR (f:Function) ON (f.lang)")
-                session.run("CREATE INDEX class_lang IF NOT EXISTS FOR (c:Class) ON (c.lang)")
-                session.run("CREATE INDEX annotation_lang IF NOT EXISTS FOR (a:Annotation) ON (a.lang)")
-                session.run("""
-                    CREATE FULLTEXT INDEX code_search_index IF NOT EXISTS 
-                    FOR (n:Function|Class|Variable) 
-                    ON EACH [n.name, coalesce(n.source, ''), coalesce(n.docstring, '')]
-                """ )
-                
-                info_logger("Database schema verified/created successfully")
+                self._parsed_cache.parsers[lang_name] = TreeSitterParser(lang_name)
             except Exception as e:
-                warning_logger(f"Schema creation warning: {e}")
+                warning_logger(f"Failed to initialize parser for {lang_name}: {e}")
+                return None
+        return self._parsed_cache.parsers[lang_name]
 
+    def create_schema(self) -> None:
+        create_graph_schema(self.driver, self.db_manager)
 
-    def _pre_scan_for_imports(self, files: list[Path]) -> dict:
-        """Dispatches pre-scan to the correct language-specific implementation."""
-        imports_map = {}
-        
-        # Group files by language/extension
-        files_by_lang = {}
-        for file in files:
-            if file.suffix in self.parsers:
-                lang_ext = file.suffix
-                if lang_ext not in files_by_lang:
-                    files_by_lang[lang_ext] = []
-                files_by_lang[lang_ext].append(file)
+    _MAX_STR_LEN = MAX_STR_LEN
 
-        if '.py' in files_by_lang:
-            from .languages import python as python_lang_module
-            imports_map.update(python_lang_module.pre_scan_python(files_by_lang['.py'], self.parsers['.py']))
-        if '.ipynb' in files_by_lang:
-            from .languages import python as python_lang_module
-            imports_map.update(python_lang_module.pre_scan_python(files_by_lang['.ipynb'], self.parsers['.ipynb']))
-        if '.js' in files_by_lang:
-            from .languages import javascript as js_lang_module
-            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.js'], self.parsers['.js']))
-        if '.jsx' in files_by_lang:
-            from .languages import javascript as js_lang_module
-            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.jsx'], self.parsers['.jsx']))
-        if '.mjs' in files_by_lang:
-            from .languages import javascript as js_lang_module
-            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.mjs'], self.parsers['.mjs']))
-        if '.cjs' in files_by_lang:
-            from .languages import javascript as js_lang_module
-            imports_map.update(js_lang_module.pre_scan_javascript(files_by_lang['.cjs'], self.parsers['.cjs']))
-        if '.go' in files_by_lang:
-             from .languages import go as go_lang_module
-             imports_map.update(go_lang_module.pre_scan_go(files_by_lang['.go'], self.parsers['.go']))
-        if '.ts' in files_by_lang:
-            from .languages import typescript as ts_lang_module
-            imports_map.update(ts_lang_module.pre_scan_typescript(files_by_lang['.ts'], self.parsers['.ts']))
-        if '.tsx' in files_by_lang:
-            from .languages import typescriptjsx as tsx_lang_module
-            imports_map.update(tsx_lang_module.pre_scan_typescript(files_by_lang['.tsx'], self.parsers['.tsx']))
-        if '.cpp' in files_by_lang:
-            from .languages import cpp as cpp_lang_module
-            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.cpp'], self.parsers['.cpp']))
-        if '.h' in files_by_lang:
-            from .languages import cpp as cpp_lang_module
-            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.h'], self.parsers['.h']))
-        if '.hpp' in files_by_lang:
-            from .languages import cpp as cpp_lang_module
-            imports_map.update(cpp_lang_module.pre_scan_cpp(files_by_lang['.hpp'], self.parsers['.hpp']))
-        if '.rs' in files_by_lang:
-            from .languages import rust as rust_lang_module
-            imports_map.update(rust_lang_module.pre_scan_rust(files_by_lang['.rs'], self.parsers['.rs']))
-        if '.c' in files_by_lang:
-            from .languages import c as c_lang_module
-            imports_map.update(c_lang_module.pre_scan_c(files_by_lang['.c'], self.parsers['.c']))
-        elif '.java' in files_by_lang:
-            from .languages import java as java_lang_module
-            imports_map.update(java_lang_module.pre_scan_java(files_by_lang['.java'], self.parsers['.java']))
-        elif '.rb' in files_by_lang:
-            from .languages import ruby as ruby_lang_module
-            imports_map.update(ruby_lang_module.pre_scan_ruby(files_by_lang['.rb'], self.parsers['.rb']))
-        elif '.cs' in files_by_lang:
-            from .languages import csharp as csharp_lang_module
-            imports_map.update(csharp_lang_module.pre_scan_csharp(files_by_lang['.cs'], self.parsers['.cs']))
-        if '.kt' in files_by_lang:
-            from .languages import kotlin as kotlin_lang_module
-            imports_map.update(kotlin_lang_module.pre_scan_kotlin(files_by_lang['.kt'], self.parsers['.kt']))
-        if '.scala' in files_by_lang:
-            from .languages import scala as scala_lang_module
-            imports_map.update(scala_lang_module.pre_scan_scala(files_by_lang['.scala'], self.parsers['.scala']))
-        if '.sc' in files_by_lang:
-            from .languages import scala as scala_lang_module
-            imports_map.update(scala_lang_module.pre_scan_scala(files_by_lang['.sc'], self.parsers['.sc']))
-        if '.swift' in files_by_lang:
-            from .languages import swift as swift_lang_module
-            imports_map.update(swift_lang_module.pre_scan_swift(files_by_lang['.swift'], self.parsers['.swift']))
-            
-        return imports_map
+    @staticmethod
+    def _sanitize_props(props: Dict) -> Dict:
+        return sanitize_props(props)
+
+    def _resolve_function_call(
+        self,
+        call: Dict,
+        caller_file_path: str,
+        local_names: set,
+        local_imports: dict,
+        imports_map: dict,
+        skip_external: bool,
+    ):
+        return resolve_function_call(
+            call, caller_file_path, local_names, local_imports, imports_map, skip_external
+        )
+
+    def pre_scan_imports(self, files: list[Path]) -> dict:
+        """Build global imports map from language pre-scans.
+
+        Public API for watchers and the indexing pipeline.
+
+        Parameters
+        ----------
+        files : list[Path]
+            List of file paths to scan for import declarations.
+
+        Returns
+        -------
+        dict
+            Global imports mapping ``{name: [file_paths]}`` used for
+            cross-file relationship resolution.
+        """
+        return pre_scan_for_imports(files, self.parsers, self.get_parser)
+
 
     # Language-agnostic method
     def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False):
         """Adds a repository node using its absolute path as the unique key."""
         repo_name = repo_path.name
-        repo_path_str = str(repo_path.resolve())
+        repo_path_str = repo_path.resolve().as_posix()
         with self.driver.session() as session:
             session.run(
                 """
@@ -256,418 +185,505 @@ class GraphBuilder:
             )
 
     # First pass to add file and its contents
-    def add_file_to_graph(self, file_data: Dict, repo_name: str, imports_map: dict):
-        info_logger("Executing add_file_to_graph with my change!")
-        """Adds a file and its contents within a single, unified session."""
-        file_path_str = str(Path(file_data['path']).resolve())
+    def add_file_to_graph(self, file_data: Dict, repo_name: str, imports_map: dict, repo_path_str: str = None):
+        """Adds a file and its contents using batched UNWIND queries (one round-trip per node type)."""
+        file_path_str = Path(file_data['path']).resolve().as_posix()
         file_name = Path(file_path_str).name
         is_dependency = file_data.get('is_dependency', False)
+        lang = file_data.get('lang')
 
         with self.driver.session() as session:
-            try:
-                # Match repository by path, not name, to avoid conflicts with same-named folders at different locations
-                repo_result = session.run("MATCH (r:Repository {path: $repo_path}) RETURN r.path as path", repo_path=str(Path(file_data['repo_path']).resolve())).single()
-                relative_path = str(Path(file_path_str).relative_to(Path(repo_result['path']))) if repo_result else file_name
-            except ValueError:
-                relative_path = file_name
+            # Resolve repo path — use caller-supplied value when available to skip a DB round-trip.
+            if repo_path_str:
+                resolved_repo_str = repo_path_str
+            else:
+                repo_result = session.run(
+                    "MATCH (r:Repository {path: $repo_path}) RETURN r.path as path",
+                    repo_path=Path(file_data['repo_path']).resolve().as_posix()
+                ).single()
+                resolved_repo_str = repo_result['path'] if repo_result else Path(file_data['repo_path']).resolve().as_posix()
+                if not repo_result:
+                    warning_logger(f"Repository node not found for {file_data['repo_path']} during indexing of {file_name}.")
 
+            try:
+                repo_path_obj = Path(resolved_repo_str).resolve()
+                file_path_obj = Path(file_path_str).resolve()
+                relative_path = str(file_path_obj.relative_to(repo_path_obj))
+            except ValueError:
+                try:
+                    relative_path = os.path.relpath(str(file_path_obj), str(repo_path_obj))
+                except Exception:
+                    relative_path = file_name
+
+            # ── UPSERT File node ─────────────────────────────────────────────
             session.run("""
                 MERGE (f:File {path: $path})
                 SET f.name = $name, f.relative_path = $relative_path, f.is_dependency = $is_dependency
             """, path=file_path_str, name=file_name, relative_path=relative_path, is_dependency=is_dependency)
 
-            file_path_obj = Path(file_path_str)
-            if repo_result:
-                repo_path_obj = Path(repo_result['path'])
-            else:
-                # Fallback to the path we queried for
-                warning_logger(f"Repository node not found for {file_data['repo_path']} during indexing of {file_name}. Using original path.")
-                repo_path_obj = Path(file_data['repo_path']).resolve()
-            
-            relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
-            
-            parent_path = str(repo_path_obj)
+            # ── Directory hierarchy + file link (one pass, sequential MERGEs) ─
+            file_path_obj = Path(file_path_str).resolve()
+            repo_path_obj = Path(resolved_repo_str).resolve()
+            try:
+                relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
+            except ValueError:
+                relative_path_to_file = Path(os.path.relpath(str(file_path_obj), str(repo_path_obj)))
+            parent_path = resolved_repo_str
             parent_label = 'Repository'
-
             for part in relative_path_to_file.parts[:-1]:
-                current_path = Path(parent_path) / part
-                current_path_str = str(current_path)
-                
+                current_path_str = f"{parent_path}/{part}"  # keep forward-slash DB paths
                 session.run(f"""
                     MATCH (p:{parent_label} {{path: $parent_path}})
                     MERGE (d:Directory {{path: $current_path}})
                     SET d.name = $part
                     MERGE (p)-[:CONTAINS]->(d)
                 """, parent_path=parent_path, current_path=current_path_str, part=part)
-
                 parent_path = current_path_str
                 parent_label = 'Directory'
-
             session.run(f"""
                 MATCH (p:{parent_label} {{path: $parent_path}})
                 MATCH (f:File {{path: $path}})
                 MERGE (p)-[:CONTAINS]->(f)
             """, parent_path=parent_path, path=file_path_str)
 
-            # CONTAINS relationships for functions, classes, and variables
+            # ── Batch UPSERT all code nodes (functions, classes, etc.) ────────
             # To add a new language-specific node type (e.g., 'Trait' for Rust):
-            # 1. Ensure your language-specific parser returns a list under a unique key (e.g., 'traits': [...] ).
-            # 2. Add a new constraint for the new label in the `create_schema` method.
-            # 3. Add a new entry to the `item_mappings` list below (e.g., (file_data.get('traits', []), 'Trait') ).
+            # 1. Parser returns a list under a unique key (e.g., 'traits': [...]).
+            # 2. Add a constraint for the label in create_schema().
+            # 3. Add an entry to item_mappings below.
             item_mappings = [
-                (file_data.get('functions', []), 'Function'),
-                (file_data.get('classes', []), 'Class'),
-                (file_data.get('traits', []), 'Trait'), # <-- Added trait mapping
-                (file_data.get('variables', []), 'Variable'),
+                (file_data.get('functions', []),  'Function'),
+                (file_data.get('classes', []),    'Class'),
+                (file_data.get('traits', []),     'Trait'),
+                (file_data.get('variables', []),  'Variable'),
                 (file_data.get('interfaces', []), 'Interface'),
-                (file_data.get('macros', []), 'Macro'),
-                (file_data.get('structs',[]), 'Struct'),
-                (file_data.get('enums',[]), 'Enum'),
-                (file_data.get('unions',[]), 'Union'),
-                (file_data.get('records',[]), 'Record'),
-                (file_data.get('properties',[]), 'Property'),
+                (file_data.get('macros', []),     'Macro'),
+                (file_data.get('structs', []),    'Struct'),
+                (file_data.get('enums', []),      'Enum'),
+                (file_data.get('unions', []),     'Union'),
+                (file_data.get('records', []),    'Record'),
+                (file_data.get('properties', []), 'Property'),
             ]
-            for item_data, label in item_mappings:
-                for item in item_data:
-                    # Ensure cyclomatic_complexity is set for functions
-                    if label == 'Function' and 'cyclomatic_complexity' not in item:
-                        item['cyclomatic_complexity'] = 1 # Default value
+            params_batch = []  # accumulated for bulk parameter creation
+            class_fn_batch = []  # accumulated for class->function CONTAINS links
+            nested_fn_batch = []  # accumulated for function->function CONTAINS links
 
-                    query = f"""
-                        MATCH (f:File {{path: $path}})
-                        MERGE (n:{label} {{name: $name, path: $path, line_number: $line_number}})
-                        SET n += $props
-                        MERGE (f)-[:CONTAINS]->(n)
-                    """
-
-                    session.run(query, path=file_path_str, name=item['name'], line_number=item['line_number'], props=item)
-                    
+            for item_list, label in item_mappings:
+                if not item_list:
+                    continue
+                batch = []
+                for item in item_list:
+                    row = dict(item)  # shallow copy so we can set defaults safely
+                    if label == 'Function' and 'cyclomatic_complexity' not in row:
+                        row['cyclomatic_complexity'] = 1
+                    batch.append(self._sanitize_props(row))
                     if label == 'Function':
                         for arg_name in item.get('args', []):
-                            session.run("""
-                                MATCH (fn:Function {name: $func_name, path: $path, line_number: $line_number})
-                                MERGE (p:Parameter {name: $arg_name, path: $path, function_line_number: $line_number})
-                                MERGE (fn)-[:HAS_PARAMETER]->(p)
-                            """, func_name=item['name'], path=file_path_str, line_number=item['line_number'], arg_name=arg_name)
+                            params_batch.append({
+                                'func_name': item['name'],
+                                'line_number': item['line_number'],
+                                'arg_name': arg_name,
+                            })
+                        if item.get('class_context'):
+                            class_fn_batch.append({
+                                'class_name': item['class_context'],
+                                'class_line': item.get('class_context_line', -1)
+                                if item.get('class_context_line') is not None
+                                else -1,
+                                'func_name': item['name'],
+                                'func_line': item['line_number'],
+                            })
+                        if item.get('context_type') == 'function_definition':
+                            nested_fn_batch.append({
+                                'outer': item['context'],
+                                'inner_name': item['name'],
+                                'inner_line': item['line_number'],
+                            })
 
-            # --- NEW: persist Ruby Modules ---
-            for m in file_data.get('modules', []):
+                # Normalize batch: KuzuDB requires uniform struct keys AND
+                # consistent types across all UNWIND items.  After
+                # _sanitize_props some items may have STRING[] while others
+                # have STRING (JSON-serialised) or None for the same key.
+                # We force every field to a single canonical type.
+                if batch:
+                    import json as _json
+                    all_keys = set()
+                    for b in batch:
+                        all_keys.update(b.keys())
+
+                    for k in all_keys:
+                        # Determine dominant concrete type
+                        counts = {}
+                        for b in batch:
+                            v = b.get(k)
+                            if v is not None:
+                                counts[type(v).__name__] = counts.get(type(v).__name__, 0) + 1
+
+                        dominant = max(counts, key=counts.get) if counts else 'str'
+
+                        for b in batch:
+                            v = b.get(k)
+                            if dominant == 'list':
+                                if isinstance(v, list):
+                                    b[k] = [str(x) for x in v] if v else [""]
+                                elif isinstance(v, str) and v:
+                                    try:
+                                        p = _json.loads(v)
+                                        b[k] = [str(x) for x in p] if isinstance(p, list) and p else [""]
+                                    except Exception:
+                                        b[k] = [v]
+                                else:
+                                    b[k] = [""]
+                            elif dominant == 'int':
+                                if v is None or v == "":
+                                    b[k] = 0
+                                elif not isinstance(v, int):
+                                    try:
+                                        b[k] = int(v)
+                                    except Exception:
+                                        b[k] = 0
+                            elif dominant == 'bool':
+                                b[k] = bool(v) if v is not None else False
+                            else:
+                                if v is None:
+                                    b[k] = ""
+                                elif isinstance(v, list):
+                                    b[k] = _json.dumps(v)
+                                elif not isinstance(v, str):
+                                    b[k] = str(v)
+
+                    # Ensure consistent key order (KuzuDB structs are order-sensitive)
+                    key_order = sorted(all_keys)
+                    batch[:] = [{k: b[k] for k in key_order} for b in batch]
+
+                # One UNWIND per label — replaces N individual session.run() calls.
+                # Split into node creation + relationship linking to avoid
+                # KuzuDB "Casting between NODE and NODE" errors when MERGE
+                # on a relationship follows MERGE on a node in the same query.
+                session.run(f"""
+                    UNWIND $batch AS row
+                    MERGE (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})
+                    SET n += row
+                """, batch=batch, file_path=file_path_str)
+                session.run(f"""
+                    UNWIND $batch AS row
+                    MATCH (f:File {{path: $file_path}})
+                    MATCH (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})
+                    MERGE (f)-[:CONTAINS]->(n)
+                """, batch=batch, file_path=file_path_str)
+
+            # ── Batch: Function parameters ────────────────────────────────────
+            if params_batch:
                 session.run("""
-                    MERGE (mod:Module {name: $name})
-                    ON CREATE SET mod.lang = $lang
-                    ON MATCH  SET mod.lang = coalesce(mod.lang, $lang)
-                """, name=m["name"], lang=file_data.get("lang"))
+                    UNWIND $batch AS row
+                    MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.line_number})
+                    MERGE (p:Parameter {name: row.arg_name, path: $file_path, function_line_number: row.line_number})
+                    SET p.name = row.arg_name, p.path = $file_path, p.function_line_number = row.line_number
+                    MERGE (fn)-[:HAS_PARAMETER]->(p)
+                """, batch=params_batch, file_path=file_path_str)
 
-            # Create CONTAINS relationships for nested functions
-            for item in file_data.get('functions', []):
-                if item.get("context_type") == "function_definition":
+            # ── Batch: Class -[:CONTAINS]-> Function ──────────────────────────
+            if class_fn_batch:
+                # C++ out-of-line methods (.cpp defines what .h declares) are handled
+                # in a dedicated post-pass (write_cpp_class_function_links) after ALL
+                # file nodes exist, so the Class match never fails due to ordering.
+                # Skip the cpp_batch here; only run the same-file pass for other langs.
+                _cpp_exts = ('.cpp', '.cc', '.cxx', '.c++', '.C')
+                other_batch = [] if file_path_str.endswith(_cpp_exts) else class_fn_batch
+                if other_batch:
                     session.run("""
-                        MATCH (outer:Function {name: $context, path: $path})
-                        MATCH (inner:Function {name: $name, path: $path, line_number: $line_number})
-                        MERGE (outer)-[:CONTAINS]->(inner)
-                    """, context=item["context"], path=file_path_str, name=item["name"], line_number=item["line_number"])
-
-            # Handle imports and create IMPORTS relationships
-            for imp in file_data.get('imports', []):
-                info_logger(f"Processing import: {imp}")
-                lang = file_data.get('lang')
-                if lang == 'javascript':
-                    # New, correct logic for JS
-                    module_name = imp.get('source')
-                    if not module_name: continue
-
-                    # Use a map for relationship properties to handle optional alias and line_number
-                    rel_props = {'imported_name': imp.get('name', '*')}
-                    if imp.get('alias'):
-                        rel_props['alias'] = imp.get('alias')
-                    if imp.get('line_number'):
-                        rel_props['line_number'] = imp.get('line_number')
-
-                    session.run("""
-                        MATCH (f:File {path: $path})
-                        MERGE (m:Module {name: $module_name})
-                        MERGE (f)-[r:IMPORTS]->(m)
-                        SET r += $props
-                    """, path=file_path_str, module_name=module_name, props=rel_props)
-                else:
-                    # Existing logic for Python (and other languages)
-                    set_clauses = ["m.alias = $alias"]
-                    if 'full_import_name' in imp:
-                        set_clauses.append("m.full_import_name = $full_import_name")
-                    set_clause_str = ", ".join(set_clauses)
-
-                    # Build relationship properties
-                    rel_props = {}
-                    if imp.get('line_number'):
-                        rel_props['line_number'] = imp.get('line_number')
-                    if imp.get('alias'):
-                        rel_props['alias'] = imp.get('alias')
-
-                    session.run(f"""
-                        MATCH (f:File {{path: $path}})
-                        MERGE (m:Module {{name: $name}})
-                        SET {set_clause_str}
-                        MERGE (f)-[r:IMPORTS]->(m)
-                        SET r += $rel_props
-                    """, path=file_path_str, rel_props=rel_props, **imp)
-
-
-            # Handle CONTAINS relationship between class to their children like variables
-            for func in file_data.get('functions', []):
-                if func.get('class_context'):
-                    session.run("""
-                        MATCH (c:Class {name: $class_name, path: $path})
-                        MATCH (fn:Function {name: $func_name, path: $path, line_number: $func_line})
+                        UNWIND $batch AS row
+                        MATCH (c:Class {name: row.class_name, path: $file_path})
+                        MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.func_line})
+                        WHERE row.class_line < 0 OR c.line_number = row.class_line
                         MERGE (c)-[:CONTAINS]->(fn)
-                    """, 
-                    class_name=func['class_context'],
-                    path=file_path_str,
-                    func_name=func['name'],
-                    func_line=func['line_number'])
+                    """, batch=other_batch, file_path=file_path_str)
 
-            # --- NEW: Class INCLUDES Module (Ruby mixins) ---
-            for inc in file_data.get('module_inclusions', []):
+            # ── Batch: Nested Function -[:CONTAINS]-> Function ────────────────
+            if nested_fn_batch:
                 session.run("""
-                    MATCH (c:Class {name: $class_name, path: $path})
-                    MERGE (m:Module {name: $module_name})
-                    MERGE (c)-[:INCLUDES]->(m)
-                """,
-                class_name=inc["class"],
-                path=file_path_str,
-                module_name=inc["module"])
+                    UNWIND $batch AS row
+                    MATCH (outer:Function {name: row.outer, path: $file_path})
+                    MATCH (inner:Function {name: row.inner_name, path: $file_path, line_number: row.inner_line})
+                    MERGE (outer)-[:CONTAINS]->(inner)
+                """, batch=nested_fn_batch, file_path=file_path_str)
 
-            # Class inheritance is handled in a separate pass after all files are processed.
-            # Function calls are also handled in a separate pass after all files are processed.
+            # ── Batch: Ruby Modules ───────────────────────────────────────────
+            ruby_modules = file_data.get('modules', [])
+            if ruby_modules:
+                session.run("""
+                    UNWIND $batch AS row
+                    MERGE (mod:Module {name: row.name})
+                    ON CREATE SET mod.lang = row.lang
+                    ON MATCH  SET mod.lang = coalesce(mod.lang, row.lang)
+                """, batch=[{'name': m['name'], 'lang': lang} for m in ruby_modules])
+
+            # ── Batch: Imports → Module nodes + IMPORTS relationships ─────────
+            js_imports = []
+            other_imports = []
+            for imp in file_data.get('imports', []):
+                if lang == 'javascript':
+                    module_name = imp.get('source')
+                    if module_name:
+                        js_imports.append({
+                            'module_name': module_name,
+                            'imported_name': imp.get('name', '*'),
+                            'alias': imp.get('alias'),
+                            'line_number': imp.get('line_number'),
+                        })
+                else:
+                    module_name = imp.get('name') or imp.get('source') or imp.get('full_import_name')
+                    if not module_name:
+                        continue
+                    full_import_name = imp.get('full_import_name') or imp.get('source') or module_name
+                    other_imports.append({
+                        'name': module_name,
+                        'full_import_name': full_import_name,
+                        'imported_name': imp.get('imported_name') or module_name,
+                        'alias': imp.get('alias'),
+                        'line_number': imp.get('line_number') or 0,
+                        'lang': imp.get('lang') or lang,
+                    })
+
+            if js_imports:
+                session.run("""
+                    UNWIND $batch AS row
+                    MATCH (f:File {path: $file_path})
+                    MERGE (m:Module {name: row.module_name})
+                    MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)
+                    SET r.imported_name = row.imported_name,
+                        r.alias = row.alias
+                """, batch=js_imports, file_path=file_path_str)
+
+            if other_imports:
+                other_imports = sort_import_rows_for_metadata(other_imports)
+                session.run("""
+                    UNWIND $batch AS row
+                    MATCH (f:File {path: $file_path})
+                    MERGE (m:Module {name: row.name})
+                    SET m.lang = coalesce(m.lang, row.lang),
+                        m.full_import_name = coalesce(m.full_import_name, row.full_import_name)
+                    MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)
+                    SET r.alias = row.alias,
+                        r.imported_name = row.imported_name,
+                        r.full_import_name = row.full_import_name
+                """, batch=other_imports, file_path=file_path_str)
+
+            # ── Batch: Ruby Class INCLUDES Module ─────────────────────────────
+            module_inclusions = file_data.get('module_inclusions', [])
+            if module_inclusions:
+                session.run("""
+                    UNWIND $batch AS row
+                    MATCH (c:Class {name: row.class_name, path: $file_path})
+                    MERGE (m:Module {name: row.module_name})
+                    MERGE (c)-[:INCLUDES]->(m)
+                """, batch=[{'class_name': i['class'], 'module_name': i['module']} for i in module_inclusions],
+                     file_path=file_path_str)
+
+            # Class inheritance and function calls are handled in a second pass after all files are processed.
 
     # Second pass to create relationships that depend on all files being present like call functions and class inheritance
-    def _create_function_calls(self, session, file_data: Dict, imports_map: dict):
-        """Create CALLS relationships with a unified, prioritized logic flow for all call types."""
-        caller_file_path = str(Path(file_data['path']).resolve())
-        local_names = {f['name'] for f in file_data.get('functions', [])} | \
-                      {c['name'] for c in file_data.get('classes', [])}
-        local_imports = {imp.get('alias') or imp['name'].split('.')[-1]: imp['name'] 
-                        for imp in file_data.get('imports', [])}
+    def _resolve_function_call(self, call: Dict, caller_file_path: str, local_names: set, local_imports: dict, imports_map: dict, skip_external: bool) -> Optional[Dict]:
+        """Resolve a single function call to its target."""
+        return resolve_function_call(
+            call,
+            caller_file_path,
+            local_names,
+            local_imports,
+            imports_map,
+            skip_external,
+        )
+
+    def _create_all_function_calls(self, all_file_data: list[Dict], imports_map: dict, file_class_lookup: Optional[Dict] = None):
+        """Create CALLS relationships using fully label-specific UNWIND queries (V3).
+        Both caller AND called sides use specific labels — no OR scans anywhere.
         
-        for call in file_data.get('function_calls', []):
-            called_name = call['name']
-            if called_name in __builtins__: continue
+        Args:
+            file_class_lookup: Optional pre-built {file_path: set_of_class_names} covering the full
+                repo. When supplied (incremental mode), the lookup is supplemented with data from
+                all_file_data so newly-created/renamed classes are reflected immediately. When None
+                (full-scan mode) the lookup is built solely from all_file_data as before.
+        """
+        skip_external = (get_config_value("SKIP_EXTERNAL_RESOLUTION") or "false").lower() == "true"
 
-            resolved_path = None
-            full_call = call.get('full_name', called_name)
-            base_obj = full_call.split('.')[0] if '.' in full_call else None
+        # Build or supplement the global lookup: which names are classes in which files.
+        # In incremental mode an externally-built lookup (from Neo4j) is passed in; we still
+        # overlay the parsed subset so in-flight changes are reflected.
+        if file_class_lookup is None:
+            file_class_lookup = {}
+        for fd in all_file_data:
+            fp = Path(fd['path']).resolve().as_posix()
+            file_class_lookup[fp] = {c['name'] for c in fd.get('classes', [])}
+        
+        # Phase 1: Resolve all calls, categorized by (caller_label, called_label)
+        info_logger(f"[CALLS] Resolving function calls across {len(all_file_data)} files...")
+        fn_to_fn = []     # Function -> Function (most common, no init lookup)
+        fn_to_cls = []    # Function -> Class (needs init lookup)
+        cls_to_fn = []    # Class -> Function
+        cls_to_cls = []   # Class -> Class (needs init lookup)
+        file_to_fn = []   # File -> Function
+        file_to_cls = []  # File -> Class (needs init lookup)
+        
+        for idx, file_data in enumerate(all_file_data):
+            caller_file_path = Path(file_data['path']).resolve().as_posix()
+            func_names = {f['name'] for f in file_data.get('functions', [])}
+            class_names = {c['name'] for c in file_data.get('classes', [])}
+            local_names = func_names | class_names
+            local_imports = {imp.get('alias') or (imp.get('name') or '').split('.')[-1]: imp.get('name')
+                            for imp in file_data.get('imports', [])
+                            if imp.get('name')}
             
-            # For chained calls like self.graph_builder.method(), we need to look up 'method'
-            # For direct calls like self.method(), we can use the caller's file
-            is_chained_call = full_call.count('.') > 1 if '.' in full_call else False
+            for call in file_data.get('function_calls', []):
+                resolved = self._resolve_function_call(
+                    call, caller_file_path, local_names, local_imports, imports_map, skip_external
+                )
+                if not resolved:
+                    continue
+                
+                called_path = resolved.get('called_file_path', '')
+                called_name = resolved['called_name']
+                called_is_class = called_name in file_class_lookup.get(called_path, set())
+                
+                if resolved['type'] == 'file':
+                    if called_is_class:
+                        file_to_cls.append(resolved)
+                    else:
+                        file_to_fn.append(resolved)
+                else:
+                    caller_name = resolved['caller_name']
+                    caller_is_class = caller_name in class_names
+                    if caller_is_class:
+                        (cls_to_cls if called_is_class else cls_to_fn).append(resolved)
+                    else:
+                        (fn_to_cls if called_is_class else fn_to_fn).append(resolved)
             
-            # Determine the lookup name:
-            # - For chained calls (self.attr.method), use the actual method name
-            # - For direct calls (self.method or module.function), use the base object
-            if is_chained_call and base_obj in ('self', 'this', 'super', 'super()', 'cls', '@'):
-                lookup_name = called_name  # Use the actual method name for lookup
-            else:
-                lookup_name = base_obj if base_obj else called_name
+            if (idx + 1) % 1000 == 0:
+                total = len(fn_to_fn) + len(fn_to_cls) + len(cls_to_fn) + len(cls_to_cls)
+                file_total = len(file_to_fn) + len(file_to_cls)
+                info_logger(f"[CALLS] Resolved {idx + 1}/{len(all_file_data)} files... "
+                           f"({total} fn/cls calls, {file_total} file calls)")
+        
+        total_all = len(fn_to_fn) + len(fn_to_cls) + len(cls_to_fn) + len(cls_to_cls) + len(file_to_fn) + len(file_to_cls)
+        info_logger(f"[CALLS] Resolution complete: fn→fn={len(fn_to_fn)}, fn→cls={len(fn_to_cls)}, "
+                    f"cls→fn={len(cls_to_fn)}, cls→cls={len(cls_to_cls)}, "
+                    f"file→fn={len(file_to_fn)}, file→cls={len(file_to_cls)}. Total={total_all}")
+        
+        # Phase 2: Batch write — fully label-specific queries (no OR scans)
+        BATCH_SIZE = 1000
+        
+        Q_FN_TO_FN = """
+            UNWIND $batch AS row
+            MATCH (caller:Function {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
+            MATCH (called:Function {name: row.called_name, path: row.called_file_path})
+            CREATE (caller)-[:CALLS {line_number: row.line_number, args: row.args, full_call_name: row.full_call_name}]->(called)
+        """
+        Q_FN_TO_CLS = """
+            UNWIND $batch AS row
+            MATCH (caller:Function {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
+            MATCH (called:Class {name: row.called_name, path: row.called_file_path})
+            CREATE (caller)-[:CALLS {line_number: row.line_number, args: row.args, full_call_name: row.full_call_name}]->(called)
+        """
+        Q_CLS_TO_FN = """
+            UNWIND $batch AS row
+            MATCH (caller:Class {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
+            MATCH (called:Function {name: row.called_name, path: row.called_file_path})
+            CREATE (caller)-[:CALLS {line_number: row.line_number, args: row.args, full_call_name: row.full_call_name}]->(called)
+        """
+        Q_CLS_TO_CLS = """
+            UNWIND $batch AS row
+            MATCH (caller:Class {name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number})
+            MATCH (called:Class {name: row.called_name, path: row.called_file_path})
+            CREATE (caller)-[:CALLS {line_number: row.line_number, args: row.args, full_call_name: row.full_call_name}]->(called)
+        """
+        Q_FILE_TO_FN = """
+            UNWIND $batch AS row
+            MATCH (caller:File {path: row.caller_file_path})
+            MATCH (called:Function {name: row.called_name, path: row.called_file_path})
+            CREATE (caller)-[:CALLS {line_number: row.line_number, args: row.args, full_call_name: row.full_call_name}]->(called)
+        """
+        Q_FILE_TO_CLS = """
+            UNWIND $batch AS row
+            MATCH (caller:File {path: row.caller_file_path})
+            MATCH (called:Class {name: row.called_name, path: row.called_file_path})
+            CREATE (caller)-[:CALLS {line_number: row.line_number, args: row.args, full_call_name: row.full_call_name}]->(called)
+        """
+        
+        groups = [
+            ("fn→fn", fn_to_fn, Q_FN_TO_FN),
+            ("fn→cls", fn_to_cls, Q_FN_TO_CLS),
+            ("cls→fn", cls_to_fn, Q_CLS_TO_FN),
+            ("cls→cls", cls_to_cls, Q_CLS_TO_CLS),
+            ("file→fn", file_to_fn, Q_FILE_TO_FN),
+            ("file→cls", file_to_cls, Q_FILE_TO_CLS),
+        ]
+        
+        import time as _time
+        with self.driver.session() as session:
+            for label, calls, query in groups:
+                if not calls:
+                    info_logger(f"[CALLS] {label}: 0 (skipped)")
+                    continue
+                t0 = _time.time()
+                for i in range(0, len(calls), BATCH_SIZE):
+                    batch = calls[i:i + BATCH_SIZE]
+                    session.run(query, batch=batch)
+                    written = min(i + BATCH_SIZE, len(calls))
+                    if written % 5000 < BATCH_SIZE or written == len(calls):
+                        elapsed = _time.time() - t0
+                        info_logger(f"[CALLS] {label}: {written}/{len(calls)} ({elapsed:.1f}s)")
+                elapsed = _time.time() - t0
+                info_logger(f"[CALLS] {label} done: {len(calls)} in {elapsed:.1f}s")
+        
+        info_logger(f"[CALLS] All complete: {total_all} CALLS relationships processed.")
 
-            # 1. Check for local context keywords/direct local names
-            # Only resolve to caller_file_path for DIRECT self/this calls, not chained ones
-            if base_obj in ('self', 'this', 'super', 'super()', 'cls', '@') and not is_chained_call:
+    def _resolve_inheritance_link(self, class_item: Dict, base_class_str: str, caller_file_path: str, local_class_names: set, local_imports: dict, imports_map: dict) -> Optional[Dict]:
+        """Resolve a single inheritance link. Returns a dict with params or None."""
+        if base_class_str == 'object':
+            return None
+
+        resolved_path = None
+        target_class_name = base_class_str.split('.')[-1]
+
+        if '.' in base_class_str:
+            lookup_name = base_class_str.split('.')[0]
+            if lookup_name in local_imports:
+                full_import_name = local_imports[lookup_name]
+                possible_paths = imports_map.get(target_class_name, [])
+                for path in possible_paths:
+                    if full_import_name.replace('.', '/') in path:
+                        resolved_path = path
+                        break
+        else:
+            lookup_name = base_class_str
+            if lookup_name in local_class_names:
                 resolved_path = caller_file_path
-            elif lookup_name in local_names:
-                resolved_path = caller_file_path
-            
-            # 2. Check inferred type if available
-            elif call.get('inferred_obj_type'):
-                obj_type = call['inferred_obj_type']
-                possible_paths = imports_map.get(obj_type, [])
-                if len(possible_paths) > 0:
-                    resolved_path = possible_paths[0]
-            
-            # 3. Check imports map with validation against local imports
-            if not resolved_path:
-                possible_paths = imports_map.get(lookup_name, [])
+            elif lookup_name in local_imports:
+                full_import_name = local_imports[lookup_name]
+                possible_paths = imports_map.get(target_class_name, [])
+                for path in possible_paths:
+                    if full_import_name.replace('.', '/') in path:
+                        resolved_path = path
+                        break
+            elif lookup_name in imports_map:
+                possible_paths = imports_map[lookup_name]
                 if len(possible_paths) == 1:
                     resolved_path = possible_paths[0]
-                elif len(possible_paths) > 1:
-                    if lookup_name in local_imports:
-                        full_import_name = local_imports[lookup_name]
-                        
-                        # Optimization: Check if the FQN is directly in imports_map (from pre-scan)
-                        if full_import_name in imports_map:
-                             direct_paths = imports_map[full_import_name]
-                             if direct_paths and len(direct_paths) == 1:
-                                 resolved_path = direct_paths[0]
-                        
-                        if not resolved_path:
-                            for path in possible_paths:
-                                if full_import_name.replace('.', '/') in path:
-                                    resolved_path = path
-                                    break
-            
-            if not resolved_path:
-                 warning_logger(f"Could not resolve call {called_name} (lookup: {lookup_name}) in {caller_file_path}")
-            # else:
-            #      info_logger(f"Resolved call {called_name} -> {resolved_path}")
-            
-            # Legacy fallback block (was mis-indented)
-            if not resolved_path:
-                possible_paths = imports_map.get(lookup_name, [])
-                if len(possible_paths) > 0:
-                     # Final fallback: global candidate
-                     # Check if it was imported explicitly, otherwise risky
-                     if lookup_name in local_imports:
-                         # We already tried specific matching above, but if we are here
-                         # it means we had ambiguity without matching path?
-                         pass
-                     else:
-                        # Fallback to first available if not imported? Or skip?
-                        # Original logic: resolved_path = possible_paths[0]
-                        # But wait, original code logic was:
-                        pass
-            if not resolved_path:
-                if called_name in local_names:
-                    resolved_path = caller_file_path
-                elif called_name in imports_map and imports_map[called_name]:
-                    # Check if any path in imports_map for called_name matches current file's imports
-                    candidates = imports_map[called_name]
-                    for path in candidates:
-                        for imp_name in local_imports.values():
-                            if imp_name.replace('.', '/') in path:
-                                resolved_path = path
-                                break
-                        if resolved_path: break
-                    if not resolved_path:
-                        resolved_path = candidates[0]
-                else:
-                    resolved_path = caller_file_path
 
-            caller_context = call.get('context')
-            if caller_context and len(caller_context) == 3 and caller_context[0] is not None:
-                caller_name, _, caller_line_number = caller_context
-                # if called_name == "sumOfSquares":
-                    # print(f"DEBUG_CYPHER: caller={caller_name}, caller_line={caller_line_number}, called={called_name}, path={resolved_path}")
-
-                session.run("""
-                    MATCH (caller) WHERE (caller:Function OR caller:Class) 
-                      AND caller.name = $caller_name 
-                      AND caller.path = $caller_file_path 
-                      AND caller.line_number = $caller_line_number
-                    MATCH (called) WHERE (called:Function OR called:Class)
-                      AND called.name = $called_name 
-                      AND called.path = $called_file_path
-                    
-                    WITH caller, called
-                    OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
-                    WHERE called:Class AND init.name IN ["__init__", "constructor"]
-                    WITH caller, COALESCE(init, called) as final_target
-                    
-                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
-                """,
-                caller_name=caller_name,
-                caller_file_path=caller_file_path,
-                caller_line_number=caller_line_number,
-                called_name=called_name,
-                called_file_path=resolved_path,
-                line_number=call['line_number'],
-                args=call.get('args', []),
-                full_call_name=call.get('full_name', called_name))
-            else:
-                session.run("""
-                    MATCH (caller:File {path: $caller_file_path})
-                    MATCH (called) WHERE (called:Function OR called:Class)
-                      AND called.name = $called_name 
-                      AND called.path = $called_file_path
-                    
-                    WITH caller, called
-                    OPTIONAL MATCH (called)-[:CONTAINS]->(init:Function)
-                    WHERE called:Class AND init.name IN ["__init__", "constructor"]
-                    WITH caller, COALESCE(init, called) as final_target
-
-                    MERGE (caller)-[:CALLS {line_number: $line_number, args: $args, full_call_name: $full_call_name}]->(final_target)
-                """,
-                caller_file_path=caller_file_path,
-                called_name=called_name,
-                called_file_path=resolved_path,
-                line_number=call['line_number'],
-                args=call.get('args', []),
-                full_call_name=call.get('full_name', called_name))
-
-    def _create_all_function_calls(self, all_file_data: list[Dict], imports_map: dict):
-        """Create CALLS relationships for all functions after all files have been processed."""
-        with self.driver.session() as session:
-            for file_data in all_file_data:
-                self._create_function_calls(session, file_data, imports_map)
-
-    def _create_inheritance_links(self, session, file_data: Dict, imports_map: dict):
-        """Create INHERITS relationships with a more robust resolution logic."""
-        caller_file_path = str(Path(file_data['path']).resolve())
-        local_class_names = {c['name'] for c in file_data.get('classes', [])}
-        # Create a map of local import aliases/names to full import names
-        local_imports = {imp.get('alias') or imp['name'].split('.')[-1]: imp['name']
-                         for imp in file_data.get('imports', [])}
-
-        for class_item in file_data.get('classes', []):
-            if not class_item.get('bases'):
-                continue
-
-            for base_class_str in class_item['bases']:
-                if base_class_str == 'object':
-                    continue
-
-                resolved_path = None
-                target_class_name = base_class_str.split('.')[-1]
-
-                # Handle qualified names like module.Class or alias.Class
-                if '.' in base_class_str:
-                    lookup_name = base_class_str.split('.')[0]
-                    
-                    # Case 1: The prefix is a known import
-                    if lookup_name in local_imports:
-                        full_import_name = local_imports[lookup_name]
-                        possible_paths = imports_map.get(target_class_name, [])
-                        # Find the path that corresponds to the imported module
-                        for path in possible_paths:
-                            if full_import_name.replace('.', '/') in path:
-                                resolved_path = path
-                                break
-                # Handle simple names
-                else:
-                    lookup_name = base_class_str
-                    # Case 2: The base class is in the same file
-                    if lookup_name in local_class_names:
-                        resolved_path = caller_file_path
-                    # Case 3: The base class was imported directly (e.g., from module import Parent)
-                    elif lookup_name in local_imports:
-                        full_import_name = local_imports[lookup_name]
-                        possible_paths = imports_map.get(target_class_name, [])
-                        for path in possible_paths:
-                            if full_import_name.replace('.', '/') in path:
-                                resolved_path = path
-                                break
-                    # Case 4: Fallback to global map (less reliable)
-                    elif lookup_name in imports_map:
-                        possible_paths = imports_map[lookup_name]
-                        if len(possible_paths) == 1:
-                            resolved_path = possible_paths[0]
-                
-                # If a path was found, create the relationship
-                if resolved_path:
-                    session.run("""
-                        MATCH (child:Class {name: $child_name, path: $path})
-                        MATCH (parent:Class {name: $parent_name, path: $resolved_parent_file_path})
-                        MERGE (child)-[:INHERITS]->(parent)
-                    """,
-                    child_name=class_item['name'],
-                    path=caller_file_path,
-                    parent_name=target_class_name,
-                    resolved_parent_file_path=resolved_path)
-
+        if resolved_path:
+            return {
+                'child_name': class_item['name'],
+                'path': caller_file_path,
+                'parent_name': target_class_name,
+                'resolved_parent_file_path': resolved_path,
+            }
+        return None
 
     def _create_csharp_inheritance_and_interfaces(self, session, file_data: Dict, imports_map: dict):
         """Create INHERITS and IMPLEMENTS relationships for C# types."""
         if file_data.get('lang') != 'c_sharp':
             return
             
-        caller_file_path = str(Path(file_data['path']).resolve())
+        caller_file_path = Path(file_data['path']).resolve().as_posix()
         
         # Collect all local type names
         local_type_names = set()
@@ -681,31 +697,24 @@ class GraphBuilder:
                     continue
                 
                 for base_str in type_item['bases']:
-                    # Clean up the base name (remove generic parameters, etc.)
                     base_name = base_str.split('<')[0].strip()
                     
-                    # Determine if this is an interface
                     is_interface = False
                     resolved_path = caller_file_path
                     
-                    # Check if base is a local interface
                     for iface in file_data.get('interfaces', []):
                         if iface['name'] == base_name:
                             is_interface = True
                             break
                     
-                    # Check if base is in imports_map
                     if base_name in imports_map:
                         possible_paths = imports_map[base_name]
                         if len(possible_paths) > 0:
                             resolved_path = possible_paths[0]
                     
-                    # For C#, first base is usually the class (if any), rest are interfaces
                     base_index = type_item['bases'].index(base_str)
                     
-                    # Try to determine if it's an interface
                     if is_interface or (base_index > 0 and type_label == 'Class'):
-                        # This is an IMPLEMENTS relationship
                         session.run("""
                             MATCH (child {name: $child_name, path: $path})
                             WHERE child:Class OR child:Struct OR child:Record
@@ -716,7 +725,6 @@ class GraphBuilder:
                         path=caller_file_path,
                         interface_name=base_name)
                     else:
-                        # This is an INHERITS relationship
                         session.run("""
                             MATCH (child {name: $child_name, path: $path})
                             WHERE child:Class OR child:Record OR child:Interface
@@ -729,102 +737,318 @@ class GraphBuilder:
                         parent_name=base_name)
 
     def _create_all_inheritance_links(self, all_file_data: list[Dict], imports_map: dict):
-        """Create INHERITS relationships for all classes after all files have been processed."""
-        with self.driver.session() as session:
-            for file_data in all_file_data:
-                # Handle C# separately
-                if file_data.get('lang') == 'c_sharp':
-                    self._create_csharp_inheritance_and_interfaces(session, file_data, imports_map)
-                else:
-                    self._create_inheritance_links(session, file_data, imports_map)
-                
-    def delete_file_from_graph(self, path: str):
-        """Deletes a file and all its contained elements and relationships."""
-        file_path_str = str(Path(path).resolve())
-        with self.driver.session() as session:
-            parents_res = session.run("""
-                MATCH (f:File {path: $path})<-[:CONTAINS*]-(d:Directory)
-                RETURN d.path as path ORDER BY d.path DESC
-            """, path=file_path_str)
-            parent_paths = [record["path"] for record in parents_res]
+        """Create INHERITS relationships for all classes using batched UNWIND queries."""
+        return self.pre_scan_imports(files)
 
-            session.run(
-                """
-                MATCH (f:File {path: $path})
-                OPTIONAL MATCH (f)-[:CONTAINS]->(element)
-                DETACH DELETE f, element
-                """,
-                path=file_path_str,
+    def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
+        """Add a repository node to the graph.
+
+        Delegates to :meth:`GraphWriter.add_repository_to_graph`.
+
+        Parameters
+        ----------
+        repo_path : Path
+            Filesystem path to the repository root.
+        is_dependency : bool, optional
+            Whether this repository is a dependency (default ``False``).
+        """
+        self._writer.add_repository_to_graph(repo_path, is_dependency)
+
+    def add_file_to_graph(
+        self, file_data: Dict, repo_name: str, imports_map: dict, repo_path_str: str = None
+    ) -> None:
+        """Add a file and its parsed contents to the graph.
+
+        Delegates to :meth:`GraphWriter.add_file_to_graph`.
+
+        Parameters
+        ----------
+        file_data : Dict
+            Parsed file data including functions, classes, imports, etc.
+        repo_name : str
+            Name of the parent repository.
+        imports_map : dict
+            Global imports map for cross-file resolution.
+        repo_path_str : str, optional
+            Pre-resolved repository path to skip a DB lookup.
+        """
+        self._writer.add_file_to_graph(file_data, repo_name, imports_map, repo_path_str=repo_path_str)
+
+    def link_function_calls(
+        self,
+        all_file_data: list[Dict],
+        imports_map: dict,
+        file_class_lookup: Optional[Dict[str, set]] = None,
+    ) -> None:
+        """Resolve and persist CALLS relationships.
+
+        Parameters
+        ----------
+        all_file_data : list[Dict]
+            Parsed data for all files in the repository.
+        imports_map : dict
+            Global imports map for cross-file resolution.
+        file_class_lookup : dict, optional
+            Pre-built ``{file_path: set_of_class_names}`` for incremental mode.
+        """
+        diagnostics: list[Dict[str, Any]] = []
+        groups = build_function_call_groups(
+            all_file_data,
+            imports_map,
+            file_class_lookup,
+            diagnostics=diagnostics,
+        )
+        self.last_call_resolution_diagnostics = diagnostics
+        if diagnostics:
+            sample = ", ".join(
+                f"{d.get('full_call_name')}:{d.get('reason')}"
+                for d in diagnostics[:5]
             )
-            info_logger(f"Deleted file and its elements from graph: {file_path_str}")
+            info_logger(
+                f"[CALLS] Skipped {len(diagnostics)} unresolved call(s). "
+                f"Sample: {sample}"
+            )
+        try:
+            self._writer.write_function_call_groups(*groups)
+        except Exception as exc:
+            error_logger(f"[CALLS] Failed to persist call relationships: {exc}")
+            raise
 
-            for path in parent_paths:
-                session.run("""
-                    MATCH (d:Directory {path: $path})
-                    WHERE NOT (d)-[:CONTAINS]->()
-                    DETACH DELETE d
-                """, path=path)
+    def _create_all_function_calls(
+        self, all_file_data: list[Dict], imports_map: dict, file_class_lookup: Optional[Dict[str, set]] = None
+    ) -> None:
+        self.link_function_calls(all_file_data, imports_map, file_class_lookup)
+
+    def link_inheritance(self, all_file_data: list[Dict], imports_map: dict) -> None:
+        """Resolve and persist INHERITS / C# IMPLEMENTS / Go IMPLEMENTS relationships.
+
+        Parameters
+        ----------
+        all_file_data : list[Dict]
+            Parsed data for all files in the repository.
+        imports_map : dict
+            Global imports map for cross-file resolution.
+        """
+        from .indexing.resolution.inheritance import (
+            build_companion_of_links,
+            build_decorated_by_links,
+            build_elixir_implements_links,
+            build_embeds_links,
+            build_go_implements_links,
+            build_haskell_implements_links,
+            build_metaclass_links,
+            build_partial_of_links,
+            build_part_of_links,
+        )
+
+        info_logger(f"[INHERITS] Resolving inheritance links across {len(all_file_data)} files...")
+        inheritance_batch, csharp_files = build_inheritance_and_csharp_files(all_file_data, imports_map)
+        implements_batch = build_go_implements_links(all_file_data)
+        implements_batch.extend(build_haskell_implements_links(all_file_data))
+        implements_batch.extend(build_elixir_implements_links(all_file_data))
+        self._writer.write_inheritance_links(inheritance_batch, csharp_files, imports_map)
+        self._writer.write_implements_links(implements_batch)
+        self._writer.write_embeds_links(build_embeds_links(all_file_data))
+        self._writer.write_companion_of_links(build_companion_of_links(all_file_data))
+        self._writer.write_partial_of_links(build_partial_of_links(all_file_data))
+        self._writer.write_part_of_links(build_part_of_links(all_file_data))
+        self._writer.write_metaclass_links(build_metaclass_links(all_file_data, imports_map))
+        self._writer.write_decorated_by_links(build_decorated_by_links(all_file_data, imports_map))
+
+    def _create_all_inheritance_links(self, all_file_data: list[Dict], imports_map: dict) -> None:
+        self.link_inheritance(all_file_data, imports_map)
+
+    def delete_file_from_graph(self, path: str) -> None:
+        """Remove a file node and all its relationships from the graph.
+
+        Parameters
+        ----------
+        path : str
+            Absolute path of the file to remove.
+        """
+        self._writer.delete_file_from_graph(path)
 
     def delete_repository_from_graph(self, repo_path: str) -> bool:
-        """Deletes a repository and all its contents from the graph. Returns True if deleted, False if not found."""
-        repo_path_str = str(Path(repo_path).resolve())
-        with self.driver.session() as session:
-            # Check if it exists
-            result = session.run("MATCH (r:Repository {path: $path}) RETURN count(r) as cnt", path=repo_path_str).single()
-            if not result or result["cnt"] == 0:
-                warning_logger(f"Attempted to delete non-existent repository: {repo_path_str}")
-                return False
+        """Remove a repository node and all its contents from the graph.
 
-            session.run("""MATCH (r:Repository {path: $path})
-                          OPTIONAL MATCH (r)-[:CONTAINS*]->(e)
-                          DETACH DELETE r, e""", path=repo_path_str)
-            info_logger(f"Deleted repository and its contents from graph: {repo_path_str}")
-            return True
+        Parameters
+        ----------
+        repo_path : str
+            Absolute path to the repository root.
+
+        Returns
+        -------
+        bool
+            ``True`` if the repository was found and removed.
+        """
+        return self._writer.delete_repository_from_graph(repo_path)
+
+    def get_caller_file_paths(self, file_path_str: str) -> set:
+        """Get all files that have CALLS relationships to the given file.
+
+        Parameters
+        ----------
+        file_path_str : str
+            Absolute path of the target file.
+
+        Returns
+        -------
+        set
+            Set of file paths that call into the target file.
+        """
+        return self._writer.get_caller_file_paths(file_path_str)
+
+    def get_repo_file_paths(self, repo_path: Path) -> set:
+        """Get all file paths indexed for a repository.
+
+        Parameters
+        ----------
+        repo_path : Path
+            Path to the repository root.
+
+        Returns
+        -------
+        set
+            Set of absolute file paths in the repository.
+        """
+        return self._writer.get_repo_file_paths(repo_path)
+
+    def get_inheritance_neighbor_paths(self, file_path_str: str) -> set:
+        """Get files with INHERITS relationships to/from the given file.
+
+        Parameters
+        ----------
+        file_path_str : str
+            Absolute path of the target file.
+
+        Returns
+        -------
+        set
+            Set of file paths connected via inheritance relationships.
+        """
+        return self._writer.get_inheritance_neighbor_paths(file_path_str)
+
+    def delete_outgoing_calls_from_files(self, file_paths: list) -> None:
+        """Remove outgoing CALLS relationships from the specified files.
+
+        Parameters
+        ----------
+        file_paths : list
+            List of absolute file paths.
+        """
+        self._writer.delete_outgoing_calls_from_files(file_paths)
+
+    def delete_inherits_for_files(self, file_paths: list) -> None:
+        """Remove INHERITS relationships for the specified files.
+
+        Parameters
+        ----------
+        file_paths : list
+            List of absolute file paths.
+        """
+        self._writer.delete_inherits_for_files(file_paths)
+
+    def get_repo_class_lookup(self, repo_path: Path) -> dict:
+        """Get a mapping of file paths to their defined class names.
+
+        Parameters
+        ----------
+        repo_path : Path
+            Path to the repository root.
+
+        Returns
+        -------
+        dict
+            Mapping of ``{file_path: set_of_class_names}``.
+        """
+        return self._writer.get_repo_class_lookup(repo_path)
+
+    def delete_relationship_links(self, repo_path: Path) -> None:
+        """Remove all relationship links for a repository.
+
+        Parameters
+        ----------
+        repo_path : Path
+            Path to the repository root.
+        """
+        self._writer.delete_relationship_links(repo_path)
 
     def update_file_in_graph(self, path: Path, repo_path: Path, imports_map: dict):
-        """Updates a single file's nodes in the graph."""
-        file_path_str = str(path.resolve())
+        """Update a file node in the graph (delete and re-index).
+
+        Parameters
+        ----------
+        path : Path
+            Path to the file to update.
+        repo_path : Path
+            Path to the parent repository.
+        imports_map : dict
+            Global imports map for cross-file resolution.
+        """
+        file_path_str = path.resolve().as_posix()
         repo_name = repo_path.name
-        
+
         self.delete_file_from_graph(file_path_str)
 
         if path.exists():
             file_data = self.parse_file(repo_path, path)
-            
+
             if "error" not in file_data:
                 self.add_file_to_graph(file_data, repo_name, imports_map)
                 return file_data
-            else:
-                error_logger(f"Skipping graph add for {file_path_str} due to parsing error: {file_data['error']}")
-                return None
-        else:
-            return {"deleted": True, "path": file_path_str}
+            if not file_data.get("unsupported"):
+                # Generic file type (.md, .yml, .json, etc.) — create a bare File node
+                self.add_minimal_file_node(path, repo_path)
+                return file_data
+            error_logger(f"Skipping graph add for {file_path_str} due to parsing error: {file_data['error']}")
+            return None
+        return {"deleted": True, "path": file_path_str}
 
     def parse_file(self, repo_path: Path, path: Path, is_dependency: bool = False) -> Dict:
-        """Parses a file with the appropriate language parser and extracts code elements."""
-        parser = self.parsers.get(path.suffix)
+        """Parse a source file and extract code structure.
+
+        Parameters
+        ----------
+        repo_path : Path
+            Path to the parent repository.
+        path : Path
+            Path to the file to parse.
+        is_dependency : bool, optional
+            Whether this file belongs to a dependency (default ``False``).
+
+        Returns
+        -------
+        Dict
+            Parsed file data with keys for functions, classes, imports, etc.
+            On failure, returns a dict with an ``error`` key.
+        """
+        ext = path.suffix
+        if path.name.endswith(".d.ts"):
+            ext = ".d.ts"
+
+        if ext in self.generic_extensions or path.name in self.generic_filenames:
+            debug_log(f"[parse_file] Adding generic file node for {path}")
+            return {"path": str(path), "error": f"Generic file type {ext or path.name}", "unsupported": False}
+
+        parser = self.get_parser(ext)
         if not parser:
-            warning_logger(f"No parser found for file extension {path.suffix}. Skipping {path}")
-            return {"path": str(path), "error": f"No parser for {path.suffix}"}
+            warning_logger(f"No parser found for file extension {ext}. Skipping {path}")
+            return {"path": str(path), "error": f"No parser for {ext}", "unsupported": True}
 
         debug_log(f"[parse_file] Starting parsing for: {path} with {parser.language_name} parser")
         try:
             index_source = (get_config_value("INDEX_SOURCE") or "false").lower() == "true"
-            if parser.language_name == 'python':
-                is_notebook = path.suffix == '.ipynb'
+            if parser.language_name == "python":
+                is_notebook = path.suffix == ".ipynb"
                 file_data = parser.parse(
                     path,
                     is_dependency,
                     is_notebook=is_notebook,
-                    index_source=index_source
+                    index_source=index_source,
                 )
             else:
-                file_data = parser.parse(
-                    path,
-                    is_dependency,
-                    index_source=index_source
-                )
-            file_data['repo_path'] = str(repo_path)
+                file_data = parser.parse(path, is_dependency, index_source=index_source)
+            file_data["repo_path"] = str(repo_path)
             return file_data
         except Exception as e:
             error_logger(f"Error parsing {path} with {parser.language_name} parser: {e}")
@@ -832,156 +1056,159 @@ class GraphBuilder:
             return {"path": str(path), "error": str(e)}
 
     def estimate_processing_time(self, path: Path) -> Optional[Tuple[int, float]]:
-        """Estimate processing time and file count"""
-        try:
-            supported_extensions = self.parsers.keys()
-            if path.is_file():
-                if path.suffix in supported_extensions:
-                    files = [path]
-                else:
-                    return 0, 0.0 # Not a supported file type
-            else:
-                all_files = path.rglob("*")
-                files = [f for f in all_files if f.is_file() and f.suffix in supported_extensions]
+        """Estimate the time required to index a repository.
 
-                # Filter default ignored directories
-                ignore_dirs_str = get_config_value("IGNORE_DIRS") or ""
-                if ignore_dirs_str:
-                    ignore_dirs = {d.strip().lower() for d in ignore_dirs_str.split(',') if d.strip()}
-                    if ignore_dirs:
-                        kept_files = []
-                        for f in files:
-                            try:
-                                parts = set(p.lower() for p in f.relative_to(path).parent.parts)
-                                if not parts.intersection(ignore_dirs):
-                                    kept_files.append(f)
-                            except ValueError:
-                                kept_files.append(f)
-                        files = kept_files
-            
+        Parameters
+        ----------
+        path : Path
+            Path to the repository root.
+
+        Returns
+        -------
+        tuple of (int, float) or None
+            ``(total_files, estimated_seconds)``, or ``None`` on error.
+        """
+        try:
+            from codegraphcontext.tools.indexing.discovery import discover_files_to_index
+            supported_extensions = set(self.parsers.keys())
+            files, _ = discover_files_to_index(
+                path,
+                supported_extensions=supported_extensions,
+            )
             total_files = len(files)
-            estimated_time = total_files * 0.05 # tree-sitter is faster
+            estimated_time = total_files * 0.05
             return total_files, estimated_time
         except Exception as e:
             error_logger(f"Could not estimate processing time for {path}: {e}")
             return None
 
-    async def build_graph_from_path_async(
-        self, path: Path, is_dependency: bool = False, job_id: str = None
+    async def _build_graph_from_scip(
+        self, path: Path, is_dependency: bool, job_id: Optional[str], lang: str, cgcignore_path: Optional[str] = None
     ):
-        """Builds graph from a directory or file path."""
+        from . import scip_indexer
+
+        await run_scip_index_async(
+            path,
+            is_dependency,
+            job_id,
+            lang,
+            self._writer,
+            self.job_manager,
+            self.parsers.keys(),
+            self.get_parser,
+            scip_indexer,
+            cgcignore_path,
+        )
+
+    def _name_from_symbol(self, symbol: str) -> str:
+        """Extract a human-readable name from a SCIP symbol string.
+
+        Parameters
+        ----------
+        symbol : str
+            SCIP symbol identifier.
+
+        Returns
+        -------
+        str
+            Simplified name extracted from the symbol.
+        """
+        return name_from_symbol(symbol)
+
+    async def build_graph_from_path_async(
+        self, path: Path, is_dependency: bool = False, job_id: str = None, cgcignore_path: str = None
+    ):
         try:
-            if job_id:
-                self.job_manager.update_job(job_id, status=JobStatus.RUNNING)
-            
-            self.add_repository_to_graph(path, is_dependency)
-            repo_name = path.name
+            scip_enabled = (get_config_value("SCIP_INDEXER") or "false").lower() == "true"
+            if scip_enabled:
+                from .scip_indexer import ScipIndexer, detect_project_lang, is_scip_available
 
-            # Search for .cgcignore upwards
-            cgcignore_path = None
-            ignore_root = path.resolve()
-            
-            # Start search from path (or parent if path is file)
-            curr = path.resolve()
-            if not curr.is_dir():
-                curr = curr.parent
+                scip_langs_str = get_config_value("SCIP_LANGUAGES") or "python,typescript,javascript,go,rust,java,dart,cpp,c,csharp,php,ruby,kotlin,swift,elixir"
+                scip_languages = [l.strip() for l in scip_langs_str.split(",") if l.strip()]
+                detected_lang = detect_project_lang(path, scip_languages)
 
-            # Walk up looking for .cgcignore
-            while True:
-                candidate = curr / ".cgcignore"
-                if candidate.exists():
-                    cgcignore_path = candidate
-                    ignore_root = curr
-                    debug_log(f"Found .cgcignore at {ignore_root}")
-                    break
-                if curr.parent == curr: # Root hit
-                    break
-                curr = curr.parent
+                if (
+                    detected_lang in ("cpp", "c")
+                    and path.is_dir()
+                    and not ScipIndexer._find_compdb(path)
+                ):
+                    warning_logger(
+                        "[SCIP] C/C++ project detected but no compile_commands.json was found "
+                        f"(searched under {path.resolve()}). scip-clang needs a JSON compilation database "
+                        "listing real compiler invocations (include paths, -D defines, -std, etc.). "
+                        "Typical ways to create it: CMake with "
+                        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON, or run your build under "
+                        "Bear (https://github.com/rizsotto/Bear) (e.g. `bear -- make`). "
+                        "Without it, SCIP cannot index C/C++; CGC will fall back to Tree-sitter if SCIP fails. "
+                        'See README section "SCIP indexing (optional)".'
+                    )
 
-            if cgcignore_path:
-                with open(cgcignore_path) as f:
-                    ignore_patterns = f.read().splitlines()
-                spec = pathspec.PathSpec.from_lines('gitwildmatch', ignore_patterns)
-            else:
-                spec = None
-
-            supported_extensions = self.parsers.keys()
-            all_files = path.rglob("*") if path.is_dir() else [path]
-            files = [f for f in all_files if f.is_file() and f.suffix in supported_extensions]
-
-            # Filter default ignored directories
-            ignore_dirs_str = get_config_value("IGNORE_DIRS") or ""
-            if ignore_dirs_str and path.is_dir():
-                ignore_dirs = {d.strip().lower() for d in ignore_dirs_str.split(',') if d.strip()}
-                if ignore_dirs:
-                    kept_files = []
-                    for f in files:
-                        try:
-                            # Check if any parent directory in the relative path is in ignore list
-                            parts = set(p.lower() for p in f.relative_to(path).parent.parts)
-                            if not parts.intersection(ignore_dirs):
-                                kept_files.append(f)
-                            else:
-                                # debug_log(f"Skipping default ignored file: {f}")
-                                pass
-                        except ValueError:
-                             kept_files.append(f)
-                    files = kept_files
-            
-            if spec:
-                filtered_files = []
-                for f in files:
+                if detected_lang and is_scip_available(detected_lang):
+                    info_logger(f"SCIP_INDEXER=true — using SCIP for language: {detected_lang}")
                     try:
-                        # Match relative to the directory containing .cgcignore
-                        rel_path = f.relative_to(ignore_root)
-                        if not spec.match_file(str(rel_path)):
-                            filtered_files.append(f)
-                        else:
-                            debug_log(f"Ignored file based on .cgcignore: {rel_path}")
-                    except ValueError:
-                        # Should not happen if ignore_root is a parent, but safety fallback
-                        filtered_files.append(f)
-                files = filtered_files
-            if job_id:
-                self.job_manager.update_job(job_id, total_files=len(files))
-            
-            debug_log("Starting pre-scan to build imports map...")
-            imports_map = self._pre_scan_for_imports(files)
-            debug_log(f"Pre-scan complete. Found {len(imports_map)} definitions.")
+                        await self._build_graph_from_scip(path, is_dependency, job_id, detected_lang, cgcignore_path)
+                        return
+                    except Exception as e:
+                        warning_logger(
+                            f"SCIP indexing failed for {path}: {e}. "
+                            "Falling back to Tree-sitter."
+                        )
+                elif detected_lang:
+                    warning_logger(
+                        f"SCIP_INDEXER=true but scip-{detected_lang} binary not found. "
+                        f"Falling back to Tree-sitter. Install it first."
+                    )
+                else:
+                    info_logger(
+                        "SCIP_INDEXER=true but no SCIP-supported language detected. "
+                        "Falling back to Tree-sitter."
+                    )
 
-            all_file_data = []
-
-            processed_count = 0
-            for file in files:
-                if file.is_file():
-                    if job_id:
-                        self.job_manager.update_job(job_id, current_file=str(file))
-                    repo_path = path.resolve() if path.is_dir() else file.parent.resolve()
-                    file_data = self.parse_file(repo_path, file, is_dependency)
-                    if "error" not in file_data:
-                        self.add_file_to_graph(file_data, repo_name, imports_map)
-                        all_file_data.append(file_data)
-                    processed_count += 1
-                    if job_id:
-                        self.job_manager.update_job(job_id, processed_files=processed_count)
-                    await asyncio.sleep(0.01)
-
-            self._create_all_inheritance_links(all_file_data, imports_map)
-            self._create_all_function_calls(all_file_data, imports_map)
-            
-            if job_id:
-                self.job_manager.update_job(job_id, status=JobStatus.COMPLETED, end_time=datetime.now())
+            self.last_call_resolution_diagnostics = []
+            self.last_index_summary = {}
+            await run_tree_sitter_index_async(
+                path,
+                is_dependency,
+                job_id,
+                cgcignore_path,
+                self._writer,
+                self.job_manager,
+                self.parsers,
+                self.get_parser,
+                self.parse_file,
+                self.add_minimal_file_node,
+                call_resolution_diagnostics=self.last_call_resolution_diagnostics,
+                index_summary=self.last_index_summary,
+            )
         except Exception as e:
-            error_message=str(e)
+            error_message = str(e)
             error_logger(f"Failed to build graph for path {path}: {error_message}")
             if job_id:
-                '''checking if the repo got deleted '''
-                if "no such file found" in error_message or "deleted" in error_message or "not found" in error_message:
-                    status=JobStatus.CANCELLED
-                    
+                if (
+                    "no such file found" in error_message
+                    or "deleted" in error_message
+                    or "not found" in error_message
+                ):
+                    status = JobStatus.CANCELLED
                 else:
-                    status=JobStatus.FAILED
+                    status = JobStatus.FAILED
 
                 self.job_manager.update_job(
                     job_id, status=status, end_time=datetime.now(), errors=[str(e)]
                 )
+
+    def add_minimal_file_node(self, file_path: Path, repo_path: Path, is_dependency: bool = False) -> None:
+        """Create a minimal File node without parsing (for unsupported file types).
+
+        Delegates to :meth:`GraphWriter.add_minimal_file_node`.
+
+        Parameters
+        ----------
+        file_path : Path
+            Path to the file.
+        repo_path : Path
+            Path to the parent repository.
+        is_dependency : bool, optional
+            Whether this file belongs to a dependency (default ``False``).
+        """
+        self._writer.add_minimal_file_node(file_path, repo_path, is_dependency)

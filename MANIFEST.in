@@ -1,2 +1,4 @@
 prune website
 prune images
+recursive-include src/codegraphcontext/viz/dist *
+recursive-include vscode-extension *

@@ -1,0 +1,22 @@
+[
+  {
+    "directory": "/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project_c",
+    "command": "cc -Iinclude -DENABLE_STATS=1 -std=c11 -c src/main.c",
+    "file": "src/main.c"
+  },
+  {
+    "directory": "/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project_c",
+    "command": "cc -Iinclude -DENABLE_STATS=1 -std=c11 -c src/util.c",
+    "file": "src/util.c"
+  },
+  {
+    "directory": "/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project_c",
+    "command": "cc -Iinclude -DENABLE_STATS=1 -std=c11 -c src/module.c",
+    "file": "src/module.c"
+  },
+  {
+    "directory": "/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project_c",
+    "command": "cc -Iinclude -DENABLE_STATS=1 -std=c11 -c src/math/vec.c",
+    "file": "src/math/vec.c"
+  }
+]
