@@ -21,6 +21,7 @@ Bundle Structure:
 
 import json
 import os
+import re
 import zipfile
 import tempfile
 from pathlib import Path
@@ -50,9 +51,34 @@ class _BundleEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
+#: Cypher identifiers accepted from a bundle. Labels and relationship types
+#: cannot be passed as query parameters — they are interpolated into the query
+#: text — so a bundle is an untrusted source of executable Cypher unless every
+#: identifier is validated first. A bundle carrying the label
+#:     Evil) WITH n MATCH (v:Victim) DETACH DELETE v //
+#: previously produced, and executed:
+#:     CREATE (n:Evil) WITH n MATCH (v:Victim) DETACH DELETE v //) SET n = $props ...
+_CYPHER_IDENTIFIER_RE = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+class BundleValidationError(ValueError):
+    """Raised when a bundle contains content that is unsafe to import."""
+
+
+def _validate_cypher_identifier(value: Any, kind: str) -> str:
+    """Return *value* if it is a bare Cypher identifier, else raise."""
+    if not isinstance(value, str) or not _CYPHER_IDENTIFIER_RE.match(value):
+        raise BundleValidationError(
+            f"Refusing to import bundle: invalid {kind} {value!r}. "
+            f"{kind.capitalize()}s must match [A-Za-z_][A-Za-z0-9_]* — a value "
+            "outside that set can inject arbitrary Cypher."
+        )
+    return value
+
+
 class CGCBundle:
     """Handles creation and loading of .cgc bundle files."""
-    
+
     VERSION = "0.1.0"  # CGC bundle format version
     
     def __init__(self, db_manager):
@@ -810,7 +836,45 @@ cgc import <bundle-file>.cgc
                     return False, "Invalid metadata: missing cgc_version"
         except json.JSONDecodeError as e:
             return False, f"Invalid metadata.json: {e}"
-        
+
+        # Reject unsafe identifiers up front. The import writes in batches with
+        # no transaction, so validating lazily would let a malicious label
+        # halfway through the file execute after earlier nodes were committed.
+        ok, message = self._validate_bundle_identifiers(bundle_dir)
+        if not ok:
+            return False, message
+
+        return True, "Valid bundle"
+
+    @staticmethod
+    def _validate_bundle_identifiers(bundle_dir: Path) -> Tuple[bool, str]:
+        """Check every node label and relationship type before importing anything."""
+        try:
+            with open(bundle_dir / "nodes.jsonl", 'r', encoding='utf-8') as f:
+                for line_no, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    labels = json.loads(line).get('_labels') or []
+                    if isinstance(labels, str):
+                        labels = [labels]
+                    for label in labels:
+                        _validate_cypher_identifier(label, "node label")
+
+            with open(bundle_dir / "edges.jsonl", 'r', encoding='utf-8') as f:
+                for line_no, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    _validate_cypher_identifier(
+                        json.loads(line).get('type'), "relationship type"
+                    )
+        except BundleValidationError as e:
+            error_logger(f"Bundle rejected: {e}")
+            return False, str(e)
+        except json.JSONDecodeError as e:
+            return False, f"Malformed JSON Lines in bundle: {e}"
+
         return True, "Valid bundle"
     
     def _check_existing_repository(self, repo_name: str, repo_path: Optional[str]) -> bool:
@@ -977,6 +1041,7 @@ cgc import <bundle-file>.cgc
             
             if isinstance(labels, str):
                 labels = [labels]
+            labels = [_validate_cypher_identifier(l, "node label") for l in labels]
             label_str = ':'.join(labels)
             primary_label = labels[0]
 
@@ -1044,7 +1109,7 @@ cgc import <bundle-file>.cgc
                 old_from = (old_from.get('table', 0), old_from.get('offset', 0))
             if isinstance(old_to, dict):
                 old_to = (old_to.get('table', 0), old_to.get('offset', 0))
-            rel_type = edge.get('type')
+            rel_type = _validate_cypher_identifier(edge.get('type'), "relationship type")
             properties = edge.get('properties', {})
             
             # Map old IDs to new IDs
