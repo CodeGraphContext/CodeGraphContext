@@ -1,4 +1,4 @@
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
@@ -59,6 +59,31 @@ def test_startup_sync_reconciles_current_and_deleted_files(tmp_path: Path):
     assert set(graph_builder.delete_inherits_for_files.call_args.args[0]) == refreshed_paths
     graph_builder.link_function_calls.assert_called_once()
     graph_builder.link_inheritance.assert_called_once()
+
+
+def test_startup_sync_does_not_delete_windows_paths_that_are_still_on_disk(tmp_path: Path):
+    class WindowsFilePath:
+        def __init__(self, path: str):
+            self.path = PureWindowsPath(path)
+
+        def resolve(self) -> PureWindowsPath:
+            return self.path
+
+    current_file = WindowsFilePath("C:/repo/src/app.py")
+    graph_builder = MagicMock()
+    graph_builder.get_repo_file_paths.return_value = {"C:/repo/src/app.py"}
+    graph_builder.pre_scan_imports.return_value = {}
+    graph_builder.update_file_in_graph.return_value = None
+
+    handler = RepositoryEventHandler.__new__(RepositoryEventHandler)
+    handler.repo_path = tmp_path
+    handler.graph_builder = graph_builder
+    handler.imports_map = {}
+
+    with patch.object(RepositoryEventHandler, "_iter_supported_files", return_value=[current_file]):
+        handler.synchronize_with_disk()
+
+    graph_builder.delete_file_from_graph.assert_not_called()
 
 
 def test_code_watcher_forwards_startup_sync_option(tmp_path: Path):

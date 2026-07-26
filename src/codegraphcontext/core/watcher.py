@@ -151,7 +151,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
         info_logger(f"Syncing: {self.repo_path}")
 
         current_files = self._iter_supported_files()
-        current_paths = {str(p.resolve()) for p in current_files}
+        current_paths = {p.resolve().as_posix() for p in current_files}
         indexed = self.graph_builder.get_repo_file_paths(self.repo_path)
 
         self.imports_map = self.graph_builder.pre_scan_imports(current_files)
