@@ -25,6 +25,8 @@ Use `cgc version` (or `cgc --version`) to print the installed release (currently
 
 ## Core Index & Lifecycle
 
+The `clean`, `delete`, and `rm` commands are disabled by default because they remove data. Before using them, enable `ALLOW_DB_DELETION` as described in [Destructive Operation Safety](config.md#destructive-operation-safety).
+
 | Command | Usage | Notes |
 | :--- | :--- | :--- |
 | **`index`** | `cgc index [PATH] [--force] [--dependency]` | Shortcut: `cgc i`. Incremental by default; `--force` rebuilds from scratch. |
