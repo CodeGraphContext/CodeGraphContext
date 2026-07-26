@@ -59,7 +59,10 @@ services:
     environment:
       - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}
       - NEO4J_PLUGINS=["apoc"]
-      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      # APOC is installed but intentionally NOT granted unrestricted access.
+      # CGC uses no apoc procedures and blocks `CALL apoc` in user queries,
+      # so the previous `apoc.*` unrestricted grant was an unnecessary attack
+      # surface (e.g. apoc.load.json SSRF/file read, apoc.export file write). See #1006.
       - NEO4J_dbms_memory_heap_max__size=2G
     volumes:
       - neo4j-data:/data
