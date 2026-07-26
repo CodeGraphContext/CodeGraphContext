@@ -66,7 +66,7 @@ def create_app() -> FastAPI:
                     <a href="/docs" class="btn">View API Docs</a>
                     <div class="links">
                         <a href="/openapi.json">OpenAPI Spec</a>
-                        <a href="https://github.com/Shashankss1205/CodeGraphContext" target="_blank">GitHub</a>
+                        <a href="https://github.com/CodeGraphContext/CodeGraphContext" target="_blank">GitHub</a>
                     </div>
                 </div>
             </body>

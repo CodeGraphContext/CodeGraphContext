@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 import textwrap
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -403,7 +403,7 @@ def generate_report(
         The full report as a markdown string.
     """
     driver = db_manager.get_driver()
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     if repo_path is None:
         repo_path = resolve_report_repo_scope(db_manager)
 
