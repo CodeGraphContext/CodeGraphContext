@@ -1023,19 +1023,38 @@ def watch_helper(
 
 
 def unwatch_helper(path: str):
-    """Stop watching a directory."""
-    console.print(f"[yellow]⚠️  Note: 'cgc unwatch' only works when the watcher is running via MCP server.[/yellow]")
-    console.print(f"[dim]For CLI watch mode, simply press Ctrl+C in the watch terminal.[/dim]")
-    console.print(f"\n[cyan]Path specified:[/cyan] {Path(path).resolve()}")
+    """Report that unwatching is not available from the CLI.
+
+    This command touches no watcher state at all — it never has. It used to
+    print a note, echo the requested path back as "Path specified:" (which
+    reads like confirmation that something happened, even for a path that was
+    never watched and does not exist) and exit 0.
+    """
+    console.print(
+        "[bold red]Error:[/bold red] 'cgc unwatch' is not supported from the CLI — "
+        "it cannot reach a watcher started in another process."
+    )
+    console.print("[dim]For CLI watch mode, press Ctrl+C in the terminal running 'cgc watch'.[/dim]")
+    console.print(
+        "[dim]For MCP mode, call the 'unwatch_directory' tool from your IDE.[/dim]"
+    )
+    raise typer.Exit(code=1)
 
 
 def list_watching_helper():
-    """List all directories currently being watched."""
-    console.print(f"[yellow]⚠️  Note: 'cgc watching' only works when the watcher is running via MCP server.[/yellow]")
-    console.print(f"[dim]For CLI watch mode, check the terminal where you ran 'cgc watch'.[/dim]")
-    console.print(f"\n[cyan]To see watched directories in MCP mode:[/cyan]")
-    console.print(f"  1. Start the MCP server: cgc mcp start")
-    console.print(f"  2. Use the 'list_watched_paths' MCP tool from your IDE")
+    """Report that listing watched paths is not available from the CLI.
+
+    Same as unwatch: no watcher state is consulted, so exiting 0 advertised a
+    successful listing of nothing.
+    """
+    console.print(
+        "[bold red]Error:[/bold red] 'cgc watching' is not supported from the CLI — "
+        "it cannot reach a watcher started in another process."
+    )
+    console.print("[dim]For CLI watch mode, check the terminal where you ran 'cgc watch'.[/dim]")
+    console.print("[dim]For MCP mode: start 'cgc mcp start', then call the "
+                  "'list_watched_paths' tool from your IDE.[/dim]")
+    raise typer.Exit(code=1)
 
 
 def setup_scip_helper() -> None:

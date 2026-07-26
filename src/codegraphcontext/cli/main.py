@@ -1505,6 +1505,7 @@ def setup_scip():
 def delete(
     path: Optional[str] = typer.Argument(None, help="Path of the repository to delete from the code graph."),
     all_repos: bool = typer.Option(False, "--all", help="Delete all indexed repositories"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt (for CI/non-interactive use)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use")
 ):
     """
@@ -1601,6 +1602,22 @@ def delete(
                 "Set ALLOW_DB_DELETION=true in config to enable."
             )
             raise typer.Exit(code=1)
+
+        # `--all` demands a typer.confirm *and* typing "delete all", while a
+        # single delete went straight through — irreversibly dropping a
+        # repository's entire graph (potentially an hour of indexing) on a
+        # typo, with no prompt, no --yes flag and no undo. The asymmetry was
+        # actively misleading: anyone who had seen the heavy --all guardrails
+        # would reasonably assume single deletes were guarded too.
+        if not yes:
+            resolved = Path(path).expanduser().resolve()
+            console.print(
+                f"[bold yellow]About to delete the graph for:[/bold yellow] {resolved}"
+            )
+            console.print("[dim]This is irreversible; re-indexing is the only way back.[/dim]")
+            if not typer.confirm("Proceed?", default=False):
+                console.print("[yellow]Deletion cancelled.[/yellow]")
+                raise typer.Exit(code=1)
 
         delete_helper(path, context)
 
@@ -1736,7 +1753,11 @@ def unwatch(
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
-    Stop watching a directory for changes.
+    [MCP only] Stop watching a directory for changes.
+
+    Not supported from the CLI: this cannot reach a watcher running in another
+    process. Press Ctrl+C in the 'cgc watch' terminal, or use the
+    'unwatch_directory' MCP tool.
     
     Note: This command is primarily for MCP server mode.
     For CLI watch mode, simply press Ctrl+C in the watch terminal.
@@ -1752,7 +1773,10 @@ def watching(
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
-    List all directories currently being watched for changes.
+    [MCP only] List all directories currently being watched for changes.
+
+    Not supported from the CLI: this cannot reach a watcher running in another
+    process. Use the 'list_watched_paths' MCP tool.
     
     Note: This command is primarily for MCP server mode.
     For CLI watch mode, check the terminal where you ran 'cgc watch'.
@@ -2977,10 +3001,13 @@ def list_abbrev(
 def delete_abbrev(
     path: Optional[str] = typer.Argument(None, help="Path to delete"),
     all_repos: bool = typer.Option(False, "--all", help="Delete all indexed repositories"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt (for CI/non-interactive use)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use")
 ):
     """Shortcut for 'cgc delete'"""
-    delete(path, all_repos, context=context)
+    # `yes` must be forwarded explicitly: omitted, it keeps its OptionInfo
+    # sentinel, which is truthy — silently skipping the confirmation.
+    delete(path, all_repos, yes=yes, context=context)
 
 @app.command("v", rich_help_panel="Shortcuts")
 def visualize_abbrev(
