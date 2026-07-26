@@ -9,6 +9,20 @@ from codegraphcontext.cli.main import app
 
 runner = CliRunner()
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI escapes and collapse whitespace.
+
+    Rich emits colour codes (and soft-wraps) whenever it thinks the terminal
+    supports them — which it does in CI but not always locally. Asserting on
+    raw `result.output` therefore passes on a dev machine and fails in CI with
+    the expected text plainly visible, just interleaved with \x1b[1;36m codes.
+    """
+    return " ".join(_ANSI_RE.sub("", text).split())
+
+
 
 def _stats_source():
     return inspect.getsource(cli_helpers.stats_helper)
@@ -53,7 +67,7 @@ def test_report_accepts_a_repo_flag():
     silently picked the one with the most files."""
     result = runner.invoke(app, ["report", "--help"])
     assert result.exit_code == 0
-    normalised = " ".join(result.output.split())
+    normalised = _plain(result.output)
     assert "--repo" in normalised
 
     source = inspect.getsource(cli_main.report)
