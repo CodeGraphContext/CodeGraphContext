@@ -824,17 +824,23 @@ def stats_helper(path: str = None, context: Optional[str] = None):
                     return
                 
                 # Get stats
-                # Get stats using separate queries to handle depth and avoid Cartesian products
+                # Get stats using separate queries to handle depth and avoid Cartesian products.
+                # `count(x)` counts *rows*, and a variable-length CONTAINS* match
+                # yields one row per distinct path to the node: a method is
+                # reachable as Repo->..->File->Function and again as
+                # Repo->..->File->Class->Function, a nested function three ways.
+                # count(DISTINCT x) is required or the totals are inflated —
+                # functions were over-reported by ~55% on CGC's own repo.
                 # 1. Files
-                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as c"
+                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(DISTINCT f) as c"
                 file_count = session.run(file_query, path=repo_path_str).single()["c"]
-                
+
                 # 2. Functions (including methods in classes)
-                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(func) as c"
+                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(DISTINCT func) as c"
                 func_count = session.run(func_query, path=repo_path_str).single()["c"]
-                
+
                 # 3. Classes
-                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(c:Class) RETURN count(c) as c"
+                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(c:Class) RETURN count(DISTINCT c) as c"
                 class_count = session.run(class_query, path=repo_path_str).single()["c"]
                 
                 # 4. Modules (imported) - Note: Module nodes are outside the repo structure usually, connected via IMPORTS
