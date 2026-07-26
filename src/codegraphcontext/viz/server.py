@@ -24,6 +24,20 @@ from ..utils.cypher_readonly import is_read_only_cypher as _is_read_only_cypher,
 app = FastAPI()
 
 
+def _read_session_kwargs(manager) -> dict:
+    """Session kwargs that request READ access for read-only endpoints.
+
+    Neo4j honours ``default_access_mode`` natively; the FalkorDB wrapper routes
+    READ sessions through ``GRAPH.RO_QUERY`` for server-enforced read-only
+    execution. Other backends' session shims ignore unknown kwargs, so this is
+    safe to pass unconditionally for those we know enforce it.
+    """
+    backend = getattr(manager, "get_backend_type", lambda: "neo4j")()
+    if backend in ("neo4j", "falkordb", "falkordb-remote"):
+        return {"default_access_mode": "READ"}
+    return {}
+
+
 def _static_root() -> Path:
     if not _static_dir:
         raise HTTPException(status_code=500, detail="Static directory not configured")
@@ -123,7 +137,10 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
 
         print(f"DEBUG: Starting get_graph with repo_path={repo_path}", flush=True)
 
-        with db_manager.get_driver().session() as session:
+        # This endpoint only ever reads. Open the session in READ access mode so
+        # the database enforces read-only (Neo4j default_access_mode / FalkorDB
+        # GRAPH.RO_QUERY) in addition to the regex guard on any user query.
+        with db_manager.get_driver().session(**_read_session_kwargs(db_manager)) as session:
             if cypher_query:
                 if not _is_read_only_cypher(cypher_query):
                     raise HTTPException(
@@ -563,8 +580,8 @@ Respond ONLY with a JSON object in this format:
         nodes_dict = {}
         edges = []
         records_data = []
-        
-        with db_manager.get_driver().session() as session:
+
+        with db_manager.get_driver().session(**_read_session_kwargs(db_manager)) as session:
             result = session.run(cypher_query)
             for record in result:
                 # Store truncated record data for explanation phase

@@ -519,7 +519,13 @@ def cypher_helper(query: str, context: Optional[str] = None):
         raise typer.Exit(code=1)
 
     backend = getattr(db_manager, "get_backend_type", lambda: "neo4j")()
-    session_kwargs = {"default_access_mode": "READ"} if backend == "neo4j" else {}
+    # Neo4j honours default_access_mode natively; FalkorDB routes READ sessions
+    # through GRAPH.RO_QUERY for server-enforced read-only execution.
+    session_kwargs = (
+        {"default_access_mode": "READ"}
+        if backend in ("neo4j", "falkordb", "falkordb-remote")
+        else {}
+    )
 
     try:
         with db_manager.get_driver().session(**session_kwargs) as session:
