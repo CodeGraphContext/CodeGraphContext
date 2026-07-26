@@ -129,8 +129,11 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
+      # Needs the Docker Hub credentials; without them peter-evans/
+      # dockerhub-description fails with "Required input 'username' is missing"
+      # and takes the whole job red even though the image published fine.
       - name: Update Docker Hub Description
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.cfg.outputs.has_dockerhub == 'true'
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
