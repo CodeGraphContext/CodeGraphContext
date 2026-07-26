@@ -315,7 +315,7 @@ class CGCBundle:
                 # Specific repository
                 result = session.run(
                     "MATCH (r:Repository {path: $path}) RETURN r",
-                    path=str(repo_path.resolve())
+                    path=repo_path.resolve().as_posix()
                 )
                 repo_node = result.single()
                 if repo_node:
@@ -339,8 +339,8 @@ class CGCBundle:
                     metadata["repo"] = repo.get('name', str(repo_path.name if repo_path else 'unknown'))
                     # Clean up absolute path prefix to keep it relative
                     meta_path = repo.get('path', '')
-                    if repo_path and meta_path.startswith(str(repo_path.resolve())):
-                        repo_str = str(repo_path.resolve())
+                    if repo_path and meta_path.startswith(repo_path.resolve().as_posix()):
+                        repo_str = repo_path.resolve().as_posix()
                         rel = meta_path[len(repo_str):].lstrip('/')
                         metadata["repo_path"] = "./" + rel if rel else "."
                     else:
@@ -365,13 +365,13 @@ class CGCBundle:
                     metadata["branch"] = branch
 
                 try:
-                    repo_str = str(repo_path.resolve())
+                    repo_str = repo_path.resolve().as_posix()
                     result = session.run("""
                         MATCH (f:File)
                         WHERE f.path = $repo_path OR f.path STARTS WITH $repo_prefix
                         RETURN f.language as language, count(*) as count
                         ORDER BY count DESC
-                    """, repo_path=repo_str, repo_prefix=repo_str + os.sep)
+                    """, repo_path=repo_str, repo_prefix=repo_str + "/")
                     languages = {record["language"]: record["count"] for record in result if record["language"]}
                     metadata["languages"] = list(languages.keys())
                 except Exception:
@@ -444,8 +444,8 @@ class CGCBundle:
         return schema
 
     def _repo_scope_params(self, repo_path: Path) -> Dict[str, str]:
-        repo_str = str(repo_path.resolve())
-        return {"repo_path": repo_str, "repo_prefix": repo_str + os.sep}
+        repo_str = repo_path.resolve().as_posix()
+        return {"repo_path": repo_str, "repo_prefix": repo_str + "/"}
 
     def _run_session_query(self, session, query: str, params: Dict[str, str]):
         try:
@@ -553,8 +553,8 @@ class CGCBundle:
                     
                         # Clean up absolute path prefix to keep it relative
                         if repo_path:
-                            repo_str = str(repo_path.resolve())
-                            repo_prefix = repo_str + os.sep
+                            repo_str = repo_path.resolve().as_posix()
+                            repo_prefix = repo_str + "/"
                             for key, val in list(node_dict.items()):
                                 if not isinstance(val, str):
                                     continue
@@ -640,8 +640,8 @@ class CGCBundle:
 
                         # Clean up absolute path prefix inside edge properties
                         if repo_path:
-                            repo_str = str(repo_path.resolve())
-                            repo_prefix = repo_str + os.sep
+                            repo_str = repo_path.resolve().as_posix()
+                            repo_prefix = repo_str + "/"
                             for key, val in list(rel_props.items()):
                                 if not isinstance(val, str):
                                     continue
@@ -686,13 +686,13 @@ class CGCBundle:
         with self.db_manager.get_driver(self._active_graph).session() as session:
             # Count by node type
             if repo_path:
-                repo_str = str(repo_path.resolve())
+                repo_str = repo_path.resolve().as_posix()
                 result = session.run("""
                     MATCH (n)
                     WHERE n.path = $repo_path OR n.path STARTS WITH $repo_prefix
                     RETURN labels(n)[0] as label, count(*) as count
                     ORDER BY count DESC
-                """, repo_path=repo_str, repo_prefix=repo_str + os.sep)
+                """, repo_path=repo_str, repo_prefix=repo_str + "/")
             else:
                 result = session.run("""
                     MATCH (n)
@@ -709,7 +709,7 @@ class CGCBundle:
                        OR (m.path = $repo_path OR m.path STARTS WITH $repo_prefix)
                     RETURN type(r) as type, count(*) as count
                     ORDER BY count DESC
-                """, repo_path=repo_str, repo_prefix=repo_str + os.sep)
+                """, repo_path=repo_str, repo_prefix=repo_str + "/")
             else:
                 result = session.run("""
                     MATCH ()-[r]->()
@@ -723,7 +723,7 @@ class CGCBundle:
                 result = session.run(
                     "MATCH (f:File) WHERE f.path = $repo_path OR f.path STARTS WITH $repo_prefix RETURN count(f) as count",
                     repo_path=repo_str,
-                    repo_prefix=repo_str + os.sep,
+                    repo_prefix=repo_str + "/",
                 )
             else:
                 result = session.run("MATCH (f:File) RETURN count(f) as count")

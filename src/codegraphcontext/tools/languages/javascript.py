@@ -638,7 +638,7 @@ def pre_scan_javascript(files: list[Path], parser_wrapper) -> dict:
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(path.resolve()))
+                imports_map[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     return imports_map
