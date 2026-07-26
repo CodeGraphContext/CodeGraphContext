@@ -7,9 +7,11 @@ from codegraphcontext.viz.server import app, set_db_manager
 client = TestClient(app)
 
 def test_ai_query_no_api_keys(monkeypatch):
-    # Ensure neither key is in env
+    # Ensure no supported provider key is in env
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ATLASCLOUD_API_KEY", raising=False)
+    monkeypatch.delenv("ATLAS_CLOUD_API_KEY", raising=False)
     
     # Mock db_manager
     mock_db = MagicMock()
@@ -19,6 +21,63 @@ def test_ai_query_no_api_keys(monkeypatch):
     
     assert response.status_code == 400
     assert "AI querying requires" in response.json()["detail"]
+
+
+@patch("codegraphcontext.viz.server.requests.post")
+def test_call_llm_with_atlascloud(mock_post, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("ATLASCLOUD_API_KEY", "fake-atlas-key")
+    monkeypatch.setenv("ATLASCLOUD_API_BASE", "https://api.atlascloud.ai/v1/")
+    monkeypatch.setenv("ATLASCLOUD_MODEL", "qwen/qwen3.5-flash")
+
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "choices": [{"message": {"content": "MATCH (n) RETURN n"}}]
+    }
+
+    from codegraphcontext.viz.server import call_llm
+
+    result = call_llm("system prompt", "user prompt")
+
+    assert result == "MATCH (n) RETURN n"
+    mock_post.assert_called_once_with(
+        "https://api.atlascloud.ai/v1/chat/completions",
+        json={
+            "model": "qwen/qwen3.5-flash",
+            "messages": [
+                {"role": "system", "content": "system prompt"},
+                {"role": "user", "content": "user prompt"},
+            ],
+        },
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer fake-atlas-key",
+        },
+        timeout=30,
+    )
+
+
+@patch("codegraphcontext.viz.server.requests.post")
+def test_call_llm_with_atlas_cloud_alias_defaults(mock_post, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ATLASCLOUD_API_KEY", raising=False)
+    monkeypatch.delenv("ATLASCLOUD_API_BASE", raising=False)
+    monkeypatch.delenv("ATLASCLOUD_MODEL", raising=False)
+    monkeypatch.setenv("ATLAS_CLOUD_API_KEY", "fake-atlas-key")
+
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "choices": [{"message": {"content": "default response"}}]
+    }
+
+    from codegraphcontext.viz.server import call_llm
+
+    assert call_llm("system", "user") == "default response"
+    _, kwargs = mock_post.call_args
+    assert mock_post.call_args.args[0] == "https://api.atlascloud.ai/v1/chat/completions"
+    assert kwargs["json"]["model"] == "deepseek-ai/deepseek-v4-pro"
 
 
 @patch("codegraphcontext.viz.server.call_llm")
