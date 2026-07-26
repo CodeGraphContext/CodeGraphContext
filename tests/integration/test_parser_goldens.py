@@ -26,6 +26,10 @@ def normalize_labels(labels):
         return [labels]
     return list(labels)
 
+# Fixture paths always live under this directory, regardless of which machine
+# recorded the goldens. Everything preceding it is that machine's repo root.
+FIXTURES_MARKER = "/tests/fixtures"
+
 def normalize_path(p, current_repo_root, bundle_repo_root=None):
     normalized_path = clean_path(p)
 
@@ -36,9 +40,17 @@ def normalize_path(p, current_repo_root, bundle_repo_root=None):
         elif normalized_path.startswith("./"):
             normalized_path = f"{bundle_repo_root_str}/{normalized_path[2:]}"
 
-    original_repo_root_str = "/home/shashank/Desktop/cgc/CodeGraphContext"
+    # Goldens may have been recorded on a different machine with a different
+    # absolute repo root baked into the stored paths. Detect that root from the
+    # path itself by locating the fixtures directory marker, and fall back to
+    # stripping the current repo root for paths outside the fixtures tree.
+    marker_idx = normalized_path.find(FIXTURES_MARKER + "/")
+    if marker_idx == -1 and normalized_path.endswith(FIXTURES_MARKER):
+        marker_idx = len(normalized_path) - len(FIXTURES_MARKER)
+    if marker_idx != -1:
+        normalized_path = "<REPO_ROOT>" + normalized_path[marker_idx:]
+
     current_repo_root_str = clean_path(current_repo_root)
-    normalized_path = normalized_path.replace(original_repo_root_str, "<REPO_ROOT>")
     normalized_path = normalized_path.replace(current_repo_root_str, "<REPO_ROOT>")
     return normalized_path
 

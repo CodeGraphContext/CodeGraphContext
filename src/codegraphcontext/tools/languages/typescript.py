@@ -372,7 +372,6 @@ class TypescriptTreeSitterParser:
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": node.end_point[0] + 1,
-                    "end_line": node.end_point[0] + 1,
                 }
                 if self.index_source:
                     interface_data["source"] = self._get_node_text(node)
@@ -391,7 +390,6 @@ class TypescriptTreeSitterParser:
                 type_alias_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
-                    "end_line": node.end_point[0] + 1,
                     "end_line": node.end_point[0] + 1,
                 }
                 if self.index_source:

@@ -16,6 +16,20 @@ DART_QUERIES = {
             name: (identifier) @name
             (formal_parameter_list) @params
         ) @function_node
+        (getter_signature
+            name: (identifier) @name
+        ) @function_node
+        (setter_signature
+            name: (identifier) @name
+            (formal_parameter_list) @params
+        ) @function_node
+        (factory_constructor_signature
+            (identifier) @name
+            (formal_parameter_list) @params
+        ) @function_node
+        (operator_signature) @function_node
+        ; method_signature is intentionally not captured: it is a wrapper
+        ; around the signatures above and would produce duplicate records.
     """,
     "classes": "(class_definition) @type_node",
     "mixins": "(mixin_declaration) @type_node",
@@ -293,15 +307,16 @@ class DartTreeSitterParser:
 
     def _parse_library_parts(self, source_code: str, path: Path) -> List[Dict[str, str]]:
         parts: List[Dict[str, str]] = []
-        part_match = re.search(r"^\s*part\s+['\"]([^'\"]+)['\"]\s*;", source_code, re.MULTILINE)
-        part_of_match = re.search(r"^\s*part\s+of\s+['\"]([^'\"]+)['\"]\s*;", source_code, re.MULTILINE)
-        if part_match:
+        # A file may declare multiple `part 'x.dart';` directives.
+        # Use a negative lookahead so `part of ...;` is not matched here.
+        for part_match in re.finditer(r"^\s*part\s+(?!of\b)['\"]([^'\"]+)['\"]\s*;", source_code, re.MULTILINE):
             parts.append({
                 "main_file": str(path),
                 "part_file": str((path.parent / part_match.group(1)).resolve()),
                 "direction": "part",
             })
-        if part_of_match:
+        # `part of` may legally appear only once per file, but handle extras gracefully.
+        for part_of_match in re.finditer(r"^\s*part\s+of\s+['\"]([^'\"]+)['\"]\s*;", source_code, re.MULTILINE):
             parts.append({
                 "main_file": str((path.parent / part_of_match.group(1)).resolve()),
                 "part_file": str(path.resolve()),
@@ -370,9 +385,20 @@ class DartTreeSitterParser:
                 seen_nodes.add(node_id)
 
                 name_node = node.child_by_field_name('name')
-                if not name_node: continue
-                
-                name = self._get_node_text(name_node)
+                if name_node:
+                    name = self._get_node_text(name_node)
+                elif node.type == 'factory_constructor_signature':
+                    # No `name` field; the name is the identifier sequence,
+                    # e.g. `factory Foo.create(...)` -> "Foo.create".
+                    parts = [self._get_node_text(c) for c in node.children if c.type == 'identifier']
+                    if not parts: continue
+                    name = '.'.join(parts)
+                elif node.type == 'operator_signature':
+                    op_node = next((c for c in node.children if c.is_named and 'operator' in c.type), None)
+                    if not op_node: continue
+                    name = f"operator{self._get_node_text(op_node)}"
+                else:
+                    continue
                 params_node = node.child_by_field_name('parameters') or node.child_by_field_name('formal_parameter_list')
                 
                 args = []

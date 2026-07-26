@@ -73,6 +73,8 @@ class PythonTreeSitterParser:
         self.parser = generic_parser_wrapper.parser
 
     def _get_node_text(self, node) -> str:
+        if node is None or node.text is None:
+            return ""
         return node.text.decode('utf-8')
 
     def _get_parent_context(self, node, types=('function_definition', 'class_definition')):

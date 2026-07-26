@@ -337,9 +337,15 @@ class GraphWriter:
                                 }
                             )
                         if item.get("context_type") == "function_definition":
+                            outer_ctx = item.get("context")
+                            outer_name = (
+                                outer_ctx[0]
+                                if isinstance(outer_ctx, (tuple, list)) and outer_ctx
+                                else outer_ctx
+                            )
                             nested_fn_batch.append(
                                 {
-                                    "outer": item["context"],
+                                    "outer": outer_name,
                                     "inner_name": item["name"],
                                     "inner_line": item["line_number"],
                                 }
@@ -1325,7 +1331,8 @@ class GraphWriter:
                 """
                 MATCH (f:File {path: $path})
                 OPTIONAL MATCH (f)-[:CONTAINS]->(element)
-                DETACH DELETE f, element
+                OPTIONAL MATCH (element)-[:HAS_PARAMETER]->(p:Parameter)
+                DETACH DELETE f, element, p
             """,
                 path=file_path_str,
             )
@@ -1909,6 +1916,10 @@ DETACH DELETE r, n
             (
                 "MATCH (n:ExternalFunction) WHERE NOT ()-[]->(n) "
                 "WITH n LIMIT 5000 DETACH DELETE n RETURN count(n) AS deleted"
+            ),
+            (
+                "MATCH (p:Parameter) WHERE NOT ()-[:HAS_PARAMETER]->(p) "
+                "WITH p LIMIT 5000 DETACH DELETE p RETURN count(p) AS deleted"
             ),
         ]
         for query in dangling_queries:

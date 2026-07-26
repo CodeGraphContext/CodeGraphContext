@@ -2,7 +2,10 @@
 import urllib.parse
 from typing import Any, Dict
 
-from neo4j.exceptions import CypherSyntaxError
+try:
+    from neo4j.exceptions import CypherSyntaxError
+except ImportError:  # neo4j driver not installed (FalkorDB/Kuzu-only setups)
+    CypherSyntaxError = type("CypherSyntaxError", (Exception,), {})
 
 from ...utils.cypher_readonly import is_read_only_cypher, read_only_rejection_message
 from ...utils.debug_log import debug_log
@@ -20,6 +23,10 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
     if not cypher_query:
         return {"error": "Cypher query cannot be empty."}
 
+    params = args.get("params") or args.get("parameters") or {}
+    if not isinstance(params, dict):
+        return {"error": "Query parameters must be an object/dictionary."}
+
     if not is_read_only_cypher(cypher_query):
         return {"error": read_only_rejection_message()}
 
@@ -31,7 +38,9 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
     try:
         debug_log(f"Executing Cypher query: {cypher_query}")
         with db_manager.get_driver().session(**session_kwargs) as session:
-            result = session.run(cypher_query)
+            # Unpack as kwargs: Neo4j accepts them, and the FalkorDB/Kuzu
+            # session shims only accept parameters via **kwargs.
+            result = session.run(cypher_query, **params)
             records = [record.data() for record in result]
 
             limit = get_tool_result_limit("execute_cypher_query")
@@ -60,9 +69,18 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
         }
     except Exception as e:
         debug_log(f"Error executing Cypher query: {str(e)}")
+        # FalkorDB/Kuzu raise their own exception types for malformed Cypher;
+        # surface those as structured syntax errors like the Neo4j path does.
+        message = str(e)
+        if "syntax" in message.lower() or "parser" in message.lower():
+            return {
+                "error": "Cypher syntax error.",
+                "details": message,
+                "query": cypher_query,
+            }
         return {
             "error": "An unexpected error occurred while executing the query.",
-            "details": str(e),
+            "details": message,
         }
 
 
