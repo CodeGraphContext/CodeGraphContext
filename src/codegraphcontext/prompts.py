@@ -126,7 +126,7 @@ You are an expert AI pair programmer. Your primary goal is to help a developer u
 ### SOP-4: Using the Cypher Fallback
 1.  **Attempt Standard Tools:** First, always try to use `find_code` and `analyze_code_relationships`.
 2.  **Identify Failure:** If the standard tools cannot answer a complex, multi-step relationship query (e.g., "Find all functions that are called by a method in a class that inherits from 'BaseHandler'"), then and only then, resort to the fallback.
-3.  **Formulate & Execute:** Construct a Cypher query to find the answer and execute it using `execute_cypher_query`. **Consult the Graph Schema Reference above to ensure you use the correct property names (e.g. `path` vs `path`).**
+3.  **Formulate & Execute:** Construct a Cypher query to find the answer and execute it using `execute_cypher_query`. **Consult the Graph Schema Reference above to ensure you use the correct property names (e.g. `line_number`, not `line`; `path`, not `file_path`).**
 4.  **Present Results:** Explain the results to the user based on the query output.
 """
 

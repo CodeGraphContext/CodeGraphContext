@@ -103,7 +103,7 @@ cgc config reset
 | Config Key | Default | Description |
 | :--- | :--- | :--- |
 | **`SCIP_INDEXER`** | `false` | When `true`, enables SCIP-based symbol resolution. |
-| **`SCIP_LANGUAGES`** | `python,typescript,go,rust,java` | List of target languages to process via SCIP. |
+| **`SCIP_LANGUAGES`** | `python,typescript,javascript,go,rust,java,dart,cpp,c,csharp` | List of target languages to process via SCIP. |
 | **`SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS`** | `300` | Timeout for the local SCIP indexer subprocess. Raise it for large repositories whose indexer runs longer than 5 minutes. Values `<= 0` or non-numeric fall back to `300`. |
 
 ---

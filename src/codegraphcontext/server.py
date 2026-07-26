@@ -365,7 +365,7 @@ class MCPServer:
     def check_job_status_tool(self, **args) -> Dict[str, Any]:
         return management_handlers.check_job_status(self.job_manager, **args)
     
-    def list_jobs_tool(self) -> Dict[str, Any]:
+    def list_jobs_tool(self, **args: Any) -> Dict[str, Any]:
         return management_handlers.list_jobs(self.job_manager)
 
     def list_watched_paths_tool(self, **args) -> Dict[str, Any]:
