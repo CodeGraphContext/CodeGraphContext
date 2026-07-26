@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from ...core.jobs import JobManager, JobStatus
-from ...utils.debug_log import debug_log, error_logger, info_logger
+from ...utils.debug_log import debug_log, error_logger, info_logger, warning_logger
 from .discovery import discover_files_to_index
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
@@ -36,6 +36,7 @@ def build_index_summary(
     all_file_data: List[Dict[str, Any]],
     resolved_call_groups: tuple,
     serialization_seconds: float,
+    parse_failures: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Build CLI-facing metrics for a completed Tree-sitter indexing run."""
     extension_counts = Counter()
@@ -48,6 +49,8 @@ def build_index_summary(
     class_nodes = sum(len(file_data.get("classes", [])) for file_data in all_file_data)
     call_edges = sum(len(group) for group in resolved_call_groups)
 
+    failed = list(parse_failures or [])
+
     return {
         "total_scanned_files": len(files),
         "files_by_extension": dict(sorted(extension_counts.items())),
@@ -55,6 +58,10 @@ def build_index_summary(
         "class_nodes": class_nodes,
         "call_edges": call_edges,
         "serialization_seconds": serialization_seconds,
+        # A run where files failed to parse used to be indistinguishable from a
+        # clean one: the summary had no failure row at all.
+        "failed_files": len(failed),
+        "failed_file_details": failed,
     }
 
 
@@ -153,6 +160,21 @@ async def run_tree_sitter_index_async(
                 repo_path,
                 is_dependency,
             )
+
+    # Capture genuine parse failures before the error entries are dropped —
+    # build_index_summary runs much later, against the filtered list.
+    parse_failures = [
+        {"path": file_data.get("path"), "error": file_data.get("error")}
+        for file_data in all_file_data
+        if file_data.get("parse_failed")
+    ]
+    if parse_failures:
+        warning_logger(
+            f"{len(parse_failures)} file(s) failed to parse and contributed no "
+            "symbols to the graph."
+        )
+        for failure in parse_failures[:10]:
+            warning_logger(f"  parse failed: {failure['path']}: {failure['error']}")
 
     all_file_data = [file_data for file_data in all_file_data if "error" not in file_data]
 
@@ -322,6 +344,7 @@ async def run_tree_sitter_index_async(
                 all_file_data,
                 resolved_calls,
                 time.time() - serialization_start,
+                parse_failures=parse_failures,
             )
         )
 
