@@ -116,6 +116,10 @@ TOOLS = {
                     "type": "string",
                     "description": "Optional file path for precise results."
                 },
+                "depth": {
+                    "type": "integer",
+                    "description": "Optional traversal depth for transitive caller and callee queries (1-20)."
+                },
                 "repo_path": {
                     "type": "string",
                     "description": "Optional repository path."
@@ -150,6 +154,11 @@ TOOLS = {
                 "cypher_query": {
                     "type": "string",
                     "description": "The Cypher query to execute"
+                },
+                "params": {
+                    "type": "object",
+                    "description": "Optional named parameters passed to the Cypher query.",
+                    "default": {}
                 },
                 "graph_name": _GRAPH_NAME_PROP
             },
@@ -206,6 +215,7 @@ TOOLS = {
             "type": "object",
             "properties": {
                 "function_name": {"type": "string"},
+                "path": {"type": "string", "description": "Optional file path to disambiguate the function."},
                 "repo_path": {"type": "string"},
                 "graph_name": _GRAPH_NAME_PROP
             },
