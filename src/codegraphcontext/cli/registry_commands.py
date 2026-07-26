@@ -407,7 +407,7 @@ def load_bundle_command(bundle_name: str, clear_existing: bool = False):
         if not all(services):
             return (False, "Failed to initialize database services", {})
         
-        db_manager, _, _ = services
+        db_manager, _, _, _ = services
         
         # Check if bundle exists locally
         bundle_path = Path(bundle_name)
