@@ -240,7 +240,15 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
         self.graph_builder.update_file_in_graph(changed_path, self.repo_path, self.imports_map)
 
-        other_callers = list(caller_paths)
+        # Every file in affected_paths is re-parsed below and fed back into
+        # link_function_calls, so every one of them needs its outgoing CALLS
+        # cleared first. Clearing only caller_paths left the inheritance-only
+        # neighbours to have their edges re-created on top of the existing ones
+        # — and on Neo4j/Nornic the writer uses CREATE, not MERGE, so duplicate
+        # CALLS multiplied on every save. (FalkorDB and Kùzu use MERGE, which is
+        # why this never showed up there.) The changed file itself is excluded:
+        # update_file_in_graph above already deleted and rebuilt it.
+        other_callers = list(affected_paths - {changed_path_str})
         other_inheritors = list(inheritor_paths)
         if other_callers:
             self.graph_builder.delete_outgoing_calls_from_files(other_callers)

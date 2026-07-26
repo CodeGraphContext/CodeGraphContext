@@ -44,7 +44,15 @@ def build_index_summary(
         language = parsers.get(file.suffix, "generic")
         extension_counts[f"{extension} ({language})"] += 1
 
-    function_nodes = sum(len(file_data.get("functions", [])) for file_data in all_file_data)
+    # Exclude the synthetic `<module>` frame the Python parser adds per file —
+    # it is the attribution target for module-level calls, not a function the
+    # user wrote, and counting it inflated every reported total by one per file.
+    function_nodes = sum(
+        1
+        for file_data in all_file_data
+        for func in file_data.get("functions", [])
+        if not func.get("is_synthetic") and func.get("name") != "<module>"
+    )
     class_nodes = sum(len(file_data.get("classes", [])) for file_data in all_file_data)
     call_edges = sum(len(group) for group in resolved_call_groups)
 
