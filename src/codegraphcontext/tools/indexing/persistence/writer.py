@@ -250,7 +250,21 @@ class GraphWriter:
 
             file_path_obj = Path(file_path_str)
             repo_path_obj = Path(resolved_repo_str)
-            relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
+            try:
+                relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
+            except ValueError:
+                # _normalize_path calls .resolve(), which follows symlinks, so a
+                # symlink inside the repo pointing outside it lands here. This
+                # call used to be bare — unlike the guarded one 17 lines above
+                # and its sibling in add_minimal_file_node — and the ValueError
+                # unwound all the way out of the indexing run, so every file
+                # after this one was silently never indexed.
+                warning_logger(
+                    f"{file_path_str} resolves outside the repository "
+                    f"{resolved_repo_str} (symlink?); indexing it without a "
+                    "directory hierarchy."
+                )
+                relative_path_to_file = Path(file_path_obj.name)
             parent_path = resolved_repo_str
             parent_label = "Repository"
             for part in relative_path_to_file.parts[:-1]:
