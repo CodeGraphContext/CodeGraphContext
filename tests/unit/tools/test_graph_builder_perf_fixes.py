@@ -261,9 +261,11 @@ class TestCreateAllFunctionCallsV3:
         assert any("UNWIND" in q for q in queries), "Expected UNWIND queries"
 
     def test_uses_create_for_calls_rel_on_neo4j(self):
-        """CALLS relationships should use CREATE on Neo4j — MERGE lock overhead
-        makes large repos (35k+ edges) take 60-90 min; CREATE drops to seconds.
-        All call paths delete existing CALLS before writing, so CREATE is safe."""
+        """CALLS relationships are written with MERGE on Neo4j so the heuristic
+        confidence label can be (re)applied via SET without duplicating edges.
+        The relationship identity is the
+        (line_number, full_call_name, args_key) key; the confidence label and
+        other mutable metadata are attached afterwards with SET."""
         file_data = [{
             "path": "/repo/a.py",
             "functions": [{"name": "foo", "line_number": 1}],
@@ -279,9 +281,14 @@ class TestCreateAllFunctionCallsV3:
         }]
         calls = self._run(file_data)
         call_rels = [c["query"] for c in calls if "CALLS" in c["query"]]
+        assert call_rels, "Expected at least one CALLS write query"
         for q in call_rels:
-            assert "CREATE" in q, f"Expected CREATE in CALLS query on Neo4j, got: {q[:120]}"
-            assert "MERGE" not in q, f"Unexpected MERGE in CALLS query on Neo4j, got: {q[:120]}"
+            assert "MERGE (caller)-[call:" in q, \
+                f"Expected MERGE in CALLS query on Neo4j, got: {q[:160]}"
+            assert "SET call.confidence_label = row.confidence_label" in q, \
+                f"Expected confidence_label written via SET, got: {q[:200]}"
+            assert "CREATE" not in q, \
+                f"Unexpected CREATE in CALLS query on Neo4j, got: {q[:160]}"
 
     def test_uses_merge_for_calls_rel_on_kuzudb(self):
         """CALLS relationships should keep MERGE on KuzuDB — its UNWIND fallback
@@ -384,10 +391,11 @@ class TestCreateAllFunctionCallsV3:
         calls = self._run(file_data)
         call_write = next(c for c in calls if "CALLS" in c["query"])
 
-        # The CALLS write now matches the target line inline in the MATCH
-        # pattern (`{... line_number: row.called_line_number}`) rather than a
-        # WHERE equality.
-        assert "line_number: row.called_line_number" in call_write["query"]
+        # The CALLS write matches the target line via a sentinel-guarded WHERE
+        # equality (`row.called_line_number <= 0 OR called.line_number =
+        # row.called_line_number`) so unresolved (<= 0) lines fall back to a
+        # name/path-only match, and applies the context hint the same way.
+        assert "called.line_number = row.called_line_number" in call_write["query"]
         assert "called.context = row.called_context" in call_write["query"]
         assert call_write["kwargs"]["batch"][0]["called_line_number"] == 20
         assert call_write["kwargs"]["batch"][0]["called_context"] == ""
