@@ -126,7 +126,17 @@ const DemoSection = () => {
                   <GlassCard className="h-full w-full relative z-10 transition-colors duration-300 group-hover:border-purple-500/50 group-hover:shadow-[0_0_30px_rgba(168,85,247,0.15)] overflow-hidden flex flex-col cursor-pointer">
                     <Dialog>
                       <DialogTrigger asChild>
-                        <div className="flex flex-col h-full outline-none">
+                        <div 
+                          className="flex flex-col h-full outline-none"
+                          onClick={() => {
+                            if (window.va) {
+                              window.va('event', 'feature_clicked', {
+                                feature: 'DemoSection',
+                                demo: viz.title
+                              });
+                            }
+                          }}
+                        >
                           <div className="relative overflow-hidden">
                             <motion.img
                               whileHover={{ scale: 1.05 }}
