@@ -475,7 +475,7 @@ def pre_scan_elixir(files: list[Path], parser_wrapper) -> dict:
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 source = f.read()
             tree = parser_wrapper.parser.parse(bytes(source, "utf8"))
             _pre_scan_recursive(tree.root_node, path, imports_map)

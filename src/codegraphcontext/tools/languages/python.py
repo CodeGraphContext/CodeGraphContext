@@ -134,7 +134,7 @@ class PythonTreeSitterParser:
         try:
             if is_notebook:
                 info_logger(f"Converting notebook {path} to temporary Python file.")
-                with open(path, 'r', encoding='utf-8') as f:
+                with open(path, 'r', encoding='utf-8', errors="ignore") as f:
                     notebook_node = nbformat.read(f, as_version=4)
                 
                 exporter = PythonExporter()
@@ -147,7 +147,7 @@ class PythonTreeSitterParser:
                 # The file to be parsed is now the temporary file
                 path = temp_py_file
 
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 source_code = f.read()
             
             tree = self.parser.parse(bytes(source_code, "utf8"))
@@ -676,17 +676,17 @@ def pre_scan_python(files: list[Path], parser_wrapper) -> dict:
         try:
             source_to_parse = ""
             if path.suffix == '.ipynb':
-                with open(path, 'r', encoding='utf-8') as f:
+                with open(path, 'r', encoding='utf-8', errors="ignore") as f:
                     notebook_node = nbformat.read(f, as_version=4)
                 exporter = PythonExporter()
                 python_code, _ = exporter.from_notebook_node(notebook_node)
                 with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py', encoding='utf-8') as tf:
                     tf.write(python_code)
                     temp_py_file = Path(tf.name)
-                with open(temp_py_file, "r", encoding="utf-8") as f:
+                with open(temp_py_file, "r", encoding="utf-8", errors="ignore") as f:
                     source_to_parse = f.read()
             else:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
                     source_to_parse = f.read()
 
             tree = parser_wrapper.parser.parse(bytes(source_to_parse, "utf8"))

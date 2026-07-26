@@ -177,7 +177,7 @@ class GoTreeSitterParser:
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict:
         """Parses a file and returns its structure in a standardized dictionary format."""
         self.index_source = index_source
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
             source_code = f.read()
 
         # Extract Go package declaration for package_name field on File nodes
@@ -607,7 +607,7 @@ def pre_scan_go(files: list[Path], parser_wrapper) -> dict:
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 tree = parser_wrapper.parser.parse(bytes(f.read(), "utf8"))
 
             for capture, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
