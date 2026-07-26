@@ -423,10 +423,18 @@ class FalkorDBManager:
             self.shutdown()
 
     def shutdown(self):
-        """Kills the subprocess on exit."""
+        """Persist and stop the embedded server before terminating its worker."""
         if self._process:
             if self._process.poll() is None:
                 info_logger("Stopping FalkorDB subprocess...")
+                try:
+                    from redis import Redis
+
+                    Redis(unix_socket_path=self.socket_path).shutdown(save=True)
+                except Exception as exc:
+                    # Redis closes the control connection after accepting SHUTDOWN;
+                    # worker termination remains the fallback if that did not happen.
+                    info_logger(f"FalkorDB shutdown command did not return cleanly: {exc}")
                 self._process.terminate()
                 try:
                     self._process.wait(timeout=5)
