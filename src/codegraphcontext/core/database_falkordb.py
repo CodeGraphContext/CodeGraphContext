@@ -416,11 +416,36 @@ class FalkorDBManager:
         """Closes the connection. Pass teardown=True to stop the worker subprocess."""
         if self._driver is not None:
             info_logger("Closing FalkorDB Lite connection")
+            # Dropping the reference alone leaks the underlying redis
+            # connection pool: `connected_clients` on the server grew by one
+            # per get_driver()/close_driver() cycle and never came back down,
+            # which in a long-running MCP server that switches contexts trends
+            # toward the redis `maxclients` limit.
+            self._disconnect_pool(self._driver)
             self._driver = None
             self._graph = None
             self._graphs = {}
         if teardown:
             self.shutdown()
+
+    @staticmethod
+    def _disconnect_pool(driver) -> None:
+        """Best-effort release of the redis connection pool behind *driver*."""
+        for attr in ("connection", "_conn"):
+            conn = getattr(driver, attr, None)
+            pool = getattr(conn, "connection_pool", None)
+            if pool is not None:
+                try:
+                    pool.disconnect()
+                except Exception as exc:  # noqa: BLE001 - closing must never raise
+                    info_logger(f"FalkorDB pool disconnect failed: {exc}")
+                return
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception as exc:  # noqa: BLE001
+                    info_logger(f"FalkorDB connection close failed: {exc}")
+                return
 
     def shutdown(self):
         """Kills the subprocess on exit."""
@@ -535,13 +560,40 @@ class FalkorDBSessionWrapper:
             result = self.graph.query(query, parameters)
             return FalkorDBResultWrapper(result)
         except Exception as e:
-            # Ignore errors about existing constraints/indexes
+            # "already exists" is only benign for schema DDL, where it means the
+            # index/constraint was created by an earlier run. Applying the test
+            # to *every* query turned genuine data-write failures into an empty
+            # success wrapper (.data() == [], .single() is None), so callers
+            # blew up with a TypeError far away from the real cause.
             error_msg = str(e).lower()
-            if "already exists" in error_msg or "already created" in error_msg or "already indexed" in error_msg:
+            is_benign_ddl = self._is_schema_ddl(query) and (
+                "already exists" in error_msg
+                or "already created" in error_msg
+                or "already indexed" in error_msg
+            )
+            if is_benign_ddl:
                 return FalkorDBResultWrapper(None)
-                
+
             error_logger(f"FalkorDB query failed: {query[:100]}... Error: {e}")
             raise
+
+    @staticmethod
+    def _is_schema_ddl(query: str) -> bool:
+        """True when *query* is a schema statement, matched on its leading
+        keyword rather than by searching the whole text (which would also
+        match the same words inside a string literal)."""
+        head = query.lstrip().lstrip("(").lstrip()
+        return bool(
+            re.match(
+                r"(?is)\A(CREATE|DROP)\s+"
+                r"(BTREE\s+|RANGE\s+|TEXT\s+|POINT\s+|VECTOR\s+|FULLTEXT\s+)?"
+                r"(INDEX|CONSTRAINT)\b",
+                head,
+            )
+            # FalkorDB's procedural index API, e.g.
+            # CALL db.idx.fulltext.createNodeIndex('Function', 'name', ...)
+            or bool(re.match(r"(?is)\ACALL\s+db\.idx\.", head))
+        )
 
     def _translate_constraint_command(self, query: str):
         """
