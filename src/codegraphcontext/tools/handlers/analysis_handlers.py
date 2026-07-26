@@ -9,9 +9,10 @@ def find_dead_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """Tool to find potentially dead code across the entire project."""
     exclude_decorated_with = args.get("exclude_decorated_with", [])
     repo_path = args.get("repo_path")
+    graph_name = args.get("graph_name")
     try:
         debug_log(f"Finding dead code. repo_path={repo_path}")
-        results = code_finder.find_dead_code(exclude_decorated_with=exclude_decorated_with, repo_path=repo_path)
+        results = code_finder.find_dead_code(exclude_decorated_with=exclude_decorated_with, repo_path=repo_path, graph_name=graph_name)
 
         limit = get_tool_result_limit("find_dead_code")
         unused = results.get("potentially_unused_functions", [])
@@ -36,10 +37,11 @@ def calculate_cyclomatic_complexity(code_finder: CodeFinder, **args) -> Dict[str
     function_name = args.get("function_name")
     path = args.get("path")
     repo_path = args.get("repo_path")
+    graph_name = args.get("graph_name")
 
     try:
         debug_log(f"Calculating cyclomatic complexity for function: {function_name}, repo_path={repo_path}")
-        results = code_finder.get_cyclomatic_complexity(function_name, path, repo_path=repo_path)
+        results = code_finder.get_cyclomatic_complexity(function_name, path, repo_path=repo_path, graph_name=graph_name)
 
         response = {
             "success": True,
@@ -59,9 +61,10 @@ def find_most_complex_functions(code_finder: CodeFinder, **args) -> Dict[str, An
     """Tool to find the most complex functions."""
     limit = get_tool_result_limit("find_most_complex_functions", default=args.get("limit", 10))
     repo_path = args.get("repo_path")
+    graph_name = args.get("graph_name")
     try:
         debug_log(f"Finding the top {limit} most complex functions. repo_path={repo_path}")
-        results = code_finder.find_most_complex_functions(limit, repo_path=repo_path)
+        results = code_finder.find_most_complex_functions(limit, repo_path=repo_path, graph_name=graph_name)
         return {
             "success": True,
             "limit": limit,
@@ -78,6 +81,7 @@ def analyze_code_relationships(code_finder: CodeFinder, **args) -> Dict[str, Any
     target = args.get("target")
     context = args.get("context")
     repo_path = args.get("repo_path")
+    graph_name = args.get("graph_name")
 
     if not query_type or not target:
         return {
@@ -97,7 +101,7 @@ def analyze_code_relationships(code_finder: CodeFinder, **args) -> Dict[str, Any
             except (TypeError, ValueError):
                 return {"error": f"Invalid 'depth' value: {depth!r}. Must be an integer between 1 and 20."}
         debug_log(f"Analyzing relationships: {query_type} for {target}, repo_path={repo_path}, depth={depth}")
-        results = code_finder.analyze_code_relationships(query_type, target, context, repo_path=repo_path, depth=depth)
+        results = code_finder.analyze_code_relationships(query_type, target, context, repo_path=repo_path, depth=depth, graph_name=graph_name)
 
         # Apply per-query-type limit (falls back to tool-level limit)
         limit = get_tool_result_limit(query_type) or get_tool_result_limit("analyze_code_relationships")
@@ -129,6 +133,7 @@ def find_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     fuzzy_search = args.get("fuzzy_search", DEFAULT_FUZZY_SEARCH)
     edit_distance = args.get("edit_distance", DEFAULT_EDIT_DISTANCE)
     repo_path = args.get("repo_path")
+    graph_name = args.get("graph_name")
 
     if fuzzy_search:
         # For Lucene backends the replace('_', ' ') improves token splitting.
@@ -138,7 +143,7 @@ def find_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
 
     try:
         debug_log(f"Finding code for query: {query} with fuzzy_search={fuzzy_search}, edit_distance={edit_distance}, repo_path={repo_path}")
-        results = code_finder.find_related_code(query, fuzzy_search, edit_distance, repo_path=repo_path)
+        results = code_finder.find_related_code(query, fuzzy_search, edit_distance, repo_path=repo_path, graph_name=graph_name)
 
         limit = get_tool_result_limit("find_code")
         ranked = results.get("ranked_results", [])

@@ -54,8 +54,7 @@ class GraphBuilder:
         self.db_manager = db_manager
         self.job_manager = job_manager
         self.loop = loop
-        self.driver = self.db_manager.get_driver()
-        self._writer = GraphWriter(self.driver, db_manager=self.db_manager)
+        self._writer = GraphWriter(self.db_manager.get_driver(), db_manager=self.db_manager)
         self.last_call_resolution_diagnostics: list[Dict[str, Any]] = []
         self.last_index_summary: Dict[str, Any] = {}
         self.parsers = {
@@ -110,6 +109,15 @@ class GraphBuilder:
         self._parsed_cache = threading.local()
         self.create_schema()
 
+    @property
+    def driver(self):
+        """Default graph driver (backward compatible)."""
+        return self.db_manager.get_driver()
+
+    def _driver_for(self, graph_name: str = None):
+        """Get driver for a specific graph, or default."""
+        return self.db_manager.get_driver(graph_name)
+
     def get_parser(self, extension: str) -> Optional[TreeSitterParser]:
         """Gets or creates a TreeSitterParser for the given extension (thread-local)."""
         lang_name = self.parsers.get(extension)
@@ -127,8 +135,8 @@ class GraphBuilder:
                 return None
         return self._parsed_cache.parsers[lang_name]
 
-    def create_schema(self) -> None:
-        create_graph_schema(self.driver, self.db_manager)
+    def create_schema(self, graph_name: str = None) -> None:
+        create_graph_schema(self._driver_for(graph_name), self.db_manager)
 
     _MAX_STR_LEN = MAX_STR_LEN
 
@@ -868,20 +876,26 @@ class GraphBuilder:
         """
         self._writer.delete_file_from_graph(path)
 
-    def delete_repository_from_graph(self, repo_path: str) -> bool:
+    def delete_repository_from_graph(self, repo_path: str, graph_name: str = None) -> bool:
         """Remove a repository node and all its contents from the graph.
 
         Parameters
         ----------
         repo_path : str
             Absolute path to the repository root.
+        graph_name : str, optional
+            Name of the FalkorDB graph to target. When ``None`` the default
+            graph is used; otherwise a writer bound to that graph's driver
+            performs the deletion.
 
         Returns
         -------
         bool
             ``True`` if the repository was found and removed.
         """
-        return self._writer.delete_repository_from_graph(repo_path)
+        if graph_name is None:
+            return self._writer.delete_repository_from_graph(repo_path)
+        return GraphWriter(self._driver_for(graph_name)).delete_repository_from_graph(repo_path)
 
     def get_caller_file_paths(self, file_path_str: str) -> set:
         """Get all files that have CALLS relationships to the given file.

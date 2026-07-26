@@ -82,10 +82,14 @@ class DatabaseManager:
         self.neo4j_database = os.getenv('NEO4J_DATABASE') # Optional, if not set, will use default database configured in Neo4j
         self._initialized = True
 
-    def get_driver(self) -> Driver:
+    def get_driver(self, graph_name: str = None) -> Driver:
         """
         Gets the Neo4j driver instance, creating it if it doesn't exist.
         This method is thread-safe.
+
+        The `graph_name` parameter is accepted for interface parity with
+        FalkorDB (which supports multiple graphs per instance); Neo4j
+        selects the database via NEO4J_DATABASE, so the argument is ignored.
 
         Raises:
             ValueError: If Neo4j credentials are not set in environment variables.

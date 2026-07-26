@@ -31,7 +31,7 @@ class _FakeDBManager:
     def __init__(self, recorder: Dict[str, Any]):
         self._recorder = recorder
 
-    def get_driver(self):
+    def get_driver(self, graph_name: str = None):
         return _FakeDriver(self._recorder)
 
     # Used only for certain query formatting paths; safe to stub.
@@ -67,5 +67,5 @@ def test_call_chain_avoids_list_extract():
 
     q = recorder["last_query"]
     assert "list_extract" not in q
-    assert "MATCH path = (start)-[:CALLS*1..5]->(end_target)" in q
-    assert "length(path)" in q
+    assert "MATCH path = (start)-[:CALLS|HEURISTIC_CALLS*1..5]->()" in q
+    assert "size(call_rels) as chain_length" in q

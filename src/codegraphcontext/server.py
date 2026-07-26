@@ -16,7 +16,7 @@ from typing import Any, Dict, Coroutine, Optional, List, Set
 
 from .utils.gcf_encoder import encode_response
 
-from .prompts import LLM_SYSTEM_PROMPT
+from .prompts import build_system_prompt
 from .core import get_database_manager
 from .core.jobs import JobManager, JobStatus
 from .core.watcher import CodeWatcher
@@ -410,6 +410,9 @@ class MCPServer:
     def get_repository_stats_tool(self, **args) -> Dict[str, Any]:
         return management_handlers.get_repository_stats(self.code_finder, **args)
 
+    def list_graphs_tool(self, **args) -> Dict[str, Any]:
+        return management_handlers.list_graphs(self.db_manager, **args)
+
     def generate_report_tool(self, **args) -> Dict[str, Any]:
         from .tools.report_generator import generate_report
 
@@ -715,6 +718,7 @@ class MCPServer:
             "load_bundle": self.load_bundle_tool,
             "search_registry_bundles": self.search_registry_bundles_tool,
             "get_repository_stats": self.get_repository_stats_tool,
+            "list_graphs": self.list_graphs_tool,
             "discover_codegraph_contexts": self.discover_codegraph_contexts_tool,
             "switch_context": self.switch_context_tool,
             "generate_report": self.generate_report_tool,
@@ -787,13 +791,18 @@ class MCPServer:
                 response = {}
                 # Route the request based on the JSON-RPC method.
                 if method == 'initialize':
+                    # Build system prompt with custom prompts if any
+                    system_prompt = build_system_prompt()
+                    
                     response = {
                         "jsonrpc": "2.0", "id": request_id,
                         "result": {
                             "protocolVersion": "2025-03-26",
                             "serverInfo": {
-                                "name": "CodeGraphContext", "version": self._get_version(),
-                                "instructionsAvailable": True
+                                "name": "CodeGraphContext",
+                                "version": self._get_version(),
+                                "systemPrompt": system_prompt,
+                                "instructionsAvailable": True,
                             },
                             "capabilities": {"tools": {"listTools": True}},
                             "instructions": LLM_SYSTEM_PROMPT,

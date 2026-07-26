@@ -25,6 +25,7 @@ from importlib.metadata import version as pkg_version, PackageNotFoundError
 from codegraphcontext.server import MCPServer
 from .setup_wizard import run_neo4j_setup_wizard, configure_mcp_client
 from . import config_manager
+from . import project_config
 # Import the new helper functions
 from .cli_helpers import (
     index_helper,
@@ -599,6 +600,99 @@ def config_db(backend: str = typer.Argument(..., help="Database backend: 'neo4j'
         raise typer.Exit(code=1)
 
     console.print(f"[green]✔ Default database switched to {backend}[/green]")
+
+# ============================================================================
+# PROMPT COMMAND GROUP - Custom LLM Prompts
+# ============================================================================
+
+prompt_app = typer.Typer(help="Manage custom LLM prompt files")
+app.add_typer(prompt_app, name="prompt")
+
+@prompt_app.command("add")
+def prompt_add(
+    path: str = typer.Argument(..., help="Path to the prompt file to register")
+):
+    """
+    Add a custom prompt file to the project.
+    
+    Registers a prompt file that will be injected into the LLM system prompt.
+    The file path is stored relative to the project root.
+    
+    Examples:
+        cgc prompt add skills.md
+        cgc prompt add docs/custom-instructions.txt
+        cgc prompt add /absolute/path/to/prompt.md
+    """
+    try:
+        success = project_config.add_prompt_file(path)
+        if not success:
+            raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[red]Error adding prompt file: {e}[/red]")
+        raise typer.Exit(code=1)
+
+@prompt_app.command("list")
+def prompt_list():
+    """
+    List all registered prompt files.
+    
+    Shows all custom prompt files that will be injected into the LLM system prompt.
+    Files are shown in the order they will be prepended.
+    """
+    try:
+        prompts = project_config.list_prompt_files()
+        
+        if not prompts:
+            console.print("[yellow]No custom prompt files registered.[/yellow]")
+            console.print("\nUse [cyan]cgc prompt add <path>[/cyan] to register a prompt file.")
+            return
+        
+        console.print("[bold cyan]Registered Prompt Files:[/bold cyan]\n")
+        
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Path", style="green")
+        table.add_column("Status", style="cyan", width=10)
+        
+        project_root = project_config.get_project_root()
+        for i, prompt_path in enumerate(prompts, 1):
+            # Check if file exists
+            prompt_file = Path(prompt_path)
+            if not prompt_file.is_absolute():
+                prompt_file = project_root / prompt_file
+            
+            status = "✅ Found" if prompt_file.exists() else "⚠️ Missing"
+            table.add_row(str(i), prompt_path, status)
+        
+        console.print(table)
+        
+        config_file = project_config.get_project_config_file()
+        console.print(f"\n[dim]Config: {config_file}[/dim]")
+        
+    except Exception as e:
+        console.print(f"[red]Error listing prompt files: {e}[/red]")
+        raise typer.Exit(code=1)
+
+@prompt_app.command("remove")
+def prompt_remove(
+    path: str = typer.Argument(..., help="Path to the prompt file to unregister")
+):
+    """
+    Remove a custom prompt file from the project.
+    
+    Unregisters a prompt file so it will no longer be injected into the LLM system prompt.
+    
+    Examples:
+        cgc prompt remove skills.md
+        cgc prompt remove docs/custom-instructions.txt
+    """
+    try:
+        success = project_config.remove_prompt_file(path)
+        if not success:
+            raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[red]Error removing prompt file: {e}[/red]")
+        raise typer.Exit(code=1)
 
 # ============================================================================
 # BUNDLE COMMAND GROUP - Pre-indexed Graph Snapshots

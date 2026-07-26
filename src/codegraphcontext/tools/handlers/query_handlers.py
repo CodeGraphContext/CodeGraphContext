@@ -20,6 +20,7 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
     also request READ access mode at the protocol layer.
     """
     cypher_query = args.get("cypher_query")
+    graph_name = args.get("graph_name")
     if not cypher_query:
         return {"error": "Cypher query cannot be empty."}
 
@@ -37,7 +38,7 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
 
     try:
         debug_log(f"Executing Cypher query: {cypher_query}")
-        with db_manager.get_driver().session(**session_kwargs) as session:
+        with db_manager.get_driver(graph_name).session(**session_kwargs) as session:
             # Unpack as kwargs: Neo4j accepts them, and the FalkorDB/Kuzu
             # session shims only accept parameters via **kwargs.
             result = session.run(cypher_query, **params)

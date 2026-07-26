@@ -99,9 +99,14 @@ class EmbeddedGraphManager(GraphQueryInterface):
         os.makedirs(Path(self.db_path).parent, exist_ok=True)
         self._initialized = True
 
-    def get_driver(self):
+    def get_driver(self, graph_name: str = None):
         """
         Gets the embedded driver. Initialises the database and connection pool.
+
+        The ``graph_name`` parameter is accepted for interface parity with
+        FalkorDB (which supports multiple graphs per instance). Embedded
+        backends (KùzuDB, LadybugDB) are single-graph, so the argument is
+        ignored.
         """
         spec = self.BACKEND_SPEC
         if self._db is None:
