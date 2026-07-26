@@ -795,10 +795,10 @@ class MCPServer:
                         "result": {
                             "protocolVersion": "2025-03-26",
                             "serverInfo": {
-                                "name": "CodeGraphContext", "version": "0.1.0",
-                                "systemPrompt": system_prompt
-                                "name": "CodeGraphContext", "version": self._get_version(),
-                                "instructionsAvailable": True
+                                "name": "CodeGraphContext",
+                                "version": self._get_version(),
+                                "systemPrompt": system_prompt,
+                                "instructionsAvailable": True,
                             },
                             "capabilities": {"tools": {"listTools": True}},
                             "instructions": LLM_SYSTEM_PROMPT,
