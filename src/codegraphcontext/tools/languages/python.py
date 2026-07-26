@@ -157,7 +157,10 @@ class PythonTreeSitterParser:
             functions.extend(self._find_lambda_assignments(root_node, index_source))
             classes = self._find_classes(root_node)
             imports = self._find_imports(root_node)
-            function_calls = self._find_calls(root_node)
+            # Build local_names so _find_calls can distinguish local functions
+            # from method calls (e.g. list.append) when assigning nested call context.
+            local_names = {f["name"] for f in functions} | {c["name"] for c in classes}
+            function_calls = self._find_calls(root_node, local_names)
             self._attach_module_context(functions, function_calls, root_node, index_source)
             variables = self._find_variables(root_node)
 
@@ -409,33 +412,33 @@ class PythonTreeSitterParser:
                     module_name = self._get_node_text(module_name_node)
                     
                     # Handle 'from ... import ...'
-                    import_list_node = node.child_by_field_name('name')
-                    if import_list_node:
-                        for child in import_list_node.children:
-                            imported_name = None
-                            alias = None
-                            if child.type == 'aliased_import':
-                                name_node = child.child_by_field_name('name')
-                                alias_node = child.child_by_field_name('alias')
-                                if name_node: imported_name = self._get_node_text(name_node)
-                                if alias_node: alias = self._get_node_text(alias_node)
-                            elif child.type == 'dotted_name' or child.type == 'identifier':
-                                imported_name = self._get_node_text(child)
-                            
-                            if imported_name:
-                                full_import_name = f"{module_name}.{imported_name}"
-                                import_data = {
-                                    "name": imported_name,
-                                    "full_import_name": full_import_name,
-                                    "line_number": child.start_point[0] + 1,
-                                    "alias": alias,
-                                    "context": self._get_parent_context(child)[:2],
-                                    "lang": self.language_name,
-                                    "is_dependency": False,
-                                }
-                                existing = seen_modules.get(full_import_name)
-                                if existing is None or import_data["line_number"] < existing["line_number"]:
-                                    seen_modules[full_import_name] = import_data
+                    # children_by_field_name returns ALL imported names;
+                    # child_by_field_name would only return the first one.
+                    for child in node.children_by_field_name('name'):
+                        imported_name = None
+                        alias = None
+                        if child.type == 'aliased_import':
+                            name_node = child.child_by_field_name('name')
+                            alias_node = child.child_by_field_name('alias')
+                            if name_node: imported_name = self._get_node_text(name_node)
+                            if alias_node: alias = self._get_node_text(alias_node)
+                        elif child.type == 'dotted_name' or child.type == 'identifier':
+                            imported_name = self._get_node_text(child)
+                        
+                        if imported_name:
+                            full_import_name = f"{module_name}.{imported_name}"
+                            import_data = {
+                                "name": imported_name,
+                                "full_import_name": full_import_name,
+                                "line_number": child.start_point[0] + 1,
+                                "alias": alias,
+                                "context": self._get_parent_context(child)[:2],
+                                "lang": self.language_name,
+                                "is_dependency": False,
+                            }
+                            existing = seen_modules.get(full_import_name)
+                            if existing is None or import_data["line_number"] < existing["line_number"]:
+                                seen_modules[full_import_name] = import_data
 
         imports.extend(sorted(seen_modules.values(), key=lambda item: item["line_number"]))
         return imports
@@ -459,14 +462,21 @@ class PythonTreeSitterParser:
                     args.append(arg_text)
         return args
 
-    def _record_call(self, call_node, enclosing_caller, calls):
+    def _record_call(self, call_node, enclosing_caller, calls, local_names=None):
         function_node = call_node.child_by_field_name("function")
         if not function_node:
             return None
 
         called_name = self._extract_call_name(function_node)
         if enclosing_caller:
-            context = (enclosing_caller, "nested_call", call_node.start_point[0] + 1)
+            # Only use the parent call name as context when it is a locally
+            # defined function/class.  Method calls like list.append() are not
+            # Function nodes in the graph, so using them as caller would
+            # create orphan CALLS edges and cause dead-code false positives.
+            if local_names and enclosing_caller in local_names:
+                context = (enclosing_caller, "nested_call", call_node.start_point[0] + 1)
+            else:
+                context = self._get_parent_context(call_node)
         else:
             context = self._get_parent_context(call_node)
 
@@ -487,23 +497,29 @@ class PythonTreeSitterParser:
         )
         return called_name
 
-    def _walk_call_tree(self, node, enclosing_caller, calls):
+    def _walk_call_tree(self, node, enclosing_caller, calls, local_names=None):
         if node is None:
             return
         if node.type == "call":
-            called_name = self._record_call(node, enclosing_caller, calls)
+            function_node = node.child_by_field_name("function")
+            is_direct = function_node and function_node.type == "identifier"
+            called_name = self._record_call(node, enclosing_caller, calls, local_names)
             if called_name:
                 arguments_node = node.child_by_field_name("arguments")
                 if arguments_node:
+                    # Only propagate called_name for direct calls (identifier);
+                    # attribute calls (obj.method()) are method invocations,
+                    # not local functions, so they shouldn't act as nested caller.
+                    next_enclosing = called_name if is_direct else enclosing_caller
                     for child in arguments_node.children:
-                        self._walk_call_tree(child, called_name, calls)
+                        self._walk_call_tree(child, next_enclosing, calls, local_names)
             return
         for child in node.children:
-            self._walk_call_tree(child, enclosing_caller, calls)
+            self._walk_call_tree(child, enclosing_caller, calls, local_names)
 
-    def _find_calls(self, root_node):
+    def _find_calls(self, root_node, local_names=None):
         calls = []
-        self._walk_call_tree(root_node, None, calls)
+        self._walk_call_tree(root_node, None, calls, local_names)
 
         # Dictionary-based method references (indirect calls)
         dict_method_calls = self._find_dict_method_references(root_node)
