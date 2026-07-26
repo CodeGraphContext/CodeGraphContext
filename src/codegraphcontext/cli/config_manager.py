@@ -87,6 +87,8 @@ DEFAULT_CONFIG = {
     "DEFAULT_DATABASE": "falkordb",
     "FALKORDB_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb"),
     "FALKORDB_SOCKET_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb.sock"),
+    # Empty selects a deterministic port derived from each embedded DB socket.
+    "FALKORDB_PORT": "",
     "LADYBUGDB_PATH": str(CONFIG_DIR / "global" / "db" / "ladybugdb"),
     "KUZUDB_PATH": str(CONFIG_DIR / "global" / "db" / "kuzudb"),
     "INDEX_VARIABLES": "true",
@@ -142,6 +144,7 @@ CONFIG_DESCRIPTIONS = {
     "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|falkordb-remote|kuzudb|nornic|ladybugdb)",
     "FALKORDB_PATH": "Path to FalkorDB database file",
     "FALKORDB_SOCKET_PATH": "Path to FalkorDB Unix socket",
+    "FALKORDB_PORT": "Optional FalkorDB port override (empty = per-database port)",
     "LADYBUGDB_PATH": "Path to LadybugDB database directory",
     "KUZUDB_PATH": "Path to KuzuDB database directory",
     "INDEX_VARIABLES": "Index variable nodes in the graph (lighter graph if false)",

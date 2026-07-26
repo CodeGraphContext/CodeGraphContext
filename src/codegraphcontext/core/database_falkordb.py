@@ -290,9 +290,7 @@ class FalkorDBManager:
                     pass
 
         # 2. Start Subprocess
-        env = os.environ.copy()
-        env['FALKORDB_PATH'] = self.db_path
-        env['FALKORDB_SOCKET_PATH'] = self.socket_path
+        env = self._build_worker_environment()
         
         # Determine python executable
         python_exe = sys.executable
@@ -405,6 +403,18 @@ class FalkorDBManager:
         raise FalkorDBUnavailableError(
             f"Timed out waiting for FalkorDB Lite to start. Last error: {last_error}"
         )
+
+    def _build_worker_environment(self) -> dict[str, str]:
+        """Pass a deterministic, per-context port to the FalkorDB worker."""
+        from .falkor_worker import get_falkordb_port
+        from codegraphcontext.cli.config_manager import get_config_value
+
+        env = os.environ.copy()
+        env["FALKORDB_PATH"] = self.db_path
+        env["FALKORDB_SOCKET_PATH"] = self.socket_path
+        configured_port = os.getenv("FALKORDB_PORT") or get_config_value("FALKORDB_PORT")
+        env["FALKORDB_PORT"] = configured_port or str(get_falkordb_port(self.socket_path))
+        return env
 
     def list_graphs(self):
         """Return names of all graphs in this FalkorDB instance."""
