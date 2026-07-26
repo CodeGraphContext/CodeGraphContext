@@ -146,8 +146,13 @@ class CodeFinder:
 
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
-        self.driver = self.db_manager.get_driver()
         self._lacks_native_fulltext = getattr(db_manager, 'get_backend_type', lambda: 'neo4j')() != 'neo4j'
+        self._active_graph = None
+
+    @property
+    def driver(self):
+        """Returns driver for the active graph (set via graph_name params), or default."""
+        return self.db_manager.get_driver(self._active_graph)
 
     def audit_kotlin_call_ambiguity(
         self,
@@ -421,7 +426,8 @@ class CodeFinder:
             """, search_term=search_term)
             return result.data()
 
-    def find_related_code(self, user_query: str, fuzzy_search: bool, edit_distance: int, repo_path: Optional[str] = None) -> Dict[str, Any]:
+    def find_related_code(self, user_query: str, fuzzy_search: bool, edit_distance: int, repo_path: Optional[str] = None, graph_name: str = None) -> Dict[str, Any]:
+        self._active_graph = graph_name
         """Find code related to a query using multiple search strategies"""
         # For Lucene backends: split snake_case/underscore tokens so Lucene sees
         # individual words, then append the fuzzy modifier.
@@ -779,7 +785,8 @@ class CodeFinder:
             
             return result.data()
     
-    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None) -> Dict[str, Any]:
+    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None, graph_name: str = None) -> Dict[str, Any]:
+        self._active_graph = graph_name
         """Find potentially unused functions (not called by other functions in the project), optionally excluding those with specific decorators."""
         if exclude_decorated_with is None:
             exclude_decorated_with = []
@@ -1189,7 +1196,8 @@ class CodeFinder:
                 "instances": instances,
             }
 
-    def analyze_code_relationships(self, query_type: str, target: str, context: Optional[str] = None, repo_path: Optional[str] = None, depth: Optional[int] = None) -> Dict[str, Any]:
+    def analyze_code_relationships(self, query_type: str, target: str, context: Optional[str] = None, repo_path: Optional[str] = None, depth: Optional[int] = None, graph_name: str = None) -> Dict[str, Any]:
+        self._active_graph = graph_name
         """Main method to analyze different types of code relationships with fixed return types"""
         query_type = query_type.lower().strip()
         
@@ -1335,7 +1343,8 @@ class CodeFinder:
                 "target": target
             }
 
-    def get_cyclomatic_complexity(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> Optional[Dict]:
+    def get_cyclomatic_complexity(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: str = None) -> Optional[Dict]:
+        self._active_graph = graph_name
         """Get the cyclomatic complexity of a function."""
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
@@ -1362,7 +1371,8 @@ class CodeFinder:
                 return result_data[0]
             return None
 
-    def find_most_complex_functions(self, limit: int = 10, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_most_complex_functions(self, limit: int = 10, repo_path: Optional[str] = None, graph_name: str = None) -> List[Dict]:
+        self._active_graph = graph_name
         """Find the most complex functions based on cyclomatic complexity."""
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
@@ -1394,7 +1404,8 @@ class CodeFinder:
             result = session.run(query, file_path=file_path, limit=limit, repo_path=repo_path)
             return result.data()
 
-    def list_indexed_repositories(self) -> List[Dict]:
+    def list_indexed_repositories(self, graph_name: str = None) -> List[Dict]:
+        self._active_graph = graph_name
         """List all indexed repositories."""
         with self.driver.session() as session:
             result = session.run("""

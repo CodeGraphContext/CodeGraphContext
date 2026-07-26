@@ -32,4 +32,4 @@ def test_delete_repository_accepts_path_alias(monkeypatch):
     )
 
     assert result["success"] is False
-    graph_builder.delete_repository_from_graph.assert_called_once_with("/tmp/sample_project")
+    graph_builder.delete_repository_from_graph.assert_called_once_with("/tmp/sample_project", graph_name=None)

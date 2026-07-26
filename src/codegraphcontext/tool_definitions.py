@@ -1,3 +1,11 @@
+# src/codegraphcontext/tool_definitions.py
+
+# Common optional property for multi-graph support
+_GRAPH_NAME_PROP = {
+    "type": "string",
+    "description": "Optional: Name of the FalkorDB graph to query. Each indexed repository can have its own graph. Use 'list_graphs' to see available graphs. Defaults to the server's configured graph name."
+}
+
 TOOLS = {
     "add_code_to_graph": {
         "name": "add_code_to_graph",
@@ -13,7 +21,8 @@ TOOLS = {
                     "type": "boolean",
                     "description": "Whether this code is a dependency.",
                     "default": False
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["repo_path"]
         }
@@ -66,7 +75,8 @@ TOOLS = {
                 "repo_path": {
                     "type": "string",
                     "description": "Optional: Path to the repository to restrict the search to."
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["query"]
         }
@@ -109,7 +119,8 @@ TOOLS = {
                 "repo_path": {
                     "type": "string",
                     "description": "Optional repository path."
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["query_type", "target"]
         }
@@ -139,7 +150,8 @@ TOOLS = {
                 "cypher_query": {
                     "type": "string",
                     "description": "The Cypher query to execute"
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["cypher_query"]
         }
@@ -161,7 +173,8 @@ TOOLS = {
                 "is_dependency": {
                     "type": "boolean",
                     "default": True
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["package_name", "language"]
         }
@@ -180,7 +193,8 @@ TOOLS = {
                 },
                 "repo_path": {
                     "type": "string"
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             }
         }
     },
@@ -192,7 +206,8 @@ TOOLS = {
             "type": "object",
             "properties": {
                 "function_name": {"type": "string"},
-                "repo_path": {"type": "string"}
+                "repo_path": {"type": "string"},
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["function_name"]
         }
@@ -205,7 +220,8 @@ TOOLS = {
             "type": "object",
             "properties": {
                 "limit": {"type": "integer", "default": 10},
-                "repo_path": {"type": "string"}
+                "repo_path": {"type": "string"},
+                "graph_name": _GRAPH_NAME_PROP
             }
         }
     },
@@ -215,7 +231,9 @@ TOOLS = {
         "description": "List all indexed repositories.",
         "inputSchema": {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "graph_name": _GRAPH_NAME_PROP
+            }
         }
     },
 
@@ -228,7 +246,8 @@ TOOLS = {
                 "repo_path": {
                     "type": "string",
                     "description": "The path of the repository to delete."
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["repo_path"]
         }
@@ -240,7 +259,8 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "cypher_query": {"type": "string"}
+                "cypher_query": {"type": "string"},
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["cypher_query"]
         }
@@ -274,7 +294,8 @@ TOOLS = {
             "type": "object",
             "properties": {
                 "bundle_name": {"type": "string"},
-                "clear_existing": {"type": "boolean", "default": False}
+                "clear_existing": {"type": "boolean", "default": False},
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["bundle_name"]
         }
@@ -298,7 +319,8 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "repo_path": {"type": "string"}
+                "repo_path": {"type": "string"},
+                "graph_name": _GRAPH_NAME_PROP
             }
         }
     },
@@ -328,6 +350,15 @@ TOOLS = {
         }
     },
 
+    "list_graphs": {
+        "name": "list_graphs",
+        "description": "List all available graphs in the FalkorDB instance. Each graph typically corresponds to an indexed repository. Use the graph names with the 'graph_name' parameter in other tools.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+
     "generate_report": {
         "name": "generate_report",
         "description": "Generate codegraph report.",
@@ -351,7 +382,8 @@ TOOLS = {
             "properties": {
                 "http_method": {"type": "string"},
                 "path_pattern": {"type": "string"},
-                "repo_path": {"type": "string"}
+                "repo_path": {"type": "string"},
+                "graph_name": _GRAPH_NAME_PROP
             }
         }
     },
@@ -366,7 +398,8 @@ TOOLS = {
                     "type": "string",
                     "enum": ["CONTROLLER", "REST_CONTROLLER", "SERVICE", "REPOSITORY", "COMPONENT", "CONFIGURATION"]
                 },
-                "repo_path": {"type": "string"}
+                "repo_path": {"type": "string"},
+                "graph_name": _GRAPH_NAME_PROP
             }
         }
     },
@@ -382,7 +415,8 @@ TOOLS = {
                     "enum": ["mysql", "cassandra", "redis"]
                 },
                 "name": {"type": "string"},
-                "include_columns": {"type": "boolean"}
+                "include_columns": {"type": "boolean"},
+                "graph_name": _GRAPH_NAME_PROP
             }
         }
     },

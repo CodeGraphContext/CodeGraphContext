@@ -31,7 +31,7 @@ class _FakeDBManager:
     def __init__(self, recorder: Dict[str, Any]):
         self._recorder = recorder
 
-    def get_driver(self):
+    def get_driver(self, graph_name: str = None):
         return _FakeDriver(self._recorder)
 
     # Used only for certain query formatting paths; safe to stub.

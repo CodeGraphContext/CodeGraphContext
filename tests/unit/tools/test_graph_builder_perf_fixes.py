@@ -68,10 +68,14 @@ class _FakeDriver:
 
 
 class _FakeDBManager:
-    """Minimal stub that satisfies GraphWriter's backend detection."""
+    """Minimal stub that satisfies GraphWriter's backend detection and multi-graph driver lookup."""
 
-    def __init__(self, backend: str = "neo4j"):
+    def __init__(self, driver, backend: str = "neo4j"):
+        self._driver = driver
         self._backend = backend
+
+    def get_driver(self, graph_name: str = None):
+        return self._driver
 
     def get_backend_type(self) -> str:
         return self._backend
@@ -86,9 +90,9 @@ def _make_graph_builder(session: Optional[_RecordingSession] = None,
     gb = GraphBuilder.__new__(GraphBuilder)
     if session is None:
         session = _RecordingSession()
-    gb.driver = _FakeDriver(session)
-    dm = _FakeDBManager(backend)
-    gb._writer = GraphWriter(gb.driver, db_manager=dm)
+    fake_driver = _FakeDriver(session)
+    gb.db_manager = _FakeDBManager(fake_driver, backend=backend)
+    gb._writer = GraphWriter(fake_driver, db_manager=gb.db_manager)
     gb.parsers = {}
     return gb, session
 
