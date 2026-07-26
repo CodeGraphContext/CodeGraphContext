@@ -319,7 +319,7 @@ class DartTreeSitterParser:
         for part_of_match in re.finditer(r"^\s*part\s+of\s+['\"]([^'\"]+)['\"]\s*;", source_code, re.MULTILINE):
             parts.append({
                 "main_file": str((path.parent / part_of_match.group(1)).resolve()),
-                "part_file": str(path.resolve()),
+                "part_file": path.resolve().as_posix(),
                 "direction": "part_of",
             })
         return parts

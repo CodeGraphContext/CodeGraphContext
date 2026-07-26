@@ -630,7 +630,7 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
                         if name:
                             if name not in imports_map:
                                 imports_map[name] = []
-                            file_path_str = str(path.resolve())
+                            file_path_str = path.resolve().as_posix()
                             if file_path_str not in imports_map[name]:
                                 imports_map[name].append(file_path_str)
                                 
