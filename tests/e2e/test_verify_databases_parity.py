@@ -31,12 +31,13 @@ async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_di
                 pass
     
     project_path_str = project_path.resolve().as_posix()
+    dotenv_path_str = (Path.home() / ".codegraphcontext" / ".env").as_posix()
     
     # Construct a python command to run the indexing
     cmd = f"""
 import os, sys, asyncio, json
 from dotenv import load_dotenv
-load_dotenv('/home/shashank/.codegraphcontext/.env')
+load_dotenv(r'{dotenv_path_str}')
 os.environ.setdefault('NEO4J_URI', 'bolt://localhost:7687')
 os.environ.setdefault('NEO4J_USERNAME', 'neo4j')
 os.environ['NEO4J_PASSWORD'] = '12345678'

@@ -21,7 +21,7 @@ HASKELL_QUERIES = {
         (class) @class_node
         (data_type) @data_type_node
         (newtype) @newtype_node
-        (type_synomym) @type_synonym_node
+        (type_synomym) @type_synonym_node  ; "type_synomym" is the grammar's own (misspelled) node name, not a CGC typo
     """,
     "imports": """
         (import) @import

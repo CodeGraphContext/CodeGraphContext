@@ -9,6 +9,7 @@ import time
 import os
 from typing import Optional, List, Dict, Any
 import typer
+from rich import box
 from rich.console import Console
 from rich.table import Table
 from rich.progress import (
@@ -35,6 +36,7 @@ from .config_manager import (
     register_repo_in_context,
     ensure_first_run_bootstrap,
     ContextNotFoundError,
+    is_db_deletion_allowed,
 )
 
 console = Console()
@@ -81,6 +83,42 @@ def _print_call_resolution_diagnostics(graph_builder: GraphBuilder, limit: int =
             str(diagnostic.get("reason") or ""),
             f"{diagnostic.get('caller_file_path')}:{diagnostic.get('line_number')}",
         )
+    console.print(table)
+
+
+def _format_extension_counts(files_by_extension: Dict[str, int]) -> str:
+    if not files_by_extension:
+        return "None"
+    return ", ".join(
+        f"{extension}: {count}" for extension, count in files_by_extension.items()
+    )
+
+
+def _print_index_execution_summary(graph_builder: GraphBuilder) -> None:
+    summary = getattr(graph_builder, "last_index_summary", None)
+    if not summary:
+        return
+
+    table = Table(
+        title="CGC Index Execution Summary",
+        show_header=True,
+        header_style="bold cyan",
+        box=box.ASCII,
+    )
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Value", style="green", overflow="fold")
+    table.add_row("Total scanned files", str(summary.get("total_scanned_files", 0)))
+    table.add_row(
+        "Files by extension",
+        _format_extension_counts(summary.get("files_by_extension", {})),
+    )
+    table.add_row("Function nodes", str(summary.get("function_nodes", 0)))
+    table.add_row("Class nodes", str(summary.get("class_nodes", 0)))
+    table.add_row("CALLS edges", str(summary.get("call_edges", 0)))
+    table.add_row(
+        "Serialization seconds",
+        f"{summary.get('serialization_seconds', 0.0):.2f}",
+    )
     console.print(table)
 
 
@@ -314,6 +352,7 @@ def index_helper(path: str, context: Optional[str] = None):
         time_end = time.time()
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)
+        _print_index_execution_summary(graph_builder)
         console.print(f"[green]Successfully finished indexing: {path} in {elapsed:.2f} seconds[/green]")
         
         # Check if auto-watch is enabled
@@ -362,6 +401,7 @@ def add_package_helper(package_name: str, language: str, context: Optional[str] 
     try:
         asyncio.run(_run_index_with_progress(graph_builder, package_path, is_dependency=True, cgcignore_path=ctx.cgcignore_path))
         _print_call_resolution_diagnostics(graph_builder)
+        _print_index_execution_summary(graph_builder)
         console.print(f"[green]Successfully finished indexing package: {package_name}[/green]")
     except Exception as e:
         console.print(f"[bold red]An error occurred during package indexing:[/bold red] {e}")
@@ -526,6 +566,7 @@ from ..viz.server import run_server, set_db_manager
 
 def visualize_helper(
     repo_path: Optional[str] = None,
+    host: str = "127.0.0.1",
     port: int = 8000,
     context: Optional[str] = None,
     cypher_query: Optional[str] = None,
@@ -620,7 +661,7 @@ def visualize_helper(
     threading.Thread(target=open_browser, daemon=True).start()
     
     try:
-        run_server(host="127.0.0.1", port=port, static_dir=str(static_dir))
+        run_server(host=host, port=port, static_dir=str(static_dir))
     except Exception as e:
         console.print(f"[bold red]An error occurred while running the server:[/bold red] {e}")
         raise typer.Exit(code=1)
@@ -665,6 +706,7 @@ def reindex_helper(path: str, context: Optional[str] = None):
         time_end = time.time()
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)
+        _print_index_execution_summary(graph_builder)
         console.print(f"[green]Successfully re-indexed: {path} in {elapsed:.2f} seconds[/green]")
     except Exception as e:
         console.print(f"[bold red]An error occurred during re-indexing:[/bold red] {e}")
@@ -673,14 +715,32 @@ def reindex_helper(path: str, context: Optional[str] = None):
         db_manager.close_driver()
 
 
-def update_helper(path: str, context: Optional[str] = None):
-    """Update/refresh index for a path (alias for reindex)."""
+def update_helper(path: str, context: Optional[str] = None, quiet: bool = False):
+    """Update/refresh index for a path (alias for reindex).
+
+    When *quiet* is True (e.g. when invoked from Git hooks with --quiet),
+    Rich console output, including progress rendering, is suppressed.
+    """
+    if quiet:
+        console.quiet = True
+        try:
+            reindex_helper(path, context)
+        finally:
+            console.quiet = False
+        return
     console.print("[cyan]Updating repository index...[/cyan]")
     reindex_helper(path, context)
 
 
 def clean_helper(context: Optional[str] = None):
     """Remove orphaned nodes and relationships from the database."""
+    if not is_db_deletion_allowed():
+        console.print(
+            "[bold red]Error:[/bold red] Database cleanup is disabled. "
+            "Set ALLOW_DB_DELETION=true in config to enable."
+        )
+        raise typer.Exit(code=1)
+
     services = _initialize_services(context)
     if not all(services[:3]):
         _fail_services_init()
@@ -738,6 +798,9 @@ def stats_helper(path: str = None, context: Optional[str] = None):
         if path:
             # Stats for specific repository
             path_obj = Path(path).resolve()
+            # Paths are stored with forward slashes (as_posix) in the graph DB,
+            # so lookups must use the same normalization on Windows too.
+            repo_path_str = path_obj.as_posix()
             console.print(f"[cyan]📊 Statistics for: {path_obj}[/cyan]\n")
             
             with db_manager.get_driver().session() as session:
@@ -746,7 +809,7 @@ def stats_helper(path: str = None, context: Optional[str] = None):
                 MATCH (r:Repository {path: $path})
                 RETURN r
                 """
-                result = session.run(repo_query, path=str(path_obj))
+                result = session.run(repo_query, path=repo_path_str)
                 if not result.single():
                     console.print(f"[red]Repository not found: {path_obj}[/red]")
                     return
@@ -755,20 +818,20 @@ def stats_helper(path: str = None, context: Optional[str] = None):
                 # Get stats using separate queries to handle depth and avoid Cartesian products
                 # 1. Files
                 file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as c"
-                file_count = session.run(file_query, path=str(path_obj)).single()["c"]
+                file_count = session.run(file_query, path=repo_path_str).single()["c"]
                 
                 # 2. Functions (including methods in classes)
                 func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(func) as c"
-                func_count = session.run(func_query, path=str(path_obj)).single()["c"]
+                func_count = session.run(func_query, path=repo_path_str).single()["c"]
                 
                 # 3. Classes
                 class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(c:Class) RETURN count(c) as c"
-                class_count = session.run(class_query, path=str(path_obj)).single()["c"]
+                class_count = session.run(class_query, path=repo_path_str).single()["c"]
                 
                 # 4. Modules (imported) - Note: Module nodes are outside the repo structure usually, connected via IMPORTS
                 # We need to traverse from files to modules
                 module_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File)-[:IMPORTS]->(m:Module) RETURN count(DISTINCT m) as c"
-                module_count = session.run(module_query, path=str(path_obj)).single()["c"]
+                module_count = session.run(module_query, path=repo_path_str).single()["c"]
 
                 table = Table(show_header=True, header_style="bold magenta")
                 table.add_column("Metric", style="cyan")
@@ -828,7 +891,12 @@ def stats_helper(path: str = None, context: Optional[str] = None):
         db_manager.close_driver()
 
 
-def watch_helper(path: str, context: Optional[str] = None, use_polling: Optional[bool] = None):
+def watch_helper(
+    path: str,
+    context: Optional[str] = None,
+    use_polling: Optional[bool] = None,
+    sync_on_start: bool = False,
+):
     """Watch a directory for changes and auto-update the graph (blocking mode)."""
     import logging
     from ..core.watcher import CodeWatcher
@@ -869,7 +937,7 @@ def watch_helper(path: str, context: Optional[str] = None, use_polling: Optional
             with code_finder.driver.session() as _s:
                 _r = _s.run(
                     "MATCH (n:File) WHERE n.path STARTS WITH $p RETURN count(n) AS c",
-                    p=str(path_obj) + "/"
+                    p=path_obj.as_posix() + "/"
                 )
                 _count = _r.single()["c"]
             if _count > 100:
@@ -891,11 +959,17 @@ def watch_helper(path: str, context: Optional[str] = None, use_polling: Optional
         
         # Add the directory to watch
         if is_indexed:
-            console.print("[green]✓[/green] Already indexed. Synchronizing current files...")
+            if sync_on_start:
+                console.print("[green]✓[/green] Already indexed. Synchronizing current files...")
+            else:
+                console.print("[green]✓[/green] Already indexed. Watching for future changes only.")
+                console.print(
+                    "[dim]Use 'cgc index --force' or 'cgc watch --sync-on-start' to reconcile existing changes.[/dim]"
+                )
             watcher.watch_directory(
                 str(path_obj),
                 perform_initial_scan=False,
-                sync_on_start=True,
+                sync_on_start=sync_on_start,
                 cgcignore_path=ctx.cgcignore_path,
             )
         else:
@@ -938,7 +1012,7 @@ def watch_helper(path: str, context: Optional[str] = None, use_polling: Optional
     finally:
         watcher.stop()
         db_manager.close_driver()
-        console.print("[green]✓[/green] Watcher stopped. Graph is up to date.")
+        console.print("[green]✓[/green] Watcher stopped.")
 
 
 

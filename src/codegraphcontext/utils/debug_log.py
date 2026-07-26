@@ -89,3 +89,8 @@ def debug_logger(msg):
     """Log debug message if log level allows"""
     if _should_log('DEBUG'):
         return logger.debug(msg)
+
+def critical_logger(msg):
+    """Log critical message if log level allows"""
+    if _should_log('CRITICAL'):
+        return logger.critical(msg)

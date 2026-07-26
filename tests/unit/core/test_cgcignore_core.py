@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from codegraphcontext.core.cgcignore import (
+    CGCIgnoreMatcher,
     build_ignore_spec,
     parse_cgcignore_lines,
     read_cgcignore_patterns,
@@ -176,3 +177,23 @@ def test_safe_walk_directory_pruning_and_error_handling(tmp_path: Path, monkeypa
     recovered_names = {f.name for f in files_with_error}
     assert "main.py" in recovered_names
 
+
+def test_directory_pattern_requires_segment_boundary():
+    """Regression: a directory pattern like ``out/`` must match the path
+    *segment* ``out`` only, not the substring inside ``layout/`` /
+    ``checkout/`` etc. ``match_file`` applies the compiled regex via
+    ``re.search``, so the anchor must require a segment boundary.
+    """
+    matcher = CGCIgnoreMatcher(["out/", "build/", "target/"], Path("/repo"))
+
+    # Genuine directory matches still work.
+    assert matcher.match_file("out/")
+    assert matcher.match_file("apps/out/x/")
+    assert matcher.match_file("dist/build/")
+
+    # Substring false-positives must NOT be ignored.
+    assert not matcher.match_file("layout/")
+    assert not matcher.match_file("checkout/")
+    assert not matcher.match_file("apps/web/src/components/layout/Header.tsx")
+    assert not matcher.match_file("rebuild/")
+    assert not matcher.match_file("retarget/")

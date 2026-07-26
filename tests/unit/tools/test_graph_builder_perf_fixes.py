@@ -384,7 +384,10 @@ class TestCreateAllFunctionCallsV3:
         calls = self._run(file_data)
         call_write = next(c for c in calls if "CALLS" in c["query"])
 
-        assert "called.line_number = row.called_line_number" in call_write["query"]
+        # The CALLS write now matches the target line inline in the MATCH
+        # pattern (`{... line_number: row.called_line_number}`) rather than a
+        # WHERE equality.
+        assert "line_number: row.called_line_number" in call_write["query"]
         assert "called.context = row.called_context" in call_write["query"]
         assert call_write["kwargs"]["batch"][0]["called_line_number"] == 20
         assert call_write["kwargs"]["batch"][0]["called_context"] == ""
@@ -490,6 +493,7 @@ class TestCreateAllFunctionCallsV3:
         call_queries = [c["query"] for c in calls if "CALLS" in c.get("query", "")]
         labels_found = any(
             ":Function" in q or ":Class" in q or ":File" in q
+            or ":`Function`" in q or ":`Class`" in q or ":`File`" in q
             for q in call_queries
         )
         assert labels_found, "Expected label-specific MATCH in CALLS queries"

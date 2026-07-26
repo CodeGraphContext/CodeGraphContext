@@ -91,12 +91,9 @@ async def index_repository(
     background_tasks: BackgroundTasks,
     server: MCPServer = Depends(get_server)
 ):
-    args = {
-        "path": request.path,
-        "repo_name": request.repo_name,
-        "branch": request.branch,
-        "force": request.force
-    }
+    # The add_code_to_graph handler only understands "path" (and is_dependency);
+    # repo_name/branch/force from the request model are not supported by it.
+    args = {"path": request.path}
 
     try:
         result = await server.handle_tool_call(

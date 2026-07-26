@@ -22,7 +22,7 @@ Use the `cgc datasource` command group to configure and ingest datasource metada
 Connect to a MySQL database to extract table metadata and column datatypes:
 
 ```bash
-cgc datasource mysql --host 127.0.0.1 --port 3306 --user app_user --password secure_pass --db main_db
+cgc datasource mysql --host 127.0.0.1 --port 3306 --user app_user --password secure_pass --database main_db
 ```
 
 This populates the active context with `DbTable` and `DbColumn` nodes, linking tables to columns via `CONTAINS` edges.
@@ -31,7 +31,7 @@ This populates the active context with `DbTable` and `DbColumn` nodes, linking t
 Connect to a Cassandra cluster to extract keyspace schemas:
 
 ```bash
-cgc datasource cassandra --hosts 127.0.0.1 --port 9042 --keyspace production_keyspace
+cgc datasource cassandra --host 127.0.0.1 --port 9042 --keyspace production_keyspace
 ```
 
 This populates the context with keyspace tables and columns.

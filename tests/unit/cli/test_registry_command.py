@@ -97,7 +97,7 @@ def test_registry_download_accepts_cgc_suffix(bundle_name, tmp_path):
         "name": "numpy",
         "full_name": "numpy-main-abc123",
         "bundle_name": "numpy-main-abc123.cgc",
-        "download_url": "https://example.com/numpy.cgc",
+        "download_url": "https://huggingface.co/datasets/CodeGraphContext/numpy.cgc",
         "generated_at": "2026-05-29T00:00:00Z",
         "size": "1",
         "repo": "numpy/numpy",

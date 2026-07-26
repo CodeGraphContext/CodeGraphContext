@@ -65,7 +65,7 @@
 | `cgc find name` | `<name>` `--type` `--fuzzy/--no-fuzzy` | Find code elements by name. Fuzzy matching is on by default (configurable via `FUZZY_SEARCH`). |
 | `cgc find pattern` | `<pattern>` `--case-sensitive` | Find elements using fuzzy substring matching. |
 | `cgc find type` | `<type>` `--limit` | List all nodes of a specific type (function, class, module). |
-| `cgc find variable` | `<name>` `--file` | Find variables by name across the codebase. |
+| `cgc find variable` | `<name>` | Find variables by name across the codebase. |
 | `cgc find content` | `<text>` `--case-sensitive` | Search for text content within code (docstrings, comments). |
 | `cgc find decorator` | `<name>` | Find all functions/classes with a specific decorator. |
 | `cgc find argument` | `<name>` | Find all functions that have a specific argument name. |

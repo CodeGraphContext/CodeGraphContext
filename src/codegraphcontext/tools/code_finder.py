@@ -12,6 +12,21 @@ from ..utils.path_ignore import cypher_path_not_under_ignore_dirs
 
 logger = logging.getLogger(__name__)
 
+_MAX_TRAVERSAL_DEPTH = 20
+
+
+def _sanitize_depth(depth, default: int = 3) -> int:
+    """Coerce and clamp a traversal depth before interpolating it into Cypher.
+
+    The depth value ends up inside the query string (``[:CALLS*1..N]``), so it
+    must be a plain bounded integer to prevent Cypher injection.
+    """
+    try:
+        depth = int(depth)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(depth, _MAX_TRAVERSAL_DEPTH))
+
 
 def _levenshtein_distance(a: str, b: str) -> int:
     """Levenshtein distance for short identifiers (typo-tolerant name search)."""
@@ -534,13 +549,10 @@ class CodeFinder:
                         caller.name as caller_function,
                         COALESCE(caller.path, caller_file.path) as caller_file_path,
                         caller.line_number as caller_line_number,
-                        caller.docstring as caller_docstring,
-                        caller.is_dependency as caller_is_dependency,
                         call.line_number as call_line_number,
                         call.args as call_args,
-                        call.full_call_name as full_call_name,
                         target.path as target_file_path
-                ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
+                ORDER BY caller.is_dependency ASC, caller_file_path, caller_line_number
                     LIMIT 20
                 """, function_name=function_name, path=path, repo_path=repo_path)
                 
@@ -554,13 +566,10 @@ class CodeFinder:
                             caller.name as caller_function,
                             COALESCE(caller.path, caller_file.path) as caller_file_path,
                             caller.line_number as caller_line_number,
-                            caller.docstring as caller_docstring,
-                            caller.is_dependency as caller_is_dependency,
                             call.line_number as call_line_number,
                             call.args as call_args,
-                            call.full_call_name as full_call_name,
                             target.path as target_file_path
-                    ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
+                    ORDER BY caller.is_dependency ASC, caller_file_path, caller_line_number
                         LIMIT 20
                     """, function_name=function_name, repo_path=repo_path)
                     results = result.data()
@@ -573,13 +582,10 @@ class CodeFinder:
                         caller.name as caller_function,
                         caller.path as caller_file_path,
                         caller.line_number as caller_line_number,
-                        caller.docstring as caller_docstring,
-                        caller.is_dependency as caller_is_dependency,
                         call.line_number as call_line_number,
                         call.args as call_args,
-                        call.full_call_name as full_call_name,
                         target.path as target_file_path
-                ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
+                ORDER BY caller.is_dependency ASC, caller_file_path, caller_line_number
                     LIMIT 20
                 """, function_name=function_name, repo_path=repo_path)
                 results = result.data()
@@ -832,8 +838,9 @@ class CodeFinder:
     
     def find_all_callers(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, depth: int = 3) -> List[Dict]:
         """Find all direct and indirect callers of a specific function, returning edges."""
+        depth = _sanitize_depth(depth)
         with self.driver.session() as session:
-            repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
+            repo_filter = "AND path_nodes[0].path STARTS WITH $repo_path" if repo_path else ""
             depth_str = f"1..{depth}" if depth > 1 else "1"
             
             # KùzuDB-optimized: matching on the path end node via nodes(p) indexing
@@ -851,7 +858,7 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
@@ -866,15 +873,16 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, repo_path=repo_path)
             return result.data()
 
     def find_all_callees(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, depth: int = 3) -> List[Dict]:
         """Find all direct and indirect callees of a specific function, returning edges."""
+        depth = _sanitize_depth(depth)
         with self.driver.session() as session:
-            repo_filter = "AND callee.path STARTS WITH $repo_path" if repo_path else ""
+            repo_filter = "AND last_node.path STARTS WITH $repo_path" if repo_path else ""
             depth_str = f"1..{depth}" if depth > 1 else "1"
             
             if path:
@@ -888,7 +896,7 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
@@ -902,7 +910,7 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, repo_path=repo_path)
             return result.data()
@@ -1191,8 +1199,14 @@ class CodeFinder:
         try:
             if query_type == "find_callers":
                 results = self.who_calls_function(target, context, repo_path=repo_path)
+                # Hoist target_file_path (constant across rows) to the envelope once,
+                # instead of repeating the absolute path in every row (payload slimming).
+                target_file_path = next((r.pop("target_file_path", None) for r in results), None) if results else None
+                for r in results:
+                    r.pop("target_file_path", None)
                 return {
-                    "query_type": "find_callers", "target": target, "context": context, "results": results,
+                    "query_type": "find_callers", "target": target, "context": context,
+                    "target_file_path": target_file_path, "results": results,
                     "summary": f"Found {len(results)} functions that call '{target}'"
                 }
             

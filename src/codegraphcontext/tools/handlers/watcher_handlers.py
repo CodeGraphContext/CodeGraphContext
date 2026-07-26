@@ -17,7 +17,7 @@ def unwatch_directory(code_watcher, **args) -> Dict[str, Any]:
     """Tool to stop watching a directory."""
     from pathlib import Path
 
-    path = args.get("path")
+    path = args.get("path") or args.get("repo_path")
     if not path:
         return {"error": "Path is a required argument."}
 
@@ -36,7 +36,7 @@ def watch_directory(code_watcher, list_repositories_func, add_code_func, **args)
     Tool implementation to start watching a directory for changes.
     It checks if the path exists, if it's already watched, or if it needs indexing.
     """
-    path = args.get("path")
+    path = args.get("path") or args.get("repo_path")
     from pathlib import Path
 
     if not path:

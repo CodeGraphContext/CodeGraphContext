@@ -91,6 +91,11 @@ def analyze_code_relationships(code_finder: CodeFinder, **args) -> Dict[str, Any
 
     try:
         depth = args.get("depth")
+        if depth is not None:
+            try:
+                depth = max(1, min(int(depth), 20))
+            except (TypeError, ValueError):
+                return {"error": f"Invalid 'depth' value: {depth!r}. Must be an integer between 1 and 20."}
         debug_log(f"Analyzing relationships: {query_type} for {target}, repo_path={repo_path}, depth={depth}")
         results = code_finder.analyze_code_relationships(query_type, target, context, repo_path=repo_path, depth=depth)
 
