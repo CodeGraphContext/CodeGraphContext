@@ -98,11 +98,13 @@ class GraphBuilder:
         
         # Files that should be added to the graph as minimal File nodes, even if not parsed
         self.generic_extensions = {
-            ".toml", ".sh", ".yaml", ".yml", ".json", ".ini", ".cfg", ".md", ".txt", ".env",
-            ".bat", ".ps1", ".dockerignore", ".gitignore"
+            ".toml", ".sh", ".yaml", ".yml", ".json", ".ini", ".cfg", ".md", ".txt",
+            ".bat", ".ps1"
         }
+        # Literal dotfiles/config filenames have no suffix (e.g. Path(".gitignore").suffix == ""),
+        # so they must be matched by name rather than extension.
         self.generic_filenames = {
-            "Dockerfile", "Makefile"
+            "Dockerfile", "Makefile", ".gitignore", ".dockerignore", ".env"
         }
         
         import threading
