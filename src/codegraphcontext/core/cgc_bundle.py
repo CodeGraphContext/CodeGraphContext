@@ -271,7 +271,10 @@ class CGCBundle:
                     existing_repo = self._check_existing_repository(repo_name, repo_path)
                     
                     if existing_repo:
-                        return False, f"Repository '{repo_name}' already exists in the database. Use clear_existing=True to replace it."
+                        return False, (
+                            f"Repository '{repo_name}' already exists in the database. "
+                            "Re-run with --clear (CLI) or clear_existing=True (MCP) to replace it."
+                        )
                 
                 
                 # Step 5: Create schema

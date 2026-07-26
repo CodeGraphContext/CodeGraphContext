@@ -356,7 +356,7 @@ def index_helper(path: str, context: Optional[str] = None):
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)
         _print_index_execution_summary(graph_builder)
-        console.print(f"[green]Successfully finished indexing: {path} in {elapsed:.2f} seconds[/green]")
+        console.print(f"[green]Successfully finished indexing: {path_obj} in {elapsed:.2f} seconds[/green]")
         
         # Check if auto-watch is enabled
         try:
@@ -457,8 +457,13 @@ def delete_helper(repo_path: str, context: Optional[str] = None):
         else:
             console.print(f"[yellow]Repository not found in graph: {repo_path}[/yellow]")
             console.print("[dim]Tip: Use 'cgc list' to see available repositories.[/dim]")
+            raise typer.Exit(code=1)
+    except typer.Exit:
+        # Control flow, not an error — let it through so the exit code survives.
+        raise
     except Exception as e:
         console.print(f"[bold red]An error occurred:[/bold red] {e}")
+        raise typer.Exit(code=1)
     finally:
         db_manager.close_driver()
 
