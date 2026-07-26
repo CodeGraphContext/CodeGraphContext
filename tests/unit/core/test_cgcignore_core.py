@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from codegraphcontext.core.cgcignore import (
     CGCIgnoreMatcher,
     build_ignore_spec,
@@ -63,7 +65,47 @@ def test_read_cgcignore_patterns_merges_defaults_with_user_patterns(tmp_path: Pa
 
     merged = read_cgcignore_patterns(cgcignore, ["*.png", "*.json"])
 
-    assert merged == ["*.txt", "*.log", "*.png", "*.json"]
+    # Defaults come first and user patterns last: matching is last-match-wins,
+    # so the trailing entries are the ones that win.
+    assert merged == ["*.png", "*.json", "*.txt", "*.log"]
+
+
+def test_user_negation_overrides_default_pattern(tmp_path: Path):
+    """A `!pattern` in .cgcignore must be able to re-include a default-ignored path."""
+    cgcignore = tmp_path / ".cgcignore"
+    cgcignore.write_text("!build/\n!*.svg\n", encoding="utf-8")
+
+    spec, _ = build_ignore_spec(tmp_path, ["build/", "dist/", "*.svg"])
+
+    assert not spec.match_file("build/foo.py")
+    assert not spec.match_file("assets/logo.svg")
+    # Defaults the user did not negate still apply.
+    assert spec.match_file("dist/bundle.js")
+
+
+@pytest.mark.parametrize(
+    "pattern,path,ignored",
+    [
+        # `**` spans whole segments, so it must not match inside one.
+        ("docs/**", "docstring.py", False),
+        ("docs/**", "docs_helper/x.py", False),
+        ("**/build", "rebuild/x.py", False),
+        ("**/build", "xbuild", False),
+        ("vendor/**/*.go", "vendorabc.go", False),
+        ("src/**/test", "src_foo_test", False),
+        # ...but it must still match across whole segments.
+        ("docs/**", "docs/a.py", True),
+        ("docs/**", "docs/deep/nested/a.py", True),
+        ("**/build", "build", True),
+        ("**/build", "a/b/build", True),
+        ("vendor/**/*.go", "vendor/x.go", True),
+        ("vendor/**/*.go", "vendor/a/b.go", True),
+        ("src/**/test", "src/test", True),
+        ("src/**/test", "src/a/test", True),
+    ],
+)
+def test_double_star_respects_path_segment_boundaries(pattern, path, ignored):
+    assert CGCIgnoreMatcher([pattern], Path("/repo")).match_file(path) is ignored
 
 
 def test_find_cgcignore_does_not_escape_non_git_root(tmp_path: Path):
