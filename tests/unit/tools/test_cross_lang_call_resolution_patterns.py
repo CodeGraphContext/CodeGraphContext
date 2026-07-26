@@ -632,7 +632,23 @@ class TestCrossLangCallResolutionPatterns:
             for row in part_links
         )
 
-    def test_typescript_dynamic_import_calls_static_import_file(self, manager):
+    def test_typescript_dynamic_import_with_non_literal_specifier_is_not_resolved(self, manager):
+        """A dynamic import whose specifier is not a static string literal must
+        produce no CALLS edge.
+
+        This test previously asserted the opposite — that
+        ``await import(`./tough_dynamic_${moduleName}`)`` resolves to
+        ``tough_circular_b.ts`` — and was named
+        ``..._calls_static_import_file`` accordingly. That edge was fabricated:
+        the resolver ignored the dynamic specifier entirely and used
+        ``static_imports[0]``, i.e. whichever module the file happened to
+        ``import`` first. ``tough_circular_b`` is unrelated to the dynamic
+        import, and no ``tough_dynamic_*`` file exists in the fixture at all.
+
+        Besides being wrong, the edge pointed at a File node with
+        ``called_line_number = 0``, which the backends bind differently — it was
+        one of the edges making the Database Parity Check flaky.
+        """
         wrapper = _parser(manager, "typescript")
         parser = TypescriptTreeSitterParser(wrapper)
         base = FIXTURES / "sample_project_typescript"
@@ -649,13 +665,15 @@ class TestCrossLangCallResolutionPatterns:
                 "imports": parsed.get("imports", []),
             })
         *_, fn_to_file = build_function_call_groups(files, {})
-        edge = next(
+
+        fabricated = [
             e for e in fn_to_file
             if e.get("caller_name") == "loadModuleDynamically"
+        ]
+        assert fabricated == [], (
+            "a template-literal dynamic import specifier is not statically "
+            f"knowable and must not produce an edge; got {fabricated}"
         )
-        assert edge["line_number"] == 31
-        assert edge["called_name"] == "tough_circular_b.ts"
-        assert edge["called_file_path"].endswith("tough_circular_b.ts")
 
     def test_typescript_decorated_by_validate_on_update_age(self, manager):
         wrapper = _parser(manager, "typescript")

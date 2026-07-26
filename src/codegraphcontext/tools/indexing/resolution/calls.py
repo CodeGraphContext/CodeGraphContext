@@ -2908,12 +2908,21 @@ def build_function_call_groups(
                 call_to_resolve.get("call_kind") == "dynamic_import"
                 and caller_lang in ("typescript", "javascript")
             ):
-                static_imports = [
-                    imp for imp in file_data.get("imports", [])
-                    if imp.get("source") and imp.get("name") not in ("*",)
-                ]
-                if static_imports:
-                    source = static_imports[0]["source"]
+                # Resolve from the dynamic import's OWN specifier. This used to
+                # take static_imports[0] — the first *static* import in the file —
+                # which has nothing to do with the module being imported, so
+                #     await import(`./tough_dynamic_${name}`)
+                # produced an edge to whatever the file happened to import first.
+                # A template literal or variable specifier is not knowable at
+                # index time, so emit nothing rather than guess.
+                raw_args = call_to_resolve.get("args") or []
+                specifier = (raw_args[0] or "").strip() if raw_args else ""
+                is_string_literal = len(specifier) >= 2 and (
+                    (specifier[0] == specifier[-1] == '"')
+                    or (specifier[0] == specifier[-1] == "'")
+                )
+                if is_string_literal:
+                    source = specifier[1:-1]
                     caller_dir = Path(caller_file_path).parent
                     target = (caller_dir / source).resolve()
                     if not target.suffix:
@@ -3003,6 +3012,17 @@ def build_function_call_groups(
                             )
                         for impl_fn in impl_entries:
                             impl_path = _resolved_posix(impl_fn["path"])
+                            # This fan-out speculatively widens an already-resolved
+                            # call to every implementor of the interface, keyed on a
+                            # bare simple name. Without a language check a Java
+                            # `Processor.process` collides with an unrelated Kotlin
+                            # `Processor.process` in a different project and emits a
+                            # cross-language edge that no build could ever produce.
+                            # Java/Kotlin interop is real, but it is scoped to a
+                            # shared module — a bare name match across source roots
+                            # is not evidence of it.
+                            if detect_lang_from_path(impl_path) != caller_lang:
+                                continue
                             impl_line = impl_fn.get("line_number")
                             if (
                                 impl_path == resolved.get("called_file_path")
