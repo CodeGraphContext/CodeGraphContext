@@ -578,6 +578,119 @@ import uvicorn
 import urllib.parse
 from ..viz.server import run_server, set_db_manager
 
+_OFFLINE_VIZ_DEFAULT_QUERY = """
+MATCH (n)-[r]->(m)
+RETURN n, r, m
+LIMIT 300
+"""
+
+
+def _render_offline_visualization(
+    db_manager,
+    repo_path: Optional[str] = None,
+    cypher_query: Optional[str] = None,
+    output_path: Optional[str] = None,
+) -> None:
+    """Render the graph with the dependency-free single-file HTML renderer.
+
+    The React frontend in ``viz/dist`` is not shipped in the wheel, which made
+    every visualization entry point a hard failure on a plain ``pip install``.
+    ``utils/visualize_graph.py`` is a complete, zero-dependency renderer that
+    was sitting in the package with no callers — this wires it up so the
+    command degrades to a working (simpler) view instead of exiting 1.
+    """
+    from ..utils.visualize_graph import open_in_browser, build_graph_data
+
+    query = cypher_query or _OFFLINE_VIZ_DEFAULT_QUERY
+    nodes: Dict[Any, Dict[str, Any]] = {}
+    edges: List[Dict[str, Any]] = []
+
+    def _ident(value) -> Optional[str]:
+        return None if value is None else str(value)
+
+    # Neo4j/Falkor return driver objects carrying .labels / .type; Kùzu and
+    # Ladybug return plain dicts carrying _label plus _src/_dst. Check the
+    # driver attributes first — a driver object may also be dict-like.
+    def _is_relationship(value) -> bool:
+        if hasattr(value, "labels"):
+            return False
+        if hasattr(value, "type"):
+            return True
+        return isinstance(value, dict) and "_src" in value and "_dst" in value
+
+    def _is_node(value) -> bool:
+        if hasattr(value, "labels"):
+            return True
+        if hasattr(value, "type"):
+            return False
+        # Kùzu relationships also carry _label, so _src/_dst is what
+        # distinguishes them from nodes.
+        return isinstance(value, dict) and "_label" in value and "_src" not in value
+
+    def _node_payload(value) -> Dict[str, Any]:
+        if hasattr(value, "labels"):
+            props = dict(value)
+            labels = list(getattr(value, "labels", []) or [])
+            label = labels[0] if labels else "Node"
+            node_id = getattr(value, "element_id", None) or getattr(value, "id", None)
+        else:
+            props, label = dict(value), value.get("_label", "Node")
+            node_id = value.get("_id")
+        if node_id is None:
+            node_id = props.get("path") or props.get("name")
+        return {
+            "id": _ident(node_id),
+            "label": label,
+            "name": props.get("name") or props.get("path") or "",
+            "file_path": props.get("path", ""),
+            "line_number": props.get("line_number"),
+        }
+
+    def _edge_payload(value) -> Optional[Dict[str, Any]]:
+        start = getattr(value, "start_node", None)
+        end = getattr(value, "end_node", None)
+        if start is not None and end is not None:
+            return {
+                "source": _ident(getattr(start, "element_id", None) or getattr(start, "id", None)),
+                "target": _ident(getattr(end, "element_id", None) or getattr(end, "id", None)),
+                "type": getattr(value, "type", "RELATED"),
+            }
+        if isinstance(value, dict):
+            return {
+                "source": _ident(value.get("_src")),
+                "target": _ident(value.get("_dst")),
+                "type": value.get("_label", "RELATED"),
+            }
+        return None
+
+    with db_manager.get_driver().session() as session:
+        for record in session.run(query):
+            values = list(record.values()) if hasattr(record, "values") else list(record)
+            for value in values:
+                if _is_node(value):
+                    payload = _node_payload(value)
+                    if payload["id"] is not None:
+                        nodes[payload["id"]] = payload
+                elif _is_relationship(value):
+                    edge = _edge_payload(value)
+                    if edge and edge["source"] and edge["target"]:
+                        edges.append(edge)
+
+    if not nodes:
+        console.print(
+            "[yellow]No graph data returned — index a repository first "
+            "with 'cgc index <path>'.[/yellow]"
+        )
+        raise typer.Exit(code=1)
+
+    title = f"CGC Code Graph — {Path(repo_path).name}" if repo_path else "CGC Code Graph"
+    graph_data = build_graph_data(list(nodes.values()), edges)
+    path = open_in_browser(graph_data, title=title, output_path=output_path)
+    console.print(
+        f"[green]Rendered {len(nodes)} nodes and {len(edges)} edges to[/green] {path}"
+    )
+
+
 def visualize_helper(
     repo_path: Optional[str] = None,
     host: str = "127.0.0.1",
@@ -639,8 +752,15 @@ def visualize_helper(
                     "[dim]then sync[/dim] [cyan]website/dist[/cyan] [dim]→[/dim] "
                     "[cyan]src/codegraphcontext/viz/dist[/cyan][dim].[/dim]"
                 )
-                db_manager.close_driver()
-                raise SystemExit(1)
+                console.print(
+                    "\n[yellow]Falling back to the built-in offline renderer.[/yellow]"
+                )
+                try:
+                    return _render_offline_visualization(
+                        db_manager, repo_path=repo_path, cypher_query=cypher_query
+                    )
+                finally:
+                    db_manager.close_driver()
 
     index_html = static_dir / "index.html"
     if not index_html.is_file():
