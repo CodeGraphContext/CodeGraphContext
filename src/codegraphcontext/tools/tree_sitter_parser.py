@@ -20,102 +20,47 @@ class TreeSitterParser:
         self.language: "Language" = self.ts_manager.get_language_safe(language_name)
         self.parser = self.ts_manager.create_parser(language_name)
 
-        self.language_specific_parser = None
-        if self.language_name == "python":
-            from .languages.python import PythonTreeSitterParser
+        LANGUAGE_PARSER_MAP = {
+            "python":     (".languages.python",        "PythonTreeSitterParser"),
+            "javascript": (".languages.javascript",    "JavascriptTreeSitterParser"),
+            "go":         (".languages.go",            "GoTreeSitterParser"),
+            "typescript": (".languages.typescript",    "TypescriptTreeSitterParser"),
+            "tsx":        (".languages.typescriptjsx", "TypescriptJSXTreeSitterParser"),
+            "cpp":        (".languages.cpp",           "CppTreeSitterParser"),
+            "rust":       (".languages.rust",          "RustTreeSitterParser"),
+            "c":          (".languages.c",             "CTreeSitterParser"),
+            "java":       (".languages.java",          "JavaTreeSitterParser"),
+            "ruby":       (".languages.ruby",          "RubyTreeSitterParser"),
+            "c_sharp":    (".languages.csharp",        "CSharpTreeSitterParser"),
+            "php":        (".languages.php",           "PhpTreeSitterParser"),
+            "lua":        (".languages.lua",           "LuaTreeSitterParser"),
+            "kotlin":     (".languages.kotlin",        "KotlinTreeSitterParser"),
+            "scala":      (".languages.scala",         "ScalaTreeSitterParser"),
+            "swift":      (".languages.swift",         "SwiftTreeSitterParser"),
+            "haskell":    (".languages.haskell",       "HaskellTreeSitterParser"),
+            "dart":       (".languages.dart",          "DartTreeSitterParser"),
+            "perl":       (".languages.perl",          "PerlTreeSitterParser"),
+            "elixir":     (".languages.elixir",        "ElixirTreeSitterParser"),
+            "elisp":      (".languages.elisp",         "ElispTreeSitterParser"),
+            "html":       (".languages.html",          "HTMLTreeSitterParser"),
+            "css":        (".languages.css",           "CSSTreeSitterParser"),
+        }
 
-            self.language_specific_parser = PythonTreeSitterParser(self)
-        elif self.language_name == "javascript":
-            from .languages.javascript import JavascriptTreeSitterParser
+        if language_name not in LANGUAGE_PARSER_MAP:
+            supported = ", ".join(sorted(LANGUAGE_PARSER_MAP.keys()))
+            raise ValueError(
+                f"Invalid language name: '{language_name}'. "
+                f"Supported languages are: {supported}"
+            )
 
-            self.language_specific_parser = JavascriptTreeSitterParser(self)
-        elif self.language_name == "go":
-            from .languages.go import GoTreeSitterParser
-
-            self.language_specific_parser = GoTreeSitterParser(self)
-        elif self.language_name == "typescript":
-            from .languages.typescript import TypescriptTreeSitterParser
-
-            self.language_specific_parser = TypescriptTreeSitterParser(self)
-        elif self.language_name == "tsx":
-            from .languages.typescriptjsx import TypescriptJSXTreeSitterParser
-
-            self.language_specific_parser = TypescriptJSXTreeSitterParser(self)
-        elif self.language_name == "cpp":
-            from .languages.cpp import CppTreeSitterParser
-
-            self.language_specific_parser = CppTreeSitterParser(self)
-        elif self.language_name == "rust":
-            from .languages.rust import RustTreeSitterParser
-
-            self.language_specific_parser = RustTreeSitterParser(self)
-        elif self.language_name == "c":
-            from .languages.c import CTreeSitterParser
-
-            self.language_specific_parser = CTreeSitterParser(self)
-        elif self.language_name == "java":
-            from .languages.java import JavaTreeSitterParser
-
-            self.language_specific_parser = JavaTreeSitterParser(self)
-        elif self.language_name == "ruby":
-            from .languages.ruby import RubyTreeSitterParser
-
-            self.language_specific_parser = RubyTreeSitterParser(self)
-        elif self.language_name == "c_sharp":
-            from .languages.csharp import CSharpTreeSitterParser
-
-            self.language_specific_parser = CSharpTreeSitterParser(self)
-        elif self.language_name == "php":
-            from .languages.php import PhpTreeSitterParser
-
-            self.language_specific_parser = PhpTreeSitterParser(self)
-        elif self.language_name == "lua":
-            from .languages.lua import LuaTreeSitterParser
-
-            self.language_specific_parser = LuaTreeSitterParser(self)
-        elif self.language_name == "kotlin":
-            from .languages.kotlin import KotlinTreeSitterParser
-
-            self.language_specific_parser = KotlinTreeSitterParser(self)
-        elif self.language_name == "scala":
-            from .languages.scala import ScalaTreeSitterParser
-
-            self.language_specific_parser = ScalaTreeSitterParser(self)
-        elif self.language_name == "swift":
-            from .languages.swift import SwiftTreeSitterParser
-
-            self.language_specific_parser = SwiftTreeSitterParser(self)
-        elif self.language_name == "haskell":
-            from .languages.haskell import HaskellTreeSitterParser
-
-            self.language_specific_parser = HaskellTreeSitterParser(self)
-        elif self.language_name == "dart":
-            from .languages.dart import DartTreeSitterParser
-
-            self.language_specific_parser = DartTreeSitterParser(self)
-        elif self.language_name == "perl":
-            from .languages.perl import PerlTreeSitterParser
-
-            self.language_specific_parser = PerlTreeSitterParser(self)
-        elif self.language_name == "elixir":
-            from .languages.elixir import ElixirTreeSitterParser
-
-            self.language_specific_parser = ElixirTreeSitterParser(self)
-        elif self.language_name == "elisp":
-            from .languages.elisp import ElispTreeSitterParser
-
-            self.language_specific_parser = ElispTreeSitterParser(self)
-        elif self.language_name == "html":
-            from .languages.html import HTMLTreeSitterParser
-
-            self.language_specific_parser = HTMLTreeSitterParser(self)
-        elif self.language_name == "css":
-            from .languages.css import CSSTreeSitterParser
-
-            self.language_specific_parser = CSSTreeSitterParser(self)
+        module_path, class_name = LANGUAGE_PARSER_MAP[language_name]
+        module = __import__(
+            f"{__package__}{module_path}".replace("/", "."),
+            fromlist=[class_name]
+        )
+        parser_class = getattr(module, class_name)
+        self.language_specific_parser = parser_class(self)
 
     def parse(self, path: Path, is_dependency: bool = False, **kwargs) -> Dict:
         """Dispatches parsing to the language-specific parser."""
-        if self.language_specific_parser:
-            return self.language_specific_parser.parse(path, is_dependency, **kwargs)
-        raise NotImplementedError(f"No language-specific parser implemented for {self.language_name}")
+        return self.language_specific_parser.parse(path, is_dependency, **kwargs)

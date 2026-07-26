@@ -163,7 +163,7 @@ class CodeFinder:
         repo_path = Path(repo_path).resolve().as_posix() if repo_path else None
         repo_filter = "AND a.path STARTS WITH $repo_path" if repo_path else ""
         query = f"""
-            MATCH (a:Function)-[r:CALLS]->(b:Function)
+            MATCH (a:Function)-[r:CALLS|HEURISTIC_CALLS]->(b:Function)
             WHERE a.path ENDS WITH '.kt'
               AND b.path ENDS WITH '.kt'
               {repo_filter}
@@ -548,59 +548,50 @@ class CodeFinder:
             repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
             if path:
                 result = session.run(f"""
-                    MATCH (caller)-[call:CALLS]->(target:Function {{name: $function_name, path: $path}})
+                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name, path: $path}})
                     WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
                         COALESCE(caller.path, caller_file.path) as caller_file_path,
                         caller.line_number as caller_line_number,
-                        caller.docstring as caller_docstring,
-                        caller.is_dependency as caller_is_dependency,
                         call.line_number as call_line_number,
                         call.args as call_args,
-                        call.full_call_name as full_call_name,
                         target.path as target_file_path
-                ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
+                ORDER BY caller.is_dependency ASC, caller_file_path, caller_line_number
                     LIMIT 20
                 """, function_name=function_name, path=path, repo_path=repo_path)
                 
                 results = result.data()
                 if not results:
                     result = session.run(f"""
-                        MATCH (caller)-[call:CALLS]->(target:Function {{name: $function_name}})
+                        MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name}})
                         WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
                         OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                         RETURN DISTINCT
                             caller.name as caller_function,
                             COALESCE(caller.path, caller_file.path) as caller_file_path,
                             caller.line_number as caller_line_number,
-                            caller.docstring as caller_docstring,
-                            caller.is_dependency as caller_is_dependency,
                             call.line_number as call_line_number,
                             call.args as call_args,
-                            call.full_call_name as full_call_name,
                             target.path as target_file_path
-                    ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
+                    ORDER BY caller.is_dependency ASC, caller_file_path, caller_line_number
                         LIMIT 20
                     """, function_name=function_name, repo_path=repo_path)
                     results = result.data()
             else:
                 result = session.run(f"""
-                    MATCH (caller:Function)-[call:CALLS]->(target:Function {{name: $function_name}})
+                    MATCH (caller:Function)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name}})
                     WHERE 1=1 {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
                         caller.path as caller_file_path,
                         caller.line_number as caller_line_number,
-                        caller.docstring as caller_docstring,
-                        caller.is_dependency as caller_is_dependency,
                         call.line_number as call_line_number,
                         call.args as call_args,
-                        call.full_call_name as full_call_name,
                         target.path as target_file_path
-                ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
+                ORDER BY caller.is_dependency ASC, caller_file_path, caller_line_number
                     LIMIT 20
                 """, function_name=function_name, repo_path=repo_path)
                 results = result.data()
@@ -615,7 +606,7 @@ class CodeFinder:
                 absolute_file_path = str(Path(path).resolve())
                 result = session.run(f"""
                     MATCH (caller:Function {{name: $function_name, path: $absolute_file_path}})
-                    MATCH (caller)-[call:CALLS]->(called:Function)
+                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(called:Function)
                     WHERE called.path STARTS WITH $repo_path OR $repo_path IS NULL
                     OPTIONAL MATCH (called_file:File)-[:CONTAINS]->(called)
                     RETURN DISTINCT
@@ -632,7 +623,7 @@ class CodeFinder:
                 """, function_name=function_name, absolute_file_path=absolute_file_path, repo_path=repo_path)
             else:
                 result = session.run(f"""
-                    MATCH (caller:Function {{name: $function_name}})-[call:CALLS]->(called:Function)
+                    MATCH (caller:Function {{name: $function_name}})-[call:CALLS|HEURISTIC_CALLS]->(called:Function)
                     WHERE called.path STARTS WITH $repo_path OR $repo_path IS NULL
                     OPTIONAL MATCH (called_file:File)-[:CONTAINS]->(called)
                     RETURN DISTINCT
@@ -825,7 +816,7 @@ class CodeFinder:
                   AND NOT toLower(func.name) CONTAINS 'entrypoint'
                   {decorator_filter}
                 WITH func
-                OPTIONAL MATCH (caller:Function)-[:CALLS]->(func)
+                OPTIONAL MATCH (caller:Function)-[:CALLS|HEURISTIC_CALLS]->(func)
                 WHERE caller.is_dependency = false {caller_ignore}
                 WITH func, count(caller) as caller_count
                 WHERE caller_count = 0
@@ -856,7 +847,7 @@ class CodeFinder:
         """Find all direct and indirect callers of a specific function, returning edges."""
         depth = _sanitize_depth(depth)
         with self.driver.session() as session:
-            repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
+            repo_filter = "AND path_nodes[0].path STARTS WITH $repo_path" if repo_path else ""
             depth_str = f"1..{depth}" if depth > 1 else "1"
             
             # KùzuDB-optimized: matching on the path end node via nodes(p) indexing
@@ -864,7 +855,7 @@ class CodeFinder:
             # on the end node of variable-length paths.
             if path:
                 query = f"""
-                    MATCH p = (caller:Function)-[:CALLS*{depth_str}]->(target:Function)
+                    MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(target:Function)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE last_node.name = $function_name AND last_node.path = $path
@@ -874,12 +865,12 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
                 query = f"""
-                    MATCH p = (caller:Function)-[:CALLS*{depth_str}]->(target:Function)
+                    MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(target:Function)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE last_node.name = $function_name
@@ -889,7 +880,7 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, repo_path=repo_path)
             return result.data()
@@ -898,12 +889,12 @@ class CodeFinder:
         """Find all direct and indirect callees of a specific function, returning edges."""
         depth = _sanitize_depth(depth)
         with self.driver.session() as session:
-            repo_filter = "AND callee.path STARTS WITH $repo_path" if repo_path else ""
+            repo_filter = "AND last_node.path STARTS WITH $repo_path" if repo_path else ""
             depth_str = f"1..{depth}" if depth > 1 else "1"
             
             if path:
                 query = f"""
-                    MATCH p = (caller:Function {{name: $function_name, path: $path}})-[:CALLS*{depth_str}]->(callee:Function)
+                    MATCH p = (caller:Function {{name: $function_name, path: $path}})-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(callee:Function)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE 1=1 {repo_filter}
@@ -912,12 +903,12 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
                 query = f"""
-                    MATCH p = (caller:Function {{name: $function_name}})-[:CALLS*{depth_str}]->(callee:Function)
+                    MATCH p = (caller:Function {{name: $function_name}})-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(callee:Function)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE 1=1 {repo_filter}
@@ -926,7 +917,7 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, repo_path=repo_path)
             return result.data()
@@ -938,16 +929,17 @@ class CodeFinder:
             start_props = "{name: $start_function" + (", path: $start_file}" if start_file else "}")
             end_props = "{name: $end_function" + (", path: $end_file}" if end_file else "}")
 
-            repo_clauses = []
-            if repo_path:
-                repo_clauses.append("start.path STARTS WITH $repo_path")
-                repo_clauses.append("end_target.path STARTS WITH $repo_path")
-            repo_where = ("WHERE " + " AND ".join(repo_clauses)) if repo_clauses else ""
+            # KùzuDB-compatible: Use anonymous end node and filter
+            repo_filter = "WHERE 1=1 AND (start.path IS NULL OR start.path STARTS WITH $repo_path) AND (end_target.path IS NULL OR end_target.path STARTS WITH $repo_path)" if repo_path else ""
             query = f"""
                 MATCH (start:Function {start_props}), (end_target:Function {end_props})
-                {repo_where}
-                MATCH path = (start)-[:CALLS*1..{max_depth}]->(end_target)
-                RETURN nodes(path) AS function_nodes, relationships(path) AS call_nodes, length(path) AS chain_length
+                {repo_filter}
+                WITH start as start, end_target as end_target
+                MATCH path = (start)-[:CALLS|HEURISTIC_CALLS*1..{max_depth}]->()
+                WITH path as path, end_target as end_target, nodes(path) as func_nodes, relationships(path) as call_rels
+                WITH path as path, func_nodes as func_nodes, call_rels as call_rels, end_target as end_target, func_nodes[size(func_nodes)-1] as path_end
+                WHERE path_end.name = end_target.name AND (end_target.path IS NULL OR path_end.path = end_target.path)
+                RETURN func_nodes as function_nodes, call_rels as call_nodes, size(call_rels) as chain_length
                 ORDER BY chain_length ASC
                 LIMIT 20
             """
@@ -1215,8 +1207,14 @@ class CodeFinder:
         try:
             if query_type == "find_callers":
                 results = self.who_calls_function(target, context, repo_path=repo_path)
+                # Hoist target_file_path (constant across rows) to the envelope once,
+                # instead of repeating the absolute path in every row (payload slimming).
+                target_file_path = next((r.pop("target_file_path", None) for r in results), None) if results else None
+                for r in results:
+                    r.pop("target_file_path", None)
                 return {
-                    "query_type": "find_callers", "target": target, "context": context, "results": results,
+                    "query_type": "find_callers", "target": target, "context": context,
+                    "target_file_path": target_file_path, "results": results,
                     "summary": f"Found {len(results)} functions that call '{target}'"
                 }
             

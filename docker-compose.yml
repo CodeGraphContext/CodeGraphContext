@@ -1,16 +1,13 @@
-# Deployment template — copy to docker-compose.yml and create .env from .env.example.
-# Policy: no committed default passwords; all secrets come from .env or your secret manager.
-version: '3.8'
-
 services:
   codegraphcontext:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: codegraphcontext/codegraphcontext:latest
     container_name: codegraphcontext
     volumes:
       - ./:/workspace
-      - cgc-data:/root/.codegraphcontext
+      # Persist database and config
+      - cgc-data:/home/cgc/.codegraphcontext
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
       - DEFAULT_DATABASE=${DEFAULT_DATABASE:-falkordb}
@@ -70,7 +67,23 @@ services:
     networks:
       - cgc-network
     profiles:
-      - neo4j
+      - neo4j  # Only start when explicitly requested
+
+  # Visualization Server
+  viz:
+    image: codegraphcontext/codegraphcontext:latest
+    container_name: cgc-viz
+    volumes:
+      - ./:/workspace
+      - cgc-data:/home/cgc/.codegraphcontext
+    environment:
+      - CGC_MODE=viz
+    ports:
+      - "8080:8080"
+    networks:
+      - cgc-network
+    profiles:
+      - viz
 
 volumes:
   cgc-data:

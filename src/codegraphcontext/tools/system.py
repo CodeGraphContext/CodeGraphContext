@@ -130,7 +130,7 @@ class SystemTools:
                     WHERE func.is_dependency = false
                       AND NOT func.name STARTS WITH '_'
                       AND NOT func.name IN ['main', 'setup', 'run']
-                    OPTIONAL MATCH (caller:Function)-[:CALLS]->(func)
+                    OPTIONAL MATCH (caller:Function)-[:CALLS|HEURISTIC_CALLS]->(func)
                     WHERE caller.is_dependency = false
                     WITH func, count(caller) as caller_count
                     WHERE caller_count = 0

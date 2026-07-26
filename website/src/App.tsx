@@ -12,7 +12,7 @@ import Privacy from "./pages/Privacy";
 import PRReviewerPage from "./pages/PRReviewerPage";
 
 import Navbar from "./components/Navbar";
-
+import MoveToTop from "./components/MoveToTop";
 // Removed AOS for instant loading
 
 const queryClient = new QueryClient();
@@ -32,6 +32,7 @@ const App: React.FC = () => {
             <Toaster />
             <Sonner />
             <Navbar />
+            <MoveToTop />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/pre-indexed" element={<Index />} />

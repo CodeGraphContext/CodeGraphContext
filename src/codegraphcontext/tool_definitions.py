@@ -419,5 +419,99 @@ TOOLS = {
                 "graph_name": _GRAPH_NAME_PROP
             }
         }
+    },
+
+    "simulate_metrics": {
+        "name": "simulate_metrics",
+        "description": "Calculate repository architectural metrics (coupling, cohesion, circular dependencies, complexity, and maintainability).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Path to the repository (defaults to current workspace)."
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional: Specific CGC context to use."
+                }
+            }
+        }
+    },
+
+    "simulate_architectural_change": {
+        "name": "simulate_architectural_change",
+        "description": "Simulate architectural modifications (service decomposition, adding/removing dependencies, deleting nodes) and compare metrics against the baseline.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Path to the repository (defaults to current workspace)."
+                },
+                "changes": {
+                    "type": "array",
+                    "description": "List of simulation mutation steps.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": ["decompose", "remove_dependency", "add_dependency", "remove_node"]
+                            },
+                            "mapping": {
+                                "type": "object",
+                                "description": "For decompose: mapping of node_id/path to service name."
+                            },
+                            "source": {
+                                "type": "string",
+                                "description": "For dependencies: source node id or name."
+                            },
+                            "target": {
+                                "type": "string",
+                                "description": "For dependencies: target node id or name."
+                            },
+                            "rel_type": {
+                                "type": "string",
+                                "description": "Optional: relationship type (e.g. CALLS, IMPORTS)."
+                            },
+                            "node_id": {
+                                "type": "string",
+                                "description": "For remove_node: node id, path, or name to delete."
+                            }
+                        },
+                        "required": ["type"]
+                    }
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional: Specific CGC context to use."
+                }
+            },
+            "required": ["changes"]
+        }
+    },
+
+    "analyze_architectural_evolution": {
+        "name": "analyze_architectural_evolution",
+        "description": "Analyze repository growth trend and identify Technical Debt Hotspots (combining code complexity and Git commit churn).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Path to the repository (defaults to current workspace)."
+                },
+                "commits": {
+                    "type": "integer",
+                    "description": "Number of commits to analyze (default: 50).",
+                    "default": 50
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional: Specific CGC context to use."
+                }
+            }
+        }
     }
 }

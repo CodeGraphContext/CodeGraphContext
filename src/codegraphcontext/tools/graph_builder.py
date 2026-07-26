@@ -56,6 +56,7 @@ class GraphBuilder:
         self.loop = loop
         self._writer = GraphWriter(self.db_manager.get_driver(), db_manager=self.db_manager)
         self.last_call_resolution_diagnostics: list[Dict[str, Any]] = []
+        self.last_index_summary: Dict[str, Any] = {}
         self.parsers = {
             ".py": "python",
             ".ipynb": "python",
@@ -536,8 +537,9 @@ class GraphBuilder:
             func_names = {f['name'] for f in file_data.get('functions', [])}
             class_names = {c['name'] for c in file_data.get('classes', [])}
             local_names = func_names | class_names
-            local_imports = {imp.get('alias') or imp['name'].split('.')[-1]: imp['name'] 
-                            for imp in file_data.get('imports', [])}
+            local_imports = {imp.get('alias') or (imp.get('name') or '').split('.')[-1]: imp.get('name')
+                            for imp in file_data.get('imports', [])
+                            if imp.get('name')}
             
             for call in file_data.get('function_calls', []):
                 resolved = self._resolve_function_call(
@@ -1177,6 +1179,7 @@ class GraphBuilder:
                     )
 
             self.last_call_resolution_diagnostics = []
+            self.last_index_summary = {}
             await run_tree_sitter_index_async(
                 path,
                 is_dependency,
@@ -1189,6 +1192,7 @@ class GraphBuilder:
                 self.parse_file,
                 self.add_minimal_file_node,
                 call_resolution_diagnostics=self.last_call_resolution_diagnostics,
+                index_summary=self.last_index_summary,
             )
         except Exception as e:
             error_message = str(e)

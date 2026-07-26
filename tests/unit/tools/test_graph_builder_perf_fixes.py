@@ -265,9 +265,11 @@ class TestCreateAllFunctionCallsV3:
         assert any("UNWIND" in q for q in queries), "Expected UNWIND queries"
 
     def test_uses_create_for_calls_rel_on_neo4j(self):
-        """CALLS relationships should use CREATE on Neo4j — MERGE lock overhead
-        makes large repos (35k+ edges) take 60-90 min; CREATE drops to seconds.
-        All call paths delete existing CALLS before writing, so CREATE is safe."""
+        """CALLS relationships are written with MERGE on Neo4j so the heuristic
+        confidence label can be (re)applied via SET without duplicating edges.
+        The relationship identity is the
+        (line_number, full_call_name, args_key) key; the confidence label and
+        other mutable metadata are attached afterwards with SET."""
         file_data = [{
             "path": "/repo/a.py",
             "functions": [{"name": "foo", "line_number": 1}],
@@ -283,9 +285,14 @@ class TestCreateAllFunctionCallsV3:
         }]
         calls = self._run(file_data)
         call_rels = [c["query"] for c in calls if "CALLS" in c["query"]]
+        assert call_rels, "Expected at least one CALLS write query"
         for q in call_rels:
-            assert "CREATE" in q, f"Expected CREATE in CALLS query on Neo4j, got: {q[:120]}"
-            assert "MERGE" not in q, f"Unexpected MERGE in CALLS query on Neo4j, got: {q[:120]}"
+            assert "MERGE (caller)-[call:" in q, \
+                f"Expected MERGE in CALLS query on Neo4j, got: {q[:160]}"
+            assert "SET call.confidence_label = row.confidence_label" in q, \
+                f"Expected confidence_label written via SET, got: {q[:200]}"
+            assert "CREATE" not in q, \
+                f"Unexpected CREATE in CALLS query on Neo4j, got: {q[:160]}"
 
     def test_uses_merge_for_calls_rel_on_kuzudb(self):
         """CALLS relationships should keep MERGE on KuzuDB — its UNWIND fallback
@@ -388,6 +395,10 @@ class TestCreateAllFunctionCallsV3:
         calls = self._run(file_data)
         call_write = next(c for c in calls if "CALLS" in c["query"])
 
+        # The CALLS write matches the target line via a sentinel-guarded WHERE
+        # equality (`row.called_line_number <= 0 OR called.line_number =
+        # row.called_line_number`) so unresolved (<= 0) lines fall back to a
+        # name/path-only match, and applies the context hint the same way.
         assert "called.line_number = row.called_line_number" in call_write["query"]
         assert "called.context = row.called_context" in call_write["query"]
         assert call_write["kwargs"]["batch"][0]["called_line_number"] == 20
@@ -421,6 +432,35 @@ class TestCreateAllFunctionCallsV3:
         assert len(call_write["kwargs"]["batch"]) == 1
         assert call_write["kwargs"]["batch"][0]["called_line_number"] == 0
         assert call_write["kwargs"]["batch"][0]["called_context"] == ""
+
+    def test_heuristic_call_rows_use_heuristic_label(self):
+        """Low-confidence fallback rows should be written as HEURISTIC_CALLS."""
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+
+        session = _RecordingSession()
+        writer = GraphWriter(_FakeDriver(session))
+        writer.write_function_call_groups(
+            [
+                {
+                    "caller_name": "caller",
+                    "caller_file_path": "/repo/a.py",
+                    "caller_line_number": 1,
+                    "called_name": "callee",
+                    "called_file_path": "/repo/a.py",
+                    "called_line_number": 2,
+                    "called_context": "",
+                    "line_number": 5,
+                    "args": [],
+                    "full_call_name": "callee",
+                    "resolution_tier": 9,
+                    "confidence_label": "AMBIGUOUS",
+                },
+            ],
+        )
+
+        heuristic_query = next(c for c in session.calls if "HEURISTIC_CALLS" in c["query"])
+        assert "MERGE (caller)-[call:HEURISTIC_CALLS" in heuristic_query["query"]
+        assert heuristic_query["kwargs"]["batch"][0]["resolution_tier"] == 9
 
     def test_empty_file_data_writes_nothing(self):
         calls = self._run([])
@@ -465,6 +505,7 @@ class TestCreateAllFunctionCallsV3:
         call_queries = [c["query"] for c in calls if "CALLS" in c.get("query", "")]
         labels_found = any(
             ":Function" in q or ":Class" in q or ":File" in q
+            or ":`Function`" in q or ":`Class`" in q or ":`File`" in q
             for q in call_queries
         )
         assert labels_found, "Expected label-specific MATCH in CALLS queries"

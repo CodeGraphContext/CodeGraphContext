@@ -1,6 +1,6 @@
 [project]
 name = "codegraphcontext"
-version = "0.5.1"
+version = "0.5.2"
 description = "An MCP server that indexes local code into a graph database to provide context to AI assistants."
 authors = [{ name = "Shashank Shekhar Singh", email = "shashankshekharsingh1205@gmail.com" }]
 readme = "README.md"
@@ -8,6 +8,11 @@ license = { file = "LICENSE" }
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Development Status :: 3 - Alpha",
@@ -22,9 +27,9 @@ dependencies = [
     "rich>=13.7.0",
     "inquirerpy>=0.3.4",
     "python-dotenv>=1.0.0",
-    "tree-sitter>=0.21.0,<0.26.0; python_version != '3.13'",
-    "tree-sitter-language-pack>=0.6.0,<1.0.0; python_version != '3.13'",
-    "tree-sitter-c-sharp>=0.21.0; python_version != '3.13'",
+    "tree-sitter>=0.24.0,<0.26.0",
+    "tree-sitter-language-pack>=1.6,<2.0",
+    "tree-sitter-c-sharp>=0.21.0",
     "pyyaml",
     "nbformat",
     "nbconvert>=7.16.6",
@@ -62,9 +67,9 @@ dependencies = [
 
 [project.optional-dependencies]
 parsing = [
-    "tree-sitter>=0.21.0,<0.26.0; python_version != '3.13'",
-    "tree-sitter-language-pack>=0.6.0,<1.0.0; python_version != '3.13'",
-    "tree-sitter-c-sharp>=0.21.0; python_version != '3.13'",
+    "tree-sitter>=0.24.0,<0.26.0",
+    "tree-sitter-language-pack>=1.6,<2.0",
+    "tree-sitter-c-sharp>=0.21.0",
 ]
 # Named backend extras let users (and CI) opt into a single, tested driver
 # triple instead of inheriting whatever the default install pulls. They
@@ -87,6 +92,9 @@ ladybug = [
 ]
 neo4j = [
     "neo4j>=5.15.0",
+]
+gcf = [
+    "gcf-python>=1.0.0",
 ]
 dev = [
     "pytest>=7.4.0",

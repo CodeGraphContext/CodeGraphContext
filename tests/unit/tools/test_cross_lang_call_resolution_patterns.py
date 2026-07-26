@@ -678,6 +678,41 @@ class TestCrossLangCallResolutionPatterns:
         )
         assert edge["line_number"] == 363
 
+    def test_python_decorator_resolution_handles_missing_import_source(self):
+        caller_path = "/tmp/repo/app/service.py"
+        decorator_path = "/tmp/repo/.venv/lib/python3.12/site-packages/tenacity/__init__.py"
+        file_data = {
+            "path": caller_path,
+            "lang": "python",
+            "functions": [
+                {
+                    "name": "fetch_data",
+                    "line_number": 12,
+                    "decorators": ["@retry(stop=stop_after_attempt(3))"],
+                }
+            ],
+            "classes": [],
+            "imports": [
+                {
+                    "name": "retry",
+                    "full_import_name": "tenacity.retry",
+                    "line_number": 1,
+                    "alias": None,
+                }
+            ],
+        }
+
+        edges = build_decorated_by_links(
+            [file_data],
+            {"retry": [decorator_path]},
+        )
+
+        assert len(edges) == 1
+        edge = edges[0]
+        assert edge["decorated_name"] == "fetch_data"
+        assert edge["decorator_name"] == "retry"
+        assert edge["decorator_path"] == str(Path(caller_path).resolve().as_posix())
+
     def test_python_metaclass_links(self, manager):
         wrapper = _parser(manager, "python")
         parser = PythonTreeSitterParser(wrapper)

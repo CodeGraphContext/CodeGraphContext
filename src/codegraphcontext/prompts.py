@@ -6,6 +6,12 @@ procedures for the AI assistant, guiding it on how to effectively use the tools
 provided by this MCP server.
 """
 
+from pathlib import Path
+from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
 LLM_SYSTEM_PROMPT = """# AI Pair Programmer Instructions
 
 ## 1. Your Role and Goal
@@ -123,3 +129,47 @@ You are an expert AI pair programmer. Your primary goal is to help a developer u
 3.  **Formulate & Execute:** Construct a Cypher query to find the answer and execute it using `execute_cypher_query`. **Consult the Graph Schema Reference above to ensure you use the correct property names (e.g. `path` vs `path`).**
 4.  **Present Results:** Explain the results to the user based on the query output.
 """
+
+
+def build_system_prompt(project_root: Optional[Path] = None) -> str:
+    """
+    Build the complete system prompt by prepending custom prompt files.
+    
+    Args:
+        project_root: Root directory of the project. If None, uses current directory.
+    
+    Returns:
+        Complete system prompt with custom prompts prepended to the base prompt.
+    """
+    # Import here to avoid circular dependencies
+    try:
+        from codegraphcontext.cli.project_config import get_prompt_file_contents
+        
+        # Get custom prompt contents
+        custom_prompts = get_prompt_file_contents(project_root)
+        
+        if not custom_prompts:
+            # No custom prompts, return base prompt
+            return LLM_SYSTEM_PROMPT
+        
+        # Build combined prompt: custom prompts first, then base prompt
+        combined_parts = []
+        
+        # Add custom prompts
+        for i, custom_content in enumerate(custom_prompts, 1):
+            combined_parts.append(f"# Custom Instructions {i}\n\n{custom_content}")
+        
+        # Add separator and base prompt
+        combined_parts.append("---\n")
+        combined_parts.append(LLM_SYSTEM_PROMPT)
+        
+        return "\n\n".join(combined_parts)
+        
+    except ImportError:
+        # If project_config is not available (shouldn't happen in normal use)
+        logger.warning("Could not import project_config module, using base prompt only")
+        return LLM_SYSTEM_PROMPT
+    except Exception as e:
+        # Log error but continue with base prompt to maintain backward compatibility
+        logger.warning(f"Error loading custom prompts: {e}. Using base prompt only.")
+        return LLM_SYSTEM_PROMPT
