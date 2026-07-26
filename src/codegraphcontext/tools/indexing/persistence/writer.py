@@ -114,12 +114,17 @@ class GraphWriter:
                     result = session.run(
                         "MATCH (n) RETURN DISTINCT label(n) AS lbl"
                     )
-                    labels = sorted(
+                    return sorted(
                         {record[0] for record in result if record[0] is not None}
                     )
-                    if labels:
-                        return labels
-                return execute_read_operation(self.driver, backend, _work)
+                # `_work` used to fall off the end (returning None) when it
+                # discovered no labels, and the caller iterates this result —
+                # aborting delete_repository_from_graph with a TypeError
+                # *after* it had already dropped every relationship, leaving a
+                # half-deleted repository. Fall through to the canonical list.
+                discovered = execute_read_operation(self.driver, backend, _work)
+                if discovered:
+                    return discovered
             except Exception as e:
                 info_logger(
                     f"[DELETE] label discovery failed for {backend} "
