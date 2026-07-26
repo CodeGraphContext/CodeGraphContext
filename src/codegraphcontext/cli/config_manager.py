@@ -130,6 +130,11 @@ DEFAULT_CONFIG = {
     # Default LLM model names used for graph queries when no value is explicitly configured
     "OPENAI_MODEL": "gpt-4o",
     "ANTHROPIC_MODEL": "claude-3-5-sonnet-20241022",
+    # Optional API key for the HTTP API gateway. Empty = auth disabled
+    # (backward compatible). When set, HTTP endpoints require the key via
+    # `Authorization: Bearer <key>` or `X-API-Key`. May also be set via the
+    # CGC_API_KEY environment variable (which takes priority).
+    "CGC_API_KEY": "",
 }
 
 # Configuration key descriptions
@@ -207,6 +212,12 @@ CONFIG_DESCRIPTIONS = {
         "Default Anthropic model used for graph queries. "
         "Requires ANTHROPIC_API_KEY environment variable. "
         "Default: claude-3-5-sonnet-20241022"
+    ),
+    "CGC_API_KEY": (
+        "Optional API key protecting the HTTP API gateway. Empty = "
+        "unauthenticated (backward compatible). When set, HTTP endpoints "
+        "require it via `Authorization: Bearer <key>` or the `X-API-Key` "
+        "header. The CGC_API_KEY environment variable overrides this value."
     ),
 }
 
@@ -774,13 +785,17 @@ def show_config():
     for key in sorted(config_settings.keys()):
         value = config_settings[key]
         description = CONFIG_DESCRIPTIONS.get(key, "")
-        
+
+        # Never print secret-like values (e.g. the HTTP API key) in plaintext.
+        if "API_KEY" in key.upper() and value:
+            value = "********"
+
         # Highlight non-default values
         if value != DEFAULT_CONFIG.get(key):
             value_style = "[bold yellow]" + value + "[/bold yellow]"
         else:
             value_style = value
-        
+
         table.add_row(key, value_style, description)
     
     console.print(table)

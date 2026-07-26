@@ -4,9 +4,14 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from .router import router
+from .auth import log_auth_status
 from .mcp_sse import handle_sse, handle_messages
 
 def create_app() -> FastAPI:
+    # Log whether API-key auth is active. Emits a prominent security warning
+    # when the gateway is running unauthenticated (CGC_API_KEY unset).
+    log_auth_status()
+
     app = FastAPI(
         title="CodeGraphContext Gateway",
         description="HTTP API gateway for CodeGraphContext MCP server. Enables integration with ChatGPT Actions, Claude, and web frontends.",
