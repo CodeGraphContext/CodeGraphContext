@@ -274,8 +274,15 @@ class PythonTreeSitterParser:
                     decorators = [self._get_node_text(child) for child in func_node.children if child.type == 'decorator']
 
 
-                context, context_type, _ = self._get_parent_context(func_node)
-                class_context, _, _ = self._get_parent_context(func_node, types=('class_definition',))
+                # Keep the enclosing definition's line. It was discarded here,
+                # which left the nested-function CONTAINS write matching the
+                # outer function by name alone — so a file with two same-named
+                # functions (the same method on two classes, very common) got a
+                # false containment edge from each of them.
+                context, context_type, context_line = self._get_parent_context(func_node)
+                class_context, _, class_context_line = self._get_parent_context(
+                    func_node, types=('class_definition',)
+                )
 
                 args = []
                 if params_node:
@@ -314,7 +321,13 @@ class PythonTreeSitterParser:
                     "cyclomatic_complexity": self._calculate_complexity(func_node),
                     "context": context,
                     "context_type": context_type,
+                    # Disambiguates the enclosing definition when a file has two
+                    # functions/classes with the same name.
+                    "context_line": context_line if context_line is not None else -1,
                     "class_context": class_context,
+                    "class_context_line": (
+                        class_context_line if class_context_line is not None else -1
+                    ),
                     "decorators": [d for d in decorators if d],
                     "lang": self.language_name,
                     "is_dependency": False,

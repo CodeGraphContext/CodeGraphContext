@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List, ClassVar
 
 from codegraphcontext.core.graph_query import GraphQueryInterface
+from ..utils.cypher_ddl import is_schema_ddl
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 
 
@@ -1065,7 +1066,10 @@ class EmbeddedSessionWrapper:
         query = re.sub(r'\bON\s+CREATE\s+SET\b', 'SET', query, flags=re.IGNORECASE)
         query = re.sub(r'\bON\s+MATCH\s+SET\b', 'SET', query, flags=re.IGNORECASE)
 
-        if any(x in query.upper() for x in ["CREATE CONSTRAINT", "CREATE INDEX"]):
+        # Anchored to the leading keyword: a substring test also matched
+        # these words inside a string literal, silently turning ordinary
+        # data queries into "RETURN 1".
+        if is_schema_ddl(query):
             return "RETURN 1", {}
 
         # 5. Cleanup unused parameters (Kuzu is strict)
