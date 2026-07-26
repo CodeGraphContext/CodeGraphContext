@@ -201,7 +201,17 @@ async def run_tree_sitter_index_async(
         for failure in parse_failures[:10]:
             warning_logger(f"  parse failed: {failure['path']}: {failure['error']}")
 
-    all_file_data = [file_data for file_data in all_file_data if "error" not in file_data]
+    # Sort before post-processing. Files are appended in `asyncio.as_completed`
+    # order, so the list order varies run to run with task scheduling. Everything
+    # downstream that builds a map by iterating it — global_class_bases,
+    # interface_implementors, class_method_index — then inherits that ordering,
+    # and any last-writer-wins or first-match-wins choice becomes
+    # nondeterministic. The graph write loop already sorted for exactly this
+    # reason; resolution was left unsorted.
+    all_file_data = sorted(
+        (file_data for file_data in all_file_data if "error" not in file_data),
+        key=lambda data: str(data.get("path") or ""),
+    )
 
     info_logger(
         f"File processing complete. {len(all_file_data)} files parsed. "

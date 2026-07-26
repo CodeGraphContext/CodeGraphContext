@@ -824,6 +824,24 @@ class GraphWriter:
                 if called_label in labels_with_context:
                     called_context_clause = 'AND (row.called_context = "" OR called.context = row.called_context)'
 
+                # ...and which have a 'line_number'. File and Directory do not:
+                # the Kùzu File table is (path, name, relative_path, package_name,
+                # is_dependency). Referencing called.line_number against them raises
+                # a binder exception on strongly-typed backends, which the caller
+                # swallows via _is_binder_exception -> continue, silently dropping
+                # the ENTIRE Function->File batch. Neo4j is untyped here and
+                # evaluates the predicate to null, so it kept those edges — which is
+                # why dynamic-import edges existed on Neo4j and nowhere else.
+                labels_without_line_number = {"File", "Directory"}
+                predicates = []
+                if called_label not in labels_without_line_number:
+                    predicates.append(
+                        "(row.called_line_number <= 0 OR called.line_number = row.called_line_number)"
+                    )
+                if called_context_clause:
+                    predicates.append(called_context_clause.removeprefix("AND ").strip())
+                where_clause = ("WHERE " + "\n                              AND ".join(predicates)) if predicates else ""
+
                 def _write_batch(batch_rows: List[Dict[str, Any]], relation_label: str) -> None:
                     if not batch_rows:
                         return
@@ -832,8 +850,7 @@ class GraphWriter:
                             UNWIND $batch AS row
                             MATCH (caller:File {{path: row.caller_file_path}})
                             MATCH (called:{called_label} {{name: row.called_name, path: row.called_file_path}})
-                            WHERE (row.called_line_number <= 0 OR called.line_number = row.called_line_number)
-                              {called_context_clause}
+                            {where_clause}
                             MERGE (caller)-[call:{relation_label} {{line_number: row.line_number, full_call_name: row.full_call_name, args_key: row.args_key}}]->(called)
                             SET call.args = row.args
                             SET call.confidence = row.confidence
@@ -845,8 +862,7 @@ class GraphWriter:
                             UNWIND $batch AS row
                             MATCH (caller:{caller_label} {{name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number}})
                             MATCH (called:{called_label} {{name: row.called_name, path: row.called_file_path}})
-                            WHERE (row.called_line_number <= 0 OR called.line_number = row.called_line_number)
-                              {called_context_clause}
+                            {where_clause}
                             MERGE (caller)-[call:{relation_label} {{line_number: row.line_number, full_call_name: row.full_call_name, args_key: row.args_key}}]->(called)
                             SET call.args = row.args
                             SET call.confidence = row.confidence
