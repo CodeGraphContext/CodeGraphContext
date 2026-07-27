@@ -16,7 +16,7 @@ from typing import Any, Dict, Coroutine, Optional, List, Set
 
 from .utils.gcf_encoder import encode_response
 
-from .prompts import build_system_prompt
+from .prompts import LLM_SYSTEM_PROMPT, build_system_prompt
 from .core import get_database_manager
 from .core.jobs import JobManager, JobStatus
 from .core.watcher import CodeWatcher
