@@ -97,6 +97,22 @@ audit_output/
 test_env_e2e/
 .venv-release/
 falkordb.sock
+# Only plans/ — .cursor/skills/ is tracked, so do not ignore .cursor/ wholesale.
+.cursor/plans/
+website/demo/
+
+# Local audit/benchmark harnesses. These sit alongside the tracked scripts in
+# scripts/, so list them by name rather than re-ignoring the whole directory
+# (see the NOTE under "Build Artifacts" for why a bare `scripts` rule was bad).
+scripts/audit_fixtures.py
+scripts/benchmark_cgc.py
+scripts/call_graph_audit.py
+scripts/e2e_bug_hunt_runner.py
+scripts/generate_goldens.py
+scripts/golden_perfection_audit.py
+scripts/pr-graph-analyze.sh
+scripts/remediate_*.py
+website/scripts/
 
 # Build Artifacts
 [Bb]in/

@@ -6,6 +6,11 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+    paths:
+      - 'Dockerfile'
+      - 'docker-compose*.yml'
+      - 'pyproject.toml'
+      - '.github/workflows/docker-publish.yml'
   workflow_dispatch:
 
 env:
