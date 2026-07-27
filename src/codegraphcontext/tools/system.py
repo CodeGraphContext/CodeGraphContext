@@ -1,12 +1,17 @@
 # src/codegraphcontext/tools/system.py
+from __future__ import annotations
 import logging
 from dataclasses import asdict
-from typing import Any, Dict
+from typing import Any, Dict, TYPE_CHECKING
 from datetime import datetime, timedelta
 
-from neo4j.exceptions import CypherSyntaxError
+try:
+    from neo4j.exceptions import CypherSyntaxError
+except ImportError:
+    CypherSyntaxError = type('CypherSyntaxError', (Exception,), {})
 
-from ..core.database import DatabaseManager
+if TYPE_CHECKING:
+    from ..core.database import DatabaseManager
 from ..core.jobs import JobManager, JobStatus
 from ..utils.debug_log import debug_log
 
@@ -81,16 +86,24 @@ class SystemTools:
         if not cypher_query:
             return {"error": "Cypher query cannot be empty."}
 
-        import re as _re
-        forbidden_keywords = ['CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE', 'DROP', 'CALL apoc']
-        string_literal_pattern = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
-        query_without_strings = _re.sub(string_literal_pattern, '', cypher_query)
-        for keyword in forbidden_keywords:
-            if _re.search(r'\b' + keyword + r'\b', query_without_strings, _re.IGNORECASE):
-                return {"error": "This tool only supports read-only queries. Prohibited keywords like CREATE, MERGE, DELETE, SET, etc., are not allowed."}
+        # Use the shared, hardened guard (word-boundary keywords, string/comment
+        # stripping, multi-statement blocking, dbms/db.*/write-apoc coverage)
+        # rather than a local blocklist that can drift out of sync.
+        from ..utils.cypher_readonly import is_read_only_cypher, read_only_rejection_message
+        if not is_read_only_cypher(cypher_query):
+            return {"error": read_only_rejection_message()}
+
+        # Defense in depth: also open the session in READ access mode so the
+        # database refuses writes even if a payload slips past the regex guard.
+        # Neo4j honours default_access_mode natively; the FalkorDB wrapper routes
+        # READ sessions through GRAPH.RO_QUERY.
+        backend = getattr(self.db_manager, "get_backend_type", lambda: "neo4j")()
+        session_kwargs: Dict[str, Any] = {}
+        if backend in ("neo4j", "falkordb", "falkordb-remote"):
+            session_kwargs["default_access_mode"] = "READ"
 
         try:
-            with self.db_manager.get_driver().session() as session:
+            with self.db_manager.get_driver().session(**session_kwargs) as session:
                 result = session.run(cypher_query)
                 records = [record.data() for record in result]
                 return {
@@ -114,7 +127,7 @@ class SystemTools:
                     WHERE func.is_dependency = false
                       AND NOT func.name STARTS WITH '_'
                       AND NOT func.name IN ['main', 'setup', 'run']
-                    OPTIONAL MATCH (caller:Function)-[:CALLS]->(func)
+                    OPTIONAL MATCH (caller:Function)-[:CALLS|HEURISTIC_CALLS]->(func)
                     WHERE caller.is_dependency = false
                     WITH func, count(caller) as caller_count
                     WHERE caller_count = 0

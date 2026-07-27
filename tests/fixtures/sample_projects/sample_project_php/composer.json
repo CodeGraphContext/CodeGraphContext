@@ -1,0 +1,10 @@
+{
+    "name": "sample/project",
+    "description": "Sample PHP project",
+    "version": "1.0.0",
+    "type": "project",
+    "require": {},
+    "autoload": {
+        "classmap": ["."]
+    }
+}

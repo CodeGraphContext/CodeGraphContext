@@ -1,6 +1,8 @@
+# src/codegraphcontext/tools/languages/dart.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, List
 import logging
+import re
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
 
@@ -14,27 +16,38 @@ DART_QUERIES = {
             name: (identifier) @name
             (formal_parameter_list) @params
         ) @function_node
+        (getter_signature
+            name: (identifier) @name
+        ) @function_node
+        (setter_signature
+            name: (identifier) @name
+            (formal_parameter_list) @params
+        ) @function_node
+        (factory_constructor_signature
+            (identifier) @name
+            (formal_parameter_list) @params
+        ) @function_node
+        (operator_signature) @function_node
+        ; method_signature is intentionally not captured: it is a wrapper
+        ; around the signatures above and would produce duplicate records.
     """,
-    "classes": """
-        [
-            (class_definition name: (identifier) @name)
-            (mixin_declaration name: (identifier) @name)
-            (extension_declaration name: (identifier) @name)
-            (enum_declaration name: (identifier) @name)
-        ] @class
-    """,
+    "classes": "(class_definition) @type_node",
+    "mixins": "(mixin_declaration) @type_node",
+    "extensions": "(extension_declaration) @type_node",
+    "enums": "(enum_declaration) @type_node",
+
+
     "imports": """
         (library_import) @import
         (library_export) @import
     """,
     "calls": """
-        (expression_statement
-            (identifier) @name
-        ) @call
         (selector
             (argument_part (arguments))
-        ) @call
+        ) @call_selector
     """,
+
+
     "variables": """
         (local_variable_declaration
             (initialized_variable_definition
@@ -139,6 +152,34 @@ class DartTreeSitterParser:
                     last = deeper
         return last
 
+    def _receiver_name_for_call_selector(self, call_node: Any) -> Optional[str]:
+        """Return the receiver identifier for `receiver.method()` calls."""
+        parent = call_node.parent
+        if parent is None:
+            return None
+        if parent.type == "expression_statement":
+            for child in parent.children:
+                if child.type == "identifier":
+                    return self._get_node_text(child)
+                if child.type == "selector":
+                    break
+        siblings = list(parent.children)
+        try:
+            idx = siblings.index(call_node)
+        except ValueError:
+            return None
+        for i in range(idx - 1, -1, -1):
+            sibling = siblings[i]
+            if sibling.type in _CALL_PUNCTUATION:
+                continue
+            if sibling.type == "identifier":
+                return self._get_node_text(sibling)
+            name_node = self._last_identifier_in(sibling)
+            if name_node is not None:
+                return self._get_node_text(name_node)
+            break
+        return None
+
     def _name_node_for_call_selector(self, call_node):
         """Find the receiver/member name paired with a captured argument selector."""
         parent = call_node.parent
@@ -178,15 +219,20 @@ class DartTreeSitterParser:
         return False
 
     def _calculate_complexity(self, node):
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         complexity_nodes = {
             "if_statement", "for_statement", "while_statement", "do_statement",
             "switch_statement", "switch_case", "if_element", "for_element",
             "conditional_expression", "binary_expression", "catch_clause"
         }
         count = 1
+        skipped = False
         
-        def traverse(n):
-            nonlocal count
+        def traverse(n, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if n.type in complexity_nodes:
                 if n.type == "binary_expression":
                     op = n.child_by_field_name("operator")
@@ -195,14 +241,20 @@ class DartTreeSitterParser:
                 else:
                     count += 1
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
         
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict:
         """Parses a Dart file and returns its structure in a standardized dictionary format."""
         self.index_source = index_source
+        path = Path(path)
         try:
             with open(path, "r", encoding="utf-8", errors='ignore') as f:
                 source_code = f.read()
@@ -211,24 +263,115 @@ class DartTreeSitterParser:
             root_node = tree.root_node
 
             functions = self._find_functions(root_node)
-            classes = self._find_classes(root_node)
+            
+            # Find classes, mixins, extensions, enums
+            classes = []
+            mixins = []
+            extensions = []
+            enums = []
+            
+            for label, query_key in [
+                ("Class", "classes"),
+                ("Mixin", "mixins"),
+                ("Extension", "extensions"),
+                ("Enum", "enums")
+            ]:
+                found = self._find_types(root_node, query_key, label)
+                if label == "Class": classes = found
+                elif label == "Mixin": mixins = found
+                elif label == "Extension": extensions = found
+                elif label == "Enum": enums = found
+
             imports = self._find_imports(root_node, source_code)
             function_calls = self._find_calls(root_node)
             variables = self._find_variables(root_node)
+            library_parts = self._parse_library_parts(source_code, path)
 
             return {
                 "path": str(path),
                 "functions": functions,
                 "classes": classes,
+                "mixins": mixins,
+                "extensions": extensions,
+                "enums": enums,
                 "variables": variables,
                 "imports": imports,
                 "function_calls": function_calls,
+                "library_parts": library_parts,
                 "is_dependency": is_dependency,
                 "lang": self.language_name,
             }
         except Exception as e:
             error_logger(f"Failed to parse Dart file {path}: {e}")
             return {"path": str(path), "error": str(e)}
+
+    def _parse_library_parts(self, source_code: str, path: Path) -> List[Dict[str, str]]:
+        parts: List[Dict[str, str]] = []
+        # A file may declare multiple `part 'x.dart';` directives.
+        # Use a negative lookahead so `part of ...;` is not matched here.
+        for part_match in re.finditer(r"^\s*part\s+(?!of\b)['\"]([^'\"]+)['\"]\s*;", source_code, re.MULTILINE):
+            parts.append({
+                "main_file": str(path),
+                "part_file": str((path.parent / part_match.group(1)).resolve()),
+                "direction": "part",
+            })
+        # `part of` may legally appear only once per file, but handle extras gracefully.
+        for part_of_match in re.finditer(r"^\s*part\s+of\s+['\"]([^'\"]+)['\"]\s*;", source_code, re.MULTILINE):
+            parts.append({
+                "main_file": str((path.parent / part_of_match.group(1)).resolve()),
+                "part_file": path.resolve().as_posix(),
+                "direction": "part_of",
+            })
+        return parts
+
+    def _find_types(self, root_node, query_key, label):
+        found_types = []
+        query_str = DART_QUERIES.get(query_key)
+        if not query_str: return []
+        
+        for node, capture_name in execute_query(self.language, query_str, root_node):
+            if capture_name != "type_node": continue
+            
+            name_node = node.child_by_field_name('name')
+            if not name_node:
+                # Fallback to children search for identifier/type_identifier
+                for child in node.children:
+                    if child.type in ('identifier', 'type_identifier'):
+                        name_node = child
+                        break
+            
+            if not name_node: continue
+            
+            name = self._get_node_text(name_node)
+            
+            # Bases (implements, extends, with)
+            bases = []
+            for child in node.children:
+                if child.type in ('superclass', 'interfaces', 'mixins', 'mixin_application_clause'):
+                    # Recursively find all type_identifiers in these subtrees
+                    def collect_bases(n):
+                        if n.type in ('type_identifier', 'type_not_void'):
+                            bases.append(self._get_node_text(n))
+                        for c in n.children:
+                            collect_bases(c)
+                    collect_bases(child)
+
+            type_data = {
+                "name": name,
+                "line_number": node.start_point[0] + 1,
+                "end_line": node.end_point[0] + 1,
+                "bases": list(dict.fromkeys(bases)), # Deduplicate
+                "lang": self.language_name,
+                "is_dependency": False,
+                "node_label": label, # Used by writer
+            }
+            if self.index_source:
+                type_data["source"] = self._get_node_text(node)
+            
+            found_types.append(type_data)
+        return found_types
+
+
 
     def _find_functions(self, root_node):
         functions = []
@@ -242,9 +385,20 @@ class DartTreeSitterParser:
                 seen_nodes.add(node_id)
 
                 name_node = node.child_by_field_name('name')
-                if not name_node: continue
-                
-                name = self._get_node_text(name_node)
+                if name_node:
+                    name = self._get_node_text(name_node)
+                elif node.type == 'factory_constructor_signature':
+                    # No `name` field; the name is the identifier sequence,
+                    # e.g. `factory Foo.create(...)` -> "Foo.create".
+                    parts = [self._get_node_text(c) for c in node.children if c.type == 'identifier']
+                    if not parts: continue
+                    name = '.'.join(parts)
+                elif node.type == 'operator_signature':
+                    op_node = next((c for c in node.children if c.is_named and 'operator' in c.type), None)
+                    if not op_node: continue
+                    name = f"operator{self._get_node_text(op_node)}"
+                else:
+                    continue
                 params_node = node.child_by_field_name('parameters') or node.child_by_field_name('formal_parameter_list')
                 
                 args = []
@@ -316,39 +470,6 @@ class DartTreeSitterParser:
             return None
         return find_id(param_node)
 
-    def _find_classes(self, root_node):
-        classes = []
-        query_str = DART_QUERIES['classes']
-        for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name == "class":
-                name_node = node.child_by_field_name('name')
-                if not name_node: continue
-                
-                name = self._get_node_text(name_node)
-                
-                # Bases (implements, extends, with)
-                bases = []
-                # This is simplified, can be improved by navigating children
-                for child in node.children:
-                    if child.type in ('superclass', 'interfaces', 'mixins'):
-                        for sub in child.children:
-                            if sub.type in ('type_identifier', 'type_not_void'):
-                                bases.append(self._get_node_text(sub))
-
-                class_data = {
-                    "name": name,
-                    "line_number": node.start_point[0] + 1,
-                    "end_line": node.end_point[0] + 1,
-                    "bases": bases,
-                    "lang": self.language_name,
-                    "is_dependency": False,
-                }
-                if self.index_source:
-                    class_data["source"] = self._get_node_text(node)
-                
-                classes.append(class_data)
-        return classes
-
     def _find_imports(self, root_node, source_code):
         imports = []
         query_str = DART_QUERIES['imports']
@@ -395,39 +516,86 @@ class DartTreeSitterParser:
         query_str = DART_QUERIES['calls']
         
         for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name in ("name", "call"):
-                if capture_name == "call":
-                    target_node = self._name_node_for_call_selector(node)
-                    if target_node is None:
-                        continue
-                else:
-                    if self._has_call_selector_sibling(node):
-                        continue
+            target_node = None
+            if capture_name == "call_selector":
+                target_node = self._name_node_for_call_selector(node)
+            elif capture_name == "name":
+                if self._has_call_selector_sibling(node):
                     target_node = node
+                else:
+                    # Check if parent is a constructor invocation or similar
+                    parent = node.parent
+                    if parent and parent.type in ("constructor_invocation", "static_method_invocation"):
+                        target_node = node
 
-                # Deduplicate by start byte
-                node_id = target_node.start_byte
-                if node_id in seen_calls: continue
-                seen_calls.add(node_id)
+            if not target_node:
+                continue
 
-                name = self._get_node_text(target_node)
-                
-                # Find arguments
-                args = []
-                # Logic to find arguments node from selector or expression_statement
-                
-                context, context_type, context_line = self._get_parent_context(target_node)
-                
-                calls.append({
-                    "name": name,
-                    "full_name": name, # Simplified for now
-                    "line_number": target_node.start_point[0] + 1,
-                    "args": args,
-                    "context": (context, context_type, context_line),
-                    "lang": self.language_name,
-                    "is_dependency": False,
-                })
+            # Deduplicate by start byte
+            node_id = target_node.start_byte
+            if node_id in seen_calls: continue
+            seen_calls.add(node_id)
+
+            name = self._get_node_text(target_node)
+            full_name = name
+            receiver_name = self._receiver_name_for_call_selector(node)
+            if receiver_name and receiver_name != name:
+                full_name = f"{receiver_name}.{name}"
+
+            args = []
+
+            context, context_type, context_line = self._get_parent_context(target_node)
+
+            calls.append({
+                "name": name,
+                "full_name": full_name,
+                "line_number": target_node.start_point[0] + 1,
+                "start_byte": target_node.start_byte,
+                "args": args,
+                "context": (context, context_type, context_line),
+                "base_obj": receiver_name,
+                "lang": self.language_name,
+                "is_dependency": False,
+            })
+        
+        # Sort by document position
+        calls.sort(key=lambda x: x["start_byte"])
         return calls
+
+
+
+    def _initializer_type_name(self, init_node: Any) -> Optional[str]:
+        if init_node is None:
+            return None
+        if init_node.type == "initialized_variable_definition":
+            seen_equals = False
+            for child in init_node.children:
+                if child.type == "=":
+                    seen_equals = True
+                    continue
+                if not seen_equals:
+                    continue
+                if child.type in ("identifier", "type_identifier"):
+                    return self._get_node_text(child)
+                if child.type == "selector":
+                    for sub in child.children:
+                        if sub.type in ("identifier", "type_identifier"):
+                            return self._get_node_text(sub)
+                    break
+        if init_node.type in ("identifier", "type_identifier"):
+            return self._get_node_text(init_node)
+        if init_node.type in ("constructor_invocation", "static_method_invocation"):
+            type_node = init_node.child_by_field_name("type")
+            if type_node:
+                return self._get_node_text(type_node)
+            name_node = init_node.child_by_field_name("name")
+            if name_node:
+                return self._get_node_text(name_node)
+        for child in init_node.children:
+            inferred = self._initializer_type_name(child)
+            if inferred:
+                return inferred
+        return None
 
     def _find_variables(self, root_node):
         variables = []
@@ -435,12 +603,40 @@ class DartTreeSitterParser:
         for node, capture_name in execute_query(self.language, query_str, root_node):
             if capture_name == "name":
                 name = self._get_node_text(node)
-                context, _, _ = self._get_parent_context(node)
-                
+                context, context_type, context_line = self._get_parent_context(node)
+                init_type = None
+                var_parent = node.parent
+                while var_parent:
+                    if var_parent.type in (
+                        "initialized_variable_definition",
+                        "initialized_identifier",
+                        "variable_declaration",
+                        "local_variable_declaration",
+                    ):
+                        if var_parent.type == "initialized_variable_definition":
+                            init_type = self._initializer_type_name(var_parent)
+                        else:
+                            init_node = var_parent.child_by_field_name("initializer")
+                            if init_node is None:
+                                for child in var_parent.children:
+                                    if child.type not in (
+                                        "identifier",
+                                        "=",
+                                        "type_identifier",
+                                        "void_type",
+                                        "inferred_type",
+                                    ):
+                                        init_node = child
+                                        break
+                            init_type = self._initializer_type_name(init_node)
+                        break
+                    var_parent = var_parent.parent
+
                 variables.append({
                     "name": name,
                     "line_number": node.start_point[0] + 1,
-                    "context": context,
+                    "context": (context, context_type, context_line),
+                    "initializer_inferred_type": init_type,
                     "lang": self.language_name,
                     "is_dependency": False,
                 })
@@ -448,25 +644,27 @@ class DartTreeSitterParser:
 
 def pre_scan_dart(files: List[Path], parser_wrapper) -> Dict[str, List[str]]:
     """Scans Dart files to create a map of class/function names to their file paths."""
-    name_to_files = {}
-    query_str = """
-        [
-            (class_definition name: (identifier) @name)
-            (mixin_declaration name: (identifier) @name)
-            (extension_declaration name: (identifier) @name)
-            (function_signature name: (identifier) @name)
-        ]
-    """
+    name_to_files: Dict[str, List[str]] = {}
+    parser = DartTreeSitterParser(parser_wrapper)
+
+    def register(name: str, file_path: str) -> None:
+        if not name:
+            return
+        paths = name_to_files.setdefault(name, [])
+        if file_path not in paths:
+            paths.append(file_path)
+
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8", errors='ignore') as f:
-                content = f.read()
-            tree = parser_wrapper.parser.parse(bytes(content, "utf8"))
-            for node, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
-                name = node.text.decode('utf-8')
-                if name not in name_to_files:
-                    name_to_files[name] = []
-                name_to_files[name].append(str(path.resolve()))
+            resolved = str(Path(path).resolve())
+            parsed = parser.parse(path)
+            if parsed.get("error"):
+                continue
+            for label in ("classes", "mixins", "extensions", "enums"):
+                for item in parsed.get(label, []):
+                    register(item.get("name"), resolved)
+            for fn in parsed.get("functions", []):
+                register(fn.get("name"), resolved)
         except Exception as e:
             warning_logger(f"Error pre-scanning Dart file {path}: {e}")
     return name_to_files

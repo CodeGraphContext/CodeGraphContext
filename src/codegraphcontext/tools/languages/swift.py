@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/swift.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 import re
@@ -7,52 +8,29 @@ from codegraphcontext.utils.tree_sitter_manager import execute_query
 SWIFT_QUERIES = {
     "functions": """
         [
-            (function_declaration
-                name: (simple_identifier) @name
-            ) @function_node
+            (function_declaration) @function_node
             (init_declaration) @init_node
         ]
     """,
     "classes": """
         [
-            (class_declaration
-                declaration_kind: "class"
-                name: (type_identifier) @name
-            ) @class
-            (class_declaration
-                declaration_kind: "struct"
-                name: (type_identifier) @name
-            ) @struct
-            (class_declaration
-                declaration_kind: "enum"
-                name: (type_identifier) @name
-            ) @enum
-            (class_declaration
-                declaration_kind: "protocol"
-                name: (type_identifier) @name
-            ) @protocol
-            (class_declaration
-                declaration_kind: "actor"
-                name: (type_identifier) @name
-            ) @class
+            (class_declaration) @class_decl
+            (protocol_declaration) @protocol
         ]
     """,
     "imports": """
         (import_declaration) @import
     """,
     "calls": """
-        (call_expression) @call_node
+        [
+            (call_expression) @call_node
+            (constructor_expression) @call_node
+        ]
     """,
     "variables": """
         [
-            (property_declaration
-                name: (pattern
-                    bound_identifier: (simple_identifier) @name
-                )
-            ) @variable
-            (property_declaration
-                name: (pattern) @pattern
-            ) @variable
+            (property_declaration) @variable
+            (parameter) @variable
         ]
     """,
 }
@@ -125,7 +103,7 @@ class SwiftTreeSitterParser:
                 "classes": parsed_classes,
                 "structs": parsed_structs,
                 "enums": parsed_enums,
-                "protocols": parsed_protocols,
+                "traits": parsed_protocols,
                 "variables": parsed_variables,
                 "imports": parsed_imports,
                 "function_calls": parsed_calls,
@@ -141,7 +119,7 @@ class SwiftTreeSitterParser:
                 "classes": [],
                 "structs": [],
                 "enums": [],
-                "protocols": [],
+                "traits": [],
                 "variables": [],
                 "imports": [],
                 "function_calls": [],
@@ -153,24 +131,49 @@ class SwiftTreeSitterParser:
         curr = node.parent
         while curr:
             if curr.type == "function_declaration":
-                name_node = None
-                for child in curr.children:
-                    if child.type == "simple_identifier":
-                        name_node = child
-                        break
+                name_node = curr.child_by_field_name("name")
+                if not name_node:
+                    for child in curr.children:
+                        if child.type == "simple_identifier":
+                            name_node = child
+                            break
                 return (
                     self._get_node_text(name_node) if name_node else None,
                     curr.type,
                     curr.start_point[0] + 1,
                 )
-            if curr.type in ("class_declaration", "struct_declaration", "enum_declaration", "protocol_declaration"):
+            if curr.type in (
+                "class_declaration",
+                "struct_declaration",
+                "enum_declaration",
+                "protocol_declaration",
+                "extension_declaration",
+            ):
+                child_texts = {
+                    self._get_node_text(child)
+                    for child in curr.children
+                    if child.type in ("extension", "class", "struct", "enum", "protocol", "actor")
+                }
+                context_type = (
+                    "extension_declaration"
+                    if "extension" in child_texts
+                    else curr.type
+                )
                 for child in curr.children:
                     if child.type == "type_identifier":
                         return (
                             self._get_node_text(child),
-                            curr.type,
+                            context_type,
                             curr.start_point[0] + 1,
                         )
+                    if child.type == "user_type":
+                        for inner in child.children:
+                            if inner.type == "type_identifier":
+                                return (
+                                    self._get_node_text(inner),
+                                    context_type,
+                                    curr.start_point[0] + 1,
+                                )
             if curr.type == "init_declaration":
                 # For initializers, return the parent class/struct name
                 parent = curr.parent
@@ -192,6 +195,50 @@ class SwiftTreeSitterParser:
         if not node: return ""
         return node.text.decode("utf-8")
 
+    def _calculate_complexity(self, node: Any) -> int:
+        """Cyclomatic complexity for a Swift function/init body.
+
+        Counts decision points: if/for/while/repeat-while/guard, each non-default
+        switch case, each catch block, boolean &&/||, and ternary `?:`.
+        """
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
+        decision_node_types = {
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "repeat_while_statement",
+            "guard_statement",
+            "catch_block",
+            "conjunction_expression",
+            "disjunction_expression",
+            "ternary_expression",
+        }
+        count = 1
+        skipped = False
+
+        def traverse(n: Any, depth: int = 0) -> None:
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
+            t = n.type
+            if t in decision_node_types:
+                count += 1
+            elif t == "switch_entry":
+                is_default = any(c.type == "default_keyword" for c in n.children)
+                if not is_default:
+                    count += 1
+            for child in n.children:
+                traverse(child, depth + 1)
+
+        traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
+        return count
+
     def _parse_functions(self, captures: list, source_code: str, path: Path) -> list[Dict[str, Any]]:
         functions = []
         seen_nodes = set()
@@ -212,6 +259,9 @@ class SwiftTreeSitterParser:
                     if capture_name == "function_node":
                         for child in node.children:
                             if child.type == "simple_identifier":
+                                func_name = self._get_node_text(child)
+                                break
+                            elif child.type == "type_identifier": # fallback
                                 func_name = self._get_node_text(child)
                                 break
                     
@@ -237,7 +287,12 @@ class SwiftTreeSitterParser:
                         "path": str(path),
                         "lang": self.language_name,
                         "context": context_name,
-                        "class_context": context_name if context_type and ("class" in context_type or "struct" in context_type) else None
+                        "class_context": context_name if context_type and any(
+                            token in context_type
+                            for token in ("class", "struct", "extension", "protocol")
+                        ) else None,
+                        "cyclomatic_complexity": self._calculate_complexity(node),
+                        "is_dependency": False,
                     }
                     
                     if self.index_source:
@@ -259,31 +314,64 @@ class SwiftTreeSitterParser:
         seen_nodes = set()
 
         for node, capture_name in captures:
-            if capture_name in ("class", "struct", "enum", "protocol"):
+            if capture_name in ("class_decl", "protocol"):
                 node_id = (node.start_byte, node.end_byte, node.type)
                 if node_id in seen_nodes:
                     continue
                 seen_nodes.add(node_id)
                 
                 try:
+                    # Decide category based on keyword
+                    category = "class"
+                    if capture_name == "protocol":
+                        category = "protocol"
+                    else:
+                        for child in node.children:
+                            kw = self._get_node_text(child)
+                            if kw == "struct":
+                                category = "struct"
+                                break
+                            elif kw == "enum":
+                                category = "enum"
+                                break
+                            elif kw == "actor":
+                                category = "class"
+                                break
+                            elif kw == "class":
+                                category = "class"
+                                break
+                            elif kw == "extension":
+                                category = "extension"
+                                break
                     start_line = node.start_point[0] + 1
                     end_line = node.end_point[0] + 1
                     
                     # Find name
                     type_name = "Anonymous"
                     for child in node.children:
-                        if child.type == "type_identifier":
+                        if child.type in ("type_identifier", "simple_identifier"):
                             type_name = self._get_node_text(child)
                             break
                     
                     source_text = self._get_node_text(node)
                     
-                    # Extract inheritance/protocol conformance
+                    # Extract inheritance/protocol conformance.
+                    # In tree-sitter-swift the bases appear as one or more
+                    # `inheritance_specifier` siblings under `class_declaration`,
+                    # each wrapping a `user_type` -> `type_identifier`. The
+                    # legacy `type_inheritance_clause` node type is not emitted
+                    # by the current grammar, so the previous logic produced
+                    # empty `bases` for every Swift type.
                     bases = []
                     for child in node.children:
-                        if child.type == "type_inheritance_clause":
+                        if child.type == "inheritance_specifier":
                             for subchild in child.children:
-                                if subchild.type == "type_identifier":
+                                if subchild.type == "user_type":
+                                    for inner in subchild.children:
+                                        if inner.type == "type_identifier":
+                                            bases.append(self._get_node_text(inner))
+                                            break
+                                elif subchild.type == "type_identifier":
                                     bases.append(self._get_node_text(subchild))
                     
                     type_data = {
@@ -298,13 +386,15 @@ class SwiftTreeSitterParser:
                     if self.index_source:
                         type_data["source"] = source_text
                     
-                    if capture_name == "class":
+                    if category == "extension":
+                        continue
+                    if category == "class":
                         classes.append(type_data)
-                    elif capture_name == "struct":
+                    elif category == "struct":
                         structs.append(type_data)
-                    elif capture_name == "enum":
+                    elif category == "enum":
                         enums.append(type_data)
-                    elif capture_name == "protocol":
+                    elif category == "protocol":
                         protocols.append(type_data)
                         
                 except Exception as e:
@@ -327,18 +417,15 @@ class SwiftTreeSitterParser:
                     var_type = "Unknown"
                     
                     # Try to extract variable name
-                    if capture_name == "pattern":
-                        var_name = self._get_node_text(node)
-                    else:
-                        for child in node.children:
-                            if child.type == "simple_identifier":
-                                var_name = self._get_node_text(child)
-                                break
-                            elif child.type == "pattern_binding":
-                                for subchild in child.children:
-                                    if subchild.type == "simple_identifier":
-                                        var_name = self._get_node_text(subchild)
-                                        break
+                    def find_id(n):
+                        if n.type == "simple_identifier":
+                            return self._get_node_text(n)
+                        for c in n.children:
+                            res = find_id(c)
+                            if res: return res
+                        return None
+                    
+                    var_name = find_id(node) or "unknown"
                     
                     # Try to extract type annotation
                     for child in node.children:
@@ -346,6 +433,23 @@ class SwiftTreeSitterParser:
                             for subchild in child.children:
                                 if subchild.type == "type_identifier":
                                     var_type = self._get_node_text(subchild)
+                                    break
+
+                    if var_type == "Unknown":
+                        for child in node.children:
+                            if child.type == "call_expression":
+                                callee = child.children[0] if child.children else None
+                                if callee and callee.type == "simple_identifier":
+                                    var_type = self._get_node_text(callee)
+                                    break
+                            elif child.type not in ("=", "value_binding_pattern", "pattern"):
+                                init_text = self._get_node_text(child).strip()
+                                constructor_match = re.match(
+                                    r"([A-Z]\w*)\s*\(",
+                                    init_text,
+                                )
+                                if constructor_match:
+                                    var_type = constructor_match.group(1)
                                     break
 
                     if var_name != "unknown":
@@ -424,8 +528,16 @@ class SwiftTreeSitterParser:
                                 if child.type == "simple_identifier":
                                     if not base_obj:
                                         base_obj = self._get_node_text(child)
-                                    else:
-                                        call_name = self._get_node_text(child)
+                                elif child.type == "navigation_suffix":
+                                    for subchild in child.children:
+                                        if subchild.type == "simple_identifier":
+                                            call_name = self._get_node_text(subchild)
+                        elif first_child.type == "user_type":
+                            # Constructor<Generic>() pattern
+                            for child in first_child.children:
+                                if child.type == "type_identifier":
+                                    call_name = self._get_node_text(child)
+                                    break
                     
                     if call_name == "unknown":
                         continue
@@ -451,8 +563,8 @@ class SwiftTreeSitterParser:
                         "line_number": start_line,
                         "args": [],
                         "inferred_obj_type": inferred_type,
-                        "context": [None, ctx_type, ctx_line],
-                        "class_context": [None, None],
+                        "context": (ctx_name, ctx_type, ctx_line),
+                        "class_context": (None, None),
                         "lang": self.language_name,
                         "is_dependency": False
                     })

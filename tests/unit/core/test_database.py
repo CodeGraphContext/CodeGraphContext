@@ -2,7 +2,7 @@
 import os
 import pytest
 from unittest.mock import MagicMock, patch, call
-from codegraphcontext.core.database import DatabaseManager, Neo4jDriverWrapper
+from codegraphcontext.core.database import DatabaseManager, Neo4jDriverWrapper, Neo4jConnectionError
 
 class TestDatabaseManager:
     """
@@ -235,3 +235,49 @@ class TestTestConnection:
         assert is_connected is True
         assert error is None
         mock_driver.session.assert_called_once_with()
+
+
+class TestNeo4jPreflight:
+    @patch("socket.create_connection")
+    def test_check_port_reachable_success(self, mock_create_connection):
+        mock_conn = MagicMock()
+        mock_create_connection.return_value.__enter__.return_value = mock_conn
+
+        ok, err = DatabaseManager.check_port_reachable("bolt://localhost:7687")
+
+        assert ok is True
+        assert err is None
+
+    @patch("socket.create_connection", side_effect=OSError("refused"))
+    def test_check_port_reachable_failure(self, _mock_create_connection):
+        ok, err = DatabaseManager.check_port_reachable("bolt://localhost:7687")
+
+        assert ok is False
+        assert "Neo4j is not running on localhost:7687" in err
+
+    def test_missing_credentials_message_contains_config_commands(self):
+        message = DatabaseManager.build_missing_credentials_message(["NEO4J_PASSWORD"])
+
+        assert "Neo4j credentials not configured" in message
+        assert "cgc config set NEO4J_PASSWORD" in message
+
+    @patch("codegraphcontext.core.database.DatabaseManager.check_port_reachable", return_value=(False, "service not reachable on port 7687"))
+    def test_get_driver_fails_fast_when_port_unreachable(self, _mock_reachable):
+        with patch.dict(
+            os.environ,
+            {
+                "NEO4J_URI": "bolt://localhost:7687",
+                "NEO4J_USERNAME": "neo4j",
+                "NEO4J_PASSWORD": "password",
+                "CGC_DB_SELECTION_SOURCE": "environment",
+            },
+            clear=False,
+        ):
+            DatabaseManager._instance = None
+            db_manager = DatabaseManager()
+
+            with pytest.raises(Neo4jConnectionError) as exc:
+                db_manager.get_driver()
+
+            assert "Neo4j connection failed (source: environment)" in str(exc.value)
+            assert "service not reachable on port 7687" in str(exc.value)

@@ -16,12 +16,17 @@ def _brew_install_neo4j(run_command, console) -> str:
 def _brew_start(service: str, run_command, console) -> bool:
     return run_command(["brew", "services", "start", service], console, check=False) is not None
 
+def _escape_cypher_password(password: str) -> str:
+    return password.replace("\\", "\\\\").replace("'", "\\'")
+
+
 def _set_initial_password(new_pw: str, run_command, console) -> bool:
+    escaped_pw = _escape_cypher_password(new_pw)
     cmd = [
         "cypher-shell",
         "-u", "neo4j",
         "-p", "neo4j",
-        f"ALTER CURRENT USER SET PASSWORD FROM 'neo4j' TO '{new_pw}'",
+        f"ALTER CURRENT USER SET PASSWORD FROM 'neo4j' TO '{escaped_pw}'",
     ]
     return run_command(cmd, console, check=False) is not None
 

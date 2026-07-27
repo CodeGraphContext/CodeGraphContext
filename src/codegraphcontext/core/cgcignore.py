@@ -1,6 +1,8 @@
+# src/codegraphcontext/core/cgcignore.py
 from pathlib import Path
 from typing import Iterable, Optional, Tuple
-from pathspec import PathSpec
+import re
+from ..utils.debug_log import warning_logger
 
 
 def _resolve_explicit_path(ignore_root: Path, explicit_path: Optional[str]) -> Optional[Path]:
@@ -81,15 +83,154 @@ def read_cgcignore_patterns(path: Path, default_patterns: list[str]) -> list[str
         return list(default_patterns)
 
     user_patterns = parse_cgcignore_lines(path.read_text(encoding="utf-8").splitlines())
-    # User patterns first so explicit repo rules take precedence.
-    return user_patterns + list(default_patterns)
+    # Defaults first, user patterns last: matching is last-match-wins, so the
+    # trailing list is the one that takes precedence.
+    return list(default_patterns) + user_patterns
+
+class CGCIgnoreMatcher:
+    def __init__(self, patterns: list[str], root_dir: Path):
+        self.root_dir = root_dir
+        self.rules = self._compile_patterns(patterns)
+        
+    def _translate_segment(self, seg: str) -> str:
+        """Translates a single gitwildmatch segment into regex, completely avoiding fnmatch."""
+        i, n = 0, len(seg)
+        res = ""
+        while i < n:
+            c = seg[i]
+            i += 1
+            if c == '*':
+                res += '[^/]*'
+            elif c == '?':
+                res += '[^/]'
+            elif c == '\\':
+                # Handle gitignore escape sequence (e.g. \! matches a literal !)
+                if i < n:
+                    res += re.escape(seg[i])
+                    i += 1
+                else:
+                    res += re.escape('\\')
+            elif c == '[':
+                j = i
+                if j < n and seg[j] == '!':
+                    j += 1
+                if j < n and seg[j] == ']':
+                    j += 1
+                while j < n and seg[j] != ']':
+                    j += 1
+                if j >= n:
+                    res += '\\['
+                else:
+                    stuff = seg[i:j].replace('\\', '\\\\')
+                    i = j + 1
+                    if stuff[0] == '!':
+                        stuff = '^' + stuff[1:]
+                    elif stuff[0] == '^':
+                        stuff = '\\' + stuff
+                    res += '[' + stuff + ']'
+            else:
+                res += re.escape(c)
+        return res
+
+    def _compile_patterns(self, patterns: list[str]) -> list[Tuple[bool, re.Pattern]]:
+        rules = []
+        for raw_pat in patterns:
+            pat = raw_pat.strip()
+            if not pat or pat.startswith('#'):
+                continue
+            
+            is_negation = pat.startswith('!')
+            if is_negation:
+                pat = pat[1:]
+                
+            is_dir_only = pat.endswith('/')
+            if is_dir_only:
+                pat = pat[:-1]
+
+            is_root_anchored = pat.startswith('/')
+            if is_root_anchored:
+                pat = pat[1:]
+
+            # `**` spans whole path segments, never part of one. Joining the
+            # translated pieces with a bare `.*` lets the wildcard match inside a
+            # segment, so `docs/**` would swallow `docstring.py` and `**/build`
+            # would swallow `rebuild/`. Join with a separator-aware bridge instead.
+            raw_segments = pat.split('**')
+            segments = [seg.strip('/') for seg in raw_segments]
+            translated_segments = [self._translate_segment(seg) if seg else ''
+                                   for seg in segments]
+
+            parts = [translated_segments[0]]
+            for left, right in zip(translated_segments, translated_segments[1:]):
+                if not left:
+                    # leading `**/` — match any number of leading segments
+                    parts.append(r'(?:.*/)?' if right else '.*')
+                elif not right:
+                    # trailing `/**` — must have at least one child segment
+                    parts.append('/.*')
+                else:
+                    # `a/**/b` — zero or more whole segments between the two
+                    parts.append(r'/(?:.*/)?')
+                parts.append(right)
+            regex_str = ''.join(parts)
+            
+            if is_root_anchored:
+                regex_str = r'\A' + regex_str
+            else:
+                # Anchor to a path-segment boundary so a directory pattern like
+                # `out/` matches the segment `out`, not the substring inside
+                # `layout/` / `checkout/` (match_file applies the regex via re.search).
+                regex_str = r'(?:\A|.*/)' + regex_str
+                
+            if is_dir_only:
+                # Must match a directory (so it must have trailing slash, or children)
+                regex_str = regex_str + r'(?:/.*)\Z'
+            else:
+                regex_str = regex_str + r'(?:/.*)?\Z'
+                
+            try:
+                compiled = re.compile(regex_str, re.DOTALL)
+                rules.append((is_negation, compiled))
+            except re.error as e:
+                warning_logger(f"Failed to compile .cgcignore pattern '{raw_pat}': {e}")
+                continue
+                
+        return rules
+        
+    def match_file(self, file_path) -> bool:
+        """Returns True if the file should be ignored.
+        
+        Note on directory-only patterns (e.g. `build/`):
+        Since we match on the path string, a directory-only pattern requires a 
+        trailing slash in the input to be matched accurately. If the caller checks
+        a directory without appending a trailing slash (e.g. `match_file("build")`), 
+        it will not match `build/` because we cannot distinguish it from a file named `build`.
+        Callers (like `safe_walk`) should append `/` to directory paths before calling this.
+        """
+        try:
+            if isinstance(file_path, Path) and file_path.is_absolute():
+                rel_path = str(file_path.relative_to(self.root_dir)).replace("\\", "/")
+            else:
+                rel_path = str(file_path).replace("\\", "/")
+        except ValueError:
+            # If not relative to root, just use absolute
+            rel_path = str(file_path).replace("\\", "/")
+            
+        rel_path = rel_path.lstrip('/')
+        
+        ignored = False
+        for is_neg, rule in self.rules:
+            if rule.search(rel_path):
+                ignored = not is_neg
+                
+        return ignored
 
 def build_ignore_spec(
     ignore_root: Path,
     default_patterns: list[str],
     explicit_path: Optional[str] = None,
-) -> Tuple[PathSpec, Optional[Path]]:
-    """Build PathSpec using merged default + user .cgcignore patterns.
+) -> Tuple[CGCIgnoreMatcher, Optional[Path]]:
+    """Build CGCIgnoreMatcher using merged default + user .cgcignore patterns.
 
     Returns the compiled spec and the discovered/created .cgcignore path.
     """
@@ -114,5 +255,9 @@ def build_ignore_spec(
             parse_cgcignore_lines(explicit_cgcignore_path.read_text(encoding="utf-8").splitlines())
         )
 
-    all_patterns = merged_user_patterns + list(default_patterns)
-    return PathSpec.from_lines("gitwildmatch", all_patterns), local_cgcignore_path
+    # Defaults first, user patterns last: matching is last-match-wins (see
+    # CGCIgnoreMatcher.match_file), so appending the defaults would make them
+    # unconditionally override the user's rules and leave `!build/` with no way
+    # to re-include a directory the built-in list ignores.
+    all_patterns = list(default_patterns) + merged_user_patterns
+    return CGCIgnoreMatcher(all_patterns, ignore_root), local_cgcignore_path

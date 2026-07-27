@@ -1,3 +1,4 @@
+# src/codegraphcontext/utils/path_ignore.py
 """
 Path segment helpers aligned with IGNORE_DIRS indexing rules.
 

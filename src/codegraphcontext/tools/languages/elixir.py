@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/elixir.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from codegraphcontext.utils.debug_log import warning_logger
@@ -105,12 +106,15 @@ class ElixirTreeSitterParser:
                                             return self._get_node_text(ac), 'module', curr.start_point[0] + 1
                         elif keyword in FUNCTION_KEYWORDS:
                             for arg_child in curr.children:
-                                if arg_child.type == 'arguments':
-                                    for ac in arg_child.children:
-                                        if ac.type == 'call':
-                                            name_node = ac.child_by_field_name('target')
-                                            if name_node:
-                                                return self._get_node_text(name_node), 'function', curr.start_point[0] + 1
+                                if arg_child.type != 'arguments':
+                                    continue
+                                for ac in arg_child.children:
+                                    if ac.type == 'call':
+                                        name_node = ac.child_by_field_name('target')
+                                        if name_node:
+                                            return self._get_node_text(name_node), 'function', curr.start_point[0] + 1
+                                    elif ac.type == 'identifier':
+                                        return self._get_node_text(ac), 'function', curr.start_point[0] + 1
                         break
             curr = curr.parent
         return None, None, None
@@ -120,29 +124,57 @@ class ElixirTreeSitterParser:
         curr = node.parent
         while curr:
             if curr.type == 'call':
+                keyword = None
+                name = None
                 for child in curr.children:
                     if child.type == 'identifier':
-                        keyword = self._get_node_text(child)
-                        if keyword in MODULE_KEYWORDS:
-                            for arg_child in curr.children:
-                                if arg_child.type == 'arguments':
-                                    for ac in arg_child.children:
-                                        if ac.type == 'alias':
-                                            return self._get_node_text(ac)
-                        break
+                        kw = self._get_node_text(child)
+                        if kw in MODULE_KEYWORDS:
+                            keyword = kw
+                    elif child.type == 'arguments' and keyword:
+                        for ac in child.children:
+                            if ac.type == 'alias':
+                                name = self._get_node_text(ac)
+                                break
+                
+                if keyword and name:
+                    if keyword == "defimpl":
+                        # Try to find the 'for' argument
+                        full_name = name
+                        for child in curr.children:
+                            if child.type == 'arguments':
+                                for arg in child.children:
+                                    if arg.type == 'keywords':
+                                        for p in arg.children:
+                                            if p.type == 'pair':
+                                                p_children = p.children
+                                                if len(p_children) >= 2:
+                                                    k_text = self._get_node_text(p_children[0]).strip(': ')
+                                                    if k_text == 'for':
+                                                        v_text = self._get_node_text(p_children[1])
+                                                        full_name = f"{name}.{v_text}"
+                                                        break
+                        return full_name
+                    return name
             curr = curr.parent
         return None
 
+
     def _calculate_complexity(self, node: Any) -> int:
         """Calculate cyclomatic complexity for Elixir constructs."""
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         complexity_keywords = {
             "if", "unless", "case", "cond", "with", "for", "try",
             "receive", "and", "or", "&&", "||", "when",
         }
         count = 1
+        skipped = False
 
-        def traverse(n):
-            nonlocal count
+        def traverse(n, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if n.type == 'identifier' and self._get_node_text(n) in complexity_keywords:
                 count += 1
             elif n.type in ('binary_operator',):
@@ -150,9 +182,14 @@ class ElixirTreeSitterParser:
                 if '&&' in op_text or '||' in op_text or ' and ' in op_text or ' or ' in op_text:
                     count += 1
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
 
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _get_docstring(self, node: Any) -> Optional[str]:
@@ -224,14 +261,36 @@ class ElixirTreeSitterParser:
                     has_do_block = True
 
             if keyword and name and has_do_block:
+                full_name = name
+                if keyword == "defimpl":
+                    # Try to find the 'for' argument
+                    for child in node.children:
+                        if child.type == 'arguments':
+                            for arg in child.children:
+                                if arg.type == 'keywords':
+                                    for p in arg.children:
+                                        if p.type == 'pair':
+                                            # In tree-sitter-elixir, pair children are [keyword, value]
+                                            p_children = p.children
+                                            if len(p_children) >= 2:
+                                                k_text = self._get_node_text(p_children[0]).strip(': ')
+                                                if k_text == 'for':
+                                                    v_text = self._get_node_text(p_children[1])
+                                                    full_name = f"{name}.{v_text}"
+                                                    break
+                
                 module_data = {
-                    "name": name,
+                    "name": full_name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": node.end_point[0] + 1,
                     "lang": self.language_name,
                     "is_dependency": False,
                     "type": keyword,  # defmodule, defprotocol, defimpl
                 }
+
+
+
+
                 if self.index_source:
                     module_data["source"] = self._get_node_text(node)
                 modules.append(module_data)
@@ -416,7 +475,7 @@ def pre_scan_elixir(files: list[Path], parser_wrapper) -> dict:
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 source = f.read()
             tree = parser_wrapper.parser.parse(bytes(source, "utf8"))
             _pre_scan_recursive(tree.root_node, path, imports_map)
@@ -441,7 +500,7 @@ def _pre_scan_recursive(node, path: Path, imports_map: dict):
                                     name = ac.text.decode('utf-8')
                                     if name not in imports_map:
                                         imports_map[name] = []
-                                    imports_map[name].append(str(path.resolve()))
+                                    imports_map[name].append(path.resolve().as_posix())
                 elif keyword in FUNCTION_KEYWORDS:
                     # Get function name
                     for sib in node.children:
@@ -453,7 +512,7 @@ def _pre_scan_recursive(node, path: Path, imports_map: dict):
                                         name = target.text.decode('utf-8')
                                         if name not in imports_map:
                                             imports_map[name] = []
-                                        imports_map[name].append(str(path.resolve()))
+                                        imports_map[name].append(path.resolve().as_posix())
                 break
 
     for child in node.children:

@@ -1,18 +1,36 @@
 import ForceGraph2D from "react-force-graph-2d";
 import ForceGraph3D from "react-force-graph-3d";
+import RepositorySummary from "./RepositorySummary";
 import * as THREE from "three";
 import { useCallback, useRef, useState, useEffect, useMemo } from "react";
+import { useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft, ZoomIn, ZoomOut, Maximize, FileCode, Search,
   Eye, EyeOff, Settings2, Palette, Star,
   ChevronRight, ChevronDown, Folder, FolderOpen,
   PanelLeftClose, PanelLeftOpen,
-  Layers, Check, X, Code2, Sun, Moon, ChevronUp
+  Layers, Check, X, Code2, Sun, Moon, ChevronUp, Route,
+  Download, UploadCloud, Menu, MessageSquare, Copy, Loader2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
 import FlowchartSVG from "./FlowchartSVG";
+import { packageCgcBundle, downloadBlob, publishCgcBundle } from "../lib/cgc-exporter";
+import { exportSvg } from "../lib/svg-exporter";
+import { packageInteractiveExport } from "../lib/html-exporter";
+import { toast } from "sonner";
+import { getOrCreateSessionId } from "../lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 
 const PALETTE = {
   dark: {
@@ -85,10 +103,11 @@ const DEFAULT_EDGE_COLORS: Record<string, string> = {
 };
 
 // ─── Visualization Modes ─────────────────────────────────────────────────────
-type VisualizationMode = 'classic' | 'icon' | 'neon' | 'galaxy' | 'mermaid' | 'city3d' | 'graph3d';
+type VisualizationMode = 'classic' | 'curvy' | 'icon' | 'neon' | 'galaxy' | 'mermaid' | 'city3d' | 'graph3d';
 
 const VISUALIZATION_MODES: { id: VisualizationMode; name: string; description: string; previewColor: string }[] = [
   { id: 'classic', name: 'Classic', description: 'Standard colored circles', previewColor: '#42a5f5' },
+  { id: 'curvy', name: 'Curvy 2D', description: 'Smooth Bezier curved edges', previewColor: '#ec407a' },
   { id: 'mermaid', name: 'Flowchart', description: 'SVG diagram with Bezier edges', previewColor: '#26c6da' },
   { id: 'icon', name: 'Icon', description: 'Emoji icons by node type', previewColor: '#ffca28' },
   { id: 'city3d', name: 'City 3D', description: '3D cityscape with buildings', previewColor: '#ff9800' },
@@ -261,7 +280,7 @@ function TreeItem({
       <div>
         <button
           onClick={() => setOpen(o => !o)}
-          className="w-full flex items-center gap-1 py-[3px] px-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors group"
+          className="w-full flex items-center gap-1 py-[3px] px-2 rounded-lg text-gray-400 hover:text-white hover:bg-purple-500/10 transition-colors group"
           style={{ paddingLeft: `${indent + 8}px` }}
         >
           {open
@@ -310,8 +329,8 @@ function TreeItem({
     <button
       onClick={() => onFileClick(node.path)}
       className={`w-full flex items-center gap-2 py-[3px] px-2 rounded-lg text-[13px] transition-all group ${isSelected
-          ? 'bg-blue-500/20 text-blue-200 border border-blue-500/20'
-          : 'text-gray-400 hover:text-gray-200 hover:bg-white/5 border border-transparent'
+        ? 'bg-purple-500/20 text-purple-200 border border-purple-500/20'
+        : 'text-gray-400 hover:text-gray-200 hover:bg-purple-500/10 border border-transparent'
         }`}
       style={{ paddingLeft: `${indent + 20}px` }}
     >
@@ -333,15 +352,33 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function getGraphAwareNodeScale(totalNodes: number): number {
-  const safeNodeCount = Math.max(totalNodes, 1);
-  return clamp(1 + Math.log10(safeNodeCount) * 0.22, 1, 2);
+function getNodeDisplayName(node: any): string {
+  const fallback = node?.name ?? node?.label ?? node?.uid ?? node?.node_type ?? node?.type ?? node?.id ?? 'Unknown';
+  const displayName = String(fallback).trim();
+  return displayName || 'Unknown';
 }
 
-export default function CodeGraphViewer({ data, onClose }: { data: any, onClose: () => void }) {
+function getGraphAwareNodeScale(totalNodes: number): number {
+  const safeNodeCount = Math.max(totalNodes, 1);
+  // High node count = smaller nodes to prevent overlap and visual clutter
+  // Low node count = larger, more prominent nodes for readability
+  return clamp(2.5 / (1 + Math.log10(safeNodeCount) * 0.95), 0.45, 2.5);
+}
+
+export default function CodeGraphViewer({ data: rawData, onClose }: { data: any, onClose: () => void }) {
   const { theme, setTheme } = useTheme();
   const isDark = theme !== 'light';
   const pal = isDark ? PALETTE.dark : PALETTE.light;
+
+  const data = useMemo(() => ({
+    ...rawData,
+    nodes: (rawData?.nodes || []).map((node: any) => ({
+      ...node,
+      name: getNodeDisplayName(node),
+    })),
+    links: rawData?.links || [],
+    files: rawData?.files || [],
+  }), [rawData]);
 
   const fgRef = useRef<any>();
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -349,6 +386,207 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [focusSet, setFocusSet] = useState<{ nodes: Set<number>, links: Set<any> } | null>(null);
+  const [simulationReady, setSimulationReady] = useState(false);
+
+  // AI query exploration states
+  const [isAIMode, setIsAIMode] = useState(false);
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResponse, setAiResponse] = useState<any | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  // Publish and Export parameters
+  const { owner, repo } = useParams();
+  const defaultRepoName = data.metadata?.repo || (owner && repo ? `${owner}/${repo}` : "");
+  const [showPublishModal, setShowPublishModal] = useState(false);
+  const [showChatGPTModal, setShowChatGPTModal] = useState(false);
+  const [publishRepo, setPublishRepo] = useState("");
+  const [publishVersion, setPublishVersion] = useState("1.0.0");
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [showWarningAlert, setShowWarningAlert] = useState(false);
+  const [duplicateBundle, setDuplicateBundle] = useState<any | null>(null);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+
+  // Dynamic ChatGPT Connection URL with pre-filled version-scoped query
+  const metadata = data.metadata || {};
+  const repoName = metadata.repo || (owner && repo ? `${owner}/${repo}` : "playground");
+  const branchName = metadata.branch || "main";
+  const commitSha = metadata.commit || "latest";
+  const cleanCommit = commitSha.length === 40 && /^[0-9a-fA-F]+$/.test(commitSha) ? commitSha.substring(0, 7) : commitSha;
+
+  // Standardized bundle/repository naming format we designed: owner__repo__branch__commit
+  const [ownerPart, repoPart] = repoName.includes('/') ? repoName.split('/') : [owner || repoName, repo || ''];
+  const cleanOwner = String(ownerPart).trim();
+  const cleanRepo = String(repoPart).trim();
+  const designedRepoName = cleanOwner && cleanRepo 
+    ? `${cleanOwner}__${cleanRepo}__${branchName}__${cleanCommit}` 
+    : repoName;
+
+  const userId = getOrCreateSessionId();
+  const chatgptPreFillPrompt = `Let's connect to codegraphcontext session: ${userId}`;
+  const chatgptUrl = "https://chatgpt.com/g/g-6a1368599210819199a1c47d021020b6-codegraphcontext";
+
+  const handleConnectChatGPT = () => {
+    setShowChatGPTModal(true);
+  };
+
+  const handleCopyAndLaunchChatGPT = () => {
+    navigator.clipboard.writeText(chatgptPreFillPrompt)
+      .then(() => {
+        toast.success("Prompt copied to clipboard!", {
+          icon: "📋",
+        });
+      })
+      .catch((err) => {
+        console.warn("Failed to auto-copy prompt:", err);
+      });
+    window.open(chatgptUrl, "_blank", "noopener,noreferrer");
+    setShowChatGPTModal(false);
+  };
+
+  const handleExport = async () => {
+    try {
+      const repoName = data.metadata?.repo || "unknown/code-graph";
+      let filename = "";
+      if (repoName.includes('/')) {
+        const owner = repoName.split('/')[0];
+        const repo = repoName.split('/')[1];
+        const branch = data.metadata?.branch || "main";
+        const commit = data.metadata?.commit || data.metadata?.version || "latest";
+        const cleanCommit = commit.length === 40 && /^[0-9a-fA-F]+$/.test(commit) ? commit.substring(0, 7) : commit;
+        filename = `${owner}__${repo}__${branch}__${cleanCommit}.cgc`;
+      } else {
+        filename = `${repoName}.cgc`;
+      }
+      
+      const blob = await packageCgcBundle(repoName, data.nodes, data.links, data.metadata?.version || "1.0.0", data.metadata);
+      downloadBlob(blob, filename);
+      toast.success("CGC bundle exported successfully!");
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Failed to export bundle: " + err.message);
+    }
+  };
+
+  const handleSvgExport = async () => {
+    try {
+      if (graphMode === 'mermaid') {
+        const svgEl = document.getElementById('flowchart-svg');
+        if (svgEl) {
+          const svgString = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n` + svgEl.outerHTML;
+          const blob = new Blob([svgString], { type: 'image/svg+xml' });
+          downloadBlob(blob, 'flowchart-export.svg');
+          toast.success("Flowchart SVG exported successfully!");
+          return;
+        }
+      }
+
+      await exportSvg(filteredData, nodeColors, edgeColors, isDark);
+      toast.success("SVG exported successfully!");
+    } catch (err: any) {
+      toast.error("Failed to export SVG: " + err.message);
+    }
+  };
+
+  const handleHtmlExport = async () => {
+    try {
+      let filename = "interactive-graph.zip";
+      if (data.metadata?.repo) {
+         filename = `${data.metadata.repo.replace(/\//g, '_')}_interactive.zip`;
+      }
+      
+      const exportMode = graphMode === 'mermaid' ? 'mermaid' : 'classic';
+      const blob = await packageInteractiveExport(
+        filteredData.nodes, 
+        filteredData.links, 
+        data.metadata || {}, 
+        nodeColors,
+        edgeColors,
+        exportMode
+      );
+      downloadBlob(blob, filename);
+      toast.success("Interactive HTML exported successfully!");
+    } catch (err: any) {
+      toast.error("Failed to export Interactive HTML: " + err.message);
+    }
+  };
+
+  const executePublishFlow = async () => {
+    setIsPublishing(true);
+    try {
+      const blob = await packageCgcBundle(publishRepo, data.nodes, data.links, publishVersion, data.metadata);
+      const result = await publishCgcBundle(blob, publishRepo, publishVersion);
+      if (result.success) {
+        toast.success(`Successfully published ${publishRepo} (v${publishVersion}) to the registry!`);
+        setShowPublishModal(false);
+      } else {
+        toast.error(result.message || "Failed to publish bundle.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "An error occurred during publishing.");
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handlePublishSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!publishRepo || !publishRepo.includes("/")) {
+      toast.error("Invalid repository name. Expected 'owner/repo' format.");
+      return;
+    }
+    
+    // Check if this repository and commit/branch is already pre-indexed in the manifest
+    const commitSha = data.metadata?.commit || "";
+    if (commitSha) {
+      setIsPublishing(true);
+      try {
+        console.log(`[Publish] Checking if ${publishRepo} at commit ${commitSha} is already pre-indexed...`);
+        const manifestRes = await fetch('/api/bundles');
+        if (manifestRes.ok) {
+          const manifestData = await manifestRes.json();
+          const bundles = manifestData.bundles || [];
+          
+          const match = bundles.find((b: any) => {
+            const sameRepo = b.repo && b.repo.toLowerCase() === publishRepo.toLowerCase();
+            
+            // The commit SHA can be stored in either b.commit or b.version (e.g. Hugging Face manifest)
+            const targetCommit = (b.commit || b.version || "").toLowerCase();
+            const currentCommit = commitSha.toLowerCase();
+            
+            const sameCommit = targetCommit && (
+              currentCommit === targetCommit ||
+              currentCommit.startsWith(targetCommit) ||
+              targetCommit.startsWith(currentCommit)
+            );
+            
+            return sameRepo && sameCommit;
+          });
+
+          if (match) {
+            console.log("[Publish] Matching pre-indexed bundle found, showing custom alert dialog:", match);
+            setDuplicateBundle(match);
+            setIsPublishing(false);
+            setShowWarningAlert(true);
+            return;
+          }
+        }
+      } catch (manifestErr) {
+        console.warn("[Publish] Failed to fetch or check pre-indexed repos manifest:", manifestErr);
+      } finally {
+        setIsPublishing(false);
+      }
+    }
+
+    await executePublishFlow();
+  };
+
+  // Path traversal states
+  const [isPathMode, setIsPathMode] = useState(false);
+  const [pathSource, setPathSource] = useState<any>(null);
+  const [pathTarget, setPathTarget] = useState<any>(null);
+  const [pathError, setPathError] = useState<string | null>(null);
 
   // Code viewer state
   const [codeContent, setCodeContent] = useState<string | null>(null);
@@ -362,7 +600,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const codeBodyRef = useRef<HTMLDivElement>(null);
 
   // Legend collapsible state
-  const [legendCollapsed, setLegendCollapsed] = useState(false);
+  const [legendCollapsed, setLegendCollapsed] = useState(() => window.innerWidth < 1024);
 
   const fileContents: Record<string, string> = data.fileContents || {};
 
@@ -376,24 +614,35 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     return all;
   });
   const [showConfig, setShowConfig] = useState(false);
-  const [lineWidth, setLineWidth] = useState(0.8);
-  const [nodeSize, setNodeSize] = useState(1.0);
+  const [lineWidth, setLineWidth] = useState(0.24);
+  const [nodeSize, setNodeSize] = useState(3.0);
   const [graphMode, setGraphMode] = useState<VisualizationMode>('classic');
   const [showModeMenu, setShowModeMenu] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   // Sidebar resize / collapse
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_W);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(window.innerWidth < 768);
   const isResizing = useRef(false);
   const resizeStartX = useRef(0);
   const resizeStartW = useRef(DEFAULT_SIDEBAR_W);
 
   useEffect(() => {
-    const handleResize = () => setDimensions({
-      width: window.innerWidth,
-      height: window.innerHeight
-    });
+    const handleResize = () => {
+      const w = window.innerWidth;
+      setDimensions({
+        width: w,
+        height: window.innerHeight
+      });
+      if (w < 1024) {
+        setLegendCollapsed(true);
+      }
+      if (w < 768) {
+        setCollapsed(true);
+      }
+    };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -402,6 +651,9 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     const handler = (e: MouseEvent) => {
       if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) {
         setShowModeMenu(false);
+      }
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -463,6 +715,10 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     let max = 0;
     for (const v of dm.values()) { if (v > max) max = v; }
     return { degreeMap: dm, maxDegree: max };
+  }, [filteredData]);
+
+  useEffect(() => {
+    setSimulationReady(false);
   }, [filteredData]);
 
   const nodeCanvasObject = useCallback((node: any, ctx: any, globalScale: number) => {
@@ -774,7 +1030,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
         const pts = new Float32Array(CITY_ARC_SEGMENTS * 3);
         for (let i = 0; i < CITY_ARC_SEGMENTS; i++) {
           const t = i / (CITY_ARC_SEGMENTS - 1);
-          pts[i * 3]     = arc.sx + dx * t;
+          pts[i * 3] = arc.sx + dx * t;
           pts[i * 3 + 2] = arc.sz + dz * t;
           // Quadratic bezier Y: start rooftop → peak → end rooftop
           pts[i * 3 + 1] = (1 - t) * (1 - t) * arc.sy + 2 * (1 - t) * t * peakY + t * t * arc.ty;
@@ -960,6 +1216,18 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   };
 
   const onGraphNodeClick = (node: any) => {
+    if (isPathMode) {
+      if (!pathSource) {
+        setPathSource(node);
+      } else if (!pathTarget) {
+        setPathTarget(node);
+      } else {
+        setPathSource(node);
+        setPathTarget(null);
+        setPathError(null);
+      }
+      return;
+    }
     const filePath = node.file || node.properties?.path || node.properties?.file;
     if (!filePath) return;
     const lineNum = node.line_number ?? node.properties?.line_number;
@@ -999,6 +1267,173 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     window.addEventListener('mouseup', onUp);
   };
 
+  const calculatePath = useCallback(() => {
+    if (!pathSource || !pathTarget) return;
+
+    const sId = pathSource.id;
+    const tId = pathTarget.id;
+
+    const adj = new Map<any, Set<any>>();
+    const edgeMap = new Map<string, any>();
+
+    for (const link of filteredData.links) {
+      const u = typeof link.source === 'object' ? link.source.id : link.source;
+      const v = typeof link.target === 'object' ? link.target.id : link.target;
+      if (!adj.has(u)) adj.set(u, new Set());
+      if (!adj.has(v)) adj.set(v, new Set());
+      adj.get(u)!.add(v);
+      adj.get(v)!.add(u);
+
+      edgeMap.set(`${u}-${v}`, link);
+      edgeMap.set(`${v}-${u}`, link);
+    }
+
+    const queue: any[] = [sId];
+    const visited = new Set<any>();
+    visited.add(sId);
+    const parent = new Map<any, any>();
+
+    let found = false;
+
+    while (queue.length > 0) {
+      const curr = queue.shift()!;
+      if (curr === tId) {
+        found = true;
+        break;
+      }
+      const neighbors = adj.get(curr) || new Set();
+      for (const nxt of neighbors) {
+        if (!visited.has(nxt)) {
+          visited.add(nxt);
+          parent.set(nxt, curr);
+          queue.push(nxt);
+        }
+      }
+    }
+
+    if (!found) {
+      setPathError("No path found between these nodes.");
+      setFocusSet(null);
+      return;
+    }
+
+    setPathError(null);
+    const pathNodes = new Set<number>();
+    const pathLinks = new Set<any>();
+
+    let curr = tId;
+    pathNodes.add(curr);
+    while (curr !== sId) {
+      const p = parent.get(curr);
+      pathNodes.add(p);
+      const link = edgeMap.get(`${p}-${curr}`);
+      if (link) pathLinks.add(link);
+      curr = p;
+    }
+
+    setFocusSet({ nodes: pathNodes, links: pathLinks });
+
+    // Add extra polish: animate camera to show the path starting from the source node
+    if (fgRef.current && typeof pathSource.x === 'number') {
+      if (graphMode !== 'city3d' && graphMode !== 'graph3d') {
+        // Move camera to source node
+        fgRef.current.centerAt(pathSource.x, pathSource.y, 800);
+        fgRef.current.zoom(2.0, 800);
+      }
+    }
+  }, [pathSource, pathTarget, filteredData, graphMode]);
+
+  const highlightAIQueryResultNodes = useCallback((responseObj = aiResponse) => {
+    if (!responseObj || !responseObj.nodes) return;
+    
+    const returnedNodeIds = new Set(responseObj.nodes.map((n: any) => n.id));
+    const pathNodes = new Set<any>();
+    const pathLinks = new Set<any>();
+
+    // Add all nodes from filteredData that are in returnedNodeIds
+    filteredData.nodes.forEach((node: any) => {
+      if (returnedNodeIds.has(node.id)) {
+        pathNodes.add(node.id);
+      }
+    });
+
+    // Add all links from filteredData that connect two nodes in the focus set
+    filteredData.links.forEach((link: any) => {
+      const u = typeof link.source === 'object' ? link.source.id : link.source;
+      const v = typeof link.target === 'object' ? link.target.id : link.target;
+      if (returnedNodeIds.has(u) && returnedNodeIds.has(v)) {
+        pathLinks.add(link);
+      }
+    });
+
+    setFocusSet({ nodes: pathNodes, links: pathLinks });
+
+    // Center and zoom on focused nodes
+    if (pathNodes.size > 0 && fgRef.current) {
+      let totalX = 0;
+      let totalY = 0;
+      let count = 0;
+      filteredData.nodes.forEach((node: any) => {
+        if (pathNodes.has(node.id) && Number.isFinite(node.x) && Number.isFinite(node.y)) {
+          totalX += node.x;
+          totalY += node.y;
+          count++;
+        }
+      });
+      if (count > 0) {
+        const avgX = totalX / count;
+        const avgY = totalY / count;
+        fgRef.current.centerAt(avgX, avgY, 800);
+        fgRef.current.zoom(2.0, 800);
+      }
+    }
+  }, [aiResponse, filteredData]);
+
+  const handleAIQuerySubmit = useCallback(async () => {
+    if (!aiQuery.trim()) return;
+    setAiLoading(true);
+    setAiError(null);
+    setAiResponse(null);
+    
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const backend = searchParams.get("backend");
+      const backendUrl = backend || window.location.origin;
+      const url = `${backendUrl.replace(/\/$/, "")}/api/ai_query`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: aiQuery,
+          repo_path: data.metadata?.path || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server error (${response.status})`);
+      }
+
+      const resData = await response.json();
+      if (resData.success) {
+        setAiResponse(resData);
+        // Automatically focus and zoom to the query result nodes
+        highlightAIQueryResultNodes(resData);
+      } else {
+        setAiError(resData.error || "An error occurred during AI analysis.");
+      }
+    } catch (err: any) {
+      console.error("AI Query Error:", err);
+      setAiError(err.message);
+      toast.error("AI Query Failed: " + err.message);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [aiQuery, data, highlightAIQueryResultNodes]);
+
   const getLinkColor = useCallback((link: any) => {
     const isFocused = focusSet ? focusSet.links.has(link) : true;
     const baseColor = edgeColors[link.type] || '#ffffff';
@@ -1015,8 +1450,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     return baseColor;
   }, [focusSet, edgeColors, graphMode]);
 
-  const effectiveSidebarW = collapsed ? 0 : sidebarWidth;
-  const effectiveCodePanelW = selectedFile ? codePanelWidth : 0;
+  const effectiveSidebarW = (collapsed || dimensions.width < 768) ? 0 : sidebarWidth;
+  const effectiveCodePanelW = (selectedFile === null || dimensions.width < 768) ? 0 : codePanelWidth;
 
   return (
     <motion.div
@@ -1027,9 +1462,15 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       style={{ backgroundColor: pal.bg }}
     >
       {/* ── SIDEBAR ── */}
+      {!collapsed && dimensions.width < 768 && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[85]"
+          onClick={() => setCollapsed(true)}
+        />
+      )}
       <div
-        className="relative h-full flex-shrink-0 flex"
-        style={{ width: collapsed ? 0 : sidebarWidth, transition: isResizing.current ? 'none' : 'width 0.2s ease' }}
+        className={`h-full flex-shrink-0 flex ${dimensions.width < 768 ? 'absolute left-0 top-0 z-[90]' : 'relative'}`}
+        style={{ width: collapsed ? 0 : (dimensions.width < 768 ? Math.min(sidebarWidth, dimensions.width * 0.85) : sidebarWidth), transition: isResizing.current ? 'none' : 'width 0.2s ease' }}
       >
         <AnimatePresence>
           {!collapsed && (
@@ -1045,52 +1486,247 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
               {/* Header */}
               <div className="px-4 pt-4 pb-2 flex-shrink-0">
                 <Button
-                  onClick={onClose}
+                  onClick={() => window.location.href = "/"}
                   variant="ghost"
-                  className={`w-full justify-start mb-4 rounded-xl transition-colors text-sm ${isDark ? 'text-gray-400 hover:text-white hover:bg-white/5 border border-white/5' : 'text-gray-600 hover:text-black hover:bg-black/5 border border-black/10'}`}
+                  className={`w-full justify-start mb-4 rounded-xl transition-colors text-sm ${isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10 border border-white/5' : 'text-gray-600 hover:text-black hover:bg-black/5 border border-black/10'}`}
                 >
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Back to Dashboard
+                  <X className="w-4 h-4 mr-2 text-red-400" />
+                  Exit to Homepage
                 </Button>
 
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-bold flex items-center gap-2 tracking-tight uppercase" style={{ color: pal.text }}>
-                    <FileCode className="w-4 h-4 text-blue-400" />
-                    Project Tree
+                    {isAIMode ? (
+                      <>
+                        <MessageSquare className="w-4 h-4 text-purple-400 animate-pulse" />
+                        AI Explorer
+                      </>
+                    ) : (
+                      <>
+                        <FileCode className="w-4 h-4 text-purple-400" />
+                        Project Tree
+                      </>
+                    )}
                   </h2>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => setShowConfig(!showConfig)}
+                      onClick={() => {
+                        setIsAIMode(!isAIMode);
+                        setIsPathMode(false);
+                        setShowConfig(false);
+                      }}
+                      title="AI Knowledge Explorer"
+                      className={`p-1.5 rounded-lg transition-colors ${isAIMode ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-white hover:bg-purple-500/10'}`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsPathMode(!isPathMode);
+                        setShowConfig(false);
+                        setIsAIMode(false);
+                      }}
+                      title="Path Finder"
+                      className={`p-1.5 rounded-lg transition-colors ${isPathMode ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-white hover:bg-purple-500/10'}`}
+                    >
+                      <Route className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowConfig(!showConfig);
+                        setIsPathMode(false);
+                        setIsAIMode(false);
+                      }}
                       title="Graph Settings"
-                      className={`p-1.5 rounded-lg transition-colors ${showConfig ? 'bg-blue-500/20 text-blue-400' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                      className={`p-1.5 rounded-lg transition-colors ${showConfig ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-white hover:bg-purple-500/10'}`}
                     >
                       <Settings2 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => setCollapsed(true)}
                       title="Collapse sidebar"
-                      className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-white/5 transition-colors"
+                      className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-purple-500/10 transition-colors"
                     >
                       <PanelLeftClose className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
-                <div className="relative mb-2">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-                  <input
-                    type="text"
-                    placeholder="Filter files..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`w-full rounded-lg py-1.5 pl-9 pr-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-all ${isDark ? 'bg-white/5 border border-white/8 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
-                  />
-                </div>
+                {!isAIMode && (
+                  <div className="relative mb-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+                    <input
+                      type="text"
+                      placeholder="Filter files..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className={`w-full rounded-lg py-1.5 pl-9 pr-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all ${isDark ? 'bg-white/5 border border-white/8 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
+                    />
+                  </div>
+                )}
               </div>
 
-              {/* Tree / Config */}
+              {/* Tree / Config / Path Mode */}
               <div className="flex-1 overflow-y-auto px-2 py-1 custom-scrollbar">
-                {showConfig ? (
+                {isAIMode ? (
+                  <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
+                    <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                      <MessageSquare className="w-3 h-3 text-purple-400 animate-pulse" /> AI Knowledge Explorer
+                    </h3>
+                    <p className="text-[11px] text-gray-400 leading-relaxed">Ask natural language questions about your repository's code graph.</p>
+
+                    <div className="space-y-2 mt-2">
+                      <textarea
+                        placeholder="e.g., Which modules depend on AuthenticationService?"
+                        value={aiQuery}
+                        onChange={(e) => setAiQuery(e.target.value)}
+                        className={`w-full rounded-lg p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all min-h-[80px] resize-none ${isDark ? 'bg-white/5 border border-white/10 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
+                      />
+                      <Button
+                        size="sm"
+                        className="w-full text-xs bg-purple-500 hover:bg-purple-600 text-white flex items-center justify-center gap-2 py-2"
+                        disabled={aiLoading || !aiQuery.trim()}
+                        onClick={handleAIQuerySubmit}
+                      >
+                        {aiLoading ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Analyzing Code Graph...
+                          </>
+                        ) : (
+                          "Ask Assistant"
+                        )}
+                      </Button>
+                    </div>
+
+                    {/* Quick templates */}
+                    <div className="space-y-1.5 pt-2">
+                      <label className="text-[9px] text-gray-500 uppercase font-black tracking-wider block mb-1">Example Queries</label>
+                      <div className="space-y-1">
+                        {[
+                          "Which modules depend on AuthenticationService?",
+                          "Show all database-related components.",
+                          "What files would be affected if I modify UserController?",
+                          "Which classes have the highest dependency count?",
+                          "Show shortest path between API Gateway and Database Layer.",
+                          "Explain the repository architecture."
+                        ].map((q, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => setAiQuery(q)}
+                            className={`w-full text-left text-[10.5px] p-2 rounded-lg transition-colors border text-gray-400 hover:text-white ${isDark ? 'bg-white/5 border-white/5 hover:border-purple-500/30 hover:bg-purple-500/10' : 'bg-black/5 border-black/10 hover:border-purple-500/30 hover:bg-purple-500/5'}`}
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {aiError && (
+                      <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg mt-2 font-mono uppercase tracking-wide leading-normal">
+                        {aiError}
+                      </div>
+                    )}
+
+                    {aiResponse && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-4 pt-4 border-t border-white/10"
+                      >
+                        {aiResponse.translation_explanation && (
+                          <div className="p-2.5 rounded-lg bg-purple-500/5 border border-purple-500/10 text-[11px] text-purple-300 font-mono">
+                            <div className="font-bold text-[9px] uppercase tracking-wider text-purple-400 mb-1">Generated Cypher Query</div>
+                            <pre className="overflow-x-auto whitespace-pre-wrap select-all p-2 bg-black/40 rounded border border-white/5 text-[9.5px] max-h-[120px] custom-scrollbar">
+                              {aiResponse.cypher_query}
+                            </pre>
+                            <div className="mt-1.5 text-[9.5px] text-gray-500 leading-normal">{aiResponse.translation_explanation}</div>
+                          </div>
+                        )}
+
+                        <div className="space-y-2">
+                          <div className="font-bold text-[9px] uppercase tracking-wider text-gray-400 block mb-1">AI Explanation</div>
+                          <div className="whitespace-pre-wrap leading-relaxed text-[11.5px] text-gray-300 select-text p-3 rounded-lg bg-white/5 border border-white/10 font-sans max-h-[300px] overflow-y-auto custom-scrollbar">
+                            {aiResponse.explanation}
+                          </div>
+                        </div>
+
+                        {aiResponse.nodes && aiResponse.nodes.length > 0 && (
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="w-full text-xs"
+                              onClick={() => setFocusSet(null)}
+                            >
+                              Clear Highlights
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="w-full text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30"
+                              onClick={() => highlightAIQueryResultNodes(aiResponse)}
+                            >
+                              Refocus Nodes ({aiResponse.nodes.length})
+                            </Button>
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </motion.div>
+                ) : isPathMode ? (
+                  <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
+                    <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <Route className="w-3 h-3" /> Path Traversal
+                    </h3>
+                    <p className="text-xs text-gray-400">Select two nodes in the graph to find the shortest path between them.</p>
+
+                    <div className="space-y-3 mt-4">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Source Node</label>
+                        <div className={`text-sm px-3 py-2 rounded-lg border ${pathSource ? (isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-black/5 border-black/10 text-black') : 'bg-transparent border-dashed border-gray-600 text-gray-500'}`}>
+                          {pathSource ? pathSource.name : "Click a node in the graph..."}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Target Node</label>
+                        <div className={`text-sm px-3 py-2 rounded-lg border ${pathTarget ? (isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-black/5 border-black/10 text-black') : 'bg-transparent border-dashed border-gray-600 text-gray-500'}`}>
+                          {pathTarget ? pathTarget.name : "Click a node in the graph..."}
+                        </div>
+                      </div>
+                    </div>
+
+                    {pathError && (
+                      <div className="mt-4 p-2 bg-red-500/20 text-red-400 text-xs rounded-lg border border-red-500/20">
+                        {pathError}
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 mt-4">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="w-full text-xs"
+                        onClick={() => {
+                          setPathSource(null);
+                          setPathTarget(null);
+                          setPathError(null);
+                          setFocusSet(null);
+                        }}
+                      >
+                        Clear
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="w-full text-xs bg-purple-500 hover:bg-purple-600 text-white"
+                        disabled={!pathSource || !pathTarget}
+                        onClick={calculatePath}
+                      >
+                        Find Path
+                      </Button>
+                    </div>
+                  </motion.div>
+                ) : showConfig ? (
                   <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-6">
                     <div>
                       <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -1100,18 +1736,18 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                       <div className="mb-6 px-1">
                         <label className="text-[10px] text-gray-400 uppercase font-bold tracking-widest block mb-2">Node Size: {nodeSize.toFixed(1)}x</label>
                         <input
-                          type="range" min="0.2" max="4.0" step="0.1" value={nodeSize}
+                          type="range" min="0.5" max="8.0" step="0.1" value={nodeSize}
                           onChange={(e) => setNodeSize(parseFloat(e.target.value))}
                           className="w-full accent-purple-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
                         />
                       </div>
 
                       <div className="mb-6 px-1">
-                        <label className="text-[10px] text-gray-400 uppercase font-bold tracking-widest block mb-2">Edge Width: {lineWidth.toFixed(1)}px</label>
+                        <label className="text-[10px] text-gray-400 uppercase font-bold tracking-widest block mb-2">Edge Width: {lineWidth.toFixed(2)}px</label>
                         <input
-                          type="range" min="0.2" max="3.0" step="0.1" value={lineWidth}
+                          type="range" min="0.05" max="3.0" step="0.05" value={lineWidth}
                           onChange={(e) => setLineWidth(parseFloat(e.target.value))}
-                          className="w-full accent-blue-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                          className="w-full accent-purple-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
                         />
                       </div>
 
@@ -1121,7 +1757,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                             <div className="flex items-center gap-3">
                               <button
                                 onClick={() => toggleNodeType(type)}
-                                className={`p-1 rounded transition-colors ${visibleNodeTypes.has(type) ? 'text-blue-400 bg-blue-500/10' : 'text-gray-600'}`}
+                                className={`p-1 rounded transition-colors ${visibleNodeTypes.has(type) ? 'text-purple-400 bg-purple-500/10' : 'text-gray-600'}`}
                               >
                                 {visibleNodeTypes.has(type) ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                               </button>
@@ -1182,13 +1818,13 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
         </AnimatePresence>
 
         {/* ── Drag Handle ── */}
-        {!collapsed && (
+        {!collapsed && dimensions.width >= 768 && (
           <div
             onMouseDown={onDragStart}
             className="absolute right-0 top-0 h-full w-1 cursor-col-resize z-[80] group flex items-center justify-center"
             title="Drag to resize"
           >
-            <div className="w-0.5 h-full bg-white/5 group-hover:bg-blue-500/50 transition-colors duration-150" />
+            <div className="w-0.5 h-full bg-white/5 group-hover:bg-purple-500/50 transition-colors duration-150" />
           </div>
         )}
       </div>
@@ -1198,7 +1834,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
         <button
           onClick={() => setCollapsed(false)}
           title="Expand sidebar"
-          className={`absolute left-0 top-1/2 -translate-y-1/2 z-[80] transition-all rounded-r-xl p-2 shadow-2xl ${isDark ? 'bg-[#0d0d0d] border border-white/10 hover:border-blue-500/40 hover:bg-white/5 text-gray-400 hover:text-white' : 'bg-white border border-black/10 hover:border-blue-500/40 hover:bg-black/5 text-gray-500 hover:text-black'}`}
+          className={`absolute left-0 top-1/2 -translate-y-1/2 z-[80] transition-all rounded-r-xl p-2 shadow-2xl ${isDark ? 'bg-[#0d0d0d] border border-white/10 hover:border-purple-500/40 hover:bg-purple-500/10 text-gray-400 hover:text-white' : 'bg-white border border-black/10 hover:border-purple-500/40 hover:bg-black/5 text-gray-500 hover:text-black'}`}
         >
           <PanelLeftOpen className="w-4 h-4" />
         </button>
@@ -1208,83 +1844,289 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       <div className={`flex-1 relative overflow-hidden ${isDark ? 'bg-[radial-gradient(circle_at_center,_#0a0a0a_0%,_#000_100%)]' : 'bg-[radial-gradient(circle_at_center,_#f0f0f2_0%,_#e8e8ec_100%)]'}`}>
 
         {/* Top Right Badges */}
-        <div className="absolute top-6 right-6 z-[60] flex flex-col md:flex-row items-end md:items-center gap-3">
-          {/* Theme Toggle */}
+        <div className="absolute top-6 right-6 z-[60] flex items-center gap-2">
+          {/* Theme Toggle (Always Visible) */}
           <button
             onClick={() => setTheme(isDark ? 'light' : 'dark')}
-            className={`flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-white/10 border-white/10 text-yellow-300' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
+            className={`flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-purple-500/20 border-white/10 text-yellow-300' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
 
-          {/* Mode Selector Dropdown */}
-          <div ref={modeMenuRef} className="relative">
-            <button
-              onClick={() => setShowModeMenu(v => !v)}
-              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
-            >
-              <Layers className="w-3.5 h-3.5 text-purple-400" />
-              {VISUALIZATION_MODES.find(m => m.id === graphMode)?.name}
-              <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${showModeMenu ? 'rotate-180' : ''}`} />
-            </button>
-            <AnimatePresence>
-              {showModeMenu && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -8, scale: 0.96 }}
-                  transition={{ duration: 0.15 }}
-                  className={`absolute right-0 top-full mt-2 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden min-w-[280px] py-1.5 z-[100] ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
-                >
-                  {VISUALIZATION_MODES.map(mode => (
+          {/* Desktop Top Right Badges */}
+          <div className="hidden md:flex items-center gap-3">
+            {/* Export Menu Dropdown */}
+            <div ref={exportMenuRef} className="relative">
+              <button
+                onClick={() => setShowExportMenu(v => !v)}
+                className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+                title="Export graph data and visualizations"
+              >
+                <Download className="w-3.5 h-3.5 text-purple-400" />
+                Export
+                <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} />
+              </button>
+              <AnimatePresence>
+                {showExportMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                    transition={{ duration: 0.15 }}
+                    className={`absolute right-0 top-full mt-2 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden min-w-[200px] py-1.5 z-[100] flex flex-col ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
+                  >
+                    {/* Export HTML Button */}
                     <button
-                      key={mode.id}
-                      onClick={() => { setGraphMode(mode.id); setShowModeMenu(false); }}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer ${
-                        graphMode === mode.id
-                          ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
-                          : (isDark ? 'text-gray-400 hover:text-white hover:bg-white/5' : 'text-gray-500 hover:text-black hover:bg-black/5')
-                      }`}
+                      onClick={() => { handleHtmlExport(); setShowExportMenu(false); }}
+                      className={`flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-purple-500/10 text-white' : 'hover:bg-black/5 text-gray-800'}`}
+                      title="Download interactive HTML graph"
                     >
-                      <div
-                        className="w-3 h-3 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: mode.previewColor, boxShadow: `0 0 8px ${mode.previewColor}` }}
-                      />
-                      <div className="text-left flex-1 min-w-0">
-                        <div className="text-[12px] font-bold tracking-wide">{mode.name}</div>
-                        <div className="text-[10px] text-gray-500">{mode.description}</div>
+                      <Download className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-bold">Interactive HTML</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Self-contained browser view</span>
                       </div>
-                      {graphMode === mode.id && (
-                        <Check className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-                      )}
                     </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
+
+                    {/* Export SVG Button */}
+                    <button
+                      onClick={() => { handleSvgExport(); setShowExportMenu(false); }}
+                      disabled={!simulationReady}
+                      className={`flex items-center gap-3 px-4 py-2.5 transition-all text-left w-full ${!simulationReady ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isDark ? 'hover:bg-purple-500/10 text-white' : 'hover:bg-black/5 text-gray-800'}`}
+                      title={simulationReady ? "Download SVG snapshot" : "Waiting for simulation to stabilize..."}
+                    >
+                      <Download className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-bold">Vector SVG</span>
+                        <span className="text-[10px] text-gray-500 font-normal">High-res 2D snapshot</span>
+                      </div>
+                    </button>
+
+                    {/* Export CGC Button */}
+                    <button
+                      onClick={() => { handleExport(); setShowExportMenu(false); }}
+                      className={`flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-purple-500/10 text-white' : 'hover:bg-black/5 text-gray-800'}`}
+                      title="Download code graph as a .cgc file"
+                    >
+                      <Download className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-bold">CGC Bundle</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Raw graph context bundle</span>
+                      </div>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Publish Button */}
+            <button
+              onClick={() => {
+                setPublishRepo(defaultRepoName);
+                setPublishVersion(data.metadata?.version || "1.0.0");
+                setShowPublishModal(true);
+              }}
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              title="Publish this graph to the public registry"
+            >
+              <UploadCloud className="w-3.5 h-3.5 text-green-400" />
+              Publish
+            </button>
+
+            {/* ChatGPT Tunnel Button */}
+            <button
+              onClick={handleConnectChatGPT}
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              title="Open the CGC ChatGPT GPT. Keep this cgc.codes tab focused (not behind ChatGPT) so the signaling tunnel stays online."
+            >
+              <div className="w-2 h-2 rounded-full bg-amber-500/80 shadow-[0_0_6px_#f59e0b]" title="Tunnel status is not shown here — keep this tab active while using ChatGPT" />
+              <MessageSquare className="w-3.5 h-3.5 text-purple-400" />
+              ChatGPT
+            </button>
+
+            {/* Mode Selector Dropdown */}
+            <div ref={modeMenuRef} className="relative">
+              <button
+                onClick={() => setShowModeMenu(v => !v)}
+                className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              >
+                <Layers className="w-3.5 h-3.5 text-purple-400" />
+                {VISUALIZATION_MODES.find(m => m.id === graphMode)?.name}
+                <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${showModeMenu ? 'rotate-180' : ''}`} />
+              </button>
+              <AnimatePresence>
+                {showModeMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                    transition={{ duration: 0.15 }}
+                    className={`absolute right-0 top-full mt-2 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden min-w-[280px] py-1.5 z-[100] ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
+                  >
+                    {VISUALIZATION_MODES.map(mode => (
+                      <button
+                        key={mode.id}
+                        onClick={() => { setGraphMode(mode.id); setShowModeMenu(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer ${graphMode === mode.id
+                            ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
+                            : (isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10' : 'text-gray-500 hover:text-black hover:bg-black/5')
+                          }`}
+                      >
+                        <div
+                          className="w-3 h-3 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: mode.previewColor, boxShadow: `0 0 8px ${mode.previewColor}` }}
+                        />
+                        <div className="text-left flex-1 min-w-0">
+                          <div className="text-[12px] font-bold tracking-wide">{mode.name}</div>
+                          <div className="text-[10px] text-gray-500">{mode.description}</div>
+                        </div>
+                        {graphMode === mode.id && (
+                          <Check className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+                        )}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <a
+              href="https://github.com/CodeGraphContext/CodeGraphContext"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+            >
+              <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+              Star on GitHub
+            </a>
+            <div className={`text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 text-gray-400 border-white/10' : 'bg-white/80 text-gray-500 border-black/10'}`}>
+              Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 transition-colors">shashankss1205</a>
+            </div>
           </div>
 
-          <a
-            href="https://github.com/CodeGraphContext/CodeGraphContext"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+          {/* Mobile Hamburger Menu Toggle */}
+          <button
+            onClick={() => setShowMobileMenu(prev => !prev)}
+            className={`md:hidden flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-purple-500/20 border-white/10 text-white' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
+            title="Toggle Menu"
           >
-            <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
-            Star on GitHub
-          </a>
-          <div className={`text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 text-gray-400 border-white/10' : 'bg-white/80 text-gray-500 border-black/10'}`}>
-            Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 transition-colors">shashankss1205</a>
-          </div>
+            {showMobileMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+          </button>
+
+          {/* Mobile Dropdown Panel */}
+          <AnimatePresence>
+            {showMobileMenu && (
+              <motion.div
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className={`absolute right-0 top-full mt-2 backdrop-blur-2xl border rounded-2xl shadow-2xl overflow-hidden min-w-[200px] p-3 z-[100] flex flex-col gap-2.5 ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
+              >
+                {/* Mobile Export HTML */}
+                <button
+                  onClick={() => { handleHtmlExport(); setShowMobileMenu(false); }}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                >
+                  <Download className="w-3.5 h-3.5 text-green-400" />
+                  Export HTML
+                </button>
+
+                {/* Mobile Export SVG */}
+                <button
+                  onClick={() => { handleSvgExport(); setShowMobileMenu(false); }}
+                  disabled={!simulationReady}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all text-left w-full ${!simulationReady ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                >
+                  <Download className="w-3.5 h-3.5 text-purple-400" />
+                  Export SVG
+                </button>
+
+                {/* Mobile Export */}
+                <button
+                  onClick={() => { handleExport(); setShowMobileMenu(false); }}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                >
+                  <Download className="w-3.5 h-3.5 text-purple-400" />
+                  Export CGC
+                </button>
+
+                {/* Mobile Publish */}
+                <button
+                  onClick={() => {
+                    setPublishRepo(defaultRepoName);
+                    setPublishVersion(data.metadata?.version || "1.0.0");
+                    setShowPublishModal(true);
+                    setShowMobileMenu(false);
+                  }}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                >
+                  <UploadCloud className="w-3.5 h-3.5 text-green-400" />
+                  Publish Graph
+                </button>
+
+                {/* Mobile ChatGPT Tunnel */}
+                <button
+                  onClick={() => {
+                    handleConnectChatGPT();
+                    setShowMobileMenu(false);
+                  }}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all text-left w-full ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                >
+                  <div className="w-2 h-2 rounded-full bg-amber-500/80 shadow-[0_0_6px_#f59e0b]" />
+                  <MessageSquare className="w-3.5 h-3.5 text-purple-400" />
+                  ChatGPT Tunnel
+                </button>
+
+                {/* Mobile Mode Selector */}
+                <div className="border-t border-white/5 my-0.5" />
+                <div className="px-2 text-[8px] uppercase tracking-widest font-bold text-gray-500">Visualization Mode</div>
+                {VISUALIZATION_MODES.map(mode => (
+                  <button
+                    key={mode.id}
+                    onClick={() => { setGraphMode(mode.id); setShowMobileMenu(false); }}
+                    className={`flex items-center gap-3 px-3 py-1.5 rounded-lg transition-all text-left cursor-pointer ${graphMode === mode.id
+                        ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
+                        : (isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10' : 'text-gray-500 hover:text-black hover:bg-black/5')
+                      }`}
+                  >
+                    <div
+                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: mode.previewColor }}
+                    />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">{mode.name}</span>
+                  </button>
+                ))}
+
+                {/* Mobile Star */}
+                <div className="border-t border-white/5 my-0.5" />
+                <a
+                  href="https://github.com/CodeGraphContext/CodeGraphContext"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-850'}`}
+                  onClick={() => setShowMobileMenu(false)}
+                >
+                  <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+                  Star on GitHub
+                </a>
+
+                {/* Mobile Made By */}
+                <div className="text-[9px] uppercase tracking-widest text-center mt-1 text-gray-500 py-1 border-t border-white/5">
+                  Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 font-bold transition-colors">shashankss1205</a>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Zoom Controls */}
         <div className="absolute top-6 left-6 z-[60] flex flex-col gap-4">
           <div className={`flex flex-col border backdrop-blur-xl rounded-2xl overflow-hidden shadow-2xl ${isDark ? 'bg-black/60 border-white/10' : 'bg-white/80 border-black/10'}`}>
-            <button onClick={() => handleZoom(1.4)} className={`p-3 transition-colors ${isDark ? 'hover:bg-white/10 text-gray-300 border-b border-white/5' : 'hover:bg-black/5 text-gray-600 border-b border-black/5'}`}><ZoomIn className="w-5 h-5" /></button>
-            <button onClick={() => fgRef.current?.zoomToFit(600, 100)} className={`p-3 transition-colors ${isDark ? 'hover:bg-white/10 text-gray-300 border-b border-white/5' : 'hover:bg-black/5 text-gray-600 border-b border-black/5'}`}><Maximize className="w-5 h-5" /></button>
-            <button onClick={() => handleZoom(0.7)} className={`p-3 transition-colors ${isDark ? 'hover:bg-white/10 text-gray-300' : 'hover:bg-black/5 text-gray-600'}`}><ZoomOut className="w-5 h-5" /></button>
+            <button onClick={() => handleZoom(1.4)} className={`p-3 transition-colors ${isDark ? 'hover:bg-purple-500/20 text-gray-300 border-b border-white/5' : 'hover:bg-black/5 text-gray-600 border-b border-black/5'}`}><ZoomIn className="w-5 h-5" /></button>
+            <button onClick={() => fgRef.current?.zoomToFit(600, 100)} className={`p-3 transition-colors ${isDark ? 'hover:bg-purple-500/20 text-gray-300 border-b border-white/5' : 'hover:bg-black/5 text-gray-600 border-b border-black/5'}`}><Maximize className="w-5 h-5" /></button>
+            <button onClick={() => handleZoom(0.7)} className={`p-3 transition-colors ${isDark ? 'hover:bg-purple-500/20 text-gray-300' : 'hover:bg-black/5 text-gray-600'}`}><ZoomOut className="w-5 h-5" /></button>
           </div>
 
           <AnimatePresence>
@@ -1302,8 +2144,15 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
           </AnimatePresence>
         </div>
 
+        <div className="mt-1 mb-4 flex justify-center">
+          <div className="w-full max-w-[1330px]">
+            <RepositorySummary graphData={data} isIndexed={true} />
+          </div>
+        </div>
+
         {graphMode === 'city3d' ? (
           <>
+
             <ForceGraph3D
               ref={fgRef}
               graphData={city3dData}
@@ -1349,8 +2198,12 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
             height={dimensions.height}
             backgroundColor={pal.canvasBg}
             nodeThreeObject={graph3dNodeThreeObject}
-            nodeThreeObjectExtend={false}
-            nodeLabel={(n: any) => `${n.type}: ${n.name}`}
+            nodeLabel={(n: any) => {
+              let label = `${n.type}: ${n.name}`;
+              if (n.complexity) label += `\nComplexity: ${n.complexity}`;
+              if (n.docstring) label += `\n\n${n.docstring.slice(0, 100)}${n.docstring.length > 100 ? '...' : ''}`;
+              return label;
+            }}
             linkColor={graph3dLinkColor}
             linkWidth={lineWidth * 0.5}
             linkOpacity={0.4}
@@ -1376,15 +2229,23 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
         ) : (
           <ForceGraph2D
             ref={fgRef}
+            onEngineStop={() => setSimulationReady(true)}
             graphData={filteredData}
             width={dimensions.width - effectiveSidebarW - effectiveCodePanelW}
             height={dimensions.height}
-            nodeLabel="name"
+            nodeLabel={(n: any) => {
+              let label = `${n.type}: ${n.name}`;
+              if (n.complexity) label += ` (Complexity: ${n.complexity})`;
+              if (n.decorators?.length) label += `\n@${n.decorators.join('\n@')}`;
+              if (n.docstring) label += `\n\n${n.docstring.slice(0, 150)}${n.docstring.length > 150 ? '...' : ''}`;
+              return label;
+            }}
+            linkCurvature={graphMode === 'curvy' ? 0.25 : 0}
             linkColor={getLinkColor}
             linkWidth={
               graphMode === 'galaxy' ? 0.7
-              : graphMode === 'neon' ? lineWidth * 1.2
-              : lineWidth
+                : graphMode === 'neon' ? lineWidth * 1.2
+                  : lineWidth
             }
             linkDirectionalParticles={
               graphMode === 'galaxy'
@@ -1413,45 +2274,55 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
           />
         )}
 
-        {/* Legend Overlay */}
+        {/* Floating Controls Overlay (Bottom Right) */}
         {!showConfig && (
           <div
-            className={`absolute bottom-6 z-[60] backdrop-blur-3xl border rounded-2xl shadow-2xl pointer-events-auto ${isDark ? 'bg-black/50 border-white/10' : 'bg-white/80 border-black/10'}`}
-            style={{ right: selectedFile ? codePanelWidth + 24 : 24 }}
+            className="absolute bottom-6 z-[60] flex flex-col gap-4 pointer-events-none items-end max-w-xs md:max-w-sm"
+            style={{ right: (selectedFile && dimensions.width >= 768) ? codePanelWidth + 24 : 24 }}
           >
+            {/* Legend Overlay */}
             <div
-              className={`flex items-center justify-between px-5 pt-4 ${legendCollapsed ? 'pb-4' : 'pb-2'} cursor-pointer transition-colors rounded-t-2xl ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}
-              onClick={() => setLegendCollapsed(v => !v)}
+              className={`pointer-events-auto backdrop-blur-3xl border rounded-2xl shadow-2xl ${isDark ? 'bg-black/50 border-white/10' : 'bg-white/80 border-black/10'}`}
             >
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 flex items-center gap-2">
-                <span>Graph Legend</span>
-              </p>
-              <div className="flex items-center gap-2">
-                <span
-                  className="text-blue-400/50 text-[10px] font-bold uppercase tracking-widest cursor-pointer"
-                  onClick={(e) => { e.stopPropagation(); setShowConfig(true); }}
-                >
-                  Filters
-                </span>
-                <ChevronUp className={`w-3 h-3 text-gray-500 transition-transform ${legendCollapsed ? 'rotate-180' : ''}`} />
+              <div
+                className={`flex items-center justify-between px-5 pt-4 ${legendCollapsed ? 'pb-4' : 'pb-2'} cursor-pointer transition-colors rounded-t-2xl ${isDark ? 'hover:bg-purple-500/10' : 'hover:bg-black/5'}`}
+                onClick={() => setLegendCollapsed(v => !v)}
+              >
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 flex items-center gap-2">
+                  <span>Graph Legend</span>
+                </p>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="text-purple-400/50 text-[10px] font-bold uppercase tracking-widest cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowConfig(true);
+                      setCollapsed(false);
+                      setIsPathMode(false);
+                    }}
+                  >
+                    Filters
+                  </span>
+                  <ChevronUp className={`w-3 h-3 text-gray-500 transition-transform ${legendCollapsed ? 'rotate-180' : ''}`} />
+                </div>
               </div>
+              {!legendCollapsed && (
+                <div className="flex flex-wrap gap-x-5 gap-y-3 justify-end px-5 pb-4 max-w-lg">
+                  {Object.keys(DEFAULT_NODE_COLORS).map(type => (
+                    <div key={type} className="flex items-center gap-2">
+                      {graphMode === 'icon' ? (
+                        <span className="text-[12px]">{EMOJI_MAP[type] || '❓'}</span>
+                      ) : (
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: nodeColors[type], boxShadow: `0 0 8px ${nodeColors[type]}` }} />
+                      )}
+                      <span className={`text-[10px] font-bold uppercase tracking-widest ${visibleNodeTypes.has(type) ? (isDark ? 'text-gray-300' : 'text-gray-700') : 'text-gray-500 line-through'}`}>
+                        {type}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            {!legendCollapsed && (
-              <div className="flex flex-wrap gap-x-5 gap-y-3 justify-end px-5 pb-4 max-w-lg">
-                {Object.keys(DEFAULT_NODE_COLORS).map(type => (
-                  <div key={type} className="flex items-center gap-2">
-                    {graphMode === 'icon' ? (
-                      <span className="text-[12px]">{EMOJI_MAP[type] || '❓'}</span>
-                    ) : (
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: nodeColors[type], boxShadow: `0 0 8px ${nodeColors[type]}` }} />
-                    )}
-                    <span className={`text-[10px] font-bold uppercase tracking-widest ${visibleNodeTypes.has(type) ? (isDark ? 'text-gray-300' : 'text-gray-700') : 'text-gray-500 line-through'}`}>
-                      {type}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -1459,120 +2330,400 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       {/* ── CODE VIEWER PANEL ── */}
       <AnimatePresence>
         {selectedFile && (
-          <motion.div
-            key="code-panel"
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: codePanelWidth, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="relative h-full flex-shrink-0 flex z-[70] shadow-2xl overflow-hidden"
-            style={{ backgroundColor: pal.panelBg, borderLeft: `1px solid ${pal.border}` }}
-          >
-            {/* drag handle (left edge) */}
-            <div
-              onMouseDown={onCodeDragStart}
-              className="absolute left-0 top-0 h-full w-1 cursor-col-resize z-[80] group flex items-center justify-center"
+          <>
+            {dimensions.width < 768 && (
+              <div
+                className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[85]"
+                onClick={() => onFileClick(null)}
+              />
+            )}
+            <motion.div
+              key="code-panel"
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: dimensions.width < 768 ? Math.min(codePanelWidth, dimensions.width * 0.85) : codePanelWidth, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className={`h-full flex-shrink-0 flex z-[90] shadow-2xl overflow-hidden ${dimensions.width < 768 ? 'absolute right-0 top-0' : 'relative'}`}
+              style={{ backgroundColor: pal.panelBg, borderLeft: `1px solid ${pal.border}` }}
             >
-              <div className="w-0.5 h-full bg-white/5 group-hover:bg-blue-500/50 transition-colors duration-150" />
-            </div>
+              {/* drag handle (left edge) */}
+              {dimensions.width >= 768 && (
+                <div
+                  onMouseDown={onCodeDragStart}
+                  className="absolute left-0 top-0 h-full w-1 cursor-col-resize z-[80] group flex items-center justify-center"
+                >
+                  <div className="w-0.5 h-full bg-white/5 group-hover:bg-purple-500/50 transition-colors duration-150" />
+                </div>
+              )}
 
-            <div className="flex flex-col w-full overflow-hidden">
-              {/* header */}
-              <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${pal.border}` }}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <Code2 className="w-4 h-4 text-blue-400 flex-shrink-0" />
-                  <span className="text-[13px] font-bold truncate" style={{ color: pal.text }}>
-                    {selectedFile.split('/').pop()}
-                  </span>
+              <div className="flex flex-col w-full overflow-hidden">
+                {/* header */}
+                <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${pal.border}` }}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Code2 className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                    <span className="text-[13px] font-bold truncate" style={{ color: pal.text }}>
+                      {selectedFile.split('/').pop()}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => onFileClick(null)}
+                    className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${isDark ? 'text-gray-500 hover:text-white hover:bg-purple-500/20' : 'text-gray-400 hover:text-black hover:bg-black/10'}`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* path breadcrumb + tabs */}
+                <div className="flex items-center gap-0 px-4 py-0 text-[10px] font-mono flex-shrink-0" style={{ borderBottom: `1px solid ${pal.border}` }}>
+                  <span className="text-gray-500 truncate flex-1 py-1.5">{selectedFile}</span>
+                  <div className="flex ml-2 flex-shrink-0">
+                    <button
+                      onClick={() => setCodePanelTab('code')}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'code' ? 'text-purple-400 border-b-2 border-purple-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
+                    >
+                      Code
+                    </button>
+                    <button
+                      onClick={() => setCodePanelTab('entities')}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'entities' ? 'text-purple-400 border-b-2 border-purple-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
+                    >
+                      Entities
+                    </button>
+                  </div>
+                </div>
+
+                {/* body */}
+                <div ref={codeBodyRef} className="flex-1 overflow-auto custom-scrollbar">
+                  {codePanelTab === 'code' ? (
+                    codeContent !== null ? (
+                      <pre className={`p-4 text-[12px] leading-[1.65] font-mono whitespace-pre overflow-x-auto ${isDark ? 'text-gray-300' : 'text-gray-800'}`}>
+                        {codeContent.split('\n').map((line, i) => {
+                          const lineNum = i + 1;
+                          const isHL = highlightLine === lineNum;
+                          return (
+                            <div
+                              key={i}
+                              data-line={lineNum}
+                              className={`flex ${isHL ? (isDark ? 'bg-yellow-400/10' : 'bg-yellow-300/20') : (isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-black/[0.03]')}`}
+                            >
+                              <span className={`inline-block w-10 text-right pr-4 select-none flex-shrink-0 ${isHL ? 'text-yellow-400 font-bold' : (isDark ? 'text-gray-600' : 'text-gray-400')}`}>{lineNum}</span>
+                              <span>{line || ' '}</span>
+                            </div>
+                          );
+                        })}
+                      </pre>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-40 text-gray-500 text-[12px]">
+                        <p>{codeError || 'No source available'}</p>
+                      </div>
+                    )
+                  ) : (
+                    <div className="p-4">
+                      <div className="space-y-1">
+                        {fileEntities.map((n: any) => {
+                          const lineNum = n.line_number ?? n.properties?.line_number;
+                          return (
+                            <>
+                              <div
+                                key={n.id}
+                                onClick={() => { if (lineNum && codeContent) { setHighlightLine(Number(lineNum)); setCodePanelTab('code'); } }}
+                                className={`flex items-center gap-2 py-1.5 px-2 rounded-lg ${isDark ? 'hover:bg-purple-500/10' : 'hover:bg-black/5'} ${lineNum && codeContent ? 'cursor-pointer' : ''}`}
+                              >
+                                {graphMode === 'icon' ? (
+                                  <span className="text-[14px] flex-shrink-0">{EMOJI_MAP[n.type] || '❓'}</span>
+                                ) : (
+                                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: nodeColors[n.type] || '#78909c' }} />
+                                )}
+                                <span className="text-[12px] font-medium truncate" style={{ color: pal.textSecondary }}>{n.name}</span>
+                                <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
+                                  {n.complexity && (
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${n.complexity > 10 ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'}`}>
+                                      C:{n.complexity}
+                                    </span>
+                                  )}
+                                  <span className="text-[9px] uppercase tracking-wider" style={{ color: pal.dimText }}>
+                                    {n.type}{lineNum ? `:${lineNum}` : ''}
+                                  </span>
+                                </div>
+                              </div>
+                              {n.decorators?.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1 px-2">
+                                  {n.decorators.map((d: string, i: number) => (
+                                    <span key={i} className="text-[8px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-400 font-mono">@{d.replace(/^@/, '')}</span>
+                                  ))}
+                                </div>
+                              )}
+                              {n.docstring && (
+                                <div className="mt-1 px-2 text-[9px] text-gray-500 line-clamp-2 italic">
+                                  "{n.docstring}"
+                                </div>
+                              )}
+                            </>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* footer */}
+                <div className={`px-4 py-2 text-[10px] text-gray-500 uppercase tracking-widest font-black flex-shrink-0 ${isDark ? 'border-t border-white/5 bg-black/40' : 'border-t border-black/5 bg-gray-50'}`}>
+                  {fileEntities.length} entities
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── PUBLISH MODAL ── */}
+      <AnimatePresence>
+        {showPublishModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !isPublishing && setShowPublishModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-md"
+            />
+
+            {/* Dialog Panel */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${
+                isDark 
+                  ? "bg-zinc-950/80 border-zinc-800 text-white" 
+                  : "bg-white/90 border-zinc-200 text-zinc-900"
+              }`}
+            >
+              {/* Subtle top glow bar */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-white" />
+
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-lg font-bold tracking-tight">Publish Code Graph</h3>
+                  <p className={`text-xs mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}`}>
+                    Register this bundle in the public search index.
+                  </p>
                 </div>
                 <button
-                  onClick={() => onFileClick(null)}
-                  className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${isDark ? 'text-gray-500 hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-black hover:bg-black/10'}`}
+                  disabled={isPublishing}
+                  onClick={() => setShowPublishModal(false)}
+                  className={`p-1.5 rounded-full transition-colors ${
+                    isDark ? "hover:bg-purple-500/20 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
+                  }`}
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* path breadcrumb + tabs */}
-              <div className="flex items-center gap-0 px-4 py-0 text-[10px] font-mono flex-shrink-0" style={{ borderBottom: `1px solid ${pal.border}` }}>
-                <span className="text-gray-500 truncate flex-1 py-1.5">{selectedFile}</span>
-                <div className="flex ml-2 flex-shrink-0">
-                  <button
-                    onClick={() => setCodePanelTab('code')}
-                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'code' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
-                  >
-                    Code
-                  </button>
-                  <button
-                    onClick={() => setCodePanelTab('entities')}
-                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'entities' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
-                  >
-                    Entities
-                  </button>
+              <form onSubmit={handlePublishSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-400 block">
+                    GitHub Repository
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    disabled={isPublishing}
+                    value={publishRepo}
+                    onChange={(e) => setPublishRepo(e.target.value)}
+                    placeholder="e.g. owner/repository"
+                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all ${
+                      isDark 
+                        ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700" 
+                        : "bg-zinc-50 border-zinc-200 text-zinc-950 placeholder-zinc-400 focus:border-zinc-300"
+                    }`}
+                  />
                 </div>
-              </div>
 
-              {/* body */}
-              <div ref={codeBodyRef} className="flex-1 overflow-auto custom-scrollbar">
-                {codePanelTab === 'code' ? (
-                  codeContent !== null ? (
-                    <pre className={`p-4 text-[12px] leading-[1.65] font-mono whitespace-pre overflow-x-auto ${isDark ? 'text-gray-300' : 'text-gray-800'}`}>
-                      {codeContent.split('\n').map((line, i) => {
-                        const lineNum = i + 1;
-                        const isHL = highlightLine === lineNum;
-                        return (
-                          <div
-                            key={i}
-                            data-line={lineNum}
-                            className={`flex ${isHL ? (isDark ? 'bg-yellow-400/10' : 'bg-yellow-300/20') : (isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-black/[0.03]')}`}
-                          >
-                            <span className={`inline-block w-10 text-right pr-4 select-none flex-shrink-0 ${isHL ? 'text-yellow-400 font-bold' : (isDark ? 'text-gray-600' : 'text-gray-400')}`}>{lineNum}</span>
-                            <span>{line || ' '}</span>
-                          </div>
-                        );
-                      })}
-                    </pre>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-40 text-gray-500 text-[12px]">
-                      <p>{codeError || 'No source available'}</p>
-                    </div>
-                  )
-                ) : (
-                  <div className="p-4">
-                    <div className="space-y-1">
-                      {fileEntities.map((n: any) => {
-                        const lineNum = n.line_number ?? n.properties?.line_number;
-                        return (
-                          <div
-                            key={n.id}
-                            onClick={() => { if (lineNum && codeContent) { setHighlightLine(Number(lineNum)); setCodePanelTab('code'); } }}
-                            className={`flex items-center gap-2 py-1.5 px-2 rounded-lg ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${lineNum && codeContent ? 'cursor-pointer' : ''}`}
-                          >
-                            {graphMode === 'icon' ? (
-                              <span className="text-[14px] flex-shrink-0">{EMOJI_MAP[n.type] || '❓'}</span>
-                            ) : (
-                              <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: nodeColors[n.type] || '#78909c' }} />
-                            )}
-                            <span className="text-[12px] font-medium truncate" style={{ color: pal.textSecondary }}>{n.name}</span>
-                            <span className="text-[9px] uppercase tracking-wider ml-auto flex-shrink-0" style={{ color: pal.dimText }}>
-                              {n.type}{lineNum ? `:${lineNum}` : ''}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-400 block">
+                    Version
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    disabled={isPublishing}
+                    value={publishVersion}
+                    onChange={(e) => setPublishVersion(e.target.value)}
+                    placeholder="e.g. 1.0.0"
+                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all ${
+                      isDark 
+                        ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700" 
+                        : "bg-zinc-50 border-zinc-200 text-zinc-950 placeholder-zinc-400 focus:border-zinc-300"
+                    }`}
+                  />
+                </div>
 
-              {/* footer */}
-              <div className={`px-4 py-2 text-[10px] text-gray-500 uppercase tracking-widest font-black flex-shrink-0 ${isDark ? 'border-t border-white/5 bg-black/40' : 'border-t border-black/5 bg-gray-50'}`}>
-                {fileEntities.length} entities
-              </div>
-            </div>
-          </motion.div>
+                <div className="pt-4 flex gap-3">
+                  <Button
+                    type="button"
+                    disabled={isPublishing}
+                    variant="outline"
+                    onClick={() => setShowPublishModal(false)}
+                    className="w-full rounded-xl"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={isPublishing}
+                    className="w-full rounded-xl bg-purple-600 text-white hover:bg-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]"
+                  >
+                    {isPublishing ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Publishing...
+                      </span>
+                    ) : (
+                      "Publish"
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
+
+      {/* ── CHATGPT CONNECTION INSTRUCTION MODAL ── */}
+      <AnimatePresence>
+        {showChatGPTModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowChatGPTModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-md"
+            />
+
+            {/* Dialog Panel */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${
+                isDark 
+                  ? "bg-zinc-950/80 border-zinc-800 text-white" 
+                  : "bg-white/90 border-zinc-200 text-zinc-900"
+              }`}
+            >
+              {/* Subtle top glow bar */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-white" />
+
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-lg font-bold tracking-tight flex items-center gap-2">
+                    <MessageSquare className="w-5 h-5 text-purple-400" />
+                    Connect to ChatGPT GPT
+                  </h3>
+                  <p className={`text-xs mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}`}>
+                    To link ChatGPT to this browser tunnel, you need to paste a setup prompt.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowChatGPTModal(false)}
+                  className={`p-1.5 rounded-full transition-colors ${
+                    isDark ? "hover:bg-purple-500/20 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
+                  }`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-400 block">
+                    Connection Prompt (Auto-copied on Launch)
+                  </label>
+                  <div className={`relative p-3 rounded-xl border font-mono text-xs flex justify-between items-center ${
+                    isDark ? "bg-zinc-900/60 border-zinc-800 text-zinc-300" : "bg-zinc-50 border-zinc-200 text-zinc-700"
+                  }`}>
+                    <span className="select-all break-all pr-8">{chatgptPreFillPrompt}</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(chatgptPreFillPrompt);
+                        toast.success("Prompt copied to clipboard!", { icon: "📋" });
+                      }}
+                      className={`absolute right-2 p-1.5 rounded-lg transition-colors ${
+                        isDark ? "hover:bg-purple-500/10 text-zinc-400 hover:text-white" : "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-900"
+                      }`}
+                      title="Copy prompt to clipboard"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                  isDark ? "bg-amber-950/20 border-amber-900/40 text-amber-300" : "bg-amber-50 border-amber-200/60 text-amber-800"
+                }`}>
+                  <p className="font-semibold mb-1">💡 Important Instruction:</p>
+                  <p>When the ChatGPT window loads, click on the chat box, press <kbd className="px-1 py-0.5 rounded border border-current font-sans text-[10px]">Ctrl+V</kbd> (or <kbd className="px-1 py-0.5 rounded border border-current font-sans text-[10px]">Cmd+V</kbd>) to paste the copied prompt, and hit enter!</p>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowChatGPTModal(false)}
+                    className="w-full rounded-xl"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleCopyAndLaunchChatGPT}
+                    className="w-full rounded-xl bg-purple-600 text-white hover:bg-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)] flex items-center justify-center gap-2"
+                  >
+                    Copy & Open ChatGPT
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Already Pre-indexed Bundle Warning Dialog */}
+      <AlertDialog open={showWarningAlert} onOpenChange={setShowWarningAlert}>
+        <AlertDialogContent className="bg-zinc-950 border border-zinc-800 text-zinc-100 max-w-md rounded-3xl shadow-2xl p-6 relative overflow-hidden backdrop-blur-2xl">
+          {/* Subtle top glow bar */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-white" />
+          
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+              <span className="text-amber-500">⚡</span> Pre-indexed Bundle Exists
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400 text-sm mt-2 leading-relaxed">
+              A pre-indexed bundle for <span className="font-semibold text-purple-400 font-mono">{publishRepo}</span> at this exact commit (<span className="font-mono bg-white/5 px-1 py-0.5 rounded text-xs text-amber-300">{data.metadata?.commit?.substring(0, 7) || "latest"}</span>) already exists in the manifest registry.
+              <br /><br />
+              Publishing again is redundant. Are you sure you want to force overwrite or republish?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-6 flex flex-col sm:flex-row gap-3">
+            <AlertDialogCancel className="w-full sm:w-auto rounded-xl bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                setShowWarningAlert(false);
+                await executePublishFlow();
+              }}
+              className="w-full sm:w-auto rounded-xl bg-purple-600 text-white hover:bg-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)] font-semibold"
+            >
+              Force Publish
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   );
 }

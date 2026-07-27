@@ -1,30 +1,211 @@
-import { useState } from "react";
-import { FolderUp, FileArchive, Github, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { FolderUp, FileArchive, Github, Loader2, Settings, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { parseFilesIntoGraph } from "@/lib/parser";
+
 import JSZip from "jszip";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
+import {
+  RepoProvider,
+  detectProviderFromInput,
+  getExploreRoute,
+  parseRepoInput,
+} from "@/lib/repo-provider";
 
 const IGNORED_DIRS = new Set([
-  'node_modules', '.git', '.github', 'dist', 'build', 'out', 'coverage', 
+  'node_modules', '.git', '.github', 'dist', 'build', 'out', 'coverage',
   '.next', '.nuxt', '__pycache__', 'venv', '.venv', 'env', '.env', '.tox',
   'eggs', 'target', '.gradle', '.idea', 'cmake-build-debug', 'bin', 'obj',
   'packages', 'vendor', 'Pods', '.build', 'DerivedData', '.dart_tool',
   '.vscode'
 ]);
 
-const isPathIgnored = (path: string) => {
-  const parts = path.split(/[\/\\]/);
-  return parts.some(part => IGNORED_DIRS.has(part));
+const sanitizePath = (pathStr: string, repoName?: string): string => {
+  if (!pathStr) return '';
+
+  // Normalize Windows slashes
+  let p = pathStr.replace(/\\/g, '/');
+
+  // If it's already relative, just return it
+  if (p.startsWith('.') || (!p.startsWith('/') && !p.match(/^[a-zA-Z]:\//))) {
+    return p.startsWith('./') ? p : './' + p;
+  }
+
+  // Detect if we can make it relative using the repoName
+  if (repoName) {
+    const parts = p.split('/');
+    const repoIndex = parts.lastIndexOf(repoName);
+    if (repoIndex !== -1) {
+      return './' + parts.slice(repoIndex).join('/');
+    }
+  }
+
+  // Generic cleanup for absolute paths
+  const segments = p.split('/').filter(Boolean);
+  if (segments.length > 3) {
+    if (p.startsWith('/home/') || p.startsWith('/Users/') || p.includes('/runner/work/')) {
+      return './' + segments.slice(-3).join('/');
+    }
+  }
+
+  // Keep original path if not matched
+  return p;
 };
 
-export default function LocalUploader({ onComplete }: { onComplete: (data: unknown) => void }) {
+const isPathIgnored = (path: string, skipTests = true) => {
+  const parts = path.split(/[\/\\]/);
+  return parts.some(part => {
+    if (IGNORED_DIRS.has(part)) return true;
+    if (skipTests && ['test', 'tests', '__tests__', 'spec', 'specs'].includes(part.toLowerCase())) return true;
+    return false;
+  });
+};
+
+const fetchWithFallbackProxies = async (url: string): Promise<Response> => {
+  if (!url) throw new Error("URL is empty");
+
+  try {
+    const res = await fetch(url);
+    if (res.ok) return res;
+  } catch (e) {
+    console.warn("Direct fetch failed, falling back to CORS proxies...", e);
+  }
+
+  const proxies = [
+    // Proxy 1: corsproxy.io (Very fast, prefix-based)
+    {
+      url: (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+      type: 'direct' as const
+    },
+    // Proxy 2: CodeTabs (Fast and supports redirects well)
+    {
+      url: (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+      type: 'direct' as const
+    },
+    // Proxy 3: allorigins.win JSON endpoint (Handles S3 redirects perfectly via server-side base64 encoding!)
+    {
+      url: (u: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+      type: 'json-base64' as const
+    },
+    // Proxy 4: allorigins.win raw (Alternative fallback)
+    {
+      url: (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+      type: 'direct' as const
+    },
+    // Proxy 5: thingproxy.freeboard.io (Fallback proxy)
+    {
+      url: (u: string) => `https://thingproxy.freeboard.io/fetch/${u}`,
+      type: 'direct' as const
+    }
+  ];
+
+  let lastError: any = null;
+  for (const proxy of proxies) {
+    try {
+      const proxiedUrl = proxy.url(url);
+      console.log(`[Proxy] Attempting fetch: ${proxiedUrl}`);
+
+      if (proxy.type === 'json-base64') {
+        const res = await fetch(proxiedUrl);
+        if (!res.ok) {
+          console.warn(`[Proxy] Status ${res.status} received. Trying next proxy...`);
+          continue;
+        }
+        const json = await res.json();
+        if (!json || !json.contents) {
+          throw new Error("No contents returned from JSON CORS proxy.");
+        }
+
+        const base64Data = json.contents;
+        const commaIndex = base64Data.indexOf(',');
+        const base64String = commaIndex !== -1 ? base64Data.substring(commaIndex + 1) : base64Data;
+
+        const binaryString = atob(base64String);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        return new Response(bytes.buffer, {
+          status: 200,
+          headers: { 'Content-Type': 'application/octet-stream' }
+        });
+      } else {
+        const res = await fetch(proxiedUrl);
+        if (res.ok) return res;
+        if (res.status === 403 || res.status === 429) {
+          console.warn(`[Proxy] Status ${res.status} received. Trying next proxy...`);
+          continue;
+        }
+        return res;
+      }
+    } catch (err) {
+      lastError = err;
+      console.warn("[Proxy] Connection failed, trying next fallback proxy...", err);
+    }
+  }
+  throw lastError || new Error("Failed to fetch via all available CORS proxies.");
+};
+
+export default function LocalUploader({ onComplete, plain }: { onComplete: (data: unknown) => void, plain?: boolean }) {
+  const navigate = useNavigate();
   const [isParsing, setIsParsing] = useState(false);
   const [progress, setProgress] = useState({ text: "", value: 0 });
-  const [activeTab, setActiveTab] = useState<'folder' | 'zip' | 'github'>('folder');
-  const [githubUrl, setGithubUrl] = useState("");
+  const [activeTab, setActiveTab] = useState<'folder' | 'zip' | 'cgc' | 'remote'>('remote');
+  const [remoteRepoUrl, setRemoteRepoUrl] = useState("");
+  const [detectedProvider, setDetectedProvider] = useState<RepoProvider>("github");
+  const [pat, setPat] = useState(() => localStorage.getItem("github_pat") || "");
 
-  const processFiles = async (files: { path: string, content: string }[]) => {
+  const [config, setConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('cgc_indexer_config');
+      if (saved) {
+        return {
+          indexVariables: false,
+          skipTests: true,
+          maxNodes: 100000,
+          maxEdges: 50000,
+          ...JSON.parse(saved)
+        };
+      }
+    } catch (e) { }
+    return {
+      indexVariables: false,
+      skipTests: true,
+      maxNodes: 100000,
+      maxEdges: 50000,
+    };
+  });
+
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isConfigOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsConfigOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isConfigOpen]);
+
+  const updateConfig = (newConfig: Partial<typeof config>) => {
+    const updated = { ...config, ...newConfig };
+    setConfig(updated);
+    localStorage.setItem('cgc_indexer_config', JSON.stringify(updated));
+  };
+
+  const isDirIgnored = (name: string) => {
+    if (IGNORED_DIRS.has(name)) return true;
+    if (config.skipTests && ['test', 'tests', '__tests__', 'spec', 'specs'].includes(name.toLowerCase())) return true;
+    return false;
+  };
+
+  const processFiles = async (files: { path: string, content: string }[], repoName: string = "local-project") => {
     // Build fileContents map before the worker clears content for memory
     const fileContents: Record<string, string> = {};
     for (const f of files) {
@@ -33,14 +214,30 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
 
     setProgress({ text: `Parsing AST for ${files.length} files...`, value: 50 });
     await new Promise(r => setTimeout(r, 800));
-    
+
     setProgress({ text: "Initializing WebAssembly tree-sitter...", value: 80 });
-    const graphData = await parseFilesIntoGraph(files, (msg, val) => setProgress({ text: msg, value: val }));
-    
+    const graphData = await parseFilesIntoGraph(
+      files,
+      (msg, val) => setProgress({ text: msg, value: val }),
+      {
+        indexVariables: config.indexVariables,
+        maxNodes: config.maxNodes,
+        maxEdges: config.maxEdges
+      }
+    );
+
     setProgress({ text: "Complete!", value: 100 });
     await new Promise(r => setTimeout(r, 400));
-    
-    onComplete({ ...graphData, fileContents });
+
+    onComplete({
+      ...graphData,
+      fileContents,
+      metadata: {
+        repo: repoName,
+        version: "1.0.0",
+        timestamp: new Date().toISOString()
+      }
+    });
   };
 
   const handleFolderSelect = async () => {
@@ -52,21 +249,21 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
       const dirHandle = await (window as unknown as { showDirectoryPicker: () => Promise<any> }).showDirectoryPicker();
       setIsParsing(true);
       setProgress({ text: "Reading local directory...", value: 10 });
-      
+
       const files: any[] = [];
       async function readDir(handle: any, prefix = "") {
         for await (const entry of handle.values()) {
           if (entry.kind === 'file' && entry.name.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/)) {
             const file = await entry.getFile();
             files.push({ path: `${prefix}/${entry.name}`, content: await file.text() });
-          } else if (entry.kind === 'directory' && !IGNORED_DIRS.has(entry.name)) {
+          } else if (entry.kind === 'directory' && !isDirIgnored(entry.name)) {
             await readDir(entry, `${prefix}/${entry.name}`);
           }
         }
       }
-      
+
       await readDir(dirHandle);
-      await processFiles(files);
+      await processFiles(files, dirHandle.name);
     } catch (err) {
       console.error(err);
       setIsParsing(false);
@@ -81,104 +278,216 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
       setProgress({ text: "Unzipping locally...", value: 10 });
       const buffer = await file.arrayBuffer();
       const jszip = await JSZip.loadAsync(buffer);
-      
+
       const files: any[] = [];
       const promises: Promise<void>[] = [];
-      
+
       jszip.forEach((path, entry) => {
-        if (!entry.dir && path.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/) && !isPathIgnored(path)) {
+        if (!entry.dir && path.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/) && !isPathIgnored(path, config.skipTests)) {
           promises.push(entry.async("text").then(content => { files.push({ path, content }); }));
         }
       });
-      
+
       setProgress({ text: `Extracting ${promises.length} files...`, value: 30 });
       await Promise.all(promises);
-      
-      await processFiles(files);
+
+      await processFiles(files, file.name.replace(/\.zip$/i, ""));
     } catch (err) {
       console.error(err);
       setIsParsing(false);
     }
   };
 
-  const handleGithubFetch = async () => {
-    if (!githubUrl || !githubUrl.includes("github.com")) {
-      alert("Please enter a valid GitHub URL.");
-      return;
-    }
-    
+  const handleCgcUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
     setIsParsing(true);
-    setProgress({ text: "Fetching repository tree...", value: 10 });
     try {
-      const match = githubUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
-      if (!match) throw new Error("Invalid GitHub URL");
-      const [_, owner, repo] = match;
-      
-      const treeUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`;
-      let res = await fetch(treeUrl);
-      
-      // Fallback for master branch
-      if (!res.ok) {
-         const masterUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/master?recursive=1`;
-         res = await fetch(masterUrl);
+      setProgress({ text: "Unzipping CGC bundle...", value: 10 });
+      const buffer = await file.arrayBuffer();
+      const jszip = await JSZip.loadAsync(buffer);
+
+      const nodesFile = jszip.file("nodes.jsonl");
+      const edgesFile = jszip.file("edges.jsonl");
+
+      if (!nodesFile || !edgesFile) {
+        alert("Invalid CGC bundle: nodes.jsonl and edges.jsonl are required.");
+        setIsParsing(false);
+        return;
       }
-      
-      if (!res.ok) {
-        throw new Error("Could not fetch repo (make sure it's public).");
+
+      setProgress({ text: "Parsing CGC bundle...", value: 30 });
+
+      let metadata: any = {};
+      if (jszip.file("metadata.json")) {
+        const metaText = await jszip.file("metadata.json")!.async("text");
+        try {
+          metadata = JSON.parse(metaText);
+        } catch (e) {
+          console.warn("Could not parse metadata.json", e);
+        }
       }
-      
-      const data = await res.json();
-      const filePaths = data.tree
-        .filter((t: any) => t.type === "blob")
-        .map((t: any) => t.path)
-        .filter((p: string) => p.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/) && !isPathIgnored(p));
-        
-      setProgress({ text: `Downloading ${filePaths.length} files...`, value: 30 });
-      
-      const files: any[] = [];
-      // Batch loading to prevent excessive concurrency
-      for (let i = 0; i < filePaths.length; i += 10) {
-        setProgress({ text: `Downloading ${i}/${filePaths.length}...`, value: 30 + Math.floor((i/filePaths.length) * 20) });
-        const batch = filePaths.slice(i, i + 10);
-        await Promise.all(batch.map(async (p: string) => {
-           try {
-             // Fetch via raw.githubusercontent which supports CORS
-             let r = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/main/${p}`);
-             if (!r.ok) r = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/master/${p}`);
-             if (r.ok) files.push({ path: p, content: await r.text() });
-           } catch (e) { console.warn("Fetch failed", e); }
-        }));
+
+      const repoName = metadata.repo || "Unknown Repository";
+      setProgress({ text: `Extracting nodes for ${repoName}...`, value: 50 });
+
+      const nodesText = await nodesFile.async("text");
+      const nodeLines = nodesText.split("\n").filter(line => line.trim() !== "");
+      const nodes = nodeLines.map((line, idx) => {
+        try {
+          const nodeData = JSON.parse(line);
+          const labels = nodeData._labels || [];
+          const id = nodeData._id;
+
+          // Extract properties
+          const properties: Record<string, any> = {};
+          for (const key of Object.keys(nodeData)) {
+            if (key !== '_labels' && key !== '_id') {
+              properties[key] = nodeData[key];
+            }
+          }
+
+          // Clean absolute paths in node properties
+          for (const key of Object.keys(properties)) {
+            if (typeof properties[key] === 'string') {
+              const val = properties[key];
+              if (val.startsWith('/') || val.match(/^[a-zA-Z]:\\/) || val.includes('\\') || val.includes('/')) {
+                if (key === 'path' || key === 'file' || key === 'repo_path' || key === 'import_path') {
+                  properties[key] = sanitizePath(val, repoName);
+                }
+              }
+            }
+          }
+          
+          let displayName = String(properties.name || properties.label || properties.uid || properties.node_type || properties.path || 'Unknown');
+          if (displayName.startsWith('/') || displayName.includes('\\') || displayName.includes('/')) {
+            displayName = sanitizePath(displayName, repoName);
+          }
+
+          const type = labels[0] ? (labels[0].charAt(0).toUpperCase() + labels[0].slice(1)) : 'Other';
+
+          return {
+            id: String(id),
+            name: displayName,
+            label: displayName,
+            type: type,
+            file: String(properties.path || properties.file || ''),
+            val: (labels.length > 0 && ['Repository', 'Class', 'Interface', 'Trait'].includes(labels[0])) ? 4 : 2,
+            properties: properties
+          };
+        } catch (err) {
+          console.error("Failed to parse node line at index", idx, err);
+          return null;
+        }
+      }).filter(Boolean);
+
+      setProgress({ text: "Extracting edges...", value: 70 });
+
+      const edgesText = await edgesFile.async("text");
+      const edgeLines = edgesText.split("\n").filter(line => line.trim() !== "");
+      const links = edgeLines.map((line, idx) => {
+        try {
+          const edgeData = JSON.parse(line);
+          return {
+            id: `${edgeData.from}_to_${edgeData.to}_${edgeData.type}_${idx}`,
+            source: String(edgeData.from),
+            target: String(edgeData.to),
+            type: String(edgeData.type).toUpperCase()
+          };
+        } catch (err) {
+          console.error("Failed to parse edge line at index", idx, err);
+          return null;
+        }
+      }).filter(Boolean);
+
+      setProgress({ text: "Building tree index...", value: 90 });
+
+      const filePaths: string[] = [];
+      for (const n of nodes as any[]) {
+        if (n.file && n.type.toLowerCase() === 'file') {
+          filePaths.push(n.file);
+        }
       }
-      
-      await processFiles(files);
+      const sortedFiles = Array.from(new Set(filePaths)).sort();
+
+      setProgress({ text: "Complete!", value: 100 });
+      await new Promise(r => setTimeout(r, 400));
+
+      onComplete({
+        nodes,
+        links,
+        files: sortedFiles,
+        fileContents: {},
+        metadata
+      });
     } catch (err) {
       console.error(err);
       setIsParsing(false);
-      alert("Error: " + (err as Error).message);
     }
+  };
+
+  const syncPatForProvider = (provider: RepoProvider) => {
+    setDetectedProvider(provider);
+    const tokenKey = provider === "gitlab" ? "gitlab_pat" : "github_pat";
+    setPat(localStorage.getItem(tokenKey) || "");
+  };
+
+  const handleRepoUrlChange = (value: string) => {
+    setRemoteRepoUrl(value);
+    const nextProvider = detectProviderFromInput(value);
+    if (nextProvider !== detectedProvider) {
+      syncPatForProvider(nextProvider);
+    }
+  };
+
+  const handlePatChange = (value: string) => {
+    setPat(value);
+    const tokenKey = detectedProvider === "gitlab" ? "gitlab_pat" : "github_pat";
+    if (value.trim()) {
+      localStorage.setItem(tokenKey, value.trim());
+    } else {
+      localStorage.removeItem(tokenKey);
+    }
+  };
+
+  const handleRemoteRepoFetch = async () => {
+    const input = remoteRepoUrl.trim();
+    if (!input) {
+      alert("Please enter a GitHub or GitLab URL, or owner/repo.");
+      return;
+    }
+
+    const ref = parseRepoInput(input);
+    if (!ref) {
+      alert("Please enter a valid repository URL (e.g. https://gitlab.com/gitlab-org/gitlab or facebook/react).");
+      return;
+    }
+
+    navigate(getExploreRoute(ref));
   };
 
   return (
-    <div className="flex flex-col p-6 w-full h-full min-h-[400px] border border-white/10 dark:border-white/20 rounded-[2rem] bg-black/40 backdrop-blur-xl shadow-2xl relative overflow-hidden">
-      
+    <div className={plain ? "flex flex-col w-full h-full relative z-10" : "flex flex-col p-6 w-full h-full min-h-[400px] border border-white/10 dark:border-white/20 rounded-[2rem] bg-black/40 backdrop-blur-xl shadow-2xl relative overflow-hidden"}>
+
       {/* Tab Selectors */}
-      <div className="flex bg-white/5 p-1.5 rounded-2xl mb-8 relative z-10 w-full shadow-inner border border-white/5">
-        <button onClick={() => setActiveTab('folder')} className={`flex-1 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'folder' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>Folder</button>
-        <button onClick={() => setActiveTab('zip')} className={`flex-1 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'zip' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>ZIP</button>
-        <button onClick={() => setActiveTab('github')} className={`flex-1 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'github' ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>GitHub</button>
+      <div className="grid grid-cols-2 sm:flex bg-black/5 dark:bg-white/5 p-1.5 rounded-2xl mb-6 relative z-10 w-full shadow-inner border border-gray-200 dark:border-white/5 gap-1.5 sm:gap-2">
+        <button onClick={() => setActiveTab('folder')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'folder' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-purple-500/10 dark:hover:bg-purple-500/20'}`}>Folder</button>
+        <button onClick={() => setActiveTab('zip')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'zip' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-purple-500/10 dark:hover:bg-purple-500/20'}`}>ZIP</button>
+        <button onClick={() => setActiveTab('cgc')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'cgc' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-purple-500/10 dark:hover:bg-purple-500/20'}`}>CGC Bundle</button>
+        <button onClick={() => setActiveTab('remote')} className={`w-full sm:flex-1 py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 ${activeTab === 'remote' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-purple-500/10 dark:hover:bg-purple-500/20'}`}>GitHub / GitLab</button>
       </div>
+
+
 
       {!isParsing ? (
         <div className="flex flex-col items-center justify-center flex-1 text-center w-full relative z-10">
-          
+
           {activeTab === 'folder' && (
             <motion.div key="folder" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center w-full">
-              <div className="bg-gradient-to-br from-purple-500/20 to-indigo-500/20 p-5 rounded-full mb-6 border border-purple-500/30">
-                <FolderUp className="w-10 h-10 text-purple-400" />
-              </div>
-              <h3 className="text-2xl font-bold mb-2 text-white">Select Directory</h3>
-              <p className="text-gray-400 text-sm mb-8 max-w-[250px]">Select a local folder. Visualized locally in the browser.</p>
-              <Button onClick={handleFolderSelect} className="bg-white text-black hover:bg-gray-200 rounded-full px-10 py-6 text-lg w-full max-w-[280px] shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+
+              <h3 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white">Select Directory</h3>
+              <p className="text-gray-600 dark:text-gray-400 text-sm mb-8 max-w-[250px]">Select a local folder. Visualized locally in the browser.</p>
+              <Button onClick={handleFolderSelect} className="bg-purple-600 text-white hover:bg-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)] rounded-full px-10 py-6 text-lg w-full max-w-[280px] shadow-[0_0_20px_rgba(255,255,255,0.1)]">
                 Browse Files
               </Button>
             </motion.div>
@@ -186,13 +495,11 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
 
           {activeTab === 'zip' && (
             <motion.div key="zip" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center w-full">
-              <div className="bg-gradient-to-br from-blue-500/20 to-cyan-500/20 p-5 rounded-full mb-6 border border-blue-500/30">
-                <FileArchive className="w-10 h-10 text-blue-400" />
-              </div>
-              <h3 className="text-2xl font-bold mb-2 text-white">Upload ZIP</h3>
-              <p className="text-gray-400 text-sm mb-8 max-w-[250px]">Drop a compressed repository. Unzipped securely in memory.</p>
+
+              <h3 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white">Upload ZIP</h3>
+              <p className="text-gray-600 dark:text-gray-400 text-sm mb-8 max-w-[250px]">Drop a compressed repository. Unzipped and parsed securely in memory.</p>
               <div className="relative w-full max-w-[280px]">
-                <Button className="bg-white text-black relative cursor-pointer hover:bg-gray-200 rounded-full px-10 py-6 text-lg w-full shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+                <Button className="bg-purple-600 text-white relative cursor-pointer hover:bg-gray-200 rounded-full px-10 py-6 text-lg w-full shadow-[0_0_20px_rgba(255,255,255,0.1)]">
                   Select ZIP Archive
                   <input type="file" accept=".zip" onChange={handleZipUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                 </Button>
@@ -200,46 +507,255 @@ export default function LocalUploader({ onComplete }: { onComplete: (data: unkno
             </motion.div>
           )}
 
-          {activeTab === 'github' && (
-            <motion.div key="github" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center w-full">
-              <div className="bg-gradient-to-br from-gray-600/30 to-gray-500/10 p-5 rounded-full mb-6 border border-gray-500/30">
-                <Github className="w-10 h-10 text-white" />
+          {activeTab === 'cgc' && (
+            <motion.div key="cgc" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center w-full">
+
+              <h3 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white">Upload CGC Bundle</h3>
+              <p className="text-gray-600 dark:text-gray-400 text-sm mb-8 max-w-[250px]">Drop a .cgc pre-indexed bundle file. Loaded instantly in-memory.</p>
+              <div className="relative w-full max-w-[280px]">
+                <Button className="bg-purple-600 text-white relative cursor-pointer hover:bg-gray-200 rounded-full px-10 py-6 text-lg w-full shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+                  Select CGC Bundle
+                  <input type="file" accept=".cgc" onChange={handleCgcUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                </Button>
               </div>
-              <h3 className="text-2xl font-bold mb-2 text-white">Fetch Repository</h3>
-              <p className="text-gray-400 text-sm mb-8 max-w-[250px]">Pull raw files from a public GitHub repository.</p>
-              <input 
-                type="text" 
-                placeholder="https://github.com/facebook/react" 
-                value={githubUrl}
-                onChange={e => setGithubUrl(e.target.value)}
-                className="w-full bg-black/40 border border-white/20 text-white placeholder-gray-500 px-5 py-4 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
-              />
-              <Button onClick={handleGithubFetch} className="bg-white hover:bg-gray-200 text-black w-full rounded-xl py-6 text-lg font-semibold shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+            </motion.div>
+          )}
+
+          {activeTab === 'remote' && (
+            <motion.div key="remote" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center w-full">
+
+              <h3 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white">Fetch Repository</h3>
+              <p className="text-gray-600 dark:text-gray-400 text-sm mb-6 max-w-[320px]">Pull raw files from a public GitHub or GitLab repository.</p>
+
+              <div className="w-full space-y-3 mb-4">
+                <input
+                  type="text"
+                  placeholder="GitHub or GitLab URL / owner/repo"
+                  value={remoteRepoUrl}
+                  onChange={e => handleRepoUrlChange(e.target.value)}
+                  className="w-full bg-white/40 dark:bg-black/40 border border-gray-300 dark:border-white/20 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 px-5 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-sm"
+                />
+                <p className="text-[11px] text-gray-500 dark:text-gray-500 text-left leading-relaxed px-1">
+                  e.g.{" "}
+                  <button
+                    type="button"
+                    onClick={() => handleRepoUrlChange("https://github.com/facebook/react")}
+                    className="text-purple-400 hover:text-purple-300 underline-offset-2 hover:underline"
+                  >
+                    github.com/facebook/react
+                  </button>
+                  {" "}or{" "}
+                  <button
+                    type="button"
+                    onClick={() => handleRepoUrlChange("https://gitlab.com/fdroid/fdroidclient")}
+                    className="text-purple-400 hover:text-purple-300 underline-offset-2 hover:underline"
+                  >
+                    gitlab.com/fdroid/fdroidclient
+                  </button>
+                </p>
+
+                <input
+                  type="password"
+                  placeholder="PAT for private repos — GitHub (ghp_...) or GitLab (glpat-...)"
+                  value={pat}
+                  onChange={e => handlePatChange(e.target.value)}
+                  className="w-full bg-white/40 dark:bg-black/40 border border-gray-300 dark:border-white/20 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 px-5 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-sm"
+                />
+                {pat.trim() && remoteRepoUrl.trim() && (
+                  <p className="text-[10px] text-gray-500 text-left px-1">
+                    Saving to {detectedProvider === "gitlab" ? "GitLab" : "GitHub"} token store
+                  </p>
+                )}
+              </div>
+
+              <Button onClick={handleRemoteRepoFetch} className="bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] w-full rounded-xl py-6 text-lg font-semibold shadow-[0_0_20px_rgba(255,255,255,0.1)]">
                 Scan & Visualize
               </Button>
             </motion.div>
           )}
-          
+
+          {/* Configure Indexer Link */}
+          <button
+            type="button"
+            onClick={() => setIsConfigOpen(true)}
+            className="mt-8 flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-gray-400 hover:text-white transition-all cursor-pointer group"
+          >
+            <Settings className="w-3.5 h-3.5 group-hover:rotate-45 transition-transform duration-300 text-purple-400" />
+            <span>Configure Indexer Settings ⚙️</span>
+          </button>
+
         </div>
       ) : (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center flex-1 w-full px-4 relative z-10">
           <Loader2 className="w-14 h-14 text-white animate-spin mb-6 drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" />
           <h3 className="text-lg font-medium text-white mb-4 text-center">{progress.text}</h3>
-          
+
           <div className="w-full bg-gray-800 rounded-full h-2 mt-2 overflow-hidden shadow-inner border border-white/5">
-            <div 
-              className="bg-gradient-to-r from-purple-400 to-indigo-400 h-2 rounded-full transition-all duration-300 ease-out relative" 
-              style={{ width: `${progress.value}%`, boxShadow: '0 0 15px rgba(168, 85, 247, 0.8)' }}
+            <div
+              className="bg-white h-2 rounded-full transition-all duration-300 ease-out relative"
+              style={{ width: `${progress.value}%` }}
             >
-               <div className="absolute inset-0 bg-white/30 truncate" style={{animation: "shimmer 2s infinite linear"}}></div>
+              <div className="absolute inset-0 bg-white/30 truncate" style={{ animation: "shimmer 2s infinite linear" }}></div>
             </div>
           </div>
           <p className="text-xs text-gray-400 font-mono mt-3">{progress.value}%</p>
         </motion.div>
       )}
-      
+
       {/* Decorative Blob */}
-      <div className="absolute -bottom-32 -right-32 w-80 h-80 bg-purple-600/15 blur-3xl rounded-full z-0 pointer-events-none"></div>
+      {!plain && <div className="absolute -bottom-32 -right-32 w-80 h-80 bg-purple-600/15 blur-3xl rounded-full z-0 pointer-events-none"></div>}
+
+      {/* Configuration Modal */}
+      {createPortal(
+        <AnimatePresence>
+          {isConfigOpen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4"
+              onClick={() => setIsConfigOpen(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, y: 15 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.95, y: 15 }}
+                transition={{ type: "spring", duration: 0.4 }}
+                className="bg-zinc-950/95 border border-white/10 dark:border-white/20 p-6 rounded-[2rem] max-w-md w-full shadow-[0_0_50px_rgba(0,0,0,0.8)] relative overflow-hidden text-left"
+                onClick={e => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
+                  <div className="flex items-center gap-2">
+                    <Settings className="w-5 h-5 text-purple-400 animate-pulse" />
+                    <h3 className="text-lg font-bold text-white tracking-wide">Indexer Configuration</h3>
+                  </div>
+                  <button
+                    onClick={() => setIsConfigOpen(false)}
+                    className="p-1.5 rounded-full bg-white/5 text-gray-400 hover:text-white hover:bg-purple-500/20 transition-all cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="space-y-6">
+
+                  {/* 1. Index High-Fidelity Variables */}
+                  <div className="flex items-start gap-3 justify-between">
+                    <div className="flex-1">
+                      <label className="text-sm font-semibold text-white block mb-0.5">
+                        Index High-Fidelity Variables
+                      </label>
+                      <span className="text-[11px] text-gray-400 leading-normal block">
+                        Enables extraction of local variable assignments. Increases graph density but requires higher compute.
+                      </span>
+                    </div>
+                    <div
+                      onClick={() => updateConfig({ indexVariables: !config.indexVariables })}
+                      className={`w-11 h-6 rounded-full p-1 cursor-pointer transition-all flex items-center shrink-0 ${config.indexVariables ? 'bg-white justify-end' : 'bg-zinc-800 justify-start'}`}
+                    >
+                      <motion.div layout className={`w-4 h-4 rounded-full shadow-md ${config.indexVariables ? 'bg-black' : 'bg-white'}`} />
+                    </div>
+                  </div>
+
+                  {/* 2. Skip Tests & Configuration folders */}
+                  <div className="flex items-start gap-3 justify-between">
+                    <div className="flex-1">
+                      <label className="text-sm font-semibold text-white block mb-0.5">
+                        Exclude Spec & Test Suites
+                      </label>
+                      <span className="text-[11px] text-gray-400 leading-normal block">
+                        Completely skip parsing test suites, mocks, configurations, specs, and complex directories (e.g. <code>tests/</code>, <code>.github/</code>).
+                      </span>
+                    </div>
+                    <div
+                      onClick={() => updateConfig({ skipTests: !config.skipTests })}
+                      className={`w-11 h-6 rounded-full p-1 cursor-pointer transition-all flex items-center shrink-0 ${config.skipTests ? 'bg-white justify-end' : 'bg-zinc-800 justify-start'}`}
+                    >
+                      <motion.div layout className={`w-4 h-4 rounded-full shadow-md ${config.skipTests ? 'bg-black' : 'bg-white'}`} />
+                    </div>
+                  </div>
+
+                  {/* 3. Max Graph Nodes */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <label className="text-sm font-semibold text-white">
+                        Maximum Graph Nodes
+                      </label>
+                      <span className="text-xs font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
+                        {config.maxNodes.toLocaleString()}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-gray-400 leading-normal block mb-2">
+                      The maximum number of AST elements (files, classes, functions, variables) to create in the graph.
+                    </span>
+                    <input
+                      type="range"
+                      min={10000}
+                      max={500000}
+                      step={10000}
+                      value={config.maxNodes}
+                      onChange={e => updateConfig({ maxNodes: parseInt(e.target.value) })}
+                      className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                    />
+                  </div>
+
+                  {/* 4. Max Graph Edges */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <label className="text-sm font-semibold text-white">
+                        Maximum Call / Import Edges
+                      </label>
+                      <span className="text-xs font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
+                        {config.maxEdges.toLocaleString()}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-gray-400 leading-normal block mb-2">
+                      Limits relationship lines to safeguard browser rendering performance. High edge density can slow down rendering.
+                    </span>
+                    <input
+                      type="range"
+                      min={5000}
+                      max={200000}
+                      step={5000}
+                      value={config.maxEdges}
+                      onChange={e => updateConfig({ maxEdges: parseInt(e.target.value) })}
+                      className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                    />
+                  </div>
+
+                </div>
+
+                {/* Footer */}
+                <div className="mt-8 flex gap-3">
+                  <Button
+                    onClick={() => {
+                      updateConfig({
+                        indexVariables: false,
+                        skipTests: true,
+                        maxNodes: 100000,
+                        maxEdges: 50000
+                      });
+                    }}
+                    variant="outline"
+                    className="flex-1 bg-transparent hover:bg-purple-500/10 text-gray-300 hover:text-white border-white/10 rounded-xl py-5 cursor-pointer"
+                  >
+                    Reset Defaults
+                  </Button>
+                  <Button
+                    onClick={() => setIsConfigOpen(false)}
+                    className="flex-1 bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] rounded-xl py-5 shadow-lg cursor-pointer"
+                  >
+                    Apply Settings
+                  </Button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/ruby.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger, debug_logger
@@ -141,20 +142,30 @@ class RubyTreeSitterParser:
 
     def _calculate_complexity(self, node: Any) -> int:
         """Calculate cyclomatic complexity for Ruby constructs."""
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         complexity_nodes = {
             "if", "unless", "case", "when", "while", "until", "for", "rescue", "ensure",
             "and", "or", "&&", "||", "?", "ternary"
         }
         count = 1
+        skipped = False
 
-        def traverse(n):
-            nonlocal count
+        def traverse(n, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if n.type in complexity_nodes:
                 count += 1
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
 
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _get_docstring(self, node: Any) -> Optional[str]:
@@ -195,6 +206,19 @@ class RubyTreeSitterParser:
         variables = self._find_variables(root_node)
         modules = self._find_modules(root_node)
         module_inclusions = self._find_module_inclusions(root_node)
+
+        # Merge module inclusions into class bases for inheritance resolution
+        for inclusion in module_inclusions:
+            class_name = inclusion.get("class")
+            module_name = inclusion.get("module")
+            if class_name and module_name:
+                for cls in classes:
+                    if cls["name"] == class_name:
+                        if "bases" not in cls:
+                            cls["bases"] = []
+                        if module_name not in cls["bases"]:
+                            cls["bases"].append(module_name)
+                        break
 
         return {
             "path": str(path),
@@ -253,6 +277,7 @@ class RubyTreeSitterParser:
                     "line_number": func_node.start_point[0] + 1,
                     "end_line": func_node.end_point[0] + 1,
                     "args": args,
+                    "class_context": class_context,
                     "lang": self.language_name,
                     "is_dependency": False,
                 }
@@ -296,8 +321,13 @@ class RubyTreeSitterParser:
             name = class_data['name']
             
             if name:
-                # Get superclass for inheritance (simplified)
+                # Get superclass for inheritance
                 bases = []
+                superclass_node = next((child for child in class_node.children if child.type == 'superclass'), None)
+                if superclass_node:
+                    for sub in superclass_node.children:
+                        if sub.type == 'constant':
+                            bases.append(self._get_node_text(sub))
 
                 # Get context and docstring
                 context, context_type, _ = self._get_parent_context(class_node)
@@ -523,14 +553,14 @@ def pre_scan_ruby(files: list[Path], parser_wrapper) -> dict:
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 tree = parser_wrapper.parser.parse(bytes(f.read(), "utf8"))
 
             for capture, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(path.resolve()))
+                imports_map[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     

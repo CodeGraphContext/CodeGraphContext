@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/indexing/pre_scan.py
 """Build global imports_map via language-specific pre-scan (registry dispatch)."""
 
 from pathlib import Path
@@ -25,8 +26,12 @@ def _register_prescans() -> Dict[str, _PreScanFn]:
     from ..languages import dart as dart_lang_module
     from ..languages import perl as perl_lang_module
     from ..languages import php as php_lang_module
+    from ..languages import lua as lua_lang_module
     from ..languages import haskell as haskell_lang_module
     from ..languages import elixir as elixir_lang_module
+    from ..languages import elisp as elisp_lang_module
+    from ..languages import html as html_lang_module
+    from ..languages import css as css_lang_module
 
     def make_py(ext: str) -> _PreScanFn:
         def scan(files: List[Path], gp: Callable[[str], Any]) -> dict:
@@ -49,6 +54,9 @@ def _register_prescans() -> Dict[str, _PreScanFn]:
         ".cjs": make_js(".cjs"),
         ".go": lambda files, gp: go_lang_module.pre_scan_go(files, gp(".go")),
         ".ts": lambda files, gp: ts_lang_module.pre_scan_typescript(files, gp(".ts")),
+        ".mts": lambda files, gp: ts_lang_module.pre_scan_typescript(files, gp(".mts")),
+        ".cts": lambda files, gp: ts_lang_module.pre_scan_typescript(files, gp(".cts")),
+        ".d.ts": lambda files, gp: ts_lang_module.pre_scan_typescript(files, gp(".d.ts")),
         ".tsx": lambda files, gp: tsx_lang_module.pre_scan_typescript(files, gp(".tsx")),
         ".cpp": lambda files, gp: cpp_lang_module.pre_scan_cpp(files, gp(".cpp")),
         ".h": lambda files, gp: cpp_lang_module.pre_scan_cpp(files, gp(".h")),
@@ -67,9 +75,13 @@ def _register_prescans() -> Dict[str, _PreScanFn]:
         ".pl": lambda files, gp: perl_lang_module.pre_scan_perl(files, gp(".pl")),
         ".pm": lambda files, gp: perl_lang_module.pre_scan_perl(files, gp(".pm")),
         ".php": lambda files, gp: php_lang_module.pre_scan_php(files, gp(".php")),
+        ".lua": lambda files, gp: lua_lang_module.pre_scan_lua(files, gp(".lua")),
         ".hs": lambda files, gp: haskell_lang_module.pre_scan_haskell(files, gp(".hs")),
         ".ex": lambda files, gp: elixir_lang_module.pre_scan_elixir(files, gp(".ex")),
         ".exs": lambda files, gp: elixir_lang_module.pre_scan_elixir(files, gp(".exs")),
+        ".el": lambda files, gp: elisp_lang_module.pre_scan_elisp(files, gp(".el")),
+        ".html": lambda files, gp: html_lang_module.pre_scan_html(files, gp(".html")),
+        ".css": lambda files, gp: css_lang_module.pre_scan_css(files, gp(".css")),
     }
 
 
@@ -92,14 +104,29 @@ def pre_scan_for_imports(
     imports_map: dict = {}
     files_by_ext: Dict[str, List[Path]] = {}
     for file in files:
-        if file.suffix in parsers_keys:
-            ext = file.suffix
+        ext = file.suffix
+        if file.name.endswith(".d.ts"):
+            ext = ".d.ts"
+            
+        if ext in parsers_keys:
             files_by_ext.setdefault(ext, []).append(file)
 
     registry = _get_registry()
     for ext, file_list in files_by_ext.items():
         scanner = registry.get(ext)
-        if scanner:
-            imports_map.update(scanner(file_list, get_parser))
+        if not scanner:
+            continue
+        # dict.update() *replaces* the value list, so in a polyglot repo a
+        # symbol defined in two languages kept only the last-scanned
+        # language's paths — e.g. a Java `Widget` disappeared behind a Python
+        # `Widget`, and cross-file CALLS/INHERITS resolution for it then fell
+        # to a lower-confidence tier or failed outright. Merge instead.
+        for name, paths in scanner(file_list, get_parser).items():
+            if not paths:
+                imports_map.setdefault(name, [])
+                continue
+            bucket = imports_map.setdefault(name, [])
+            seen = set(bucket)
+            bucket.extend(p for p in paths if not (p in seen or seen.add(p)))
 
     return imports_map

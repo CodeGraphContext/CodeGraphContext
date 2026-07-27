@@ -1,54 +1,69 @@
+
 import { useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Explore from "./pages/Explore";
-import MoveToTop from "./components/MoveToTop";
+import Privacy from "./pages/Privacy";
+import PRReviewerPage from "./pages/PRReviewerPage";
+import ScrollButtons from "@/components/ScrollButtons";
 import Navbar from "./components/Navbar";
-
-// ✅ Import AOS library and CSS
-import AOS from "aos";
-import "aos/dist/aos.css";
+import MoveToTop from "./components/MoveToTop";
+// Removed AOS for instant loading
 
 const queryClient = new QueryClient();
 
-const App: React.FC = () => {
-  // ✅ Initialize AOS once on mount
+declare global {
+  interface Window {
+    va?: (...args: any[]) => void;
+  }
+}
+
+const Analytics = () => {
+  const location = useLocation();
   useEffect(() => {
-    AOS.init({
-      duration: 800, // Animation duration (ms)
-      easing: "ease-in-out", // Smooth transition
-      once: true, // Run animation only once
-      mirror: false, // Do not animate when scrolling back up
-    });
-  }, []);
+    if (window.va) {
+      window.va('event', 'page_view', { page: location.pathname });
+    }
+  }, [location]);
+  return null;
+};
+
+const App: React.FC = () => {
 
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <Analytics />
       <QueryClientProvider client={queryClient}>
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
-          enableSystem
+          enableSystem={false}
           disableTransitionOnChange
         >
           <TooltipProvider>
             <Toaster />
             <Sonner />
             <Navbar />
+            <MoveToTop />
             <Routes>
               <Route path="/" element={<Index />} />
+              <Route path="/pre-indexed" element={<Index />} />
               <Route path="/explore" element={<Explore />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/pr-reviewer" element={<PRReviewerPage />} />
+              <Route path="/pr-reviewer/:owner/:repo/pull/:prNumber" element={<PRReviewerPage />} />
+              <Route path="/github/:owner/:repo" element={<Explore />} />
+              <Route path="/gitlab/*" element={<Explore />} />
+              <Route path="/:owner/:repo" element={<Explore />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
-            {/* Move to Top button */}
-            <MoveToTop />
           </TooltipProvider>
         </ThemeProvider>
       </QueryClientProvider>

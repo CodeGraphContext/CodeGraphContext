@@ -1,5 +1,7 @@
 
 import os
+import sys
+import types
 import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
 
@@ -15,7 +17,7 @@ class TestFalkorDBRemoteManager:
         from codegraphcontext.core.database_falkordb_remote import FalkorDBRemoteManager
         FalkorDBRemoteManager._instance = None
         FalkorDBRemoteManager._driver = None
-        FalkorDBRemoteManager._graph = None
+        FalkorDBRemoteManager._graphs = {}
         # Remove _initialized from any lingering instance
         if FalkorDBRemoteManager._instance and hasattr(FalkorDBRemoteManager._instance, '_initialized'):
             del FalkorDBRemoteManager._instance._initialized
@@ -117,7 +119,8 @@ class TestFalkorDBRemoteManager:
             mock_falkordb_cls.return_value = mock_db_instance
             mock_db_instance.select_graph.return_value = mock_graph
 
-            with patch('falkordb.FalkorDB', mock_falkordb_cls):
+            fake_falkordb_module = types.SimpleNamespace(FalkorDB=mock_falkordb_cls)
+            with patch.dict(sys.modules, {'falkordb': fake_falkordb_module}):
                 driver_wrapper = manager.get_driver()
 
             mock_falkordb_cls.assert_called_once_with(
@@ -151,7 +154,8 @@ class TestFalkorDBRemoteManager:
             mock_falkordb_cls.return_value = mock_db
             mock_db.select_graph.return_value = mock_graph
 
-            with patch('falkordb.FalkorDB', mock_falkordb_cls):
+            fake_falkordb_module = types.SimpleNamespace(FalkorDB=mock_falkordb_cls)
+            with patch.dict(sys.modules, {'falkordb': fake_falkordb_module}):
                 manager.get_driver()
 
             # Should NOT include password, username, or ssl
@@ -177,7 +181,8 @@ class TestFalkorDBRemoteManager:
             mock_falkordb_cls.return_value = mock_db
             mock_db.select_graph.return_value = mock_graph
 
-            with patch('falkordb.FalkorDB', mock_falkordb_cls):
+            fake_falkordb_module = types.SimpleNamespace(FalkorDB=mock_falkordb_cls)
+            with patch.dict(sys.modules, {'falkordb': fake_falkordb_module}):
                 d1 = manager.get_driver()
                 d2 = manager.get_driver()
 
@@ -195,7 +200,8 @@ class TestFalkorDBRemoteManager:
             self._reset_singleton()
             manager = FalkorDBRemoteManager()
             mock_graph = MagicMock()
-            manager._graph = mock_graph
+            manager._driver = MagicMock()
+            manager._graphs = {manager.graph_name: mock_graph}
 
             assert manager.is_connected() is True
             mock_graph.query.assert_called_with("RETURN 1")
@@ -224,7 +230,8 @@ class TestFalkorDBRemoteManager:
             manager = FalkorDBRemoteManager()
             mock_graph = MagicMock()
             mock_graph.query.side_effect = ConnectionError("disconnected")
-            manager._graph = mock_graph
+            manager._driver = MagicMock()
+            manager._graphs = {manager.graph_name: mock_graph}
 
             assert manager.is_connected() is False
 
@@ -251,11 +258,11 @@ class TestFalkorDBRemoteManager:
             self._reset_singleton()
             manager = FalkorDBRemoteManager()
             manager._driver = MagicMock()
-            manager._graph = MagicMock()
+            manager._graphs = {manager.graph_name: MagicMock()}
 
             manager.close_driver()
             assert manager._driver is None
-            assert manager._graph is None
+            assert manager._graphs == {}
 
     def test_validate_config_no_host(self):
         """Test validate_config fails when FALKORDB_HOST not set."""
@@ -313,13 +320,13 @@ class TestFactoryFalkorDBRemote:
         from codegraphcontext.core.database_falkordb_remote import FalkorDBRemoteManager
         FalkorDBRemoteManager._instance = None
         FalkorDBRemoteManager._driver = None
-        FalkorDBRemoteManager._graph = None
+        FalkorDBRemoteManager._graphs = {}
 
     def teardown_method(self):
         from codegraphcontext.core.database_falkordb_remote import FalkorDBRemoteManager
         FalkorDBRemoteManager._instance = None
         FalkorDBRemoteManager._driver = None
-        FalkorDBRemoteManager._graph = None
+        FalkorDBRemoteManager._graphs = {}
 
     def test_explicit_falkordb_remote(self):
         """Test DEFAULT_DATABASE=falkordb-remote returns FalkorDBRemoteManager."""

@@ -76,5 +76,7 @@ def test_watcher_incremental_reparse_filters_ignored_affected_files(tmp_path: Pa
 
     handler._handle_modification(str(changed_file))
 
-    parsed_paths = [call.args[1] for call in graph_builder.parse_file.call_args_list]
-    assert parsed_paths == [changed_file]
+    graph_builder.update_file_in_graph.assert_called_once()
+    assert graph_builder.update_file_in_graph.call_args.args[0] == changed_file
+    # Callers under cgcignore must not be pulled into incremental relink.
+    graph_builder.delete_outgoing_calls_from_files.assert_not_called()

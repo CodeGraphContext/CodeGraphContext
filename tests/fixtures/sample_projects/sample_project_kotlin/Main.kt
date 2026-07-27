@@ -1,19 +1,23 @@
-package com.example.project
+import models.*
 
-import com.example.project.User
-
-class Main {
-    fun main(args: Array<String>) {
-        val user = User("Shashank", 30)
-        println(user.greet())
-        
-        val calculator = Calculator()
-        println(calculator.add(5, 10))
+class DataProcessor(val data: String) : Processor {
+    override fun process(): Result {
+        return if (data.isNotEmpty()) {
+            Result.Success("Processed: $data")
+        } else {
+            Result.Error(404)
+        }
     }
 }
 
-class Calculator {
-    fun add(a: Int, b: Int): Int {
-        return a + b
+fun String.shout() = this.uppercase() + "!!!"
+
+fun main() {
+    val processor = DataProcessor("Hello CGC")
+    val result = processor.process()
+    
+    when (result) {
+        is Result.Success -> println(result.message.shout())
+        is Result.Error -> println("Error code: ${result.code}")
     }
 }

@@ -62,6 +62,13 @@ const BundleGeneratorSection = () => {
 
     setGenerationStatus({ status: "validating" });
     setProgress(5);
+    // Vercel Analytics: Track bundle generation attempt
+    if (window.va) {
+      window.va('event', 'bundle_generated', {
+        repo: repoUrl,
+        status: 'attempt'
+      });
+    }
 
     // Check if running in development mode (API endpoints won't work locally)
     const isDevelopment = import.meta.env.DEV;
@@ -122,6 +129,14 @@ const BundleGeneratorSection = () => {
           bundle: data.bundle,
         });
         setProgress(100);
+
+        // Vercel Analytics: Track bundle exists
+        if (window.va) {
+          window.va('event', 'bundle_generated', {
+            repo: data.bundle.repo,
+            status: 'exists'
+          });
+        }
 
         toast({
           title: "Bundle Found!",
@@ -185,6 +200,14 @@ const BundleGeneratorSection = () => {
                 bundle: manifestData.bundle,
               });
               setProgress(100);
+
+              // Vercel Analytics: Track bundle generated
+              if (window.va) {
+                window.va('event', 'bundle_generated', {
+                  repo: repo,
+                  status: 'ready'
+                });
+              }
 
               toast({
                 title: "Bundle Ready!",
@@ -255,7 +278,7 @@ const BundleGeneratorSection = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-blue-500" />
+                <Clock className="h-5 w-5 text-purple-500" />
                 Generating Bundle
               </CardTitle>
               <CardDescription>{generationStatus.repository}</CardDescription>

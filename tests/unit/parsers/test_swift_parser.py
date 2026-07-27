@@ -52,9 +52,10 @@ class GenericController {
 }
 """
     f = temp_test_dir / "sample.swift"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
 
     result = swift_parser.parse(f)
+    assert isinstance(result, dict)
 
     assert len(result["functions"]) >= 4
     assert any(item["name"] == "MetricTracker" for item in result["structs"])
@@ -63,3 +64,49 @@ class GenericController {
     assert any(item["name"] == "GenericController" for item in result["classes"])
     assert len(result["imports"]) == 1
     assert any(item["name"] == "sampleCount" for item in result["variables"])
+    assert all(fn.get("is_dependency") is False for fn in result["functions"])
+
+
+def test_parse_swift_inheritance_and_protocol_conformance(swift_parser, temp_test_dir):
+    code = """
+import Foundation
+
+protocol Drawable {}
+protocol Identifiable {}
+
+class BaseShape {}
+
+class Circle: BaseShape, Drawable, Identifiable {
+    func draw() {}
+}
+
+struct Point: Identifiable {
+    let x: Int
+    let y: Int
+}
+
+enum Direction: String, Drawable {
+    case north
+    case south
+}
+"""
+    f = temp_test_dir / "inheritance_sample.swift"
+    f.write_text(code, encoding="utf-8")
+
+    result = swift_parser.parse(f)
+    assert isinstance(result, dict)
+
+    classes_by_name = {item["name"]: item for item in result["classes"]}
+    structs_by_name = {item["name"]: item for item in result["structs"]}
+    enums_by_name = {item["name"]: item for item in result["enums"]}
+
+    assert "Circle" in classes_by_name
+    assert set(classes_by_name["Circle"]["bases"]) == {"BaseShape", "Drawable", "Identifiable"}
+
+    assert "Point" in structs_by_name
+    assert structs_by_name["Point"]["bases"] == ["Identifiable"]
+
+    assert "Direction" in enums_by_name
+    assert set(enums_by_name["Direction"]["bases"]) == {"String", "Drawable"}
+
+    assert classes_by_name["BaseShape"]["bases"] == []

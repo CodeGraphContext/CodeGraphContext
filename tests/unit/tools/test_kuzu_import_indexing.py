@@ -7,14 +7,14 @@ from codegraphcontext.tools.code_finder import CodeFinder
 from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
 
-kuzu = pytest.importorskip("real_ladybug")
+kuzu = pytest.importorskip("kuzu")
 
 
 class _KuzuDBAdapter:
     def __init__(self, driver):
         self._driver = driver
 
-    def get_driver(self):
+    def get_driver(self, graph_name=None):
         return self._driver
 
     def get_backend_type(self) -> str:
