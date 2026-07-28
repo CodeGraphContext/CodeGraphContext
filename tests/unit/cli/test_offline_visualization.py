@@ -65,15 +65,46 @@ _N1 = _Node("4:1", ["File"], path="/repo/a.py", name="a.py")
 _N2 = _Node("4:2", ["Function"], name="alpha", path="/repo/a.py", line_number=3)
 NEO4J_RECORDS = [_Record([_N1, _Rel("CONTAINS", _N1, _N2), _N2])]
 
+# --- Real FalkorDB shape: driver objects with `.labels` but NOT dict-like,
+# properties live in `.properties`, and edges use `.src_node`/`.dest_node`/
+# `.relation` instead of Neo4j's `.start_node`/`.end_node`/`.type`. -----------
+
+class _FalkorNode:
+    def __init__(self, node_id, labels, properties):
+        self.id = node_id
+        self.labels = labels
+        self.properties = properties
+
+
+class _FalkorEdge:
+    def __init__(self, src_node, relation, dest_node, properties=None):
+        self.src_node = src_node
+        self.relation = relation
+        self.dest_node = dest_node
+        self.properties = properties or {}
+
+
+_FN1 = _FalkorNode(1, ["File"], {"path": "/repo/a.py", "name": "a.py"})
+_FN2 = _FalkorNode(2, ["Function"], {"name": "alpha", "path": "/repo/a.py", "line_number": 3})
+FALKORDB_RECORDS = [_Record([_FN1, _FalkorEdge(_FN1, "CONTAINS", _FN2), _FN2])]
+
 
 @pytest.mark.parametrize(
     "records,label",
-    [(KUZU_RECORDS, "kuzu-style dicts"), (NEO4J_RECORDS, "neo4j-style objects")],
+    [
+        (KUZU_RECORDS, "kuzu-style dicts"),
+        (NEO4J_RECORDS, "neo4j-style objects"),
+        (FALKORDB_RECORDS, "real falkordb-style objects"),
+    ],
 )
 def test_offline_renderer_handles_both_driver_shapes(records, label, tmp_path, monkeypatch):
-    """Kùzu/Ladybug return plain dicts carrying `_label`/`_src`/`_dst`, while
-    Neo4j and FalkorDB return driver objects with `.labels`/`.type`. The
-    renderer must understand both or it silently produces an empty graph."""
+    """Kùzu/Ladybug return plain dicts carrying `_label`/`_src`/`_dst`. Neo4j
+    returns driver objects with `.labels`/`.type` that are dict-convertible.
+    FalkorDB also carries `.labels` but is NOT dict-convertible (properties
+    live in `.properties`), and its edges use `.src_node`/`.dest_node`/
+    `.relation` rather than `.start_node`/`.end_node`/`.type`. The renderer
+    must understand all three shapes or it crashes (FalkorDB) or silently
+    produces an empty graph."""
     monkeypatch.setattr("webbrowser.open", lambda *_a, **_k: True)
     out = tmp_path / "graph.html"
 

@@ -608,13 +608,20 @@ def _render_offline_visualization(
     def _ident(value) -> Optional[str]:
         return None if value is None else str(value)
 
-    # Neo4j/Falkor return driver objects carrying .labels / .type; Kùzu and
-    # Ladybug return plain dicts carrying _label plus _src/_dst. Check the
-    # driver attributes first — a driver object may also be dict-like.
+    # Neo4j returns driver objects carrying .labels / .type that support
+    # dict()/Mapping access. FalkorDB's own driver objects also carry
+    # .labels on nodes, but are NOT dict-convertible — their properties live
+    # in a plain `.properties` dict, and its Edge exposes `.relation` /
+    # `.src_node` / `.dest_node` instead of `.type` / `.start_node` /
+    # `.end_node`. Kùzu and Ladybug return plain dicts carrying _label plus
+    # _src/_dst. Check the driver attributes first — a driver object may
+    # also be dict-like.
     def _is_relationship(value) -> bool:
         if hasattr(value, "labels"):
             return False
         if hasattr(value, "type"):
+            return True
+        if hasattr(value, "relation") and hasattr(value, "src_node"):
             return True
         return isinstance(value, dict) and "_src" in value and "_dst" in value
 
@@ -623,13 +630,17 @@ def _render_offline_visualization(
             return True
         if hasattr(value, "type"):
             return False
+        if hasattr(value, "relation") and hasattr(value, "src_node"):
+            return False
         # Kùzu relationships also carry _label, so _src/_dst is what
         # distinguishes them from nodes.
         return isinstance(value, dict) and "_label" in value and "_src" not in value
 
     def _node_payload(value) -> Dict[str, Any]:
         if hasattr(value, "labels"):
-            props = dict(value)
+            # FalkorDB's Node keeps properties in `.properties` and is not
+            # itself iterable; Neo4j's Node supports dict() via Mapping.
+            props = dict(value.properties) if hasattr(value, "properties") else dict(value)
             labels = list(getattr(value, "labels", []) or [])
             label = labels[0] if labels else "Node"
             node_id = getattr(value, "element_id", None) or getattr(value, "id", None)
@@ -647,13 +658,15 @@ def _render_offline_visualization(
         }
 
     def _edge_payload(value) -> Optional[Dict[str, Any]]:
-        start = getattr(value, "start_node", None)
-        end = getattr(value, "end_node", None)
+        # Neo4j: .start_node/.end_node/.type. FalkorDB: .src_node/.dest_node/
+        # .relation.
+        start = getattr(value, "start_node", None) or getattr(value, "src_node", None)
+        end = getattr(value, "end_node", None) or getattr(value, "dest_node", None)
         if start is not None and end is not None:
             return {
                 "source": _ident(getattr(start, "element_id", None) or getattr(start, "id", None)),
                 "target": _ident(getattr(end, "element_id", None) or getattr(end, "id", None)),
-                "type": getattr(value, "type", "RELATED"),
+                "type": getattr(value, "type", None) or getattr(value, "relation", "RELATED"),
             }
         if isinstance(value, dict):
             return {
