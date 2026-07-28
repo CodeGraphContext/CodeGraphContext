@@ -78,6 +78,9 @@ class _FalkorNode:
 
 class _FalkorEdge:
     def __init__(self, src_node, relation, dest_node, properties=None):
+        # The real falkordb.Edge carries the bare integer node id here, NOT
+        # a Node object — confirmed against an actual query result:
+        # `r.src_node` is `<class 'int'>`, not `falkordb.node.Node`.
         self.src_node = src_node
         self.relation = relation
         self.dest_node = dest_node
@@ -86,7 +89,7 @@ class _FalkorEdge:
 
 _FN1 = _FalkorNode(1, ["File"], {"path": "/repo/a.py", "name": "a.py"})
 _FN2 = _FalkorNode(2, ["Function"], {"name": "alpha", "path": "/repo/a.py", "line_number": 3})
-FALKORDB_RECORDS = [_Record([_FN1, _FalkorEdge(_FN1, "CONTAINS", _FN2), _FN2])]
+FALKORDB_RECORDS = [_Record([_FN1, _FalkorEdge(_FN1.id, "CONTAINS", _FN2.id), _FN2])]
 
 
 @pytest.mark.parametrize(

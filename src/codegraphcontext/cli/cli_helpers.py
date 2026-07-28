@@ -657,15 +657,26 @@ def _render_offline_visualization(
             "line_number": props.get("line_number"),
         }
 
+    def _node_ref_id(ref) -> Any:
+        # Neo4j's start_node/end_node are full Node objects; FalkorDB's
+        # src_node/dest_node are already the bare node id (an int).
+        if isinstance(ref, (int, str)):
+            return ref
+        return getattr(ref, "element_id", None) or getattr(ref, "id", None)
+
     def _edge_payload(value) -> Optional[Dict[str, Any]]:
         # Neo4j: .start_node/.end_node/.type. FalkorDB: .src_node/.dest_node/
         # .relation.
-        start = getattr(value, "start_node", None) or getattr(value, "src_node", None)
-        end = getattr(value, "end_node", None) or getattr(value, "dest_node", None)
+        start = getattr(value, "start_node", None)
+        if start is None:
+            start = getattr(value, "src_node", None)
+        end = getattr(value, "end_node", None)
+        if end is None:
+            end = getattr(value, "dest_node", None)
         if start is not None and end is not None:
             return {
-                "source": _ident(getattr(start, "element_id", None) or getattr(start, "id", None)),
-                "target": _ident(getattr(end, "element_id", None) or getattr(end, "id", None)),
+                "source": _ident(_node_ref_id(start)),
+                "target": _ident(_node_ref_id(end)),
                 "type": getattr(value, "type", None) or getattr(value, "relation", "RELATED"),
             }
         if isinstance(value, dict):
