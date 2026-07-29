@@ -205,6 +205,10 @@ const HeroSection = () => {
             <div className="flex flex-col gap-3">
               <Input
                 type="url"
+                id="hero-repo-url"
+                name="repoUrl"
+                autoComplete="url"
+                aria-label="Repository URL to index"
                 placeholder="https://github.com/owner/repo"
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}

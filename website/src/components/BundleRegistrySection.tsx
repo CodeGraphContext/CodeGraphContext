@@ -328,6 +328,10 @@ const BundleRegistrySection = () => {
                     <div className="relative">
                         <Search className="absolute left-4 top-3.5 h-5 w-5 text-gray-500" />
                         <Input
+                            type="search"
+                            id="bundle-search"
+                            name="bundleSearch"
+                            aria-label="Search bundles"
                             placeholder="SEARCH BUNDLES..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
