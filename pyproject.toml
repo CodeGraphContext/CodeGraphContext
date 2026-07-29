@@ -73,7 +73,13 @@ dependencies = [
     # ------------------------------------------------------------------
     "kuzu; python_version < '3.14' or sys_platform == 'linux'",
     "ladybug; sys_platform == 'win32' or (sys_platform != 'win32' and python_version >= '3.10')",
-    "mcp>=1.0.0",
+    # ------------------------------------------------------------------
+    # Capped below 2.0: mcp 2.x dropped the `Server.list_tools()` /
+    # `Server.call_tool()` decorators that `api/mcp_sse.py` registers its
+    # handlers with, so an unpinned install breaks the SSE gateway at import
+    # time. Lift the cap only together with a migration to the 2.x API.
+    # ------------------------------------------------------------------
+    "mcp>=1.0.0,<2",
     "fastapi>=0.100.0",
     "uvicorn>=0.22.0"
 ]
