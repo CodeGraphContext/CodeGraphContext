@@ -123,7 +123,11 @@ def test_visualize_falls_back_instead_of_exiting():
 def test_sync_viz_dist_script_exists_and_is_executable():
     """The CLI error message told users to run ./scripts/sync_viz_dist.sh,
     which did not exist."""
-    repo_root = Path(cli_helpers.__file__).resolve().parents[3]
+    # Derive the root from this test file, not from the imported module: CI
+    # installs the package (`pip install .[dev,parsing]`), so
+    # `cli_helpers.__file__` resolves into site-packages and `parents[3]` is
+    # `<venv>/lib/python3.x` rather than the checkout.
+    repo_root = Path(__file__).resolve().parents[3]
     script = repo_root / "scripts" / "sync_viz_dist.sh"
 
     assert script.is_file(), f"{script} is referenced by the CLI but missing"
