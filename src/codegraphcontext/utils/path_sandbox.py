@@ -9,12 +9,16 @@ from urllib.parse import urlparse
 
 MAX_DISCOVERY_DEPTH = 10
 
-# Hugging Face dataset raw URLs and GitHub release assets only.
+# Hugging Face dataset raw URLs plus GitHub/GitLab release and raw assets.
+# Each entry also matches its subdomains (see is_safe_download_url), so
+# "gitlab.com" already covers GitLab's raw URLs — those are served from
+# gitlab.com/<project>/-/raw/... rather than a separate raw host.
 _ALLOWED_DOWNLOAD_HOST_SUFFIXES = (
     "huggingface.co",
     "hf.co",
     "github.com",
     "raw.githubusercontent.com",
+    "gitlab.com",
 )
 
 
