@@ -113,9 +113,10 @@ class CGCBundle:
         if isinstance(labels, str):
             labels = [labels]
         primary_label = labels[0]
-        pk_field = self._PK_MAP.get(primary_label)
-        if pk_field and pk_field in properties:
-            return (primary_label, pk_field, properties[pk_field])
+        pk_fields = self._pk_fields(primary_label)
+        if pk_fields and all(f in properties for f in pk_fields):
+            # ((field, value), ...) so composite keys survive to edge matching.
+            return (primary_label, tuple((f, properties[f]) for f in pk_fields))
         return None
 
     
@@ -1009,14 +1010,26 @@ cgc import <bundle-file>.cgc
         
         return count
     
+    # Primary key per node label, mirroring the PRIMARY KEY declarations in
+    # core/database_embedded_kuzu.py. Kùzu/Ladybug reject a bare
+    # `CREATE (n:Label)` with "expects primary key <field> as input", so every
+    # node table declared there must appear here or its import fails outright.
+    # Values are tuples because two tables have composite keys.
     _PK_MAP = {
-        'Repository': 'path', 'File': 'path', 'Directory': 'path',
-        'Module': 'name',
-        'Function': 'uid', 'Class': 'uid', 'Variable': 'uid',
-        'Trait': 'uid', 'Interface': 'uid', 'Macro': 'uid',
-        'Struct': 'uid', 'Enum': 'uid', 'Union': 'uid',
-        'Annotation': 'uid', 'Record': 'uid', 'Property': 'uid',
-        'Parameter': 'uid',
+        'Repository': ('path',), 'File': ('path',), 'Directory': ('path',),
+        'Module': ('name',),
+        'Function': ('uid',), 'Class': ('uid',), 'Variable': ('uid',),
+        'Trait': ('uid',), 'Interface': ('uid',), 'Macro': ('uid',),
+        'Struct': ('uid',), 'Enum': ('uid',), 'EnumMember': ('uid',),
+        'Union': ('uid',), 'Annotation': ('uid',), 'Record': ('uid',),
+        'Property': ('uid',), 'Parameter': ('uid',),
+        'Mixin': ('uid',), 'Extension': ('uid',), 'Object': ('uid',),
+        # Datasource-ingestion labels. DbTable and ExternalClass are the two
+        # reported in issue #1322; the rest were missing for the same reason.
+        'DbTable': ('name',), 'Datasource': ('name',),
+        'ExternalClass': ('name',),
+        'DbColumn': ('name', 'table_fqn'),
+        'RedisKeyPattern': ('pattern', 'datasource_name'),
     }
     _UID_PARTS = {
         'Function': ['name', 'path', 'line_number'],
@@ -1027,12 +1040,21 @@ cgc import <bundle-file>.cgc
         'Macro': ['name', 'path', 'line_number'],
         'Struct': ['name', 'path', 'line_number'],
         'Enum': ['name', 'path', 'line_number'],
+        'EnumMember': ['name', 'path', 'line_number'],
         'Union': ['name', 'path', 'line_number'],
         'Annotation': ['name', 'path', 'line_number'],
         'Record': ['name', 'path', 'line_number'],
         'Property': ['name', 'path', 'line_number'],
         'Parameter': ['name', 'path', 'function_line_number'],
+        'Mixin': ['name', 'path', 'line_number'],
+        'Extension': ['name', 'path', 'line_number'],
+        'Object': ['name', 'path', 'line_number'],
     }
+
+    @classmethod
+    def _pk_fields(cls, label: str) -> tuple:
+        """Primary key field names for *label*, empty when it has none."""
+        return cls._PK_MAP.get(label, ())
 
     def _import_node_batch(self, session, batch: List[Tuple], id_mapping: Dict) -> int:
         """Import a batch of nodes."""
@@ -1048,19 +1070,20 @@ cgc import <bundle-file>.cgc
             label_str = ':'.join(labels)
             primary_label = labels[0]
 
-            pk_field = self._PK_MAP.get(primary_label)
-            if pk_field == 'uid' and 'uid' not in properties:
+            pk_fields = self._pk_fields(primary_label)
+            if pk_fields == ('uid',) and 'uid' not in properties:
                 parts = self._UID_PARTS.get(primary_label, [])
                 properties['uid'] = ''.join(str(properties.get(p, '')) for p in parts)
 
-            if pk_field and pk_field in properties:
-                pk_val = properties[pk_field]
-                remaining = {k: v for k, v in properties.items() if k != pk_field}
+            if pk_fields and all(f in properties for f in pk_fields):
+                pk_params = {f"pk_{i}": properties[f] for i, f in enumerate(pk_fields)}
+                pattern = ", ".join(f"{f}: $pk_{i}" for i, f in enumerate(pk_fields))
+                remaining = {k: v for k, v in properties.items() if k not in pk_fields}
                 query = (
-                    f"MERGE (n:{label_str} {{{pk_field}: $pk_val}}) "
+                    f"MERGE (n:{label_str} {{{pattern}}}) "
                     f"SET n += $props RETURN {id_function}(n) as new_id"
                 )
-                result = session.run(query, pk_val=pk_val, props=remaining)
+                result = session.run(query, props=remaining, **pk_params)
             else:
                 query = f"CREATE (n:{label_str}) SET n = $props RETURN {id_function}(n) as new_id"
                 result = session.run(query, props=properties)
@@ -1124,19 +1147,22 @@ cgc import <bundle-file>.cgc
                 continue
             
             if self._uses_pk_edge_matching():
-                from_label, from_pk, from_val = new_from
-                to_label, to_pk, to_val = new_to
+                from_label, from_key = new_from
+                to_label, to_key = new_to
+                from_pattern = ", ".join(
+                    f"{f}: $from_{i}" for i, (f, _) in enumerate(from_key)
+                )
+                to_pattern = ", ".join(
+                    f"{f}: $to_{i}" for i, (f, _) in enumerate(to_key)
+                )
+                key_params = {f"from_{i}": v for i, (_, v) in enumerate(from_key)}
+                key_params.update({f"to_{i}": v for i, (_, v) in enumerate(to_key)})
                 query = f"""
-                    MATCH (a:{from_label} {{{from_pk}: $from_val}}), (b:{to_label} {{{to_pk}: $to_val}})
+                    MATCH (a:{from_label} {{{from_pattern}}}), (b:{to_label} {{{to_pattern}}})
                     CREATE (a)-[r:{rel_type}]->(b)
                     SET r = $props
                 """
-                session.run(
-                    query,
-                    from_val=from_val,
-                    to_val=to_val,
-                    props=properties,
-                )
+                session.run(query, props=properties, **key_params)
             else:
                 query = f"""
                     MATCH (a), (b)
