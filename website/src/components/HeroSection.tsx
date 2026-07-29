@@ -203,7 +203,12 @@ const HeroSection = () => {
         return (
           <div className="space-y-4 w-full relative z-10">
             <div className="flex flex-col gap-3">
+              <label htmlFor="hero-repo-url" className="sr-only">
+                Repository URL to index
+              </label>
               <Input
+                id="hero-repo-url"
+                name="repoUrl"
                 type="url"
                 placeholder="https://github.com/owner/repo"
                 value={repoUrl}
