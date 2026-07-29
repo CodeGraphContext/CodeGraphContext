@@ -66,9 +66,27 @@ _N2 = _Node("4:2", ["Function"], name="alpha", path="/repo/a.py", line_number=3)
 NEO4J_RECORDS = [_Record([_N1, _Rel("CONTAINS", _N1, _N2), _N2])]
 
 
+# --- LadybugDB shape: same plain dicts, but the internal fields are UPPERCASE.
+# Keying only on the lowercase spelling discarded every row and made the
+# renderer report an empty graph (issue #1458). ------------------------------
+
+LADYBUG_RECORDS = [
+    _Record([
+        {"_ID": "0:1", "_LABEL": "File", "path": "/repo/a.py", "name": "a.py"},
+        {"_SRC": "0:1", "_DST": "0:2", "_LABEL": "CONTAINS"},
+        {"_ID": "0:2", "_LABEL": "Function", "name": "alpha", "path": "/repo/a.py",
+         "line_number": 3},
+    ])
+]
+
+
 @pytest.mark.parametrize(
     "records,label",
-    [(KUZU_RECORDS, "kuzu-style dicts"), (NEO4J_RECORDS, "neo4j-style objects")],
+    [
+        (KUZU_RECORDS, "kuzu-style dicts"),
+        (NEO4J_RECORDS, "neo4j-style objects"),
+        (LADYBUG_RECORDS, "ladybug-style uppercase dicts"),
+    ],
 )
 def test_offline_renderer_handles_both_driver_shapes(records, label, tmp_path, monkeypatch):
     """Kùzu/Ladybug return plain dicts carrying `_label`/`_src`/`_dst`, while
@@ -129,3 +147,54 @@ def test_sync_viz_dist_script_exists_and_is_executable():
     assert script.is_file(), f"{script} is referenced by the CLI but missing"
     assert os.access(script, os.X_OK), f"{script} is not executable"
     assert "viz/dist" in script.read_text(encoding="utf-8")
+
+
+def test_ladybug_uppercase_records_do_not_produce_an_empty_graph(tmp_path, monkeypatch):
+    """Regression for #1458: uppercase internal keys used to be discarded
+    wholesale, so the renderer exited with 'No graph data returned'."""
+    monkeypatch.setattr("webbrowser.open", lambda *_a, **_k: True)
+    out = tmp_path / "graph.html"
+
+    cli_helpers._render_offline_visualization(
+        _db_manager(LADYBUG_RECORDS), repo_path="/repo", output_path=str(out)
+    )
+
+    html = out.read_text(encoding="utf-8")
+    assert "alpha" in html
+    assert "CONTAINS" in html
+
+
+def test_mixed_casing_in_one_record_is_handled(tmp_path, monkeypatch):
+    """Nothing guarantees a backend is internally consistent about casing."""
+    monkeypatch.setattr("webbrowser.open", lambda *_a, **_k: True)
+    out = tmp_path / "graph.html"
+    records = [
+        _Record([
+            {"_id": "0:1", "_label": "File", "path": "/repo/a.py", "name": "a.py"},
+            {"_SRC": "0:1", "_DST": "0:2", "_LABEL": "CALLS"},
+            {"_ID": "0:2", "_LABEL": "Function", "name": "beta", "path": "/repo/a.py"},
+        ])
+    ]
+
+    cli_helpers._render_offline_visualization(
+        _db_manager(records), repo_path="/repo", output_path=str(out)
+    )
+
+    html = out.read_text(encoding="utf-8")
+    assert "beta" in html
+    assert "CALLS" in html
+
+
+def test_uppercase_relationship_is_not_mistaken_for_a_node(tmp_path, monkeypatch):
+    """_LABEL alone must not classify a row as a node — _SRC/_DST decide."""
+    monkeypatch.setattr("webbrowser.open", lambda *_a, **_k: True)
+    out = tmp_path / "graph.html"
+
+    cli_helpers._render_offline_visualization(
+        _db_manager(LADYBUG_RECORDS), repo_path="/repo", output_path=str(out)
+    )
+
+    html = out.read_text(encoding="utf-8")
+    # The CONTAINS row carries _LABEL too; if it were treated as a node the
+    # renderer would emit a node whose name is empty and whose id is 'None'.
+    assert '"id": "None"' not in html

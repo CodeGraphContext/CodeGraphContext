@@ -608,6 +608,20 @@ def _render_offline_visualization(
     def _ident(value) -> Optional[str]:
         return None if value is None else str(value)
 
+    # Kùzu spells its internal dict fields lowercase (_label/_src/_dst/_id);
+    # LadybugDB spells the same fields uppercase (_LABEL/_SRC/_DST/_ID). Match
+    # either casing — keying on one only means every row is discarded on the
+    # other backend and the renderer reports an empty graph (see issue #1458).
+    def _meta(value, name: str):
+        """Read a backend-internal dict field regardless of its casing."""
+        for key in (f"_{name.lower()}", f"_{name.upper()}"):
+            if key in value:
+                return value[key]
+        return None
+
+    def _has_meta(value, name: str) -> bool:
+        return f"_{name.lower()}" in value or f"_{name.upper()}" in value
+
     # Neo4j/Falkor return driver objects carrying .labels / .type; Kùzu and
     # Ladybug return plain dicts carrying _label plus _src/_dst. Check the
     # driver attributes first — a driver object may also be dict-like.
@@ -616,7 +630,11 @@ def _render_offline_visualization(
             return False
         if hasattr(value, "type"):
             return True
-        return isinstance(value, dict) and "_src" in value and "_dst" in value
+        return (
+            isinstance(value, dict)
+            and _has_meta(value, "src")
+            and _has_meta(value, "dst")
+        )
 
     def _is_node(value) -> bool:
         if hasattr(value, "labels"):
@@ -625,7 +643,11 @@ def _render_offline_visualization(
             return False
         # Kùzu relationships also carry _label, so _src/_dst is what
         # distinguishes them from nodes.
-        return isinstance(value, dict) and "_label" in value and "_src" not in value
+        return (
+            isinstance(value, dict)
+            and _has_meta(value, "label")
+            and not _has_meta(value, "src")
+        )
 
     def _node_payload(value) -> Dict[str, Any]:
         if hasattr(value, "labels"):
@@ -634,8 +656,9 @@ def _render_offline_visualization(
             label = labels[0] if labels else "Node"
             node_id = getattr(value, "element_id", None) or getattr(value, "id", None)
         else:
-            props, label = dict(value), value.get("_label", "Node")
-            node_id = value.get("_id")
+            props = dict(value)
+            label = _meta(value, "label") or "Node"
+            node_id = _meta(value, "id")
         if node_id is None:
             node_id = props.get("path") or props.get("name")
         return {
@@ -657,9 +680,9 @@ def _render_offline_visualization(
             }
         if isinstance(value, dict):
             return {
-                "source": _ident(value.get("_src")),
-                "target": _ident(value.get("_dst")),
-                "type": value.get("_label", "RELATED"),
+                "source": _ident(_meta(value, "src")),
+                "target": _ident(_meta(value, "dst")),
+                "type": _meta(value, "label") or "RELATED",
             }
         return None
 
