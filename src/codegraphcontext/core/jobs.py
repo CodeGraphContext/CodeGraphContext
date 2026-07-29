@@ -121,6 +121,27 @@ class JobManager:
                     
             return None
 
+    def cancel_job(self, job_id: str) -> bool:
+        """Mark a pending or running job as cancelled.
+
+        Returns ``True`` when the job moved to ``CANCELLED``, and ``False`` for
+        an unknown job or one that already reached a terminal state — so a
+        caller can tell "cancelled it" apart from "there was nothing to
+        cancel" without inspecting the job again.
+
+        This records intent only; a worker still has to observe the status and
+        stop on its own.
+        """
+        with self.lock:
+            job = self.jobs.get(job_id)
+            if job is None:
+                return False
+            if job.status not in (JobStatus.PENDING, JobStatus.RUNNING):
+                return False
+            job.status = JobStatus.CANCELLED
+            job.end_time = datetime.now()
+            return True
+
     def cleanup_old_jobs(self, max_age_hours: int = 24):
         """Removes old jobs from memory to prevent memory leaks.
 
