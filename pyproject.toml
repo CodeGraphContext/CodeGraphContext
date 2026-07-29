@@ -73,7 +73,13 @@ dependencies = [
     # ------------------------------------------------------------------
     "kuzu; python_version < '3.14' or sys_platform == 'linux'",
     "ladybug; sys_platform == 'win32' or (sys_platform != 'win32' and python_version >= '3.10')",
-    "mcp>=1.0.0",
+    # Cap below 2.0: the low-level `mcp.server.Server` dropped its `list_tools`
+    # and `call_tool` decorators in 2.0.0, which api/mcp_sse.py registers its
+    # handlers with. With an unbounded pin, CI resolved 2.0.0 on release day and
+    # every job failed at import with
+    # "AttributeError: 'Server' object has no attribute 'list_tools'".
+    # Lift this once mcp_sse.py is ported to the 2.x server API.
+    "mcp>=1.0.0,<2",
     "fastapi>=0.100.0",
     "uvicorn>=0.22.0"
 ]
