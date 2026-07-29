@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 
+from .debug_log import warning_logger
+
 _FORBIDDEN_KEYWORDS = (
     "CREATE",
     "MERGE",
@@ -48,17 +50,33 @@ def _strip_comments(query: str) -> str:
 
 
 def is_read_only_cypher(query: str) -> bool:
-    """Return True when *query* has no write keywords outside string literals."""
+    """Return True when *query* has no write keywords outside string literals.
+
+    Every rejection is logged at warning level so blocked queries leave an
+    audit trail. The reason is logged, never the query text: a rejected query
+    can carry caller-supplied literals, and this validator guards the CLI, MCP
+    and viz endpoints alike.
+    """
     if not query or not query.strip():
+        warning_logger("Cypher query rejected: query is empty.")
         return False
     stripped = _strip_comments(strip_string_literals(query))
     if ";" in stripped:
+        warning_logger(
+            "Cypher query rejected: multiple statements are not allowed (';' found)."
+        )
         return False
     for keyword in _FORBIDDEN_KEYWORDS:
         if re.search(r"\b" + keyword + r"\b", stripped, re.IGNORECASE):
+            warning_logger(
+                f"Cypher query rejected: forbidden keyword '{keyword}' detected."
+            )
             return False
     for pattern in _FORBIDDEN_PATTERNS:
         if pattern.search(stripped):
+            warning_logger(
+                f"Cypher query rejected: forbidden pattern '{pattern.pattern}' matched."
+            )
             return False
     return True
 
