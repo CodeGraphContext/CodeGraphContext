@@ -37,3 +37,22 @@ def get_repo_branch_name(repo_path: Path) -> Optional[str]:
         return branch if branch else None
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return None
+
+
+def get_repo_remote_url(repo_path: Path) -> Optional[str]:
+    """Return the ``origin`` remote URL for *repo_path*, or ``None`` when the
+    path has no ``origin`` remote, is not a git working tree, or ``git`` is
+    unavailable.
+
+    Silent like its siblings above: remote URL is enrichment metadata, so a
+    missing remote must not fail indexing.
+    """
+    try:
+        url = subprocess.check_output(
+            ["git", "remote", "get-url", "origin"],
+            cwd=repo_path,
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        return url if url else None
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return None
