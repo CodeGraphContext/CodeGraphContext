@@ -49,10 +49,10 @@ def _normalize_identifier(s: str) -> str:
 
     Examples::
 
-        _normalize_identifier('myFunction')   -> 'myfunction'
-        _normalize_identifier('my_function')  -> 'myfunction'
-        _normalize_identifier('my function')  -> 'myfunction'
-        _normalize_identifier('MyFunc tion')  -> 'myfunction'
+        _normalize_identifier('myFunction')    -> 'myfunction'
+        _normalize_identifier('my_function')   -> 'myfunction'
+        _normalize_identifier('my function')   -> 'myfunction'
+        _normalize_identifier('MyFunc tion')   -> 'myfunction'
     """
     return s.lower().replace('_', '').replace(' ', '')
 
@@ -241,8 +241,8 @@ class CodeFinder:
             rows = session.run(query, **params).data()
 
         # Two query forms:
-        #   q_raw  – lowercased original (e.g. "myFuncton" → "myfuncton")
-        #   q_norm – separator-stripped  (e.g. "my_functon" → "myfuncton")
+        #    q_raw  – lowercased original (e.g. "myFuncton" → "myfuncton")
+        #    q_norm – separator-stripped  (e.g. "my_functon" → "myfuncton")
         # Using the minimum of both distances avoids the space-inflation bug where
         # the handler's replace('_', ' ') turns "my_functon" into "my functon",
         # which compares poorly against camelCase stored names.
@@ -1276,7 +1276,8 @@ class CodeFinder:
                 }
             
             elif query_type == "find_complexity":
-                limit = int(context) if context and context.isdigit() else 10
+                limit_val = context if context else target
+                limit = int(limit_val) if limit_val and str(limit_val).isdigit() else 10
                 results = self.find_most_complex_functions(limit, repo_path=repo_path)
                 return {
                     "query_type": "find_complexity", "limit": limit, "results": results,
@@ -1300,8 +1301,7 @@ class CodeFinder:
             elif query_type in ["call_chain", "path", "chain"]:
                 if '->' in target:
                     start_func, end_func = target.split('->', 1)
-                    # max_depth can be passed as context, default to 5 if not provided or invalid
-                    max_depth = int(context) if context and context.isdigit() else 5
+                    max_depth = int(context) if context and str(context).isdigit() else 5
                     results = self.find_function_call_chain(start_func.strip(), end_func.strip(), max_depth, repo_path=repo_path)
                     return {
                         "query_type": "call_chain", "target": target, "results": results,
