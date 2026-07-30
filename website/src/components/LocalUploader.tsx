@@ -696,7 +696,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                       max={500000}
                       step={10000}
                       value={config.maxNodes}
-                      onChange={e => updateConfig({ maxNodes: parseInt(e.target.value) })}
+                      onChange={e => updateConfig({ maxNodes: parseInt(e.target.value, 10) })}
                       className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
                     />
                   </div>
@@ -720,7 +720,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                       max={200000}
                       step={5000}
                       value={config.maxEdges}
-                      onChange={e => updateConfig({ maxEdges: parseInt(e.target.value) })}
+                      onChange={e => updateConfig({ maxEdges: parseInt(e.target.value, 10) })}
                       className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
                     />
                   </div>
