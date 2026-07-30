@@ -30,6 +30,24 @@ from .resolution.inheritance import (
 )
 
 
+DEFAULT_PARALLEL_WORKERS = 10
+
+
+def get_parallel_workers() -> int:
+    """Resolve the indexing concurrency limit from the PARALLEL_WORKERS config.
+
+    Falls back to DEFAULT_PARALLEL_WORKERS when the value is unset or not a
+    usable positive integer, so a bad config never breaks indexing.
+    """
+    from ...cli.config_manager import get_config_value
+
+    try:
+        workers = int(get_config_value("PARALLEL_WORKERS") or "")
+    except (TypeError, ValueError):
+        return DEFAULT_PARALLEL_WORKERS
+    return workers if workers > 0 else DEFAULT_PARALLEL_WORKERS
+
+
 def build_index_summary(
     files: List[Path],
     parsers: Dict[str, str],
@@ -108,7 +126,7 @@ async def run_tree_sitter_index_async(
     resolved_repo_path_str = path.resolve().as_posix() if path.is_dir() else path.parent.resolve().as_posix()
 
     processed_count = 0
-    concurrency_limit = 10
+    concurrency_limit = get_parallel_workers()
     semaphore = asyncio.Semaphore(concurrency_limit)
     
     async def process_file(file: Path) -> Optional[Dict[str, Any]]:
