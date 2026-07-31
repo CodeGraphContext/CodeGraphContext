@@ -45,10 +45,38 @@ const Navbar: React.FC = () => {
     });
 
     return () => observer.disconnect();
-  }, [isLandingPage]);  
+  }, [isLandingPage]);
+
+  // Scroll progress for the indicator strip under the navbar edge
+  const [scrollProgress, setScrollProgress] = useState(0);
+
+  useEffect(() => {
+    const updateProgress = () => {
+      const scrollTop = window.scrollY;
+      const scrollableDistance =
+        document.documentElement.scrollHeight - window.innerHeight;
+      const progress =
+        scrollableDistance > 0
+          ? Math.min(Math.max((scrollTop / scrollableDistance) * 100, 0), 100)
+          : 0;
+      setScrollProgress(progress);
+    };
+
+    window.addEventListener("scroll", updateProgress, { passive: true });
+    updateProgress();
+    return () => window.removeEventListener("scroll", updateProgress);
+  }, []);
 
   return (
     <nav className="fixed top-0 left-0 z-50 w-full select-none bg-black border-b border-white/10">
+      {/* Scroll Progress Indicator */}
+      <div className="h-0.5 w-full bg-zinc-900 overflow-hidden">
+        <div
+          className="h-full bg-gradient-to-r from-purple-600 via-cyan-500 to-purple-600 transition-all duration-200 ease-out"
+          style={{ width: `${scrollProgress}%` }}
+        />
+      </div>
+
       <div className="w-full max-w-7xl mx-auto px-4 md:px-6 h-14 md:h-16 flex items-center justify-between">
         
         {/* Left: Brand Logo & Title */}
