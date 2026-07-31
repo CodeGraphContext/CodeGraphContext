@@ -24,6 +24,11 @@ db_instance = None
 
 def handle_signal(signum, frame):
     logger.info(f"Received signal {signum}. Stopping FalkorDB worker...")
+    if db_instance is not None:
+        try:
+            db_instance.shutdown(save=True)
+        except Exception as exc:
+            logger.warning(f"Could not save FalkorDB before shutdown: {exc}")
     sys.exit(0)
 
 def get_falkordb_port(socket_path: str | None = None) -> int:
