@@ -334,10 +334,16 @@ def index_helper(path: str, context: Optional[str] = None):
                 file_count = record["file_count"] if record else 0
                 
                 if file_count > 0:
-                    console.print(f"[yellow]Repository '{path}' is already indexed with {file_count} files. Skipping.[/yellow]")
-                    console.print("[dim]💡 Tip: Use 'cgc index --force' to re-index[/dim]")
-                    db_manager.close_driver()
-                    return
+                    expected = graph_builder.estimate_processing_time(path_obj) if path_obj.is_dir() else None
+                    expected_file_count = expected[0] if expected else None
+                    if expected_file_count is None or file_count >= expected_file_count:
+                        console.print(f"[yellow]Repository '{path}' is already indexed with {file_count} files. Skipping.[/yellow]")
+                        console.print("[dim]💡 Tip: Use 'cgc index --force' to re-index[/dim]")
+                        db_manager.close_driver()
+                        return
+                    console.print(
+                        f"[yellow]Repository '{path}' has only {file_count} of {expected_file_count} files indexed. Continuing.[/yellow]"
+                    )
                 else:
                     console.print(f"[yellow]Repository '{path}' exists but has no files (likely interrupted). Re-indexing...[/yellow]")
         except Exception as e:
