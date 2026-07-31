@@ -627,6 +627,17 @@ def _render_offline_visualization(
     def _ident(value) -> Optional[str]:
         return None if value is None else str(value)
 
+    # Kùzu spells the internal record keys in lowercase (_label/_src/_dst/_id);
+    # Ladybug returns the same fields uppercased (_LABEL/_SRC/_DST/_ID). Look
+    # up both spellings so either backend reaches the offline renderer (#1458).
+    def _meta(d: dict, key: str, default=None):
+        if key in d:
+            return d[key]
+        return d.get(key.upper(), default)
+
+    def _has_meta(d: dict, key: str) -> bool:
+        return key in d or key.upper() in d
+
     # Neo4j returns driver objects carrying .labels / .type that support
     # dict()/Mapping access. FalkorDB's own driver objects also carry
     # .labels on nodes, but are NOT dict-convertible — their properties live
@@ -642,7 +653,7 @@ def _render_offline_visualization(
             return True
         if hasattr(value, "relation") and hasattr(value, "src_node"):
             return True
-        return isinstance(value, dict) and "_src" in value and "_dst" in value
+        return isinstance(value, dict) and _has_meta(value, "_src") and _has_meta(value, "_dst")
 
     def _is_node(value) -> bool:
         if hasattr(value, "labels"):
@@ -653,7 +664,7 @@ def _render_offline_visualization(
             return False
         # Kùzu relationships also carry _label, so _src/_dst is what
         # distinguishes them from nodes.
-        return isinstance(value, dict) and "_label" in value and "_src" not in value
+        return isinstance(value, dict) and _has_meta(value, "_label") and not _has_meta(value, "_src")
 
     def _node_payload(value) -> Dict[str, Any]:
         if hasattr(value, "labels"):
@@ -664,8 +675,8 @@ def _render_offline_visualization(
             label = labels[0] if labels else "Node"
             node_id = getattr(value, "element_id", None) or getattr(value, "id", None)
         else:
-            props, label = dict(value), value.get("_label", "Node")
-            node_id = value.get("_id")
+            props, label = dict(value), _meta(value, "_label", "Node")
+            node_id = _meta(value, "_id")
         if node_id is None:
             node_id = props.get("path") or props.get("name")
         return {
@@ -700,9 +711,9 @@ def _render_offline_visualization(
             }
         if isinstance(value, dict):
             return {
-                "source": _ident(value.get("_src")),
-                "target": _ident(value.get("_dst")),
-                "type": value.get("_label", "RELATED"),
+                "source": _ident(_meta(value, "_src")),
+                "target": _ident(_meta(value, "_dst")),
+                "type": _meta(value, "_label", "RELATED"),
             }
         return None
 

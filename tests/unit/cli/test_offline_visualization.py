@@ -45,6 +45,17 @@ KUZU_RECORDS = [
     ])
 ]
 
+# --- Ladybug shape: same dicts but with UPPERCASE internal keys (#1458) ------
+
+LADYBUG_RECORDS = [
+    _Record([
+        {"_ID": "0:1", "_LABEL": "File", "path": "/repo/a.py", "name": "a.py"},
+        {"_SRC": "0:1", "_DST": "0:2", "_LABEL": "CONTAINS"},
+        {"_ID": "0:2", "_LABEL": "Function", "name": "alpha", "path": "/repo/a.py",
+         "line_number": 3},
+    ])
+]
+
 # --- Neo4j / Falkor shape: driver objects ------------------------------------
 
 class _Node(dict):
@@ -96,6 +107,7 @@ FALKORDB_RECORDS = [_Record([_FN1, _FalkorEdge(_FN1.id, "CONTAINS", _FN2.id), _F
     "records,label",
     [
         (KUZU_RECORDS, "kuzu-style dicts"),
+        (LADYBUG_RECORDS, "ladybug-style uppercase dicts"),
         (NEO4J_RECORDS, "neo4j-style objects"),
         (FALKORDB_RECORDS, "real falkordb-style objects"),
     ],
