@@ -271,7 +271,13 @@ const Footer = () => {
 
               <form onSubmit={handleNewsletterSubmit} className="space-y-4">
                 <div className="flex flex-col sm:flex-row gap-3">
+                  <label htmlFor="newsletter-email" className="sr-only">
+                    Email address for the newsletter
+                  </label>
                   <input
+                    id="newsletter-email"
+                    name="email"
+                    autoComplete="email"
                     type="email"
                     placeholder="YOUR EMAIL"
                     value={email}
