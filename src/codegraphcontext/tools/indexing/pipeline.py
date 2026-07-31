@@ -9,7 +9,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
-
+import os
 from ...core.jobs import JobManager, JobStatus
 from ...utils.debug_log import debug_log, error_logger, info_logger, warning_logger
 from .discovery import discover_files_to_index
@@ -28,6 +28,24 @@ from .resolution.inheritance import (
     build_partial_of_links,
     build_part_of_links,
 )
+
+
+DEFAULT_PARALLEL_WORKERS = 10
+
+
+def get_parallel_workers() -> int:
+    """Resolve the indexing concurrency limit from the PARALLEL_WORKERS config.
+
+    Falls back to DEFAULT_PARALLEL_WORKERS when the value is unset or not a
+    usable positive integer, so a bad config never breaks indexing.
+    """
+    from ...cli.config_manager import get_config_value
+
+    try:
+        workers = int(get_config_value("PARALLEL_WORKERS") or "")
+    except (TypeError, ValueError):
+        return DEFAULT_PARALLEL_WORKERS
+    return workers if workers > 0 else DEFAULT_PARALLEL_WORKERS
 
 
 def build_index_summary(
@@ -108,7 +126,7 @@ async def run_tree_sitter_index_async(
     resolved_repo_path_str = path.resolve().as_posix() if path.is_dir() else path.parent.resolve().as_posix()
 
     processed_count = 0
-    concurrency_limit = 10
+    concurrency_limit = get_parallel_workers()
     semaphore = asyncio.Semaphore(concurrency_limit)
     
     async def process_file(file: Path) -> Optional[Dict[str, Any]]:
@@ -145,7 +163,9 @@ async def run_tree_sitter_index_async(
             job_manager.update_job(job_id, processed_files=processed_count)
         
         if processed_count % 50 == 0:
-            info_logger(f"Processed {processed_count}/{len(files)} files...")
+            
+            if os.environ.get("CGC_ACTIVE_PROGRESS_BAR") != "1":
+                info_logger(f"Processed {processed_count}/{len(files)} files...")
 
     serialization_start = time.time()
 

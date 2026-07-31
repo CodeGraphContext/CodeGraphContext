@@ -110,11 +110,15 @@ TOOLS = {
                 },
                 "target": {
                     "type": "string",
-                    "description": "The function, class, or module to analyze."
+                    "description": "The primary target for the query (e.g., function name, class name, or 'start_func->end_func' for call chains)."
                 },
                 "context": {
                     "type": "string",
-                    "description": "Optional file path for precise results."
+                    "description": "Additional context parameter: acts as a file path for precise scoping or a numeric string (e.g., depth/limit) depending on the query type."
+                },
+                "depth": {
+                    "type": "integer",
+                    "description": "Optional traversal depth for transitive caller and callee queries (1-20)."
                 },
                 "repo_path": {
                     "type": "string",
@@ -150,6 +154,11 @@ TOOLS = {
                 "cypher_query": {
                     "type": "string",
                     "description": "The Cypher query to execute"
+                },
+                "params": {
+                    "type": "object",
+                    "description": "Optional named parameters passed to the Cypher query.",
+                    "default": {}
                 },
                 "graph_name": _GRAPH_NAME_PROP
             },
@@ -206,6 +215,7 @@ TOOLS = {
             "type": "object",
             "properties": {
                 "function_name": {"type": "string"},
+                "path": {"type": "string", "description": "Optional file path to disambiguate the function."},
                 "repo_path": {"type": "string"},
                 "graph_name": _GRAPH_NAME_PROP
             },

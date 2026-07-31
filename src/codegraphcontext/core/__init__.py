@@ -20,7 +20,9 @@ from pathlib import Path
 from typing import Union, Optional
 import importlib.util
 
-# Set when FalkorDB Lite fails in-process so we skip repeated startup/retry storms.
+# Retained for compatibility with callers that inspect this module attribute.
+# FalkorDB startup failures are now tracked by FalkorDBManager per database
+# configuration, rather than disabling the backend for the whole process.
 _FALKORDB_DISABLED = False
 
 
@@ -92,14 +94,12 @@ def _try_fallback_backends(db_path: Optional[str], candidates, *, reason: str):
 
 
 def mark_falkordb_unavailable() -> None:
-    """Remember that FalkorDB Lite cannot run in this process."""
-    global _FALKORDB_DISABLED
-    _FALKORDB_DISABLED = True
+    """Compatibility hook; startup failures are scoped by FalkorDBManager."""
 
 
 def is_falkordb_usable() -> bool:
-    """True when FalkorDB Lite is installed and has not failed this session."""
-    return _is_falkordb_available() and not _FALKORDB_DISABLED
+    """True when FalkorDB Lite is available on this system."""
+    return _is_falkordb_available()
 
 def _is_kuzudb_available() -> bool:
     """Check if KùzuDB is installed."""
@@ -181,14 +181,10 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
 
         elif db_type == 'falkordb':
             if not is_falkordb_usable():
-                if _FALKORDB_DISABLED:
-                    reason = "FalkorDB Lite was disabled for this process after an earlier failure."
-                else:
-                    reason = "FalkorDB Lite is not supported or not installed here."
                 mgr = _try_fallback_backends(
                     db_path,
                     ('kuzudb', 'ladybugdb', 'neo4j', 'nornic'),
-                    reason=reason,
+                    reason="FalkorDB Lite is not supported or not installed here.",
                 )
                 if mgr is not None:
                     return mgr

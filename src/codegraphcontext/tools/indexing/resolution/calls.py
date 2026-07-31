@@ -71,6 +71,7 @@ _SUFFIX_TO_LANG = {
     ".hs": "haskell",
     ".ex": "elixir", ".exs": "elixir",
     ".el": "elisp",
+    ".sol": "solidity",
 }
 
 def detect_lang_from_path(path: str) -> Optional[str]:
@@ -2081,6 +2082,7 @@ def build_function_call_groups(
                 "lua":        {".lua"},
                 "haskell":    {".hs"},
                 "elixir":     {".ex", ".exs"},
+                "solidity":   {".sol"},
             }
             exts = _LANG_EXTS.get(caller_lang)
             if not exts:

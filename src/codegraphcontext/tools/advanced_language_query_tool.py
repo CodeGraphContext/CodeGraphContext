@@ -17,6 +17,7 @@ from ..tools.query_tool_languages.csharp_toolkit import CSharpToolkit
 from ..tools.query_tool_languages.dart_toolkit import DartToolkit
 from ..tools.query_tool_languages.elisp_toolkit import ElispToolkit
 from ..tools.query_tool_languages.perl_toolkit import PerlToolkit
+from ..tools.query_tool_languages.solidity_toolkit import SolidityToolkit
 
 if TYPE_CHECKING:
     from ..core.database import DatabaseManager
@@ -47,6 +48,7 @@ class Advanced_language_query:
         "dart": DartToolkit,
         "elisp": ElispToolkit,
         "perl": PerlToolkit,
+        "solidity": SolidityToolkit,
     }
     Supported_queries = {
         "repository": "Repository",

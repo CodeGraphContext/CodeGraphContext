@@ -3,6 +3,7 @@ import sys
 import os
 import time
 import signal
+import hashlib
 from pathlib import Path
 import logging
 import socket
@@ -23,16 +24,28 @@ db_instance = None
 
 def handle_signal(signum, frame):
     logger.info(f"Received signal {signum}. Stopping FalkorDB worker...")
+    if db_instance is not None:
+        try:
+            db_instance.shutdown(save=True)
+        except Exception as exc:
+            logger.warning(f"Could not save FalkorDB before shutdown: {exc}")
     sys.exit(0)
 
-def get_falkordb_port():
-    return int(os.getenv("FALKORDB_PORT", "6379"))
+def get_falkordb_port(socket_path: str | None = None) -> int:
+    """Return an explicit port or a stable port unique to a Unix socket path."""
+    configured_port = os.getenv("FALKORDB_PORT")
+    if configured_port:
+        return int(configured_port)
+    if socket_path:
+        digest = hashlib.sha256(socket_path.encode("utf-8")).digest()
+        return 20_000 + int.from_bytes(digest[:4], "big") % 20_000
+    return 6379
 
 def run_worker():
 
     db_path = os.getenv('FALKORDB_PATH')
     socket_path = os.getenv('FALKORDB_SOCKET_PATH')
-    port = get_falkordb_port()
+    port = get_falkordb_port(socket_path)
 
     global db_instance
     

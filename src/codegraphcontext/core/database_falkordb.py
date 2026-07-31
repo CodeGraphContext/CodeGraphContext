@@ -82,7 +82,7 @@ class FalkorDBManager:
     _driver = None
     _graphs = {}
     _lock = threading.Lock()
-    _startup_failed = False
+    _failed_configurations: set[tuple[str, str]] = set()
     _STARTUP_TIMEOUT_SEC = 5
 
     def __new__(cls, *args, **kwargs):
@@ -124,6 +124,9 @@ class FalkorDBManager:
             return
 
         if hasattr(self, '_initialized') and getattr(self, 'db_path', None) != new_db_path:
+            previous_configuration = getattr(self, '_configuration_key', None)
+            if previous_configuration is not None:
+                FalkorDBManager._failed_configurations.discard(previous_configuration)
             self.shutdown()
             self._driver = None
             self._graph = None
@@ -145,6 +148,7 @@ class FalkorDBManager:
                 config_socket_path or str(Path.home() / '.codegraphcontext' / 'global' / 'falkordb.sock')
             )
         self.socket_path = os.path.abspath(self.socket_path)
+        self._configuration_key = (self.db_path, self.socket_path)
         
         self.graph_name = os.getenv('FALKORDB_GRAPH_NAME', 'codegraph')
         self._initialized = True
@@ -167,9 +171,9 @@ class FalkorDBManager:
         import platform
         graph_name = graph_name or self.graph_name
 
-        if FalkorDBManager._startup_failed:
+        if self._configuration_key in FalkorDBManager._failed_configurations:
             raise FalkorDBUnavailableError(
-                "FalkorDB Lite previously failed to start in this process."
+                "FalkorDB Lite previously failed to start for this database configuration."
             )
 
         if platform.system() == "Windows":
@@ -237,10 +241,10 @@ class FalkorDBManager:
                         )
                         raise ValueError("FalkorDB client missing.") from e
                     except FalkorDBUnavailableError:
-                        FalkorDBManager._startup_failed = True
+                        FalkorDBManager._failed_configurations.add(self._configuration_key)
                         raise
                     except Exception as e:
-                        FalkorDBManager._startup_failed = True
+                        FalkorDBManager._failed_configurations.add(self._configuration_key)
                         error_logger(f"Failed to initialize FalkorDB: {e}")
                         raise
 
@@ -291,9 +295,7 @@ class FalkorDBManager:
                     pass
 
         # 2. Start Subprocess
-        env = os.environ.copy()
-        env['FALKORDB_PATH'] = self.db_path
-        env['FALKORDB_SOCKET_PATH'] = self.socket_path
+        env = self._build_worker_environment()
         
         # Determine python executable
         python_exe = sys.executable
@@ -407,6 +409,18 @@ class FalkorDBManager:
             f"Timed out waiting for FalkorDB Lite to start. Last error: {last_error}"
         )
 
+    def _build_worker_environment(self) -> dict[str, str]:
+        """Pass a deterministic, per-context port to the FalkorDB worker."""
+        from .falkor_worker import get_falkordb_port
+        from codegraphcontext.cli.config_manager import get_config_value
+
+        env = os.environ.copy()
+        env["FALKORDB_PATH"] = self.db_path
+        env["FALKORDB_SOCKET_PATH"] = self.socket_path
+        configured_port = os.getenv("FALKORDB_PORT") or get_config_value("FALKORDB_PORT")
+        env["FALKORDB_PORT"] = configured_port or str(get_falkordb_port(self.socket_path))
+        return env
+
     def list_graphs(self):
         """Return names of all graphs in this FalkorDB instance."""
         if self._driver is None:
@@ -428,6 +442,7 @@ class FalkorDBManager:
             self._graphs = {}
         if teardown:
             self.shutdown()
+            FalkorDBManager._failed_configurations.discard(self._configuration_key)
 
     @staticmethod
     def _disconnect_pool(driver) -> None:
@@ -449,10 +464,18 @@ class FalkorDBManager:
                 return
 
     def shutdown(self):
-        """Kills the subprocess on exit."""
+        """Persist and stop the embedded server before terminating its worker."""
         if self._process:
             if self._process.poll() is None:
                 info_logger("Stopping FalkorDB subprocess...")
+                try:
+                    from redis import Redis
+
+                    Redis(unix_socket_path=self.socket_path).shutdown(save=True)
+                except Exception as exc:
+                    # Redis closes the control connection after accepting SHUTDOWN;
+                    # worker termination remains the fallback if that did not happen.
+                    info_logger(f"FalkorDB shutdown command did not return cleanly: {exc}")
                 self._process.terminate()
                 try:
                     self._process.wait(timeout=5)

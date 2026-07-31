@@ -1312,6 +1312,17 @@ class GraphWriter:
             )
             parent_paths = [record["path"] for record in parents_res]
 
+            # Module nodes are shared by their name: a module definition can be
+            # contained by this file while other files keep INCLUDES or IMPORTS
+            # edges to the same node. Remove only this file's containment edge
+            # before deleting the file-owned graph elements.
+            session.run(
+                """
+                MATCH (f:File {path: $path})-[r:CONTAINS]->(:Module)
+                DELETE r
+                """,
+                path=file_path_str,
+            )
             session.run(
                 """
                 MATCH (f:File {path: $path})
@@ -1334,6 +1345,7 @@ class GraphWriter:
                 )
 
         execute_write_operation(self.driver, backend, _work)
+        self._purge_dangling_pathless_nodes()
     def write_cpp_class_function_links(self, repo_path_str: str) -> None:
         """Post-pass: create Class-[:CONTAINS]->Function edges for C++ files.
 

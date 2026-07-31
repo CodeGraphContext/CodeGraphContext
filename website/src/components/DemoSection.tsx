@@ -1,3 +1,4 @@
+import { track } from "@vercel/analytics/react";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { motion } from "framer-motion";
@@ -129,12 +130,10 @@ const DemoSection = () => {
                         <div 
                           className="flex flex-col h-full outline-none"
                           onClick={() => {
-                            if (window.va) {
-                              window.va('event', 'feature_clicked', {
+                            track('feature_clicked', {
                                 feature: 'DemoSection',
                                 demo: viz.title
                               });
-                            }
                           }}
                         >
                           <div className="relative overflow-hidden">

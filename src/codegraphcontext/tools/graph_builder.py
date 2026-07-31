@@ -92,8 +92,11 @@ class GraphBuilder:
             ".ex": "elixir",
             ".exs": "elixir",
             ".el": "elisp",
+            ".sol": "solidity",
             ".html": "html",
             ".css": "css",
+            ".svelte": "svelte",
+            ".vue": "vue",
         }
         
         # Files that should be added to the graph as minimal File nodes, even if not parsed
@@ -1065,7 +1068,12 @@ class GraphBuilder:
                     index_source=index_source,
                 )
             else:
-                file_data = parser.parse(path, is_dependency, index_source=index_source)
+                file_data = parser.parse(
+                    path,
+                    is_dependency,
+                    index_source=index_source,
+                    repo_path=repo_path,
+                )
             file_data["repo_path"] = str(repo_path)
             # Most parsers catch their own exceptions and return {"path", "error"}
             # rather than raising, so the handler below never sees them. Flag the

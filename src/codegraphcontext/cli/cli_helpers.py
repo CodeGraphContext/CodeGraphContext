@@ -239,65 +239,78 @@ def _initialize_services(
     return db_manager, graph_builder, code_finder, ctx
 
 
-async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, is_dependency: bool = False, cgcignore_path: str = None):
+async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, is_dependency: bool = False, cgcignore_path: str = None, disable_progress: bool = False):
     """Internal helper to run indexing with a Live progress bar."""
     job_id = graph_builder.job_manager.create_job(str(path_obj), is_dependency=is_dependency)
     
-    # Create the progress bar
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        MofNCompleteColumn(),
-        TimeRemainingColumn(),
-        TextColumn("[dim]{task.fields[filename]}"),
-        console=console,
-        transient=True,
-    ) as progress:
+    disable_progress = (
+        disable_progress
+        or not console.is_terminal
+        or os.environ.get("CI", "").lower() == "true"
+    )
+
+    if not disable_progress:
+        os.environ["CGC_ACTIVE_PROGRESS_BAR"] = "1"
+
+    try:
+        # Create the progress bar
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            MofNCompleteColumn(),
+            TimeRemainingColumn(),
+            TextColumn("[dim]{task.fields[filename]}"),
+            console=console,
+            transient=True,
+            disable=disable_progress,
+        ) as progress:
         
-        task_id = progress.add_task(
-            "Indexing...", 
-            total=None,  # Will be updated once file discovery is done
-            filename=""
-        )
+            task_id = progress.add_task(
+                "Indexing...", 
+                total=None,  # Will be updated once file discovery is done
+                filename=""
+            )
 
-        indexing_task = asyncio.create_task(
-            graph_builder.build_graph_from_path_async(path_obj, is_dependency=is_dependency, job_id=job_id, cgcignore_path=cgcignore_path)
-        )
+            indexing_task = asyncio.create_task(
+                graph_builder.build_graph_from_path_async(path_obj, is_dependency=is_dependency, job_id=job_id, cgcignore_path=cgcignore_path)
+            )
 
-        from ..core.jobs import JobStatus
-        
-        # Poll for updates
-        while not indexing_task.done():
-            job = graph_builder.job_manager.get_job(job_id)
-            if job:
-                if job.total_files > 0:
-                    progress.update(task_id, total=job.total_files, completed=job.processed_files)
-                
-                # Prefer post-processing status over the last parsed file path
-                current_file = job.status_message or job.current_file or ""
-                if len(current_file) > 40:
-                    current_file = "..." + current_file[-37:]
-                progress.update(task_id, filename=current_file)
-
-                if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
-                    break
+            from ..core.jobs import JobStatus
             
-            await asyncio.sleep(0.1)
+            # Poll for updates
+            while not indexing_task.done():
+                job = graph_builder.job_manager.get_job(job_id)
+                if job:
+                    if job.total_files > 0:
+                        progress.update(task_id, total=job.total_files, completed=job.processed_files)
+                    
+                    # Prefer post-processing status over the last parsed file path
+                    current_file = job.status_message or job.current_file or ""
+                    if len(current_file) > 40:
+                        current_file = "..." + current_file[-37:]
+                    progress.update(task_id, filename=current_file)
 
-        # Wait for actual completion and handle final state
-        try:
-            await indexing_task
-            job = graph_builder.job_manager.get_job(job_id)
-            if job and job.status == JobStatus.FAILED:
-                error_msg = job.errors[0] if job.errors else "Unknown error"
-                raise RuntimeError(error_msg)
-        except Exception as e:
-            raise e
+                    if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
+                        break
+                
+                await asyncio.sleep(0.1)
+
+            # Wait for actual completion and handle final state
+            try:
+                await indexing_task
+                job = graph_builder.job_manager.get_job(job_id)
+                if job and job.status == JobStatus.FAILED:
+                    error_msg = job.errors[0] if job.errors else "Unknown error"
+                    raise RuntimeError(error_msg)
+            except Exception as e:
+                raise e
+    finally:
+        os.environ.pop("CGC_ACTIVE_PROGRESS_BAR", None)
 
 
-def index_helper(path: str, context: Optional[str] = None):
+def index_helper(path: str, context: Optional[str] = None, no_progress: bool = False):
     """Synchronously indexes a repository in a given context."""
     time_start = time.time()
     path_obj = Path(path).resolve()
@@ -334,10 +347,16 @@ def index_helper(path: str, context: Optional[str] = None):
                 file_count = record["file_count"] if record else 0
                 
                 if file_count > 0:
-                    console.print(f"[yellow]Repository '{path}' is already indexed with {file_count} files. Skipping.[/yellow]")
-                    console.print("[dim]💡 Tip: Use 'cgc index --force' to re-index[/dim]")
-                    db_manager.close_driver()
-                    return
+                    expected = graph_builder.estimate_processing_time(path_obj) if path_obj.is_dir() else None
+                    expected_file_count = expected[0] if expected else None
+                    if expected_file_count is None or file_count >= expected_file_count:
+                        console.print(f"[yellow]Repository '{path}' is already indexed with {file_count} files. Skipping.[/yellow]")
+                        console.print("[dim]💡 Tip: Use 'cgc index --force' to re-index[/dim]")
+                        db_manager.close_driver()
+                        return
+                    console.print(
+                        f"[yellow]Repository '{path}' has only {file_count} of {expected_file_count} files indexed. Continuing.[/yellow]"
+                    )
                 else:
                     console.print(f"[yellow]Repository '{path}' exists but has no files (likely interrupted). Re-indexing...[/yellow]")
         except Exception as e:
@@ -351,7 +370,7 @@ def index_helper(path: str, context: Optional[str] = None):
     console.print(f"Starting indexing for: {path_obj}")
 
     try:
-        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path, disable_progress=no_progress))
         time_end = time.time()
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)
@@ -608,13 +627,20 @@ def _render_offline_visualization(
     def _ident(value) -> Optional[str]:
         return None if value is None else str(value)
 
-    # Neo4j/Falkor return driver objects carrying .labels / .type; Kùzu and
-    # Ladybug return plain dicts carrying _label plus _src/_dst. Check the
-    # driver attributes first — a driver object may also be dict-like.
+    # Neo4j returns driver objects carrying .labels / .type that support
+    # dict()/Mapping access. FalkorDB's own driver objects also carry
+    # .labels on nodes, but are NOT dict-convertible — their properties live
+    # in a plain `.properties` dict, and its Edge exposes `.relation` /
+    # `.src_node` / `.dest_node` instead of `.type` / `.start_node` /
+    # `.end_node`. Kùzu and Ladybug return plain dicts carrying _label plus
+    # _src/_dst. Check the driver attributes first — a driver object may
+    # also be dict-like.
     def _is_relationship(value) -> bool:
         if hasattr(value, "labels"):
             return False
         if hasattr(value, "type"):
+            return True
+        if hasattr(value, "relation") and hasattr(value, "src_node"):
             return True
         return isinstance(value, dict) and "_src" in value and "_dst" in value
 
@@ -623,13 +649,17 @@ def _render_offline_visualization(
             return True
         if hasattr(value, "type"):
             return False
+        if hasattr(value, "relation") and hasattr(value, "src_node"):
+            return False
         # Kùzu relationships also carry _label, so _src/_dst is what
         # distinguishes them from nodes.
         return isinstance(value, dict) and "_label" in value and "_src" not in value
 
     def _node_payload(value) -> Dict[str, Any]:
         if hasattr(value, "labels"):
-            props = dict(value)
+            # FalkorDB's Node keeps properties in `.properties` and is not
+            # itself iterable; Neo4j's Node supports dict() via Mapping.
+            props = dict(value.properties) if hasattr(value, "properties") else dict(value)
             labels = list(getattr(value, "labels", []) or [])
             label = labels[0] if labels else "Node"
             node_id = getattr(value, "element_id", None) or getattr(value, "id", None)
@@ -646,14 +676,27 @@ def _render_offline_visualization(
             "line_number": props.get("line_number"),
         }
 
+    def _node_ref_id(ref) -> Any:
+        # Neo4j's start_node/end_node are full Node objects; FalkorDB's
+        # src_node/dest_node are already the bare node id (an int).
+        if isinstance(ref, (int, str)):
+            return ref
+        return getattr(ref, "element_id", None) or getattr(ref, "id", None)
+
     def _edge_payload(value) -> Optional[Dict[str, Any]]:
+        # Neo4j: .start_node/.end_node/.type. FalkorDB: .src_node/.dest_node/
+        # .relation.
         start = getattr(value, "start_node", None)
+        if start is None:
+            start = getattr(value, "src_node", None)
         end = getattr(value, "end_node", None)
+        if end is None:
+            end = getattr(value, "dest_node", None)
         if start is not None and end is not None:
             return {
-                "source": _ident(getattr(start, "element_id", None) or getattr(start, "id", None)),
-                "target": _ident(getattr(end, "element_id", None) or getattr(end, "id", None)),
-                "type": getattr(value, "type", "RELATED"),
+                "source": _ident(_node_ref_id(start)),
+                "target": _ident(_node_ref_id(end)),
+                "type": getattr(value, "type", None) or getattr(value, "relation", "RELATED"),
             }
         if isinstance(value, dict):
             return {
@@ -803,7 +846,7 @@ def visualize_helper(
         db_manager.close_driver()
 
 
-def reindex_helper(path: str, context: Optional[str] = None):
+def reindex_helper(path: str, context: Optional[str] = None, no_progress: bool = False):
     """Force re-index by deleting and rebuilding the repository."""
     time_start = time.time()
     path_obj = Path(path).resolve()
@@ -836,7 +879,7 @@ def reindex_helper(path: str, context: Optional[str] = None):
     console.print(f"[cyan]Re-indexing: {path_obj}[/cyan]")
     
     try:
-        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path, disable_progress=no_progress))
         time_end = time.time()
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)

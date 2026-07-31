@@ -331,9 +331,12 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
 def call_llm(system_prompt: str, user_prompt: str) -> str:
     gemini_key = os.getenv("GEMINI_API_KEY")
     openai_key = os.getenv("OPENAI_API_KEY")
+    atlascloud_key = os.getenv("ATLASCLOUD_API_KEY") or os.getenv("ATLAS_CLOUD_API_KEY")
     
-    if not gemini_key and not openai_key:
-        raise ValueError("Neither GEMINI_API_KEY nor OPENAI_API_KEY environment variable is set.")
+    if not gemini_key and not openai_key and not atlascloud_key:
+        raise ValueError(
+            "GEMINI_API_KEY, OPENAI_API_KEY, or ATLASCLOUD_API_KEY environment variable is required."
+        )
     
     if gemini_key:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
@@ -354,13 +357,26 @@ def call_llm(system_prompt: str, user_prompt: str) -> str:
         except (KeyError, IndexError) as e:
             raise RuntimeError(f"Failed to parse Gemini API response: {data}") from e
     else:
-        url = "https://api.openai.com/v1/chat/completions"
+        if openai_key:
+            provider_name = "OpenAI"
+            api_key = openai_key
+            url = "https://api.openai.com/v1/chat/completions"
+            model = "gpt-4o-mini"
+        else:
+            provider_name = "Atlas Cloud"
+            api_key = atlascloud_key
+            base_url = os.getenv("ATLASCLOUD_API_BASE") or os.getenv("ATLAS_CLOUD_API_BASE")
+            base_url = (base_url or "https://api.atlascloud.ai/v1").rstrip("/")
+            url = f"{base_url}/chat/completions"
+            model = os.getenv("ATLASCLOUD_MODEL") or os.getenv("ATLAS_CLOUD_MODEL")
+            model = model or "deepseek-ai/deepseek-v4-pro"
+
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {openai_key}"
+            "Authorization": f"Bearer {api_key}"
         }
         payload = {
-            "model": "gpt-4o-mini",
+            "model": model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -368,12 +384,12 @@ def call_llm(system_prompt: str, user_prompt: str) -> str:
         }
         res = requests.post(url, json=payload, headers=headers, timeout=30)
         if res.status_code != 200:
-            raise RuntimeError(f"OpenAI API returned error {res.status_code}: {res.text}")
+            raise RuntimeError(f"{provider_name} API returned error {res.status_code}: {res.text}")
         data = res.json()
         try:
             return data["choices"][0]["message"]["content"]
         except (KeyError, IndexError) as e:
-            raise RuntimeError(f"Failed to parse OpenAI API response: {data}") from e
+            raise RuntimeError(f"Failed to parse {provider_name} API response: {data}") from e
 
 
 def parse_json_from_llm(text: str) -> dict:
@@ -515,11 +531,15 @@ async def ai_query(request: AIQueryRequest):
         
     gemini_key = os.getenv("GEMINI_API_KEY")
     openai_key = os.getenv("OPENAI_API_KEY")
+    atlascloud_key = os.getenv("ATLASCLOUD_API_KEY") or os.getenv("ATLAS_CLOUD_API_KEY")
     
-    if not gemini_key and not openai_key:
+    if not gemini_key and not openai_key and not atlascloud_key:
         raise HTTPException(
             status_code=400,
-            detail="AI querying requires GEMINI_API_KEY or OPENAI_API_KEY environment variable. Please set it in your configuration or .env."
+            detail=(
+                "AI querying requires GEMINI_API_KEY, OPENAI_API_KEY, or ATLASCLOUD_API_KEY. "
+                "Please set one in your configuration or .env."
+            )
         )
         
     query = request.query

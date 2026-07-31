@@ -1440,6 +1440,7 @@ def index(
     force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use (overrides mode/default)"),
     summarize: bool = typer.Option(False, "--summarize", "-s", help="Show a summary of the indexed codebase after indexing"),
+    no_progress: bool = typer.Option(False, "--no-progress", help="Disable live progress rendering during indexing."),
 ):
     """
     Indexes a directory or file by adding it to the code graph.
@@ -1455,9 +1456,9 @@ def index(
     try:
         if force:
             console.print("[yellow]Force re-indexing (--force flag detected)[/yellow]")
-            reindex_helper(path, context)
+            reindex_helper(path, context, no_progress=no_progress)
         else:
-            index_helper(path, context)
+            index_helper(path, context, no_progress=no_progress)
     except typer.Exit:
         # typer.Exit subclasses RuntimeError and str() is empty, so the handler
         # below caught it, printed nothing, and returned 0 — every helper that
@@ -3050,12 +3051,13 @@ def index_abbrev(
     path: Optional[str] = typer.Argument(None, help="Path to index"),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)"),
     summarize: bool = typer.Option(False, "--summarize", "-s", help="Display a codebase summary after indexing"),
-    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use")
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+    no_progress: bool = typer.Option(False, "--no-progress", help="Disable live progress rendering during indexing.")
 ):
     """Shortcut for 'cgc index'"""
     # `summarize` must be passed explicitly: omitted, it keeps its OptionInfo
     # sentinel, which is truthy — so `cgc i` always printed the summary.
-    index(path, force=force, summarize=summarize, context=context)
+    index(path, force=force, summarize=summarize, context=context, no_progress=no_progress)
 
 @app.command("ls", rich_help_panel="Shortcuts")
 def list_abbrev(

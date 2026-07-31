@@ -150,6 +150,66 @@ def test_kuzu_indexes_import_rows_with_missing_optional_fields(tmp_path):
         manager.close_driver()
 
 
+def test_kuzu_file_deletion_preserves_module_included_by_other_files(tmp_path):
+    """Deleting a defining file must not detach other files from its Module."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    module_file = repo / "shared.rb"
+    alpha_file = repo / "alpha.rb"
+    beta_file = repo / "beta.rb"
+    for path in (module_file, alpha_file, beta_file):
+        path.write_text("# fixture\n", encoding="utf-8")
+
+    manager, driver = _new_kuzu_driver(tmp_path)
+    try:
+        writer = GraphWriter(driver)
+        writer.add_repository_to_graph(repo)
+        writer.add_file_to_graph(
+            {
+                "path": str(module_file),
+                "repo_path": str(repo),
+                "lang": "ruby",
+                "modules": [{"name": "Shared", "line_number": 1}],
+                "functions": [],
+                "classes": [],
+                "variables": [],
+            },
+            repo.name,
+            {},
+            repo_path_str=str(repo.resolve()),
+        )
+        for path, class_name in ((alpha_file, "Alpha"), (beta_file, "Beta")):
+            writer.add_file_to_graph(
+                {
+                    "path": str(path),
+                    "repo_path": str(repo),
+                    "lang": "ruby",
+                    "classes": [{"name": class_name, "line_number": 1}],
+                    "module_inclusions": [{"class": class_name, "module": "Shared"}],
+                    "functions": [],
+                    "variables": [],
+                },
+                repo.name,
+                {},
+                repo_path_str=str(repo.resolve()),
+            )
+
+        writer.delete_file_from_graph(str(module_file))
+
+        with driver.session() as session:
+            rows = session.run(
+                """
+                MATCH (c:Class)-[:INCLUDES]->(m:Module {name: 'Shared'})
+                RETURN c.name AS class_name
+                ORDER BY class_name
+                """
+            ).data()
+
+        assert rows == [{"class_name": "Alpha"}, {"class_name": "Beta"}]
+    finally:
+        manager.close_driver()
+
+
 def test_kuzu_migrates_existing_module_schema_without_full_import_name(tmp_path):
     db_path = tmp_path / "db"
     db = kuzu.Database(str(db_path))
