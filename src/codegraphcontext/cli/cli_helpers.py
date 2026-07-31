@@ -239,65 +239,78 @@ def _initialize_services(
     return db_manager, graph_builder, code_finder, ctx
 
 
-async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, is_dependency: bool = False, cgcignore_path: str = None):
+async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, is_dependency: bool = False, cgcignore_path: str = None, disable_progress: bool = False):
     """Internal helper to run indexing with a Live progress bar."""
     job_id = graph_builder.job_manager.create_job(str(path_obj), is_dependency=is_dependency)
     
-    # Create the progress bar
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        MofNCompleteColumn(),
-        TimeRemainingColumn(),
-        TextColumn("[dim]{task.fields[filename]}"),
-        console=console,
-        transient=True,
-    ) as progress:
+    disable_progress = (
+        disable_progress
+        or not console.is_terminal
+        or os.environ.get("CI", "").lower() == "true"
+    )
+
+    if not disable_progress:
+        os.environ["CGC_ACTIVE_PROGRESS_BAR"] = "1"
+
+    try:
+        # Create the progress bar
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            MofNCompleteColumn(),
+            TimeRemainingColumn(),
+            TextColumn("[dim]{task.fields[filename]}"),
+            console=console,
+            transient=True,
+            disable=disable_progress,
+        ) as progress:
         
-        task_id = progress.add_task(
-            "Indexing...", 
-            total=None,  # Will be updated once file discovery is done
-            filename=""
-        )
+            task_id = progress.add_task(
+                "Indexing...", 
+                total=None,  # Will be updated once file discovery is done
+                filename=""
+            )
 
-        indexing_task = asyncio.create_task(
-            graph_builder.build_graph_from_path_async(path_obj, is_dependency=is_dependency, job_id=job_id, cgcignore_path=cgcignore_path)
-        )
+            indexing_task = asyncio.create_task(
+                graph_builder.build_graph_from_path_async(path_obj, is_dependency=is_dependency, job_id=job_id, cgcignore_path=cgcignore_path)
+            )
 
-        from ..core.jobs import JobStatus
-        
-        # Poll for updates
-        while not indexing_task.done():
-            job = graph_builder.job_manager.get_job(job_id)
-            if job:
-                if job.total_files > 0:
-                    progress.update(task_id, total=job.total_files, completed=job.processed_files)
-                
-                # Prefer post-processing status over the last parsed file path
-                current_file = job.status_message or job.current_file or ""
-                if len(current_file) > 40:
-                    current_file = "..." + current_file[-37:]
-                progress.update(task_id, filename=current_file)
-
-                if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
-                    break
+            from ..core.jobs import JobStatus
             
-            await asyncio.sleep(0.1)
+            # Poll for updates
+            while not indexing_task.done():
+                job = graph_builder.job_manager.get_job(job_id)
+                if job:
+                    if job.total_files > 0:
+                        progress.update(task_id, total=job.total_files, completed=job.processed_files)
+                    
+                    # Prefer post-processing status over the last parsed file path
+                    current_file = job.status_message or job.current_file or ""
+                    if len(current_file) > 40:
+                        current_file = "..." + current_file[-37:]
+                    progress.update(task_id, filename=current_file)
 
-        # Wait for actual completion and handle final state
-        try:
-            await indexing_task
-            job = graph_builder.job_manager.get_job(job_id)
-            if job and job.status == JobStatus.FAILED:
-                error_msg = job.errors[0] if job.errors else "Unknown error"
-                raise RuntimeError(error_msg)
-        except Exception as e:
-            raise e
+                    if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
+                        break
+                
+                await asyncio.sleep(0.1)
+
+            # Wait for actual completion and handle final state
+            try:
+                await indexing_task
+                job = graph_builder.job_manager.get_job(job_id)
+                if job and job.status == JobStatus.FAILED:
+                    error_msg = job.errors[0] if job.errors else "Unknown error"
+                    raise RuntimeError(error_msg)
+            except Exception as e:
+                raise e
+    finally:
+        os.environ.pop("CGC_ACTIVE_PROGRESS_BAR", None)
 
 
-def index_helper(path: str, context: Optional[str] = None):
+def index_helper(path: str, context: Optional[str] = None, no_progress: bool = False):
     """Synchronously indexes a repository in a given context."""
     time_start = time.time()
     path_obj = Path(path).resolve()
@@ -357,7 +370,7 @@ def index_helper(path: str, context: Optional[str] = None):
     console.print(f"Starting indexing for: {path_obj}")
 
     try:
-        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path, disable_progress=no_progress))
         time_end = time.time()
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)
@@ -833,7 +846,7 @@ def visualize_helper(
         db_manager.close_driver()
 
 
-def reindex_helper(path: str, context: Optional[str] = None):
+def reindex_helper(path: str, context: Optional[str] = None, no_progress: bool = False):
     """Force re-index by deleting and rebuilding the repository."""
     time_start = time.time()
     path_obj = Path(path).resolve()
@@ -866,7 +879,7 @@ def reindex_helper(path: str, context: Optional[str] = None):
     console.print(f"[cyan]Re-indexing: {path_obj}[/cyan]")
     
     try:
-        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path, disable_progress=no_progress))
         time_end = time.time()
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)

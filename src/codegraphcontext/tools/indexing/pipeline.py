@@ -9,7 +9,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
-
+import os
 from ...core.jobs import JobManager, JobStatus
 from ...utils.debug_log import debug_log, error_logger, info_logger, warning_logger
 from .discovery import discover_files_to_index
@@ -163,7 +163,9 @@ async def run_tree_sitter_index_async(
             job_manager.update_job(job_id, processed_files=processed_count)
         
         if processed_count % 50 == 0:
-            info_logger(f"Processed {processed_count}/{len(files)} files...")
+            
+            if os.environ.get("CGC_ACTIVE_PROGRESS_BAR") != "1":
+                info_logger(f"Processed {processed_count}/{len(files)} files...")
 
     serialization_start = time.time()
 
