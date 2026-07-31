@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Sparkles, ArrowLeft, Github, Menu, X, Box } from "lucide-react";
-
+import { Sparkles, ArrowLeft, Github, Menu, X } from "lucide-react";
 import MagneticButton from "./MagneticButton";
 
 function handleScroll(e: React.MouseEvent<HTMLAnchorElement>) {
@@ -20,107 +19,109 @@ const Navbar: React.FC = () => {
   const location = useLocation();
   const isLandingPage = location.pathname === "/" || location.pathname === "/pre-indexed";
   const [isOpen, setIsOpen] = useState(false);
-  const [activeAnchor, setActiveAnchor] = useState<string>("");
-  const [isScrolled, setIsScrolled] = useState(false);
+  const [activeSection, setActiveSection] = useState("");
 
-  // Track active anchor on scroll
+  // Scroll spy to monitor visibility changes
   useEffect(() => {
-    const handleWindowScroll = () => {
-      setIsScrolled(window.scrollY > 0);
-      
-      const anchors = ['features', 'bundle-registry', 'cookbook', 'demo', 'installation'];
-      for (const anchor of anchors) {
-        const el = document.getElementById(anchor);
-        if (el) {
-          const rect = el.getBoundingClientRect();
-          if (rect.top <= 80 && rect.bottom >= 80) {
-            setActiveAnchor(anchor);
-            break;
+    if (!isLandingPage) return;
+
+    const sections = ["features", "bundle-registry", "cookbook", "demo", "installation"];
+    
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          // Lowered threshold to 0.2 so it registers even if a section partially occupies the screen
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.2) {
+            setActiveSection(entry.target.id);
           }
-        }
-      }
+        });
+      },
+      { threshold: [0.2, 0.5], rootMargin: "-10% 0px -70% 0px" }
+    );
+
+    sections.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, [isLandingPage]);
+
+  // Scroll progress for the indicator strip under the navbar edge
+  const [scrollProgress, setScrollProgress] = useState(0);
+
+  useEffect(() => {
+    const updateProgress = () => {
+      const scrollTop = window.scrollY;
+      const scrollableDistance =
+        document.documentElement.scrollHeight - window.innerHeight;
+      const progress =
+        scrollableDistance > 0
+          ? Math.min(Math.max((scrollTop / scrollableDistance) * 100, 0), 100)
+          : 0;
+      setScrollProgress(progress);
     };
 
-    window.addEventListener('scroll', handleWindowScroll);
-    return () => window.removeEventListener('scroll', handleWindowScroll);
+    window.addEventListener("scroll", updateProgress, { passive: true });
+    updateProgress();
+    return () => window.removeEventListener("scroll", updateProgress);
   }, []);
 
   return (
-    <nav className="fixed top-0 left-0 z-50 w-full select-none animate-in fade-in slide-in-from-top-4 duration-500" style={{ backdropFilter: 'blur(10px)' }}>
-      <div className="w-full max-w-7xl mx-auto px-4 md:px-6 h-14 md:h-16 flex items-center justify-between" style={{ backgroundColor: isScrolled ? 'rgba(0, 0, 0, 0.65)' : 'rgba(0, 0, 0, 0.5)' }}>
-        <style>{`
-          nav {
-            background: linear-gradient(180deg, rgba(0, 0, 0, 0.7) 0%, rgba(10, 10, 20, 0.6) 100%);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            transition: background-color 0.3s ease;
-          }
-        `}</style>
+    <nav className="fixed top-0 left-0 z-50 w-full select-none bg-black border-b border-white/10">
+      {/* Scroll Progress Indicator */}
+      <div className="h-0.5 w-full bg-zinc-900 overflow-hidden">
+        <div
+          className="h-full bg-gradient-to-r from-purple-600 via-cyan-500 to-purple-600 transition-all duration-200 ease-out"
+          style={{ width: `${scrollProgress}%` }}
+        />
+      </div>
+
+      <div className="w-full max-w-7xl mx-auto px-4 md:px-6 h-14 md:h-16 flex items-center justify-between">
         
         {/* Left: Brand Logo & Title */}
-        <Link to="/" className="flex items-center gap-2 md:gap-3 mr-4 shrink-0 group transition-transform duration-300 hover:scale-105">
+        <Link to="/" className="flex items-center gap-2 md:gap-3 mr-4 shrink-0 group">
           <img
             src="/cgcIcon.png"
-            className="w-7 h-7 md:w-8 md:h-8 transition-all duration-300 group-hover:scale-110 group-hover:drop-shadow-[0_0_8px_rgba(168,85,247,0.4)]"
+            className="w-7 h-7 md:w-8 md:h-8 hover:scale-95 transition-transform duration-300"
             alt="CodeGraphContext Logo"
           />
-          <span className="font-black text-sm md:text-lg gradient-text tracking-tighter uppercase block transition-all duration-300 group-hover:drop-shadow-[0_0_12px_rgba(168,85,247,0.3)]">
+          <span className="font-black text-sm md:text-lg gradient-text tracking-tighter uppercase block">
             CodeGraphContext
           </span>
         </Link>
 
-        {/* Center: Anchors (Only displayed on landing page for optimal UX) */}
+        {/* Center: Anchors */}
         {isLandingPage && (
-          <ul className="hidden lg:flex items-center gap-6 font-bold text-[10px] uppercase tracking-widest text-gray-400">
-            <li>
-              <a 
-                href="#features"
-                className={`relative py-2 transition-all duration-300 group ${activeAnchor === 'features' ? 'text-white' : 'hover:text-white'}`}
-                onClick={handleScroll}
-              >
-                Features
-                <span className={`absolute bottom-0 left-0 h-0.5 bg-gradient-to-r from-purple-500 to-cyan-500 transition-all duration-300 ${activeAnchor === 'features' ? 'w-full' : 'w-0 group-hover:w-full'}`}></span>
-              </a>
-            </li>
-            <li>
-              <a 
-                href="#bundle-registry"
-                className={`relative py-2 transition-all duration-300 group ${activeAnchor === 'bundle-registry' ? 'text-white' : 'hover:text-white'}`}
-                onClick={handleScroll}
-              >
-                Pre-indexed
-                <span className={`absolute bottom-0 left-0 h-0.5 bg-gradient-to-r from-purple-500 to-cyan-500 transition-all duration-300 ${activeAnchor === 'bundle-registry' ? 'w-full' : 'w-0 group-hover:w-full'}`}></span>
-              </a>
-            </li>
-            <li>
-              <a 
-                href="#cookbook"
-                className={`relative py-2 transition-all duration-300 group ${activeAnchor === 'cookbook' ? 'text-white' : 'hover:text-white'}`}
-                onClick={handleScroll}
-              >
-                Cookbook
-                <span className={`absolute bottom-0 left-0 h-0.5 bg-gradient-to-r from-purple-500 to-cyan-500 transition-all duration-300 ${activeAnchor === 'cookbook' ? 'w-full' : 'w-0 group-hover:w-full'}`}></span>
-              </a>
-            </li>
-            <li>
-              <a 
-                href="#demo"
-                className={`relative py-2 transition-all duration-300 group ${activeAnchor === 'demo' ? 'text-white' : 'hover:text-white'}`}
-                onClick={handleScroll}
-              >
-                Demo
-                <span className={`absolute bottom-0 left-0 h-0.5 bg-gradient-to-r from-purple-500 to-cyan-500 transition-all duration-300 ${activeAnchor === 'demo' ? 'w-full' : 'w-0 group-hover:w-full'}`}></span>
-              </a>
-            </li>
-            <li>
-              <a 
-                href="#installation"
-                className={`relative py-2 transition-all duration-300 group ${activeAnchor === 'installation' ? 'text-white' : 'hover:text-white'}`}
-                onClick={handleScroll}
-              >
-                Installation
-                <span className={`absolute bottom-0 left-0 h-0.5 bg-gradient-to-r from-purple-500 to-cyan-500 transition-all duration-300 ${activeAnchor === 'installation' ? 'w-full' : 'w-0 group-hover:w-full'}`}></span>
-              </a>
-            </li>
+          <ul className="hidden lg:flex items-center gap-6 font-bold text-[10px] uppercase tracking-widest text-gray-500">
+            {[
+              { label: "Features", href: "#features" },
+              { label: "Pre-indexed", href: "#bundle-registry" },
+              { label: "Cookbook", href: "#cookbook" },
+              { label: "Demo", href: "#demo" },
+              { label: "Installation", href: "#installation" },
+            ].map((link) => {
+              const id = link.href.replace("#", "");
+              const isActive = activeSection === id;
+              
+              return (
+                <li key={link.label} className="relative flex items-center h-full py-4">
+                  <a
+                    href={link.href}
+                    className={`transition-colors duration-200 relative pb-1 ${isActive ? "text-white" : "hover:text-white text-gray-500"}`}
+                    onClick={(e) => {
+                      setActiveSection(id); // Instant visual update on click
+                      handleScroll(e);
+                    }}
+                  >
+                    {link.label}
+                    {isActive && (
+                      <span className="absolute bottom-0 left-0 w-full h-[2px] bg-purple-500 transition-all duration-300" />
+                    )}
+                  </a>
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -132,23 +133,23 @@ const Navbar: React.FC = () => {
                 href="https://github.com/CodeGraphContext/CodeGraphContext"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-2 hidden sm:flex text-gray-400 hover:text-white transition-all duration-300 hover:scale-110 hover:drop-shadow-[0_0_8px_rgba(168,85,247,0.3)]"
+                className="p-2 hidden sm:flex text-gray-500 hover:text-white transition-colors duration-200"
                 title="View GitHub Repository"
               >
                 <Github className="w-4 h-4" />
               </a>
               <Link to="/explore">
-                <MagneticButton className="bg-gradient-to-r from-purple-600 to-cyan-500 hover:from-purple-500 hover:to-cyan-400 text-white shadow-[0_0_15px_rgba(168,85,247,0.3)] hover:shadow-[0_0_25px_rgba(168,85,247,0.5)] font-bold text-[10px] uppercase tracking-widest px-4 py-2 sm:px-6 sm:py-2.5 rounded-full flex items-center gap-2 transition-all duration-300 hover:scale-105">
+                <MagneticButton className="bg-gradient-to-r from-purple-600 to-cyan-500 hover:opacity-90 text-white shadow-[0_0_15px_rgba(168,85,247,0.3)] font-bold text-[10px] uppercase tracking-widest px-4 py-2 sm:px-6 sm:py-2.5 rounded-full flex items-center gap-2 transition-all duration-300">
                   <span className="hidden sm:inline">Launch Explorer</span>
                   <span className="sm:hidden">Explore</span>
-                  <Sparkles className="w-3 h-3 transition-transform duration-300 group-hover:rotate-12" />
+                  <Sparkles className="w-3 h-3" />
                 </MagneticButton>
               </Link>
             </>
           ) : (
             <Link to="/">
-              <MagneticButton className="border border-white/20 hover:border-purple-400/70 bg-transparent hover:bg-purple-500/15 text-white font-bold text-[10px] uppercase tracking-widest px-4 py-2 sm:px-6 sm:py-2.5 rounded-full flex items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-[0_0_15px_rgba(168,85,247,0.2)]">
-                <ArrowLeft className="w-3 h-3 transition-transform duration-300 group-hover:-translate-x-1" /> Back
+              <MagneticButton className="border border-white/20 hover:border-purple-500/50 bg-transparent hover:bg-purple-500/10 text-white font-bold text-[10px] uppercase tracking-widest px-4 py-2 sm:px-6 sm:py-2.5 rounded-full flex items-center gap-2 transition-colors duration-300">
+                <ArrowLeft className="w-3 h-3" /> Back
               </MagneticButton>
             </Link>
           )}
@@ -157,10 +158,10 @@ const Navbar: React.FC = () => {
           {isLandingPage && (
             <button
               onClick={() => setIsOpen(!isOpen)}
-              className="lg:hidden p-2 text-gray-400 hover:text-white transition-all duration-300 shrink-0 hover:scale-110"
+              className="lg:hidden p-2 text-gray-500 hover:text-white transition-colors duration-200 shrink-0"
               title="Menu"
             >
-              {isOpen ? <X className="w-5 h-5 transition-transform duration-300 rotate-90" /> : <Menu className="w-5 h-5 transition-transform duration-300" />}
+              {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
           )}
         </div>
@@ -168,7 +169,7 @@ const Navbar: React.FC = () => {
 
       {/* Mobile Menu Dropdown Panel */}
       {isOpen && isLandingPage && (
-        <div className="lg:hidden w-full border-b border-white/10 animate-in fade-in slide-in-from-top-2 duration-300 absolute top-[100%] left-0" style={{ background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(8px)' }}>
+        <div className="lg:hidden w-full border-b border-white/10 bg-black absolute top-[100%] left-0">
           <ul className="flex flex-col text-[10px] font-bold uppercase tracking-widest text-gray-400 p-4 divide-y divide-white/10">
             {[
               { label: "Features", href: "#features" },
@@ -180,7 +181,7 @@ const Navbar: React.FC = () => {
               <li key={link.label}>
                 <a
                   href={link.href}
-                  className={`block py-4 transition-all duration-300 ${activeAnchor === link.href.replace('#', '') ? 'text-white pl-2 border-l border-purple-500' : 'hover:text-white hover:pl-2'}`}
+                  className="block py-4 hover:text-white transition-colors duration-200"
                   onClick={(e) => {
                     setIsOpen(false);
                     handleScroll(e);

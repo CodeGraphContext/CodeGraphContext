@@ -662,7 +662,7 @@ def pre_scan_cpp(files: list[Path], parser_wrapper) -> dict:
                 tree = parser_wrapper.parser.parse(source_bytes)
 
             for node, capture_name in execute_query(parser_wrapper.language, query_str, tree.root_node):
-                resolved_path = str(path.resolve())
+                resolved_path = path.resolve().as_posix()
                 if capture_name == "name":
                     name = node.text.decode("utf-8")
                     paths = imports_map.setdefault(name, [])

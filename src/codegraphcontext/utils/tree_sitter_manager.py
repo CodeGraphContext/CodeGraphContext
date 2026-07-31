@@ -123,8 +123,15 @@ LANGUAGE_ALIASES = {
     ".el": "elisp",
     "emacs-lisp": "elisp",
     "emacs_lisp": "elisp",
+    "solidity": "solidity",
+    "sol": "solidity",
+    ".sol": "solidity",
     "html": "html",
     "css": "css",
+    "svelte": "svelte",
+    ".svelte": "svelte",
+    "vue": "vue",
+    ".vue": "vue",
 }
 
 # Canonical names that differ from tree-sitter-language-pack names

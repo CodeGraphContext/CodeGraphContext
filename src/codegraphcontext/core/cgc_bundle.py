@@ -21,6 +21,7 @@ Bundle Structure:
 
 import json
 import os
+import re
 import zipfile
 import tempfile
 from pathlib import Path
@@ -50,19 +51,45 @@ class _BundleEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
+#: Cypher identifiers accepted from a bundle. Labels and relationship types
+#: cannot be passed as query parameters — they are interpolated into the query
+#: text — so a bundle is an untrusted source of executable Cypher unless every
+#: identifier is validated first. A bundle carrying the label
+#:     Evil) WITH n MATCH (v:Victim) DETACH DELETE v //
+#: previously produced, and executed:
+#:     CREATE (n:Evil) WITH n MATCH (v:Victim) DETACH DELETE v //) SET n = $props ...
+_CYPHER_IDENTIFIER_RE = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+class BundleValidationError(ValueError):
+    """Raised when a bundle contains content that is unsafe to import."""
+
+
+def _validate_cypher_identifier(value: Any, kind: str) -> str:
+    """Return *value* if it is a bare Cypher identifier, else raise."""
+    if not isinstance(value, str) or not _CYPHER_IDENTIFIER_RE.match(value):
+        raise BundleValidationError(
+            f"Refusing to import bundle: invalid {kind} {value!r}. "
+            f"{kind.capitalize()}s must match [A-Za-z_][A-Za-z0-9_]* — a value "
+            "outside that set can inject arbitrary Cypher."
+        )
+    return value
+
+
 class CGCBundle:
     """Handles creation and loading of .cgc bundle files."""
-    
+
     VERSION = "0.1.0"  # CGC bundle format version
     
     def __init__(self, db_manager):
         """
         Initialize the CGC Bundle handler.
-        
+
         Args:
             db_manager: DatabaseManager instance for graph queries
         """
         self.db_manager = db_manager
+        self._active_graph = None
     
     def _get_id_function(self) -> str:
         """
@@ -210,8 +237,10 @@ class CGCBundle:
         self,
         bundle_path: Path,
         clear_existing: bool = False,
-        readonly: bool = False
+        readonly: bool = False,
+        graph_name: str = None
     ) -> Tuple[bool, str]:
+        self._active_graph = graph_name
         """
         Import a .cgc bundle into the current database.
         
@@ -268,7 +297,10 @@ class CGCBundle:
                     existing_repo = self._check_existing_repository(repo_name, repo_path)
                     
                     if existing_repo:
-                        return False, f"Repository '{repo_name}' already exists in the database. Use clear_existing=True to replace it."
+                        return False, (
+                            f"Repository '{repo_name}' already exists in the database. "
+                            "Re-run with --clear (CLI) or clear_existing=True (MCP) to replace it."
+                        )
                 
                 
                 # Step 5: Create schema
@@ -307,12 +339,12 @@ class CGCBundle:
         }
         
         # Get repository information
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             if repo_path:
                 # Specific repository
                 result = session.run(
                     "MATCH (r:Repository {path: $path}) RETURN r",
-                    path=str(repo_path.resolve())
+                    path=repo_path.resolve().as_posix()
                 )
                 repo_node = result.single()
                 if repo_node:
@@ -336,8 +368,8 @@ class CGCBundle:
                     metadata["repo"] = repo.get('name', str(repo_path.name if repo_path else 'unknown'))
                     # Clean up absolute path prefix to keep it relative
                     meta_path = repo.get('path', '')
-                    if repo_path and meta_path.startswith(str(repo_path.resolve())):
-                        repo_str = str(repo_path.resolve())
+                    if repo_path and meta_path.startswith(repo_path.resolve().as_posix()):
+                        repo_str = repo_path.resolve().as_posix()
                         rel = meta_path[len(repo_str):].lstrip('/')
                         metadata["repo_path"] = "./" + rel if rel else "."
                     else:
@@ -362,13 +394,13 @@ class CGCBundle:
                     metadata["branch"] = branch
 
                 try:
-                    repo_str = str(repo_path.resolve())
+                    repo_str = repo_path.resolve().as_posix()
                     result = session.run("""
                         MATCH (f:File)
                         WHERE f.path = $repo_path OR f.path STARTS WITH $repo_prefix
                         RETURN f.language as language, count(*) as count
                         ORDER BY count DESC
-                    """, repo_path=repo_str, repo_prefix=repo_str + os.sep)
+                    """, repo_path=repo_str, repo_prefix=repo_str + "/")
                     languages = {record["language"]: record["count"] for record in result if record["language"]}
                     metadata["languages"] = list(languages.keys())
                 except Exception:
@@ -389,7 +421,7 @@ class CGCBundle:
 
         backend = getattr(self.db_manager, "get_backend_type", lambda: "neo4j")()
 
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             try:
                 if backend in ("kuzudb", "ladybugdb"):
                     result = session.run("MATCH (n) RETURN DISTINCT label(n) AS lbl")
@@ -441,8 +473,8 @@ class CGCBundle:
         return schema
 
     def _repo_scope_params(self, repo_path: Path) -> Dict[str, str]:
-        repo_str = str(repo_path.resolve())
-        return {"repo_path": repo_str, "repo_prefix": repo_str + os.sep}
+        repo_str = repo_path.resolve().as_posix()
+        return {"repo_path": repo_str, "repo_prefix": repo_str + "/"}
 
     def _run_session_query(self, session, query: str, params: Dict[str, str]):
         try:
@@ -528,7 +560,7 @@ class CGCBundle:
         count = 0
         seen_nodes = set()
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             if repo_path:
                 queries = self._repo_node_queries()
                 params = self._repo_scope_params(repo_path)
@@ -550,8 +582,8 @@ class CGCBundle:
                     
                         # Clean up absolute path prefix to keep it relative
                         if repo_path:
-                            repo_str = str(repo_path.resolve())
-                            repo_prefix = repo_str + os.sep
+                            repo_str = repo_path.resolve().as_posix()
+                            repo_prefix = repo_str + "/"
                             for key, val in list(node_dict.items()):
                                 if not isinstance(val, str):
                                     continue
@@ -579,7 +611,7 @@ class CGCBundle:
         count = 0
         seen_edges = set()
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             if repo_path:
                 queries = self._repo_edge_queries()
                 params = self._repo_scope_params(repo_path)
@@ -637,8 +669,8 @@ class CGCBundle:
 
                         # Clean up absolute path prefix inside edge properties
                         if repo_path:
-                            repo_str = str(repo_path.resolve())
-                            repo_prefix = repo_str + os.sep
+                            repo_str = repo_path.resolve().as_posix()
+                            repo_prefix = repo_str + "/"
                             for key, val in list(rel_props.items()):
                                 if not isinstance(val, str):
                                     continue
@@ -680,16 +712,16 @@ class CGCBundle:
             "generated_at": datetime.now().isoformat()
         }
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             # Count by node type
             if repo_path:
-                repo_str = str(repo_path.resolve())
+                repo_str = repo_path.resolve().as_posix()
                 result = session.run("""
                     MATCH (n)
                     WHERE n.path = $repo_path OR n.path STARTS WITH $repo_prefix
                     RETURN labels(n)[0] as label, count(*) as count
                     ORDER BY count DESC
-                """, repo_path=repo_str, repo_prefix=repo_str + os.sep)
+                """, repo_path=repo_str, repo_prefix=repo_str + "/")
             else:
                 result = session.run("""
                     MATCH (n)
@@ -706,7 +738,7 @@ class CGCBundle:
                        OR (m.path = $repo_path OR m.path STARTS WITH $repo_prefix)
                     RETURN type(r) as type, count(*) as count
                     ORDER BY count DESC
-                """, repo_path=repo_str, repo_prefix=repo_str + os.sep)
+                """, repo_path=repo_str, repo_prefix=repo_str + "/")
             else:
                 result = session.run("""
                     MATCH ()-[r]->()
@@ -720,7 +752,7 @@ class CGCBundle:
                 result = session.run(
                     "MATCH (f:File) WHERE f.path = $repo_path OR f.path STARTS WITH $repo_prefix RETURN count(f) as count",
                     repo_path=repo_str,
-                    repo_prefix=repo_str + os.sep,
+                    repo_prefix=repo_str + "/",
                 )
             else:
                 result = session.run("MATCH (f:File) RETURN count(f) as count")
@@ -807,12 +839,50 @@ cgc import <bundle-file>.cgc
                     return False, "Invalid metadata: missing cgc_version"
         except json.JSONDecodeError as e:
             return False, f"Invalid metadata.json: {e}"
-        
+
+        # Reject unsafe identifiers up front. The import writes in batches with
+        # no transaction, so validating lazily would let a malicious label
+        # halfway through the file execute after earlier nodes were committed.
+        ok, message = self._validate_bundle_identifiers(bundle_dir)
+        if not ok:
+            return False, message
+
+        return True, "Valid bundle"
+
+    @staticmethod
+    def _validate_bundle_identifiers(bundle_dir: Path) -> Tuple[bool, str]:
+        """Check every node label and relationship type before importing anything."""
+        try:
+            with open(bundle_dir / "nodes.jsonl", 'r', encoding='utf-8') as f:
+                for line_no, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    labels = json.loads(line).get('_labels') or []
+                    if isinstance(labels, str):
+                        labels = [labels]
+                    for label in labels:
+                        _validate_cypher_identifier(label, "node label")
+
+            with open(bundle_dir / "edges.jsonl", 'r', encoding='utf-8') as f:
+                for line_no, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    _validate_cypher_identifier(
+                        json.loads(line).get('type'), "relationship type"
+                    )
+        except BundleValidationError as e:
+            error_logger(f"Bundle rejected: {e}")
+            return False, str(e)
+        except json.JSONDecodeError as e:
+            return False, f"Malformed JSON Lines in bundle: {e}"
+
         return True, "Valid bundle"
     
     def _check_existing_repository(self, repo_name: str, repo_path: Optional[str]) -> bool:
         """Check if a repository already exists in the database."""
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             # Try to find by name first
             result = session.run(
                 "MATCH (r:Repository {name: $name}) RETURN r LIMIT 1",
@@ -834,7 +904,7 @@ cgc import <bundle-file>.cgc
     
     def _delete_repository(self, repo_identifier: str):
         """Delete a specific repository and all its related nodes from the graph."""
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             # First, try to find the repository by name or path
             result = session.run("""
                 MATCH (r:Repository)
@@ -879,7 +949,7 @@ cgc import <bundle-file>.cgc
     
     def _clear_graph(self):
         """Clear all nodes and relationships from the graph in batches."""
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             while True:
                 result = session.run(
                     "MATCH (n) WITH n LIMIT 500 DETACH DELETE n RETURN count(n) as deleted"
@@ -907,7 +977,7 @@ cgc import <bundle-file>.cgc
         # Create a mapping from old IDs to new IDs
         id_mapping = {}
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             with open(nodes_file, 'r') as f:
                 for line in f:
                     node_data = json.loads(line)
@@ -939,6 +1009,16 @@ cgc import <bundle-file>.cgc
         
         return count
     
+    # Must stay in step with the node tables declared in
+    # database_embedded_kuzu.py. A label missing here falls through to the
+    # `CREATE (n:Label) SET n = $props` branch, which Kùzu rejects with
+    # "Create node n expects primary key <field> as input" — so an omission is
+    # not a slow path, it is a hard import failure for any bundle containing
+    # that label (#1322).
+    #
+    # Not yet covered: DbColumn PK(name, table_fqn) and RedisKeyPattern
+    # PK(pattern, datasource_name). Composite keys need a multi-key MERGE and a
+    # wider `_node_lookup_key` tuple; tracked separately.
     _PK_MAP = {
         'Repository': 'path', 'File': 'path', 'Directory': 'path',
         'Module': 'name',
@@ -946,7 +1026,9 @@ cgc import <bundle-file>.cgc
         'Trait': 'uid', 'Interface': 'uid', 'Macro': 'uid',
         'Struct': 'uid', 'Enum': 'uid', 'Union': 'uid',
         'Annotation': 'uid', 'Record': 'uid', 'Property': 'uid',
-        'Parameter': 'uid',
+        'Parameter': 'uid', 'EnumMember': 'uid', 'Mixin': 'uid',
+        'Extension': 'uid', 'Object': 'uid',
+        'DbTable': 'name', 'Datasource': 'name', 'ExternalClass': 'name',
     }
     _UID_PARTS = {
         'Function': ['name', 'path', 'line_number'],
@@ -962,6 +1044,10 @@ cgc import <bundle-file>.cgc
         'Record': ['name', 'path', 'line_number'],
         'Property': ['name', 'path', 'line_number'],
         'Parameter': ['name', 'path', 'function_line_number'],
+        'EnumMember': ['name', 'path', 'line_number'],
+        'Mixin': ['name', 'path', 'line_number'],
+        'Extension': ['name', 'path', 'line_number'],
+        'Object': ['name', 'path', 'line_number'],
     }
 
     def _import_node_batch(self, session, batch: List[Tuple], id_mapping: Dict) -> int:
@@ -974,6 +1060,7 @@ cgc import <bundle-file>.cgc
             
             if isinstance(labels, str):
                 labels = [labels]
+            labels = [_validate_cypher_identifier(l, "node label") for l in labels]
             label_str = ':'.join(labels)
             primary_label = labels[0]
 
@@ -1011,7 +1098,7 @@ cgc import <bundle-file>.cgc
         batch_size = 1000
         batch = []
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             with open(edges_file, 'r') as f:
                 for line in f:
                     edge_data = json.loads(line)
@@ -1041,14 +1128,19 @@ cgc import <bundle-file>.cgc
                 old_from = (old_from.get('table', 0), old_from.get('offset', 0))
             if isinstance(old_to, dict):
                 old_to = (old_to.get('table', 0), old_to.get('offset', 0))
-            rel_type = edge.get('type')
+            rel_type = _validate_cypher_identifier(edge.get('type'), "relationship type")
             properties = edge.get('properties', {})
             
             # Map old IDs to new IDs
             new_from = id_mapping.get(old_from)
             new_to = id_mapping.get(old_to)
             
-            if not new_from or not new_to:
+            # `is None`, not falsy: FalkorDB's id() is 0-based, so the first
+            # node imported (the Repository) maps to 0. A truthiness test drops
+            # every edge touching it -- silently, while the caller still reports
+            # the full edge count. Neo4j elementIds (str) and Kuzu/Ladybug PK
+            # tuples are never falsy, so this only ever bit FalkorDB.
+            if new_from is None or new_to is None:
                 warning_logger(f"Skipping edge: node IDs not found in mapping")
                 continue
             

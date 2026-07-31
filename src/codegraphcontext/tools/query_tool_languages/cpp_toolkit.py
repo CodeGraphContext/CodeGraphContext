@@ -1,25 +1,29 @@
 # src/codegraphcontext/tools/query_tool_languages/cpp_toolkit.py
 class CppToolkit:
     """Handles Neo4j queries for C++ file graph."""
-    def get_cypher_query(query: str) -> str:
+    def get_cypher_query(self, query: str) -> str:
         """
         Returns a Cypher query string based on the query type requested.
 
+        The caller (``advanced_language_query_tool``) passes the capitalized,
+        singular node label (e.g. ``Function``, ``Class``, ``Module``), so match
+        that form directly, mirroring the elisp/java toolkit convention.
+
         Supported query types:
-        - functions
-        - classes
-        - imports
-        - structs
-        - enums
-        - unions
-        - macros
-        - variables
+        - Function
+        - Class
+        - Module
+        - Struct
+        - Enum
+        - Union
+        - Macro
+        - Variable
         """
 
 
-        query = query.strip().lower()
+        query = query.strip()
 
-        if query == "functions":
+        if query == "Function":
             return """
                 MATCH (f:Function)
                 RETURN f.name AS name, f.path AS path, 
@@ -27,7 +31,7 @@ class CppToolkit:
                 ORDER BY f.path, f.line_number
             """
 
-        elif query == "classes":
+        elif query == "Class":
             return """
                 MATCH (c:Class)
                 RETURN c.name AS name, c.path AS path, 
@@ -35,7 +39,7 @@ class CppToolkit:
                 ORDER BY c.path, c.line_number
             """
 
-        elif query == "imports":
+        elif query == "Module":
             return """
                 MATCH (f:File)-[i:IMPORTS]->(m:Module)
                 RETURN f.name AS file_name, m.name AS module_name, 
@@ -43,7 +47,7 @@ class CppToolkit:
                 ORDER BY f.name
             """
 
-        elif query == "structs":
+        elif query == "Struct":
             return """
                 MATCH (s:Struct)
                 RETURN s.name AS name, s.path AS path, 
@@ -51,7 +55,7 @@ class CppToolkit:
                 ORDER BY s.path, s.line_number
             """
 
-        elif query == "enums":
+        elif query == "Enum":
             return """
                 MATCH (e:Enum)
                 RETURN e.name AS name, e.path AS path, 
@@ -59,7 +63,7 @@ class CppToolkit:
                 ORDER BY e.path, e.line_number
             """
 
-        elif query == "unions":
+        elif query == "Union":
             return """
                 MATCH (u:Union)
                 RETURN u.name AS name, u.path AS path, 
@@ -67,7 +71,7 @@ class CppToolkit:
                 ORDER BY u.path, u.line_number
             """
 
-        elif query == "macros":
+        elif query == "Macro":
             return """
                 MATCH (m:Macro)
                 RETURN m.name AS name, m.path AS path, 
@@ -75,7 +79,7 @@ class CppToolkit:
                 ORDER BY m.path, m.line_number
             """
 
-        elif query == "variables":
+        elif query == "Variable":
             return """
                 MATCH (v:Variable)
                 RETURN v.name AS name, v.path AS path, 

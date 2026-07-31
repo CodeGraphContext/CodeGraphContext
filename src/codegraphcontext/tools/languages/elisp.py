@@ -673,7 +673,7 @@ def pre_scan_elisp(files: list[Path], parser_wrapper) -> dict:
             with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 tree = parser_wrapper.parser.parse(bytes(f.read(), "utf8"))
 
-            resolved_path = str(path.resolve())
+            resolved_path = path.resolve().as_posix()
             for function in parser._find_functions(tree.root_node, is_dependency=False):
                 imports_map.setdefault(function["name"], []).append(resolved_path)
 
