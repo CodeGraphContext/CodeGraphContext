@@ -557,8 +557,9 @@ class CodeFinder:
                         caller.line_number as caller_line_number,
                         call.line_number as call_line_number,
                         call.args as call_args,
+                        caller.is_dependency as caller_is_dependency,
                         target.path as target_file_path
-                ORDER BY caller.is_dependency ASC, caller_file_path, caller_line_number
+                ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
                     LIMIT 20
                 """, function_name=function_name, path=path, repo_path=repo_path)
                 
@@ -574,8 +575,9 @@ class CodeFinder:
                             caller.line_number as caller_line_number,
                             call.line_number as call_line_number,
                             call.args as call_args,
+                            caller.is_dependency as caller_is_dependency,
                             target.path as target_file_path
-                    ORDER BY caller.is_dependency ASC, caller_file_path, caller_line_number
+                    ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
                         LIMIT 20
                     """, function_name=function_name, repo_path=repo_path)
                     results = result.data()
@@ -590,8 +592,9 @@ class CodeFinder:
                         caller.line_number as caller_line_number,
                         call.line_number as call_line_number,
                         call.args as call_args,
+                        caller.is_dependency as caller_is_dependency,
                         target.path as target_file_path
-                ORDER BY caller.is_dependency ASC, caller_file_path, caller_line_number
+                ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
                     LIMIT 20
                 """, function_name=function_name, repo_path=repo_path)
                 results = result.data()
