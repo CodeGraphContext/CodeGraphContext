@@ -408,7 +408,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
           filePaths.push(n.file);
         }
       }
-      const sortedFiles = Array.from(new Set(filePaths)).sort();
+      const sortedFiles = Array.from(new Set(filePaths)).sort((a, b) => a - b);
 
       setProgress({ text: "Complete!", value: 100 });
       await new Promise(r => setTimeout(r, 400));
