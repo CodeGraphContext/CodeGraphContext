@@ -110,11 +110,11 @@ TOOLS = {
                 },
                 "target": {
                     "type": "string",
-                    "description": "The function, class, or module to analyze."
+                    "description": "The primary target for the query (e.g., function name, class name, or 'start_func->end_func' for call chains)."
                 },
                 "context": {
                     "type": "string",
-                    "description": "Optional file path for precise results."
+                    "description": "Additional context parameter: acts as a file path for precise scoping or a numeric string (e.g., depth/limit) depending on the query type."
                 },
                 "depth": {
                     "type": "integer",
