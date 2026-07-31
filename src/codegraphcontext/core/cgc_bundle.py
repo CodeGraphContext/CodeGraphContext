@@ -1119,7 +1119,12 @@ cgc import <bundle-file>.cgc
             new_from = id_mapping.get(old_from)
             new_to = id_mapping.get(old_to)
             
-            if not new_from or not new_to:
+            # `is None`, not falsy: FalkorDB's id() is 0-based, so the first
+            # node imported (the Repository) maps to 0. A truthiness test drops
+            # every edge touching it -- silently, while the caller still reports
+            # the full edge count. Neo4j elementIds (str) and Kuzu/Ladybug PK
+            # tuples are never falsy, so this only ever bit FalkorDB.
+            if new_from is None or new_to is None:
                 warning_logger(f"Skipping edge: node IDs not found in mapping")
                 continue
             
