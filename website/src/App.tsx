@@ -1,12 +1,11 @@
 
-import { useEffect } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Explore from "./pages/Explore";
@@ -19,27 +18,10 @@ import MoveToTop from "./components/MoveToTop";
 
 const queryClient = new QueryClient();
 
-declare global {
-  interface Window {
-    va?: (...args: any[]) => void;
-  }
-}
-
-const Analytics = () => {
-  const location = useLocation();
-  useEffect(() => {
-    if (window.va) {
-      window.va('event', 'page_view', { page: location.pathname });
-    }
-  }, [location]);
-  return null;
-};
-
 const App: React.FC = () => {
 
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <Analytics />
       <QueryClientProvider client={queryClient}>
         <ThemeProvider
           attribute="class"

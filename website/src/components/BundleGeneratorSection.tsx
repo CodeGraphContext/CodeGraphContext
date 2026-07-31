@@ -1,3 +1,4 @@
+import { track } from "@vercel/analytics/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,12 +64,10 @@ const BundleGeneratorSection = () => {
     setGenerationStatus({ status: "validating" });
     setProgress(5);
     // Vercel Analytics: Track bundle generation attempt
-    if (window.va) {
-      window.va('event', 'bundle_generated', {
+    track('bundle_generated', {
         repo: repoUrl,
         status: 'attempt'
       });
-    }
 
     // Check if running in development mode (API endpoints won't work locally)
     const isDevelopment = import.meta.env.DEV;
@@ -131,12 +130,10 @@ const BundleGeneratorSection = () => {
         setProgress(100);
 
         // Vercel Analytics: Track bundle exists
-        if (window.va) {
-          window.va('event', 'bundle_generated', {
+        track('bundle_generated', {
             repo: data.bundle.repo,
             status: 'exists'
           });
-        }
 
         toast({
           title: "Bundle Found!",
@@ -202,12 +199,10 @@ const BundleGeneratorSection = () => {
               setProgress(100);
 
               // Vercel Analytics: Track bundle generated
-              if (window.va) {
-                window.va('event', 'bundle_generated', {
+              track('bundle_generated', {
                   repo: repo,
                   status: 'ready'
                 });
-              }
 
               toast({
                 title: "Bundle Ready!",
