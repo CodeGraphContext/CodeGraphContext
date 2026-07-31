@@ -1067,13 +1067,16 @@ class GraphBuilder:
                     is_notebook=is_notebook,
                     index_source=index_source,
                 )
-            else:
+            elif parser.language_name == "solidity":
+                # Solidity resolves import remappings relative to the repo root.
                 file_data = parser.parse(
                     path,
                     is_dependency,
                     index_source=index_source,
                     repo_path=repo_path,
                 )
+            else:
+                file_data = parser.parse(path, is_dependency, index_source=index_source)
             file_data["repo_path"] = str(repo_path)
             # Most parsers catch their own exceptions and return {"path", "error"}
             # rather than raising, so the handler below never sees them. Flag the
