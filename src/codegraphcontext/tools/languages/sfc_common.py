@@ -174,7 +174,7 @@ def parse_sfc(
     sfc_lang:
         Canonical SFC language name reported in the result (``"svelte"``/``"vue"``).
     """
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
         source_code = f.read()
 
     tree = parser_wrapper.parser.parse(bytes(source_code, "utf8"))
