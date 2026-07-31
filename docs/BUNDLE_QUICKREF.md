@@ -55,7 +55,7 @@ cgc load numpy  # Will download numpy.cgc
 
 ```bash
 # From GitHub Releases
-wget https://github.com/Shashankss1205/CodeGraphContext/releases/latest/download/numpy-1.26.4.cgc
+wget https://github.com/CodeGraphContext/CodeGraphContext/releases/latest/download/numpy-1.26.4.cgc
 
 # Load it
 cgc load numpy-1.26.4.cgc
@@ -275,7 +275,7 @@ pip install --upgrade codegraphcontext
 | **requests** | HTTP library | ~10MB |
 | **flask** | Web framework | ~12MB |
 
-Download from: [GitHub Releases](https://github.com/Shashankss1205/CodeGraphContext/releases)
+Download from: [GitHub Releases](https://github.com/CodeGraphContext/CodeGraphContext/releases)
 
 ## 🔗 Related Commands
 
@@ -314,4 +314,4 @@ cgc analyze deps <mod>   # Analyze dependencies
 
 ---
 
-**Questions?** Open an issue on [GitHub](https://github.com/Shashankss1205/CodeGraphContext/issues)
+**Questions?** Open an issue on [GitHub](https://github.com/CodeGraphContext/CodeGraphContext/issues)

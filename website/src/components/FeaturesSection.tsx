@@ -70,7 +70,15 @@ const FeaturesSection = () => {
               
               <GlassCard
                 glowColor="none"
-                className="h-full group rounded-3xl"
+                className="h-full group rounded-3xl cursor-pointer"
+                onClick={() => {
+                  if (window.va) {
+                    window.va('event', 'feature_clicked', {
+                      feature: 'FeaturesSection',
+                      title: feature.title
+                    });
+                  }
+                }}
               >
                 <div className="absolute top-4 right-6 text-6xl font-black opacity-5 pointer-events-none transition-opacity group-hover:opacity-10 text-white">
                   0{index + 1}
