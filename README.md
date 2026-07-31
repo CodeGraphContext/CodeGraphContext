@@ -254,9 +254,11 @@ CodeGraphContext provides comprehensive parsing and analysis for the following l
 | 🎨 | **Kotlin** | 🎯 | **Dart** | 🐪 | **Perl** |
 | 🌙 | **Lua** | 🚀 | **Scala** | λ | **Haskell** |
 | 💧 | **Elixir** | 📜 | **Emacs Lisp (elisp)** | 🌐 | **HTML** |
-| 🎨 | **CSS** | ⚛️ | **TSX** | | |
+| 🎨 | **CSS** | ⚛️ | **TSX** | ⛓️ | **Solidity** |
 
 Each language parser extracts functions, classes, methods, parameters, inheritance relationships, function calls, and imports to build a comprehensive code graph.
+
+**Solidity notes:** `.sol` uses Tree-sitter via `tree-sitter-language-pack` (no SCIP). Supports Foundry remappings, modifier invocations, `using Lib for T`, and `emit` / custom-error `revert` as CALLS. See `docs/docs/contributing_languages.md` § Solidity.
 
 ---
 

@@ -1,0 +1,5 @@
+[profile.default]
+src = "src"
+remappings = [
+  "forge-std/=lib/helper/src/",
+]
