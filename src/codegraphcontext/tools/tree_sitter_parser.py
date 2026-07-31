@@ -44,6 +44,8 @@ class TreeSitterParser:
             "elisp":      (".languages.elisp",         "ElispTreeSitterParser"),
             "html":       (".languages.html",          "HTMLTreeSitterParser"),
             "css":        (".languages.css",           "CSSTreeSitterParser"),
+            "svelte":     (".languages.svelte",        "SvelteTreeSitterParser"),
+            "vue":        (".languages.vue",           "VueTreeSitterParser"),
         }
 
         if language_name not in LANGUAGE_PARSER_MAP:

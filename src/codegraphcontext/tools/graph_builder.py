@@ -94,6 +94,8 @@ class GraphBuilder:
             ".el": "elisp",
             ".html": "html",
             ".css": "css",
+            ".svelte": "svelte",
+            ".vue": "vue",
         }
         
         # Files that should be added to the graph as minimal File nodes, even if not parsed
