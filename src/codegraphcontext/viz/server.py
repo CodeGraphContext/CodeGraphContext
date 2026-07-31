@@ -96,13 +96,16 @@ def _get_eid(element):
     if isinstance(element, (int, str)):
         return str(element)
     
-    # If element is a dict (like Neo4j returned items or KuzuDB node/rel dicts)
+    # If element is a dict (like Neo4j returned items or KuzuDB/Ladybug node/rel
+    # dicts). KùzuDB spells its internal id field '_id'; LadybugDB spells the
+    # same field '_ID' (uppercase) — confirmed against a live query on each
+    # embedded backend.
     if isinstance(element, dict):
         # KuzuDB _src / _dst are directly {'offset': X, 'table': Y}
         if 'offset' in element and 'table' in element:
             return f"{element.get('table')}_{element.get('offset')}"
-            
-        for key in ['_id', 'id', 'element_id']:
+
+        for key in ['_id', '_ID', 'id', 'element_id']:
             if key in element:
                 val = element[key]
                 if val is not None:
@@ -116,12 +119,24 @@ def _get_eid(element):
     for attr in ['element_id', 'id', '_id']:
         if hasattr(element, attr):
             val = getattr(element, attr)
-            if val is not None: 
+            if val is not None:
                 # KuzuDB objects if any
                 if isinstance(val, dict):
                     return f"{val.get('table', 0)}_{val.get('offset', 0)}"
                 return str(val)
     return str(id(element))
+
+
+def _meta(d: dict, name: str):
+    """Read a KùzuDB/LadybugDB internal dict field regardless of its casing.
+
+    KùzuDB spells these fields lowercase (_label/_src/_dst); LadybugDB spells
+    the same fields uppercase (_LABEL/_SRC/_DST) — confirmed against a live
+    query on each embedded backend. Keying on one casing only silently drops
+    every row on the other backend.
+    """
+    lower = f"_{name}"
+    return d[lower] if lower in d else d.get(f"_{name.upper()}")
 
 
 @app.get("/api/graph")
@@ -186,9 +201,10 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
                                 # Extract labels
                                 labels = []
                                 if isinstance(node, dict):
-                                    # KuzuDB node label is under '_label'
-                                    if '_label' in node:
-                                        labels = [node['_label']]
+                                    # KuzuDB node label is under '_label' (LadybugDB: '_LABEL')
+                                    meta_label = _meta(node, 'label')
+                                    if meta_label is not None:
+                                        labels = [meta_label]
                                     elif 'label' in node:
                                         labels = [node['label']]
                                 else:
@@ -247,13 +263,17 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
                         # FalkorDB / KuzuDB may return rels as dicts OR objects
                         if isinstance(rel, dict):
                             rid = get_eid(rel)
-                            # KuzuDB uses _src and _dst, FalkorDB uses src_node/dest_node
-                            src = rel.get('_src', rel.get('src_node'))
-                            dst = rel.get('_dst', rel.get('dest_node'))
-                            
+                            # KuzuDB uses _src/_dst (LadybugDB: _SRC/_DST), FalkorDB uses src_node/dest_node
+                            src = _meta(rel, 'src')
+                            if src is None:
+                                src = rel.get('src_node')
+                            dst = _meta(rel, 'dst')
+                            if dst is None:
+                                dst = rel.get('dest_node')
+
                             source = get_eid(src) if src is not None else None
                             target = get_eid(dst) if dst is not None else None
-                            rel_type = str(rel.get('_label', rel.get('relation', rel.get('type', 'RELATED')))).upper()
+                            rel_type = str(_meta(rel, 'label') or rel.get('relation', rel.get('type', 'RELATED'))).upper()
                         else:
                             rid = get_eid(rel)
                             start_node = None
@@ -420,8 +440,9 @@ def parse_node(node, nodes_dict):
         
     labels = []
     if isinstance(node, dict):
-        if '_label' in node:
-            labels = [node['_label']]
+        meta_label = _meta(node, 'label')
+        if meta_label is not None:
+            labels = [meta_label]
         elif 'label' in node:
             labels = [node['label']]
     else:
@@ -463,11 +484,15 @@ def parse_node(node, nodes_dict):
 def parse_rel(rel, edges):
     rid = _get_eid(rel)
     if isinstance(rel, dict):
-        src = rel.get('_src', rel.get('src_node'))
-        dst = rel.get('_dst', rel.get('dest_node'))
+        src = _meta(rel, 'src')
+        if src is None:
+            src = rel.get('src_node')
+        dst = _meta(rel, 'dst')
+        if dst is None:
+            dst = rel.get('dest_node')
         source = _get_eid(src) if src is not None else None
         target = _get_eid(dst) if dst is not None else None
-        rel_type = str(rel.get('_label', rel.get('relation', rel.get('type', 'RELATED')))).upper()
+        rel_type = str(_meta(rel, 'label') or rel.get('relation', rel.get('type', 'RELATED'))).upper()
     else:
         start_node = None
         end_node = None
@@ -510,9 +535,16 @@ def parse_element(val, nodes_dict, edges):
         
     type_name = type(val).__name__
     
-    if type_name in ('Node', 'KuzuNode') or (isinstance(val, dict) and ('_label' in val or 'labels' in val) and not any(k in val for k in ('_src', '_dst', 'src_node', 'dest_node'))):
+    is_dict_rel = isinstance(val, dict) and (
+        any(k in val for k in ('_src', '_dst', '_SRC', '_DST', 'src_node', 'dest_node'))
+    )
+    is_dict_node = isinstance(val, dict) and (
+        '_label' in val or '_LABEL' in val or 'labels' in val
+    ) and not is_dict_rel
+
+    if type_name in ('Node', 'KuzuNode') or is_dict_node:
         parse_node(val, nodes_dict)
-    elif type_name in ('Relationship', 'KuzuRelationship') or (isinstance(val, dict) and any(k in val for k in ('_src', '_dst', 'src_node', 'dest_node'))):
+    elif type_name in ('Relationship', 'KuzuRelationship') or is_dict_rel:
         parse_rel(val, edges)
     elif isinstance(val, (list, tuple)):
         for item in val:

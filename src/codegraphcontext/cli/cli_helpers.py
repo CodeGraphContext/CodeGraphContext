@@ -614,14 +614,27 @@ def _render_offline_visualization(
     def _ident(value) -> Optional[str]:
         return None if value is None else str(value)
 
+    # KùzuDB spells its internal dict fields lowercase (_label/_src/_dst/_id);
+    # LadybugDB spells the *same* fields uppercase (_LABEL/_SRC/_DST/_ID) —
+    # confirmed against a live query on each embedded backend. Keying on one
+    # casing only silently discards every row on the other backend, and
+    # `_render_offline_visualization` reports an empty graph (issue #1458).
+    def _meta(value: dict, name: str) -> Any:
+        """Read a backend-internal dict field regardless of its casing."""
+        lower, upper = f"_{name}", f"_{name.upper()}"
+        return value[lower] if lower in value else value.get(upper)
+
+    def _has_meta(value: dict, name: str) -> bool:
+        return f"_{name}" in value or f"_{name.upper()}" in value
+
     # Neo4j returns driver objects carrying .labels / .type that support
     # dict()/Mapping access. FalkorDB's own driver objects also carry
     # .labels on nodes, but are NOT dict-convertible — their properties live
     # in a plain `.properties` dict, and its Edge exposes `.relation` /
     # `.src_node` / `.dest_node` instead of `.type` / `.start_node` /
     # `.end_node`. Kùzu and Ladybug return plain dicts carrying _label plus
-    # _src/_dst. Check the driver attributes first — a driver object may
-    # also be dict-like.
+    # _src/_dst (Ladybug uppercase, see `_meta` above). Check the driver
+    # attributes first — a driver object may also be dict-like.
     def _is_relationship(value) -> bool:
         if hasattr(value, "labels"):
             return False
@@ -629,7 +642,7 @@ def _render_offline_visualization(
             return True
         if hasattr(value, "relation") and hasattr(value, "src_node"):
             return True
-        return isinstance(value, dict) and "_src" in value and "_dst" in value
+        return isinstance(value, dict) and _has_meta(value, "src") and _has_meta(value, "dst")
 
     def _is_node(value) -> bool:
         if hasattr(value, "labels"):
@@ -638,9 +651,9 @@ def _render_offline_visualization(
             return False
         if hasattr(value, "relation") and hasattr(value, "src_node"):
             return False
-        # Kùzu relationships also carry _label, so _src/_dst is what
+        # Kùzu/Ladybug relationships also carry _label, so _src/_dst is what
         # distinguishes them from nodes.
-        return isinstance(value, dict) and "_label" in value and "_src" not in value
+        return isinstance(value, dict) and _has_meta(value, "label") and not _has_meta(value, "src")
 
     def _node_payload(value) -> Dict[str, Any]:
         if hasattr(value, "labels"):
@@ -651,8 +664,8 @@ def _render_offline_visualization(
             label = labels[0] if labels else "Node"
             node_id = getattr(value, "element_id", None) or getattr(value, "id", None)
         else:
-            props, label = dict(value), value.get("_label", "Node")
-            node_id = value.get("_id")
+            props, label = dict(value), _meta(value, "label") or "Node"
+            node_id = _meta(value, "id")
         if node_id is None:
             node_id = props.get("path") or props.get("name")
         return {
@@ -687,9 +700,9 @@ def _render_offline_visualization(
             }
         if isinstance(value, dict):
             return {
-                "source": _ident(value.get("_src")),
-                "target": _ident(value.get("_dst")),
-                "type": value.get("_label", "RELATED"),
+                "source": _ident(_meta(value, "src")),
+                "target": _ident(_meta(value, "dst")),
+                "type": _meta(value, "label") or "RELATED",
             }
         return None
 
