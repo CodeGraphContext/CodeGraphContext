@@ -128,6 +128,10 @@ LANGUAGE_ALIASES = {
     ".sol": "solidity",
     "html": "html",
     "css": "css",
+    "svelte": "svelte",
+    ".svelte": "svelte",
+    "vue": "vue",
+    ".vue": "vue",
 }
 
 # Canonical names that differ from tree-sitter-language-pack names

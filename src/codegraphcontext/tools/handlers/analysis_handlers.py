@@ -9,9 +9,10 @@ def find_dead_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """Tool to find potentially dead code across the entire project."""
     exclude_decorated_with = args.get("exclude_decorated_with", [])
     repo_path = args.get("repo_path")
+    graph_name = args.get("graph_name")
     try:
         debug_log(f"Finding dead code. repo_path={repo_path}")
-        results = code_finder.find_dead_code(exclude_decorated_with=exclude_decorated_with, repo_path=repo_path)
+        results = code_finder.find_dead_code(exclude_decorated_with=exclude_decorated_with, repo_path=repo_path, graph_name=graph_name)
 
         limit = get_tool_result_limit("find_dead_code")
         unused = results.get("potentially_unused_functions", [])
@@ -36,10 +37,11 @@ def calculate_cyclomatic_complexity(code_finder: CodeFinder, **args) -> Dict[str
     function_name = args.get("function_name")
     path = args.get("path")
     repo_path = args.get("repo_path")
+    graph_name = args.get("graph_name")
 
     try:
         debug_log(f"Calculating cyclomatic complexity for function: {function_name}, repo_path={repo_path}")
-        results = code_finder.get_cyclomatic_complexity(function_name, path, repo_path=repo_path)
+        results = code_finder.get_cyclomatic_complexity(function_name, path, repo_path=repo_path, graph_name=graph_name)
 
         response = {
             "success": True,
@@ -59,9 +61,10 @@ def find_most_complex_functions(code_finder: CodeFinder, **args) -> Dict[str, An
     """Tool to find the most complex functions."""
     limit = get_tool_result_limit("find_most_complex_functions", default=args.get("limit", 10))
     repo_path = args.get("repo_path")
+    graph_name = args.get("graph_name")
     try:
         debug_log(f"Finding the top {limit} most complex functions. repo_path={repo_path}")
-        results = code_finder.find_most_complex_functions(limit, repo_path=repo_path)
+        results = code_finder.find_most_complex_functions(limit, repo_path=repo_path, graph_name=graph_name)
         return {
             "success": True,
             "limit": limit,
@@ -78,6 +81,7 @@ def analyze_code_relationships(code_finder: CodeFinder, **args) -> Dict[str, Any
     target = args.get("target")
     context = args.get("context")
     repo_path = args.get("repo_path")
+    graph_name = args.get("graph_name")
 
     if not query_type or not target:
         return {
@@ -97,7 +101,7 @@ def analyze_code_relationships(code_finder: CodeFinder, **args) -> Dict[str, Any
             except (TypeError, ValueError):
                 return {"error": f"Invalid 'depth' value: {depth!r}. Must be an integer between 1 and 20."}
         debug_log(f"Analyzing relationships: {query_type} for {target}, repo_path={repo_path}, depth={depth}")
-        results = code_finder.analyze_code_relationships(query_type, target, context, repo_path=repo_path, depth=depth)
+        results = code_finder.analyze_code_relationships(query_type, target, context, repo_path=repo_path, depth=depth, graph_name=graph_name)
 
         # Apply per-query-type limit (falls back to tool-level limit)
         limit = get_tool_result_limit(query_type) or get_tool_result_limit("analyze_code_relationships")
@@ -129,6 +133,7 @@ def find_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     fuzzy_search = args.get("fuzzy_search", DEFAULT_FUZZY_SEARCH)
     edit_distance = args.get("edit_distance", DEFAULT_EDIT_DISTANCE)
     repo_path = args.get("repo_path")
+    graph_name = args.get("graph_name")
 
     if fuzzy_search:
         # For Lucene backends the replace('_', ' ') improves token splitting.
@@ -138,7 +143,7 @@ def find_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
 
     try:
         debug_log(f"Finding code for query: {query} with fuzzy_search={fuzzy_search}, edit_distance={edit_distance}, repo_path={repo_path}")
-        results = code_finder.find_related_code(query, fuzzy_search, edit_distance, repo_path=repo_path)
+        results = code_finder.find_related_code(query, fuzzy_search, edit_distance, repo_path=repo_path, graph_name=graph_name)
 
         limit = get_tool_result_limit("find_code")
         ranked = results.get("ranked_results", [])
@@ -159,6 +164,10 @@ def find_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
 
 
 # ── Spring-aware handlers (#887 / #889) ───────────────────────────────────────
+
+#: Row cap shared by the Java/Spring tools; surfaced via `truncated`.
+_SPRING_ROW_LIMIT = 100
+
 
 def find_java_spring_endpoints(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """Return all Spring HTTP endpoint functions, optionally filtered by method or path."""
@@ -182,20 +191,25 @@ def find_java_spring_endpoints(code_finder: CodeFinder, **args) -> Dict[str, Any
         params["repo_path"] = repo_path
 
     where_clause = " AND ".join(conditions)
+    params["spring_row_limit"] = _SPRING_ROW_LIMIT
     query = f"""
         MATCH (fn:Function)
         WHERE {where_clause}
         RETURN fn.http_method AS method, fn.http_path AS path,
                fn.name AS handler, fn.path AS file, fn.line_number AS line_number
         ORDER BY fn.http_path, fn.http_method
-        LIMIT 100
+        LIMIT $spring_row_limit
     """
 
     try:
         with code_finder.driver.session() as session:
             result = session.run(query, **params)
             rows = [dict(r) for r in result]
-        return {"success": True, "endpoints": rows, "count": len(rows)}
+        response = {"success": True, "endpoints": rows, "count": len(rows)}
+        if len(rows) >= _SPRING_ROW_LIMIT:
+            response["result_limit"] = _SPRING_ROW_LIMIT
+            response["truncated"] = True
+        return response
     except Exception as exc:
         debug_log(f"Error finding Spring endpoints: {exc}")
         return {"error": str(exc)}
@@ -218,6 +232,7 @@ def find_java_spring_beans(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         params["repo_path"] = repo_path
 
     where_clause = " AND ".join(conditions)
+    params["spring_row_limit"] = _SPRING_ROW_LIMIT
     query = f"""
         MATCH (c:Class)
         WHERE {where_clause}
@@ -226,14 +241,18 @@ def find_java_spring_beans(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         RETURN c.name AS name, c.spring_stereotype AS stereotype,
                c.path AS file, c.line_number AS line_number, injection_count
         ORDER BY stereotype, name
-        LIMIT 100
+        LIMIT $spring_row_limit
     """
 
     try:
         with code_finder.driver.session() as session:
             result = session.run(query, **params)
             rows = [dict(r) for r in result]
-        return {"success": True, "beans": rows, "count": len(rows)}
+        response = {"success": True, "beans": rows, "count": len(rows)}
+        if len(rows) >= _SPRING_ROW_LIMIT:
+            response["result_limit"] = _SPRING_ROW_LIMIT
+            response["truncated"] = True
+        return response
     except Exception as exc:
         debug_log(f"Error finding Spring beans: {exc}")
         return {"error": str(exc)}

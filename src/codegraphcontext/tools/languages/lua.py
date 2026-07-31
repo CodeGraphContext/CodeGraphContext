@@ -433,7 +433,7 @@ def pre_scan_lua(files: list[Path], parser_wrapper) -> dict:
     for path in files:
         try:
             parsed = parser.parse(str(path))
-            resolved_path = str(path.resolve())
+            resolved_path = path.resolve().as_posix()
 
             for function in parsed.get("functions", []):
                 names = {function["name"]}

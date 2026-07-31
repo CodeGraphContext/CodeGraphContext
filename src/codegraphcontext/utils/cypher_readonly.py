@@ -27,6 +27,11 @@ _FORBIDDEN_PATTERNS = (
     re.compile(r"CALL\s+db\.[a-z0-9_.]*\.(?:create|drop|delete|set|add|remove|alter)\b", re.IGNORECASE),
     re.compile(r"CALL\s+db\.[a-z0-9_.]*create", re.IGNORECASE),
     re.compile(r"CALL\s*\{"),
+    # Write-side APOC procedures are blocked explicitly (not only via the bare
+    # `CALL apoc` rule above) so they are also caught when invoked inline, with
+    # a yield/where clause, or in any spacing the `CALL apoc` rule might miss.
+    # These namespaces mutate the graph and must never run on a read path.
+    re.compile(r"\bapoc\.(?:create|merge|refactor|periodic)\b", re.IGNORECASE),
 )
 _STRING_LITERAL_RE = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'')
 _LINE_COMMENT_RE = re.compile(r"//[^\n]*")

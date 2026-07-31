@@ -105,7 +105,10 @@ target/
 venv_indexing/
 scratch/
 scripts/.agents/
-scripts
+# NOTE: a bare `scripts` entry here used to ignore the whole directory, even
+# though seven scripts are tracked (they predate the rule) and line 21 of this
+# file points at scripts/sync_viz_dist.sh as the build step for viz/dist. The
+# rule made that script impossible to add without -f. Only .agents/ is ignored.
 .agents
 *.py[cod]
 .tox/

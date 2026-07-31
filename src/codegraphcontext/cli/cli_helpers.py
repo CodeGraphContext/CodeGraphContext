@@ -9,6 +9,7 @@ import time
 import os
 from typing import Optional, List, Dict, Any
 import typer
+from rich import box
 from rich.console import Console
 from rich.table import Table
 from rich.progress import (
@@ -82,6 +83,45 @@ def _print_call_resolution_diagnostics(graph_builder: GraphBuilder, limit: int =
             str(diagnostic.get("reason") or ""),
             f"{diagnostic.get('caller_file_path')}:{diagnostic.get('line_number')}",
         )
+    console.print(table)
+
+
+def _format_extension_counts(files_by_extension: Dict[str, int]) -> str:
+    if not files_by_extension:
+        return "None"
+    return ", ".join(
+        f"{extension}: {count}" for extension, count in files_by_extension.items()
+    )
+
+
+def _print_index_execution_summary(graph_builder: GraphBuilder) -> None:
+    summary = getattr(graph_builder, "last_index_summary", None)
+    if not summary:
+        return
+
+    table = Table(
+        title="CGC Index Execution Summary",
+        show_header=True,
+        header_style="bold cyan",
+        box=box.ASCII,
+    )
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Value", style="green", overflow="fold")
+    table.add_row("Total scanned files", str(summary.get("total_scanned_files", 0)))
+    table.add_row(
+        "Files by extension",
+        _format_extension_counts(summary.get("files_by_extension", {})),
+    )
+    failed_files = summary.get("failed_files", 0)
+    if failed_files:
+        table.add_row("[red]Files failed to parse[/red]", f"[red]{failed_files}[/red]")
+    table.add_row("Function nodes", str(summary.get("function_nodes", 0)))
+    table.add_row("Class nodes", str(summary.get("class_nodes", 0)))
+    table.add_row("CALLS edges", str(summary.get("call_edges", 0)))
+    table.add_row(
+        "Serialization seconds",
+        f"{summary.get('serialization_seconds', 0.0):.2f}",
+    )
     console.print(table)
 
 
@@ -199,65 +239,78 @@ def _initialize_services(
     return db_manager, graph_builder, code_finder, ctx
 
 
-async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, is_dependency: bool = False, cgcignore_path: str = None):
+async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, is_dependency: bool = False, cgcignore_path: str = None, disable_progress: bool = False):
     """Internal helper to run indexing with a Live progress bar."""
     job_id = graph_builder.job_manager.create_job(str(path_obj), is_dependency=is_dependency)
     
-    # Create the progress bar
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        MofNCompleteColumn(),
-        TimeRemainingColumn(),
-        TextColumn("[dim]{task.fields[filename]}"),
-        console=console,
-        transient=True,
-    ) as progress:
+    disable_progress = (
+        disable_progress
+        or not console.is_terminal
+        or os.environ.get("CI", "").lower() == "true"
+    )
+
+    if not disable_progress:
+        os.environ["CGC_ACTIVE_PROGRESS_BAR"] = "1"
+
+    try:
+        # Create the progress bar
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            MofNCompleteColumn(),
+            TimeRemainingColumn(),
+            TextColumn("[dim]{task.fields[filename]}"),
+            console=console,
+            transient=True,
+            disable=disable_progress,
+        ) as progress:
         
-        task_id = progress.add_task(
-            "Indexing...", 
-            total=None,  # Will be updated once file discovery is done
-            filename=""
-        )
+            task_id = progress.add_task(
+                "Indexing...", 
+                total=None,  # Will be updated once file discovery is done
+                filename=""
+            )
 
-        indexing_task = asyncio.create_task(
-            graph_builder.build_graph_from_path_async(path_obj, is_dependency=is_dependency, job_id=job_id, cgcignore_path=cgcignore_path)
-        )
+            indexing_task = asyncio.create_task(
+                graph_builder.build_graph_from_path_async(path_obj, is_dependency=is_dependency, job_id=job_id, cgcignore_path=cgcignore_path)
+            )
 
-        from ..core.jobs import JobStatus
-        
-        # Poll for updates
-        while not indexing_task.done():
-            job = graph_builder.job_manager.get_job(job_id)
-            if job:
-                if job.total_files > 0:
-                    progress.update(task_id, total=job.total_files, completed=job.processed_files)
-                
-                # Prefer post-processing status over the last parsed file path
-                current_file = job.status_message or job.current_file or ""
-                if len(current_file) > 40:
-                    current_file = "..." + current_file[-37:]
-                progress.update(task_id, filename=current_file)
-
-                if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
-                    break
+            from ..core.jobs import JobStatus
             
-            await asyncio.sleep(0.1)
+            # Poll for updates
+            while not indexing_task.done():
+                job = graph_builder.job_manager.get_job(job_id)
+                if job:
+                    if job.total_files > 0:
+                        progress.update(task_id, total=job.total_files, completed=job.processed_files)
+                    
+                    # Prefer post-processing status over the last parsed file path
+                    current_file = job.status_message or job.current_file or ""
+                    if len(current_file) > 40:
+                        current_file = "..." + current_file[-37:]
+                    progress.update(task_id, filename=current_file)
 
-        # Wait for actual completion and handle final state
-        try:
-            await indexing_task
-            job = graph_builder.job_manager.get_job(job_id)
-            if job and job.status == JobStatus.FAILED:
-                error_msg = job.errors[0] if job.errors else "Unknown error"
-                raise RuntimeError(error_msg)
-        except Exception as e:
-            raise e
+                    if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
+                        break
+                
+                await asyncio.sleep(0.1)
+
+            # Wait for actual completion and handle final state
+            try:
+                await indexing_task
+                job = graph_builder.job_manager.get_job(job_id)
+                if job and job.status == JobStatus.FAILED:
+                    error_msg = job.errors[0] if job.errors else "Unknown error"
+                    raise RuntimeError(error_msg)
+            except Exception as e:
+                raise e
+    finally:
+        os.environ.pop("CGC_ACTIVE_PROGRESS_BAR", None)
 
 
-def index_helper(path: str, context: Optional[str] = None):
+def index_helper(path: str, context: Optional[str] = None, no_progress: bool = False):
     """Synchronously indexes a repository in a given context."""
     time_start = time.time()
     path_obj = Path(path).resolve()
@@ -294,10 +347,16 @@ def index_helper(path: str, context: Optional[str] = None):
                 file_count = record["file_count"] if record else 0
                 
                 if file_count > 0:
-                    console.print(f"[yellow]Repository '{path}' is already indexed with {file_count} files. Skipping.[/yellow]")
-                    console.print("[dim]💡 Tip: Use 'cgc index --force' to re-index[/dim]")
-                    db_manager.close_driver()
-                    return
+                    expected = graph_builder.estimate_processing_time(path_obj) if path_obj.is_dir() else None
+                    expected_file_count = expected[0] if expected else None
+                    if expected_file_count is None or file_count >= expected_file_count:
+                        console.print(f"[yellow]Repository '{path}' is already indexed with {file_count} files. Skipping.[/yellow]")
+                        console.print("[dim]💡 Tip: Use 'cgc index --force' to re-index[/dim]")
+                        db_manager.close_driver()
+                        return
+                    console.print(
+                        f"[yellow]Repository '{path}' has only {file_count} of {expected_file_count} files indexed. Continuing.[/yellow]"
+                    )
                 else:
                     console.print(f"[yellow]Repository '{path}' exists but has no files (likely interrupted). Re-indexing...[/yellow]")
         except Exception as e:
@@ -311,11 +370,12 @@ def index_helper(path: str, context: Optional[str] = None):
     console.print(f"Starting indexing for: {path_obj}")
 
     try:
-        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path, disable_progress=no_progress))
         time_end = time.time()
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)
-        console.print(f"[green]Successfully finished indexing: {path} in {elapsed:.2f} seconds[/green]")
+        _print_index_execution_summary(graph_builder)
+        console.print(f"[green]Successfully finished indexing: {path_obj} in {elapsed:.2f} seconds[/green]")
         
         # Check if auto-watch is enabled
         try:
@@ -363,6 +423,7 @@ def add_package_helper(package_name: str, language: str, context: Optional[str] 
     try:
         asyncio.run(_run_index_with_progress(graph_builder, package_path, is_dependency=True, cgcignore_path=ctx.cgcignore_path))
         _print_call_resolution_diagnostics(graph_builder)
+        _print_index_execution_summary(graph_builder)
         console.print(f"[green]Successfully finished indexing package: {package_name}[/green]")
     except Exception as e:
         console.print(f"[bold red]An error occurred during package indexing:[/bold red] {e}")
@@ -415,8 +476,13 @@ def delete_helper(repo_path: str, context: Optional[str] = None):
         else:
             console.print(f"[yellow]Repository not found in graph: {repo_path}[/yellow]")
             console.print("[dim]Tip: Use 'cgc list' to see available repositories.[/dim]")
+            raise typer.Exit(code=1)
+    except typer.Exit:
+        # Control flow, not an error — let it through so the exit code survives.
+        raise
     except Exception as e:
         console.print(f"[bold red]An error occurred:[/bold red] {e}")
+        raise typer.Exit(code=1)
     finally:
         db_manager.close_driver()
 
@@ -480,7 +546,13 @@ def cypher_helper(query: str, context: Optional[str] = None):
         raise typer.Exit(code=1)
 
     backend = getattr(db_manager, "get_backend_type", lambda: "neo4j")()
-    session_kwargs = {"default_access_mode": "READ"} if backend == "neo4j" else {}
+    # Neo4j honours default_access_mode natively; FalkorDB routes READ sessions
+    # through GRAPH.RO_QUERY for server-enforced read-only execution.
+    session_kwargs = (
+        {"default_access_mode": "READ"}
+        if backend in ("neo4j", "falkordb", "falkordb-remote")
+        else {}
+    )
 
     try:
         with db_manager.get_driver().session(**session_kwargs) as session:
@@ -525,8 +597,146 @@ import uvicorn
 import urllib.parse
 from ..viz.server import run_server, set_db_manager
 
+_OFFLINE_VIZ_DEFAULT_QUERY = """
+MATCH (n)-[r]->(m)
+RETURN n, r, m
+LIMIT 300
+"""
+
+
+def _render_offline_visualization(
+    db_manager,
+    repo_path: Optional[str] = None,
+    cypher_query: Optional[str] = None,
+    output_path: Optional[str] = None,
+) -> None:
+    """Render the graph with the dependency-free single-file HTML renderer.
+
+    The React frontend in ``viz/dist`` is not shipped in the wheel, which made
+    every visualization entry point a hard failure on a plain ``pip install``.
+    ``utils/visualize_graph.py`` is a complete, zero-dependency renderer that
+    was sitting in the package with no callers — this wires it up so the
+    command degrades to a working (simpler) view instead of exiting 1.
+    """
+    from ..utils.visualize_graph import open_in_browser, build_graph_data
+
+    query = cypher_query or _OFFLINE_VIZ_DEFAULT_QUERY
+    nodes: Dict[Any, Dict[str, Any]] = {}
+    edges: List[Dict[str, Any]] = []
+
+    def _ident(value) -> Optional[str]:
+        return None if value is None else str(value)
+
+    # Neo4j returns driver objects carrying .labels / .type that support
+    # dict()/Mapping access. FalkorDB's own driver objects also carry
+    # .labels on nodes, but are NOT dict-convertible — their properties live
+    # in a plain `.properties` dict, and its Edge exposes `.relation` /
+    # `.src_node` / `.dest_node` instead of `.type` / `.start_node` /
+    # `.end_node`. Kùzu and Ladybug return plain dicts carrying _label plus
+    # _src/_dst. Check the driver attributes first — a driver object may
+    # also be dict-like.
+    def _is_relationship(value) -> bool:
+        if hasattr(value, "labels"):
+            return False
+        if hasattr(value, "type"):
+            return True
+        if hasattr(value, "relation") and hasattr(value, "src_node"):
+            return True
+        return isinstance(value, dict) and "_src" in value and "_dst" in value
+
+    def _is_node(value) -> bool:
+        if hasattr(value, "labels"):
+            return True
+        if hasattr(value, "type"):
+            return False
+        if hasattr(value, "relation") and hasattr(value, "src_node"):
+            return False
+        # Kùzu relationships also carry _label, so _src/_dst is what
+        # distinguishes them from nodes.
+        return isinstance(value, dict) and "_label" in value and "_src" not in value
+
+    def _node_payload(value) -> Dict[str, Any]:
+        if hasattr(value, "labels"):
+            # FalkorDB's Node keeps properties in `.properties` and is not
+            # itself iterable; Neo4j's Node supports dict() via Mapping.
+            props = dict(value.properties) if hasattr(value, "properties") else dict(value)
+            labels = list(getattr(value, "labels", []) or [])
+            label = labels[0] if labels else "Node"
+            node_id = getattr(value, "element_id", None) or getattr(value, "id", None)
+        else:
+            props, label = dict(value), value.get("_label", "Node")
+            node_id = value.get("_id")
+        if node_id is None:
+            node_id = props.get("path") or props.get("name")
+        return {
+            "id": _ident(node_id),
+            "label": label,
+            "name": props.get("name") or props.get("path") or "",
+            "file_path": props.get("path", ""),
+            "line_number": props.get("line_number"),
+        }
+
+    def _node_ref_id(ref) -> Any:
+        # Neo4j's start_node/end_node are full Node objects; FalkorDB's
+        # src_node/dest_node are already the bare node id (an int).
+        if isinstance(ref, (int, str)):
+            return ref
+        return getattr(ref, "element_id", None) or getattr(ref, "id", None)
+
+    def _edge_payload(value) -> Optional[Dict[str, Any]]:
+        # Neo4j: .start_node/.end_node/.type. FalkorDB: .src_node/.dest_node/
+        # .relation.
+        start = getattr(value, "start_node", None)
+        if start is None:
+            start = getattr(value, "src_node", None)
+        end = getattr(value, "end_node", None)
+        if end is None:
+            end = getattr(value, "dest_node", None)
+        if start is not None and end is not None:
+            return {
+                "source": _ident(_node_ref_id(start)),
+                "target": _ident(_node_ref_id(end)),
+                "type": getattr(value, "type", None) or getattr(value, "relation", "RELATED"),
+            }
+        if isinstance(value, dict):
+            return {
+                "source": _ident(value.get("_src")),
+                "target": _ident(value.get("_dst")),
+                "type": value.get("_label", "RELATED"),
+            }
+        return None
+
+    with db_manager.get_driver().session() as session:
+        for record in session.run(query):
+            values = list(record.values()) if hasattr(record, "values") else list(record)
+            for value in values:
+                if _is_node(value):
+                    payload = _node_payload(value)
+                    if payload["id"] is not None:
+                        nodes[payload["id"]] = payload
+                elif _is_relationship(value):
+                    edge = _edge_payload(value)
+                    if edge and edge["source"] and edge["target"]:
+                        edges.append(edge)
+
+    if not nodes:
+        console.print(
+            "[yellow]No graph data returned — index a repository first "
+            "with 'cgc index <path>'.[/yellow]"
+        )
+        raise typer.Exit(code=1)
+
+    title = f"CGC Code Graph — {Path(repo_path).name}" if repo_path else "CGC Code Graph"
+    graph_data = build_graph_data(list(nodes.values()), edges)
+    path = open_in_browser(graph_data, title=title, output_path=output_path)
+    console.print(
+        f"[green]Rendered {len(nodes)} nodes and {len(edges)} edges to[/green] {path}"
+    )
+
+
 def visualize_helper(
     repo_path: Optional[str] = None,
+    host: str = "127.0.0.1",
     port: int = 8000,
     context: Optional[str] = None,
     cypher_query: Optional[str] = None,
@@ -585,8 +795,15 @@ def visualize_helper(
                     "[dim]then sync[/dim] [cyan]website/dist[/cyan] [dim]→[/dim] "
                     "[cyan]src/codegraphcontext/viz/dist[/cyan][dim].[/dim]"
                 )
-                db_manager.close_driver()
-                raise SystemExit(1)
+                console.print(
+                    "\n[yellow]Falling back to the built-in offline renderer.[/yellow]"
+                )
+                try:
+                    return _render_offline_visualization(
+                        db_manager, repo_path=repo_path, cypher_query=cypher_query
+                    )
+                finally:
+                    db_manager.close_driver()
 
     index_html = static_dir / "index.html"
     if not index_html.is_file():
@@ -621,7 +838,7 @@ def visualize_helper(
     threading.Thread(target=open_browser, daemon=True).start()
     
     try:
-        run_server(host="127.0.0.1", port=port, static_dir=str(static_dir))
+        run_server(host=host, port=port, static_dir=str(static_dir))
     except Exception as e:
         console.print(f"[bold red]An error occurred while running the server:[/bold red] {e}")
         raise typer.Exit(code=1)
@@ -629,7 +846,7 @@ def visualize_helper(
         db_manager.close_driver()
 
 
-def reindex_helper(path: str, context: Optional[str] = None):
+def reindex_helper(path: str, context: Optional[str] = None, no_progress: bool = False):
     """Force re-index by deleting and rebuilding the repository."""
     time_start = time.time()
     path_obj = Path(path).resolve()
@@ -662,10 +879,11 @@ def reindex_helper(path: str, context: Optional[str] = None):
     console.print(f"[cyan]Re-indexing: {path_obj}[/cyan]")
     
     try:
-        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path, disable_progress=no_progress))
         time_end = time.time()
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)
+        _print_index_execution_summary(graph_builder)
         console.print(f"[green]Successfully re-indexed: {path} in {elapsed:.2f} seconds[/green]")
     except Exception as e:
         console.print(f"[bold red]An error occurred during re-indexing:[/bold red] {e}")
@@ -774,17 +992,23 @@ def stats_helper(path: str = None, context: Optional[str] = None):
                     return
                 
                 # Get stats
-                # Get stats using separate queries to handle depth and avoid Cartesian products
+                # Get stats using separate queries to handle depth and avoid Cartesian products.
+                # `count(x)` counts *rows*, and a variable-length CONTAINS* match
+                # yields one row per distinct path to the node: a method is
+                # reachable as Repo->..->File->Function and again as
+                # Repo->..->File->Class->Function, a nested function three ways.
+                # count(DISTINCT x) is required or the totals are inflated —
+                # functions were over-reported by ~55% on CGC's own repo.
                 # 1. Files
-                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as c"
+                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(DISTINCT f) as c"
                 file_count = session.run(file_query, path=repo_path_str).single()["c"]
-                
+
                 # 2. Functions (including methods in classes)
-                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(func) as c"
+                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(DISTINCT func) as c"
                 func_count = session.run(func_query, path=repo_path_str).single()["c"]
-                
+
                 # 3. Classes
-                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(c:Class) RETURN count(c) as c"
+                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(c:Class) RETURN count(DISTINCT c) as c"
                 class_count = session.run(class_query, path=repo_path_str).single()["c"]
                 
                 # 4. Modules (imported) - Note: Module nodes are outside the repo structure usually, connected via IMPORTS
@@ -850,7 +1074,12 @@ def stats_helper(path: str = None, context: Optional[str] = None):
         db_manager.close_driver()
 
 
-def watch_helper(path: str, context: Optional[str] = None, use_polling: Optional[bool] = None):
+def watch_helper(
+    path: str,
+    context: Optional[str] = None,
+    use_polling: Optional[bool] = None,
+    sync_on_start: bool = False,
+):
     """Watch a directory for changes and auto-update the graph (blocking mode)."""
     import logging
     from ..core.watcher import CodeWatcher
@@ -913,11 +1142,17 @@ def watch_helper(path: str, context: Optional[str] = None, use_polling: Optional
         
         # Add the directory to watch
         if is_indexed:
-            console.print("[green]✓[/green] Already indexed. Synchronizing current files...")
+            if sync_on_start:
+                console.print("[green]✓[/green] Already indexed. Synchronizing current files...")
+            else:
+                console.print("[green]✓[/green] Already indexed. Watching for future changes only.")
+                console.print(
+                    "[dim]Use 'cgc index --force' or 'cgc watch --sync-on-start' to reconcile existing changes.[/dim]"
+                )
             watcher.watch_directory(
                 str(path_obj),
                 perform_initial_scan=False,
-                sync_on_start=True,
+                sync_on_start=sync_on_start,
                 cgcignore_path=ctx.cgcignore_path,
             )
         else:
@@ -960,24 +1195,43 @@ def watch_helper(path: str, context: Optional[str] = None, use_polling: Optional
     finally:
         watcher.stop()
         db_manager.close_driver()
-        console.print("[green]✓[/green] Watcher stopped. Graph is up to date.")
+        console.print("[green]✓[/green] Watcher stopped.")
 
 
 
 def unwatch_helper(path: str):
-    """Stop watching a directory."""
-    console.print(f"[yellow]⚠️  Note: 'cgc unwatch' only works when the watcher is running via MCP server.[/yellow]")
-    console.print(f"[dim]For CLI watch mode, simply press Ctrl+C in the watch terminal.[/dim]")
-    console.print(f"\n[cyan]Path specified:[/cyan] {Path(path).resolve()}")
+    """Report that unwatching is not available from the CLI.
+
+    This command touches no watcher state at all — it never has. It used to
+    print a note, echo the requested path back as "Path specified:" (which
+    reads like confirmation that something happened, even for a path that was
+    never watched and does not exist) and exit 0.
+    """
+    console.print(
+        "[bold red]Error:[/bold red] 'cgc unwatch' is not supported from the CLI — "
+        "it cannot reach a watcher started in another process."
+    )
+    console.print("[dim]For CLI watch mode, press Ctrl+C in the terminal running 'cgc watch'.[/dim]")
+    console.print(
+        "[dim]For MCP mode, call the 'unwatch_directory' tool from your IDE.[/dim]"
+    )
+    raise typer.Exit(code=1)
 
 
 def list_watching_helper():
-    """List all directories currently being watched."""
-    console.print(f"[yellow]⚠️  Note: 'cgc watching' only works when the watcher is running via MCP server.[/yellow]")
-    console.print(f"[dim]For CLI watch mode, check the terminal where you ran 'cgc watch'.[/dim]")
-    console.print(f"\n[cyan]To see watched directories in MCP mode:[/cyan]")
-    console.print(f"  1. Start the MCP server: cgc mcp start")
-    console.print(f"  2. Use the 'list_watched_paths' MCP tool from your IDE")
+    """Report that listing watched paths is not available from the CLI.
+
+    Same as unwatch: no watcher state is consulted, so exiting 0 advertised a
+    successful listing of nothing.
+    """
+    console.print(
+        "[bold red]Error:[/bold red] 'cgc watching' is not supported from the CLI — "
+        "it cannot reach a watcher started in another process."
+    )
+    console.print("[dim]For CLI watch mode, check the terminal where you ran 'cgc watch'.[/dim]")
+    console.print("[dim]For MCP mode: start 'cgc mcp start', then call the "
+                  "'list_watched_paths' tool from your IDE.[/dim]")
+    raise typer.Exit(code=1)
 
 
 def setup_scip_helper() -> None:

@@ -83,8 +83,9 @@ def read_cgcignore_patterns(path: Path, default_patterns: list[str]) -> list[str
         return list(default_patterns)
 
     user_patterns = parse_cgcignore_lines(path.read_text(encoding="utf-8").splitlines())
-    # User patterns first so explicit repo rules take precedence.
-    return user_patterns + list(default_patterns)
+    # Defaults first, user patterns last: matching is last-match-wins, so the
+    # trailing list is the one that takes precedence.
+    return list(default_patterns) + user_patterns
 
 class CGCIgnoreMatcher:
     def __init__(self, patterns: list[str], root_dir: Path):
@@ -150,20 +151,36 @@ class CGCIgnoreMatcher:
             if is_root_anchored:
                 pat = pat[1:]
 
-            segments = [seg.strip('/') for seg in pat.split('**')]
-            translated_segments = []
-            for seg in segments:
-                if seg:
-                    translated_segments.append(self._translate_segment(seg))
+            # `**` spans whole path segments, never part of one. Joining the
+            # translated pieces with a bare `.*` lets the wildcard match inside a
+            # segment, so `docs/**` would swallow `docstring.py` and `**/build`
+            # would swallow `rebuild/`. Join with a separator-aware bridge instead.
+            raw_segments = pat.split('**')
+            segments = [seg.strip('/') for seg in raw_segments]
+            translated_segments = [self._translate_segment(seg) if seg else ''
+                                   for seg in segments]
+
+            parts = [translated_segments[0]]
+            for left, right in zip(translated_segments, translated_segments[1:]):
+                if not left:
+                    # leading `**/` — match any number of leading segments
+                    parts.append(r'(?:.*/)?' if right else '.*')
+                elif not right:
+                    # trailing `/**` — must have at least one child segment
+                    parts.append('/.*')
                 else:
-                    translated_segments.append('')
-            
-            regex_str = '.*'.join(translated_segments)
+                    # `a/**/b` — zero or more whole segments between the two
+                    parts.append(r'/(?:.*/)?')
+                parts.append(right)
+            regex_str = ''.join(parts)
             
             if is_root_anchored:
                 regex_str = r'\A' + regex_str
             else:
-                regex_str = r'(?:.*/)?' + regex_str
+                # Anchor to a path-segment boundary so a directory pattern like
+                # `out/` matches the segment `out`, not the substring inside
+                # `layout/` / `checkout/` (match_file applies the regex via re.search).
+                regex_str = r'(?:\A|.*/)' + regex_str
                 
             if is_dir_only:
                 # Must match a directory (so it must have trailing slash, or children)
@@ -238,5 +255,9 @@ def build_ignore_spec(
             parse_cgcignore_lines(explicit_cgcignore_path.read_text(encoding="utf-8").splitlines())
         )
 
-    all_patterns = merged_user_patterns + list(default_patterns)
+    # Defaults first, user patterns last: matching is last-match-wins (see
+    # CGCIgnoreMatcher.match_file), so appending the defaults would make them
+    # unconditionally override the user's rules and leave `!build/` with no way
+    # to re-include a directory the built-in list ignores.
+    all_patterns = list(default_patterns) + merged_user_patterns
     return CGCIgnoreMatcher(all_patterns, ignore_root), local_cgcignore_path

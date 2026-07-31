@@ -202,17 +202,39 @@ def _configure_merge_driver(repo_root: Path) -> None:
     _git_config(repo_root, "merge.cgc-bundle.driver", "cgc bundle merge %O %A %B")
 
 
+def _run_git(repo_root: Path, args: list[str], *, check: bool, **kwargs):
+    """Run a git command, translating a missing/failed git into HookError.
+
+    Callers only handle ``HookError``; without this a missing ``git`` binary
+    (``FileNotFoundError``) or a failed ``config`` call (``CalledProcessError``)
+    would crash the ``cgc hook`` commands with an uncaught exception.
+    """
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=check,
+            **kwargs,
+        )
+    except FileNotFoundError as exc:
+        raise HookError(
+            "Git executable not found. Install Git and ensure it is on PATH."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        raise HookError(f"git {' '.join(args)} failed: {exc}") from exc
+
+
 def _git_config(repo_root: Path, key: str, value: str) -> None:
-    subprocess.run(["git", "-C", str(repo_root), "config", key, value], check=True)
+    _run_git(repo_root, ["config", key, value], check=True)
 
 
 def _unset_git_config(repo_root: Path, key: str) -> None:
-    subprocess.run(["git", "-C", str(repo_root), "config", "--unset-all", key], check=False)
+    _run_git(repo_root, ["config", "--unset-all", key], check=False)
 
 
 def _has_git_config(repo_root: Path, key: str) -> bool:
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "config", "--get", key],
+    result = _run_git(
+        repo_root,
+        ["config", "--get", key],
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
