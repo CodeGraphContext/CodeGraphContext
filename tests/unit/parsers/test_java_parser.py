@@ -45,7 +45,9 @@ def _write_and_parse(parser, src: str, suffix: str = ".java") -> dict:
         f.write(src)
         tmp = f.name
     try:
-        return parser.parse(Path(tmp))
+        result = parser.parse(Path(tmp))
+        assert isinstance(result, dict)
+        return result
     finally:
         os.unlink(tmp)
 

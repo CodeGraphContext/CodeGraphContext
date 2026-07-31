@@ -111,7 +111,7 @@ class _FakeDriver:
 
 
 class _FakeDBManager:
-    def get_driver(self):
+    def get_driver(self, graph_name: str = None):
         return _FakeDriver()
 
     def close_driver(self):
@@ -236,6 +236,9 @@ def kuzudb_env():
 def cli_test_stubs(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_main.config_manager, "CONFIG_DIR", tmp_path)
     monkeypatch.setattr(cli_main.config_manager, "CONFIG_FILE", tmp_path / "config.json")
+    # `delete`/`rm` are gated behind ALLOW_DB_DELETION; enable it so the
+    # canonical-command smoke matrix can exercise them without a real config.
+    monkeypatch.setattr(cli_main.config_manager, "is_db_deletion_allowed", lambda: True)
 
     monkeypatch.setattr(cli_main, "_load_credentials", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli_main, "configure_mcp_client", lambda *_args, **_kwargs: None)
@@ -378,6 +381,27 @@ def _matrix_command_set(entries: list[list[str]]) -> set[tuple[str, str]]:
     return covered
 
 
+@pytest.mark.parametrize(
+    ("args", "expected_sync_on_start"),
+    [
+        (["watch", "."], False),
+        (["watch", "--sync-on-start", "."], True),
+        (["w", "."], False),
+        (["w", "--sync-on-start", "."], True),
+    ],
+)
+def test_watch_sync_on_start_flag_is_explicit(monkeypatch, args, expected_sync_on_start):
+    calls = []
+    monkeypatch.setattr(cli_main, "_load_credentials", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_main, "watch_helper", lambda *call_args, **kwargs: calls.append((call_args, kwargs)))
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 0, result.output
+    assert calls
+    assert calls[0][1]["sync_on_start"] is expected_sync_on_start
+
+
 def test_cli_inventory_grouped_from_source():
     inventory = _inventory_from_main_source()
 
@@ -385,7 +409,7 @@ def test_cli_inventory_grouped_from_source():
     assert inventory["mcp"] == {"setup", "start", "tools"}
     assert inventory["neo4j"] == {"setup"}
     assert inventory["config"] == {"show", "set", "reset", "db"}
-    assert inventory["bundle"] == {"export", "import", "load"}
+    assert inventory["bundle"] == {"export", "import", "load", "merge"}
     assert inventory["hook"] == {"install", "uninstall", "status"}
     assert inventory["registry"] == {"list", "search", "download", "request"}
     assert inventory["find"] == {"name", "pattern", "type", "variable", "content", "decorator", "argument"}
@@ -409,7 +433,7 @@ def test_cli_inventory_grouped_from_source():
         assert inventory["context"] == {"list", "create", "delete", "mode", "default"}
 
 
-def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
+def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs, tmp_path):
     bundle_file = str(cli_test_stubs["bundle_file"])
     bundle_export = str(cli_test_stubs["bundle_export"])
 
@@ -498,9 +522,25 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
                 ["datasource", "redis", "--host", "localhost"],
             ]
         )
+    if "prompt" in source_inventory:
+        # The prompt sub-app was added without matrix entries, so this test —
+        # which asserts every command in the source inventory is smoke-tested —
+        # has been failing on main. `add` and `remove` take a path argument.
+        prompt_file = tmp_path / "ci-prompt.md"
+        prompt_file.write_text("# ci prompt\n", encoding="utf-8")
+        command_matrix.extend(
+            [
+                ["prompt", "list"],
+                ["prompt", "add", str(prompt_file)],
+                ["prompt", "remove", str(prompt_file)],
+            ]
+        )
 
     expected_inventory = source_inventory
     expected_set = {(family, name) for family, names in expected_inventory.items() for name in names}
+    # `bundle merge` is a non-interactive git merge driver that takes file
+    # arguments; it is not exercised by this smoke matrix.
+    expected_set.discard(("bundle", "merge"))
     assert _matrix_command_set(command_matrix) == expected_set
 
     for args in command_matrix:
@@ -580,7 +620,7 @@ def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):
             return _FakeSession()
 
     class _FakeManager:
-        def get_driver(self):
+        def get_driver(self, graph_name=None):
             return _FakeDriver()
 
         def close_driver(self):

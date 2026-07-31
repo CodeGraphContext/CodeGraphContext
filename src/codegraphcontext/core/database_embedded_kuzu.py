@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List, ClassVar
 
 from codegraphcontext.core.graph_query import GraphQueryInterface
+from ..utils.cypher_ddl import is_schema_ddl
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 
 
@@ -99,9 +100,14 @@ class EmbeddedGraphManager(GraphQueryInterface):
         os.makedirs(Path(self.db_path).parent, exist_ok=True)
         self._initialized = True
 
-    def get_driver(self):
+    def get_driver(self, graph_name: str = None):
         """
         Gets the embedded driver. Initialises the database and connection pool.
+
+        The ``graph_name`` parameter is accepted for interface parity with
+        FalkorDB (which supports multiple graphs per instance). Embedded
+        backends (KùzuDB, LadybugDB) are single-graph, so the argument is
+        ignored.
         """
         spec = self.BACKEND_SPEC
         if self._db is None:
@@ -213,6 +219,32 @@ class EmbeddedGraphManager(GraphQueryInterface):
                 FROM Module TO Class, FROM Module TO Module, FROM `Macro` TO `Macro`, FROM Function TO Function
             """, True),
             ("CALLS", """
+                FROM Function TO Function, FROM Function TO Class, FROM Function TO Interface, FROM Function TO Trait, 
+                FROM Function TO Struct, FROM Function TO Enum, FROM Function TO Record, FROM Function TO `Union`,
+                FROM Function TO Mixin, FROM Function TO Extension, FROM Function TO Object, FROM Function TO Parameter,
+                FROM Class TO Function, FROM Class TO Class, FROM Class TO Interface, FROM Class TO Trait, 
+                FROM Class TO Struct, FROM Class TO Enum, FROM Class TO Record, FROM Class TO `Union`,
+                FROM Interface TO Function, FROM Interface TO Class, FROM Interface TO Interface,
+                FROM Trait TO Function, FROM Trait TO Class, FROM Trait TO Interface,
+                FROM Mixin TO Function, FROM Mixin TO Class, FROM Mixin TO Interface,
+                FROM Extension TO Function, FROM Extension TO Class, FROM Extension TO Interface,
+                FROM Object TO Function, FROM Object TO Class, FROM Object TO Interface,
+                FROM `Union` TO Function, FROM `Union` TO Class, FROM `Union` TO Interface,
+                FROM `Macro` TO Function, FROM `Macro` TO Class, FROM `Macro` TO Interface,
+                FROM File TO Function, FROM File TO Class, FROM File TO Interface, FROM File TO Trait, 
+                FROM File TO Struct, FROM File TO Enum, FROM File TO Record, FROM File TO `Union`,
+                FROM Function TO File,
+                FROM Variable TO Function, FROM Variable TO Class, FROM Variable TO Interface,
+                line_number INT64, args STRING[], full_call_name STRING, args_key STRING, confidence DOUBLE, resolution_tier INT64, 
+                confidence_label STRING, source STRING, resolution_method STRING, called_name STRING
+            """, True),
+            # Same bindings as CALLS. writer.py emits HEURISTIC_CALLS for
+            # resolution tier >= 8, but the table was never declared here, so on
+            # Kùzu those edges could not be written and every query matching
+            # [:CALLS|HEURISTIC_CALLS] failed outright with
+            # "Binder exception: Table HEURISTIC_CALLS does not exist" —
+            # which broke `cgc analyze dead-code` completely on this backend.
+            ("HEURISTIC_CALLS", """
                 FROM Function TO Function, FROM Function TO Class, FROM Function TO Interface, FROM Function TO Trait, 
                 FROM Function TO Struct, FROM Function TO Enum, FROM Function TO Record, FROM Function TO `Union`,
                 FROM Function TO Mixin, FROM Function TO Extension, FROM Function TO Object, FROM Function TO Parameter,
@@ -1060,7 +1092,10 @@ class EmbeddedSessionWrapper:
         query = re.sub(r'\bON\s+CREATE\s+SET\b', 'SET', query, flags=re.IGNORECASE)
         query = re.sub(r'\bON\s+MATCH\s+SET\b', 'SET', query, flags=re.IGNORECASE)
 
-        if any(x in query.upper() for x in ["CREATE CONSTRAINT", "CREATE INDEX"]):
+        # Anchored to the leading keyword: a substring test also matched
+        # these words inside a string literal, silently turning ordinary
+        # data queries into "RETURN 1".
+        if is_schema_ddl(query):
             return "RETURN 1", {}
 
         # 5. Cleanup unused parameters (Kuzu is strict)

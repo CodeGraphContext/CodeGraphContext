@@ -1,8 +1,6 @@
 
 import pytest
 from pathlib import Path
-import os
-import shutil
 import tempfile
 
 def pytest_addoption(parser):
@@ -48,7 +46,16 @@ def javascript_sample_project(sample_projects_path):
 @pytest.fixture
 def temp_test_dir():
     """Creates a temporary directory for file operations, cleaned up after test."""
-    temp_dir = tempfile.mkdtemp(prefix="cgc_test_unit_")
-    yield Path(temp_dir)
-    shutil.rmtree(temp_dir, ignore_errors=True)
+    with tempfile.TemporaryDirectory(prefix="cgc_test_unit_") as temp_dir:
+        yield Path(temp_dir)
 
+
+@pytest.fixture
+def assert_parser_result():
+    """Fail fast when a parser unexpectedly returns a non-dict payload."""
+    def _assert(result):
+        if not isinstance(result, dict):
+            pytest.fail(f"Expected parser result to be a dict, got {type(result).__name__}: {result!r}")
+        return result
+
+    return _assert

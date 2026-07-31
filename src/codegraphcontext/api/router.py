@@ -5,17 +5,21 @@ from typing import Dict, Any, List
 from pathlib import Path
 
 from .schemas import (
-    IndexRequest, 
-    QueryRequest, 
-    SearchRequest, 
-    ToolCallRequest, 
+    IndexRequest,
+    QueryRequest,
+    SearchRequest,
+    ToolCallRequest,
     ApiResponse
 )
+from .auth import require_api_key
 from codegraphcontext.server import MCPServer
 
 import socket
 
-router = APIRouter()
+# Optional API-key auth is enforced on every route below via require_api_key.
+# It is a no-op (backward compatible) unless CGC_API_KEY is configured, in
+# which case each request must supply the key. See codegraphcontext.api.auth.
+router = APIRouter(dependencies=[Depends(require_api_key)])
 
 # Global server instance (initialized on startup)
 _server_instance: MCPServer = None
