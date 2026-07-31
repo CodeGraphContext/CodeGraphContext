@@ -137,7 +137,7 @@ def _parse_script_block(
         suffix = ".ts" if script_lang == "typescript" else ".js"
         fd, tmp_name = tempfile.mkstemp(suffix=suffix, prefix="cgc_sfc_")
         tmp_path = Path(tmp_name)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", errors="ignore") as f:
             f.write(padded)
         result = delegate.parse(tmp_path, **kwargs)
     finally:
