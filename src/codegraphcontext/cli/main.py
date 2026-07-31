@@ -25,6 +25,7 @@ from importlib.metadata import version as pkg_version, PackageNotFoundError
 from codegraphcontext.server import MCPServer
 from .setup_wizard import run_neo4j_setup_wizard, configure_mcp_client
 from . import config_manager
+from . import project_config
 # Import the new helper functions
 from .cli_helpers import (
     index_helper,
@@ -82,11 +83,14 @@ app = typer.Typer(
     name="cgc",
     help="CodeGraphContext: An MCP server for AI-powered code analysis.",
     add_completion=True,
+    # `-h` is accepted as --help on every command, not just at the root.
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 console = Console(stderr=True)
 
-# Configure basic logging for the application.
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+# Configure basic logging for the application. Default to WARNING so CLI
+# output stays clean; the root --debug flag switches this to DEBUG.
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
 
 def get_version() -> str:
@@ -142,6 +146,7 @@ def mcp_start():
         # This typically happens if credentials are still not found after all checks.
         console.print(f"[bold red]Configuration Error:[/bold red] {e}")
         console.print("Please run `cgc neo4j setup` or use FalkorDB (default).")
+        raise typer.Exit(code=1) from e
     except KeyboardInterrupt:
         # Handle graceful shutdown on Ctrl+C.
         console.print("\n[bold yellow]Server stopped by user.[/bold yellow]")
@@ -177,8 +182,10 @@ def mcp_tools():
     except ValueError as e:
         console.print(f"[bold red]Error loading tools:[/bold red] {e}")
         console.print("Please ensure your database is configured correctly.")
+        raise typer.Exit(code=1) from e
     except Exception as e:
         console.print(f"[bold red]An unexpected error occurred:[/bold red] {e}")
+        raise typer.Exit(code=1) from e
 
 # Abbreviation for mcp setup
 @app.command("m", rich_help_panel="Shortcuts")
@@ -391,7 +398,6 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
     # IMPORTANT: DB-selection keys set in the shell must win over .env defaults.
     # E.g. `DEFAULT_DATABASE=falkordb cgc index …` must not be overridden by
     # DEFAULT_DATABASE=neo4j sitting in ~/.codegraphcontext/.env
-    DB_OVERRIDE_KEYS = {"CGC_RUNTIME_DB_TYPE", "DEFAULT_DATABASE"}
     for key, value in merged_config.items():
         if value is not None:  # Only set non-None values
             if key in runtime_env:
@@ -573,7 +579,7 @@ def config_reset():
         console.print("[yellow]Reset cancelled[/yellow]")
 
 @config_app.command("db")
-def config_db(backend: str = typer.Argument(..., help="Database backend: 'neo4j', 'falkordb', 'falkordb-remote', 'kuzudb', or 'ladybugdb'")):
+def config_db(backend: str = typer.Argument(..., help="Database backend: 'neo4j', 'falkordb', 'falkordb-remote', 'kuzudb', 'nornic', or 'ladybugdb'")):
     """
     Quickly switch the default database backend.
     
@@ -585,9 +591,9 @@ def config_db(backend: str = typer.Argument(..., help="Database backend: 'neo4j'
         cgc config db kuzudb
     """
     backend = backend.lower()
-    if backend not in ['falkordb', 'falkordb-remote', 'neo4j', 'kuzudb', 'ladybugdb']:
+    if backend not in ['falkordb', 'falkordb-remote', 'neo4j', 'kuzudb', 'nornic', 'ladybugdb']:
         console.print(f"[bold red]Invalid backend: {backend}[/bold red]")
-        console.print("Must be 'falkordb', 'falkordb-remote', 'neo4j', 'kuzudb', or 'ladybugdb'")
+        console.print("Must be 'falkordb', 'falkordb-remote', 'neo4j', 'kuzudb', 'nornic', or 'ladybugdb'")
         raise typer.Exit(code=1)
     
     updated = config_manager.set_config_value("DEFAULT_DATABASE", backend)
@@ -596,6 +602,99 @@ def config_db(backend: str = typer.Argument(..., help="Database backend: 'neo4j'
         raise typer.Exit(code=1)
 
     console.print(f"[green]✔ Default database switched to {backend}[/green]")
+
+# ============================================================================
+# PROMPT COMMAND GROUP - Custom LLM Prompts
+# ============================================================================
+
+prompt_app = typer.Typer(help="Manage custom LLM prompt files")
+app.add_typer(prompt_app, name="prompt")
+
+@prompt_app.command("add")
+def prompt_add(
+    path: str = typer.Argument(..., help="Path to the prompt file to register")
+):
+    """
+    Add a custom prompt file to the project.
+    
+    Registers a prompt file that will be injected into the LLM system prompt.
+    The file path is stored relative to the project root.
+    
+    Examples:
+        cgc prompt add skills.md
+        cgc prompt add docs/custom-instructions.txt
+        cgc prompt add /absolute/path/to/prompt.md
+    """
+    try:
+        success = project_config.add_prompt_file(path)
+        if not success:
+            raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[red]Error adding prompt file: {e}[/red]")
+        raise typer.Exit(code=1)
+
+@prompt_app.command("list")
+def prompt_list():
+    """
+    List all registered prompt files.
+    
+    Shows all custom prompt files that will be injected into the LLM system prompt.
+    Files are shown in the order they will be prepended.
+    """
+    try:
+        prompts = project_config.list_prompt_files()
+        
+        if not prompts:
+            console.print("[yellow]No custom prompt files registered.[/yellow]")
+            console.print("\nUse [cyan]cgc prompt add <path>[/cyan] to register a prompt file.")
+            return
+        
+        console.print("[bold cyan]Registered Prompt Files:[/bold cyan]\n")
+        
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Path", style="green")
+        table.add_column("Status", style="cyan", width=10)
+        
+        project_root = project_config.get_project_root()
+        for i, prompt_path in enumerate(prompts, 1):
+            # Check if file exists
+            prompt_file = Path(prompt_path)
+            if not prompt_file.is_absolute():
+                prompt_file = project_root / prompt_file
+            
+            status = "✅ Found" if prompt_file.exists() else "⚠️ Missing"
+            table.add_row(str(i), prompt_path, status)
+        
+        console.print(table)
+        
+        config_file = project_config.get_project_config_file()
+        console.print(f"\n[dim]Config: {config_file}[/dim]")
+        
+    except Exception as e:
+        console.print(f"[red]Error listing prompt files: {e}[/red]")
+        raise typer.Exit(code=1)
+
+@prompt_app.command("remove")
+def prompt_remove(
+    path: str = typer.Argument(..., help="Path to the prompt file to unregister")
+):
+    """
+    Remove a custom prompt file from the project.
+    
+    Unregisters a prompt file so it will no longer be injected into the LLM system prompt.
+    
+    Examples:
+        cgc prompt remove skills.md
+        cgc prompt remove docs/custom-instructions.txt
+    """
+    try:
+        success = project_config.remove_prompt_file(path)
+        if not success:
+            raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[red]Error removing prompt file: {e}[/red]")
+        raise typer.Exit(code=1)
 
 # ============================================================================
 # BUNDLE COMMAND GROUP - Pre-indexed Graph Snapshots
@@ -627,7 +726,7 @@ def bundle_export(
     
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, _, code_finder = services[:3]
     
     try:
@@ -697,7 +796,7 @@ def bundle_import(
     
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -732,6 +831,7 @@ def bundle_load(
     bundle_name: str = typer.Argument(..., help="Bundle name or path to load (e.g., 'numpy' or 'numpy.cgc')"),
     clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before loading"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation when using --clear"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
     Load a pre-indexed bundle (download if needed, then import).
@@ -752,7 +852,7 @@ def bundle_load(
     
     # If it's an absolute path or has .cgc extension and exists, use it directly
     if bundle_path.is_absolute() or (bundle_path.suffix == '.cgc' and bundle_path.exists()):
-        bundle_import(str(bundle_path), clear=clear, yes=yes)
+        bundle_import(str(bundle_path), clear=clear, yes=yes, context=context)
         return
     
     # Add .cgc extension if not present
@@ -762,7 +862,7 @@ def bundle_load(
     # Check if exists locally
     if bundle_path.exists():
         console.print(f"[dim]Found local bundle: {bundle_path}[/dim]")
-        bundle_import(str(bundle_path), clear=clear, yes=yes)
+        bundle_import(str(bundle_path), clear=clear, yes=yes, context=context)
         return
     
     # Try to download from registry
@@ -780,7 +880,7 @@ def bundle_load(
         
         if downloaded_path:
             # Import the downloaded bundle
-            bundle_import(downloaded_path, clear=clear, yes=yes)
+            bundle_import(downloaded_path, clear=clear, yes=yes, context=context)
         else:
             console.print(f"[bold red]Failed to download bundle '{name}'[/bold red]")
             raise typer.Exit(code=1)
@@ -789,6 +889,53 @@ def bundle_load(
         console.print(f"[bold red]Error: {e}[/bold red]")
         console.print("[dim]Use 'cgc registry list' to see available bundles[/dim]")
         raise typer.Exit(code=1)
+
+@bundle_app.command("merge")
+def bundle_merge(
+    ancestor: str = typer.Argument(..., help="Common ancestor version of the bundle (%O)"),
+    current: str = typer.Argument(..., help="Current branch version of the bundle (%A); also the merge result"),
+    other: str = typer.Argument(..., help="Other branch version of the bundle (%B)"),
+):
+    """
+    Git merge driver for .cgc bundle files.
+
+    Registered by `cgc hook install` as `merge.cgc-bundle.driver = cgc bundle
+    merge %O %A %B`. Git invokes it with temp files holding the ancestor (%O),
+    current (%A) and other (%B) versions; the merge result must be left in the
+    %A file and the driver must exit 0 for the merge to proceed.
+
+    Bundles are binary snapshots that cannot be merged line-by-line, so the
+    strategy is: if both sides are identical, accept either; otherwise keep
+    the current branch's version (already in the %A file) and warn that the
+    bundle should be regenerated with `cgc export` after the merge.
+    """
+    current_path = Path(current)
+    other_path = Path(other)
+
+    def _read_bytes(p: Path) -> bytes:
+        # A missing or empty temp file means the side has no content
+        # (e.g. the bundle is a new file on both branches → empty ancestor).
+        try:
+            return p.read_bytes() if p.exists() else b""
+        except OSError:
+            return b""
+
+    current_bytes = _read_bytes(current_path)
+    other_bytes = _read_bytes(other_path)
+
+    if current_bytes == other_bytes:
+        # Both branches have identical bundle contents; nothing to do.
+        raise typer.Exit(code=0)
+
+    # Keep the current branch's version (the %A file already contains it).
+    console.print(
+        "[yellow]⚠ Conflicting changes to a .cgc bundle were detected during merge. "
+        "Keeping the current branch's version.[/yellow]"
+    )
+    console.print(
+        "[yellow]The bundle may be stale — regenerate it with 'cgc export' after the merge.[/yellow]"
+    )
+    raise typer.Exit(code=0)
 
 # ============================================================================
 # HOOK COMMAND GROUP - Git integration
@@ -871,9 +1018,12 @@ def load_shortcut(
     bundle_name: str = typer.Argument(..., help="Bundle name or path to load"),
     clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before loading"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation when using --clear"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """Shortcut for 'cgc bundle load'"""
-    bundle_load(bundle_name, clear, yes=yes)
+    # Must pass `context` explicitly: invoked as a plain function, Typer does not
+    # resolve defaults, so an omitted parameter keeps its OptionInfo sentinel.
+    bundle_load(bundle_name, clear, yes=yes, context=context)
 
 # ============================================================================
 # REGISTRY COMMAND GROUP - Browse and Download Bundles
@@ -974,7 +1124,7 @@ def registry_download(
     
     if load and bundle_path:
         console.print("\n[cyan]Loading bundle...[/cyan]")
-        bundle_import(bundle_path, clear=False)
+        bundle_import(bundle_path, clear=False, yes=False, context=None)
 
 @registry_app.command("request")
 def registry_request(
@@ -1013,6 +1163,10 @@ def doctor():
     console.print("[bold cyan]🏥 Running CodeGraphContext Diagnostics...[/bold cyan]\n")
     
     all_checks_passed = True
+    # Warnings are not failures, but printing "All diagnostics passed! System is
+    # healthy." while a ⚠ is on screen is misleading — `doctor` is the command
+    # people run when something is already wrong.
+    warnings_found = False
 
     config_manager.ensure_first_run_bootstrap()
     config_manager.ensure_config_file()
@@ -1146,13 +1300,47 @@ def doctor():
                         all_checks_passed = False
         elif default_db == "falkordb":
             try:
-                import falkordblite  # noqa: F401
-                console.print("   [green]✓[/green] FalkorDB Lite is installed")
+                from codegraphcontext.core import is_falkordb_usable
+
+                if is_falkordb_usable():
+                    console.print("   [green]✓[/green] FalkorDB Lite is installed")
+                    # An import probe is not a connection check. This section is
+                    # titled "Checking Database Connection" and the neo4j /
+                    # falkordb-remote branches genuinely connect, so the default
+                    # backend must too — otherwise `doctor` reports a healthy
+                    # system without ever touching the database.
+                    try:
+                        from codegraphcontext.core import get_database_manager
+
+                        probe_manager = get_database_manager()
+                        try:
+                            with probe_manager.get_driver().session() as probe_session:
+                                probe_session.run("RETURN 1")
+                            console.print("   [green]✓[/green] FalkorDB Lite connection successful")
+                            backend_in_use = probe_manager.get_backend_type()
+                            if backend_in_use != "falkordb":
+                                console.print(
+                                    f"   [yellow]⚠[/yellow] Configured backend is 'falkordb' but "
+                                    f"'{backend_in_use}' is actually active"
+                                )
+                                warnings_found = True
+                        finally:
+                            probe_manager.close_driver()
+                    except Exception as conn_error:
+                        console.print("   [red]✗[/red] FalkorDB Lite connection failed")
+                        console.print(f"       Reason: {conn_error}")
+                        all_checks_passed = False
+                else:
+                    raise ImportError("FalkorDB Lite is not available on this platform")
             except ImportError:
-                console.print("   [yellow]⚠[/yellow] FalkorDB Lite not installed (Python 3.12+ only)")
+                # falkordb is the configured/default backend, so a missing
+                # FalkorDB Lite means the database cannot work — fail the check.
+                console.print("   [red]✗[/red] FalkorDB Lite not installed (Python 3.12+ only)")
                 console.print("       Run: pip install falkordblite")
+                all_checks_passed = False
         else:
             console.print(f"   [yellow]⚠[/yellow] No connectivity probe for backend '{default_db}'")
+            warnings_found = True
     except Exception as e:
         console.print(f"   [red]✗[/red] Database check error: {e}")
         all_checks_passed = False
@@ -1182,6 +1370,7 @@ def doctor():
             console.print(f"   [green]✓[/green] {len(available)}/{len(probe_langs)} probed parsers OK: {', '.join(available)}")
             if unavailable:
                 console.print(f"   [yellow]⚠[/yellow] Unavailable: {', '.join(unavailable)}")
+                warnings_found = True
         except ImportError:
             console.print("   [red]✗[/red] tree-sitter-language-pack not installed")
             all_checks_passed = False
@@ -1207,6 +1396,7 @@ def doctor():
                 all_checks_passed = False
         else:
             console.print("   [yellow]⚠[/yellow] Config directory doesn't exist, will be created on first use")
+            warnings_found = True
     except Exception as e:
         console.print(f"   [red]✗[/red] Permission check error: {e}")
         all_checks_passed = False
@@ -1219,11 +1409,17 @@ def doctor():
         console.print(f"   [green]✓[/green] cgc command found at: {cgc_path}")
     else:
         console.print("   [yellow]⚠[/yellow] cgc command not in PATH (using python -m cgc)")
+        warnings_found = True
     
     # Final summary
     console.print("\n" + "=" * 60)
-    if all_checks_passed:
+    if all_checks_passed and not warnings_found:
         console.print("[bold green]✅ All diagnostics passed! System is healthy.[/bold green]")
+    elif all_checks_passed:
+        console.print(
+            "[bold yellow]✅ No failures, but some checks reported warnings "
+            "(⚠ above).[/bold yellow]"
+        )
     else:
         console.print("[bold yellow]⚠️  Some issues detected. Please review the output above.[/bold yellow]")
         console.print("\n[cyan]Common fixes:[/cyan]")
@@ -1243,22 +1439,64 @@ def index(
     path: Optional[str] = typer.Argument(None, help="Path to the directory or file to index. Defaults to the current directory."),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use (overrides mode/default)"),
+    summarize: bool = typer.Option(False, "--summarize", "-s", help="Show a summary of the indexed codebase after indexing"),
 ):
     """
     Indexes a directory or file by adding it to the code graph.
     If no path is provided, it indexes the current directory.
-    
+
     Use --force to delete the existing index and rebuild from scratch.
+    Use --summarize to display a summary after indexing.
     """
     _load_credentials()
     if path is None:
         path = str(Path.cwd())
-    
-    if force:
-        console.print("[yellow]Force re-indexing (--force flag detected)[/yellow]")
-        reindex_helper(path, context)
-    else:
-        index_helper(path, context)
+
+    try:
+        if force:
+            console.print("[yellow]Force re-indexing (--force flag detected)[/yellow]")
+            reindex_helper(path, context)
+        else:
+            index_helper(path, context)
+    except typer.Exit:
+        # typer.Exit subclasses RuntimeError and str() is empty, so the handler
+        # below caught it, printed nothing, and returned 0 — every helper that
+        # raised `typer.Exit(code=1)` (missing path, failed indexing) silently
+        # became a success. Re-raise control flow before catching errors.
+        raise
+    except Exception as e:
+        if str(e):
+            console.print(f"[red]An error occurred during indexing: {e}[/red]")
+        else:
+            console.print("[red]An error occurred during indexing.[/red]")
+        raise typer.Exit(code=1)
+
+    if summarize:
+        import os
+
+        py_files = []
+        for root, dirs, files in os.walk(path):
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['venv', '__pycache__', 'node_modules']]
+            for file in files:
+                if file.endswith('.py'):
+                    py_files.append(os.path.join(root, file))
+
+        total_lines = 0
+        for f in py_files:
+            try:
+                with open(f, 'r', encoding='utf-8', errors='ignore') as fp:
+                    total_lines += len(fp.readlines())
+            except:
+                pass
+
+        console.print("\n[bold cyan]📊 Codebase Summary:[/bold cyan]")
+        console.print(f"  • Path indexed     : [green]{path}[/green]")
+        console.print(f"  • Python files     : [yellow]{len(py_files)}[/yellow]")
+        console.print(f"  • Total lines      : [yellow]{total_lines}[/yellow]")
+        console.print(f"\n  • Run [bold]cgc analyze complexity[/bold] to find complex functions")
+        console.print(f"  • Run [bold]cgc analyze dead-code[/bold] to find unused code")
+        console.print(f"  • Run [bold]cgc list[/bold] to see all indexed repositories")
+        console.print("\n[dim]Tip: Use --summarize anytime after indexing to see this.[/dim]")
 
 @app.command()
 def update(
@@ -1275,7 +1513,7 @@ def update(
     _load_credentials()
     if path is None:
         path = str(Path.cwd())
-    update_helper(path, context)
+    update_helper(path, context, quiet=quiet)
 
 @app.command()
 def clean(
@@ -1320,6 +1558,7 @@ def setup_scip():
 def delete(
     path: Optional[str] = typer.Argument(None, help="Path of the repository to delete from the code graph."),
     all_repos: bool = typer.Option(False, "--all", help="Delete all indexed repositories"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt (for CI/non-interactive use)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use")
 ):
     """
@@ -1344,7 +1583,7 @@ def delete(
         # Delete all repositories
         services = _initialize_services(context)
         if not all(services[:3]):
-            return
+            raise typer.Exit(code=1)
         db_manager, graph_builder, code_finder = services[:3]
         
         try:
@@ -1409,7 +1648,30 @@ def delete(
             console.print("[red]Error: Please provide a path or use --all to delete all repositories[/red]")
             console.print("Usage: cgc delete <path> or cgc delete --all")
             raise typer.Exit(code=1)
-        
+
+        if not config_manager.is_db_deletion_allowed():
+            console.print(
+                "[bold red]Error:[/bold red] Repository deletion is disabled. "
+                "Set ALLOW_DB_DELETION=true in config to enable."
+            )
+            raise typer.Exit(code=1)
+
+        # `--all` demands a typer.confirm *and* typing "delete all", while a
+        # single delete went straight through — irreversibly dropping a
+        # repository's entire graph (potentially an hour of indexing) on a
+        # typo, with no prompt, no --yes flag and no undo. The asymmetry was
+        # actively misleading: anyone who had seen the heavy --all guardrails
+        # would reasonably assume single deletes were guarded too.
+        if not yes:
+            resolved = Path(path).expanduser().resolve()
+            console.print(
+                f"[bold yellow]About to delete the graph for:[/bold yellow] {resolved}"
+            )
+            console.print("[dim]This is irreversible; re-indexing is the only way back.[/dim]")
+            if not typer.confirm("Proceed?", default=False):
+                console.print("[yellow]Deletion cancelled.[/yellow]")
+                raise typer.Exit(code=1)
+
         delete_helper(path, context)
 
 
@@ -1417,6 +1679,7 @@ def delete(
 def report(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path. Defaults to CGC_REPORT.md in the current directory."),
     java: bool = typer.Option(False, "--java", "-j", help="Include Spring/Maven Java sections."),
+    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Repository root to scope the report to. Defaults to auto-detection from the current directory."),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
@@ -1435,7 +1698,15 @@ def report(
     db_manager, _, _, _ = _initialize_services(context)
     try:
         from codegraphcontext.tools.report_generator import generate_report
-        report_text = generate_report(db_manager, output_path=output_path, include_java=java)
+        # Without --repo the generator silently picks the repo with the most
+        # indexed files, which is disclosed only in the report body.
+        scoped_repo = Path(repo).expanduser().resolve().as_posix() if repo else None
+        report_text = generate_report(
+            db_manager,
+            output_path=output_path,
+            include_java=java,
+            repo_path=scoped_repo,
+        )
         console.print(f"[green]✓[/green] Report written to [bold]{output_path}[/bold]")
         # Print a short preview (first ~40 lines)
         preview_lines = report_text.splitlines()[:40]
@@ -1455,6 +1726,9 @@ def report(
 @app.command()
 def visualize(
     repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Path to the repository to visualize."),
+    # `-h` is --help everywhere else in the CLI; use -H so `cgc visualize -h`
+    # doesn't fail with "Option '-h' requires an argument".
+    host: str = typer.Option("127.0.0.1", "--host", "-H", help="Host interface to bind to."),
     port: int = typer.Option(8000, "--port", "-p", help="Port to run the visualizer server on."),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use")
 ):
@@ -1462,7 +1736,7 @@ def visualize(
     Launches the interactive UI to visualize the code graph.
     """
     _load_credentials()
-    visualize_helper(repo, port, context)
+    visualize_helper(repo, host, port, context)
 
 @app.command("list")
 def list_repositories(
@@ -1501,6 +1775,14 @@ def watch(
         "--poll",
         help="Use watchdog's polling observer for Docker bind mounts and network filesystems.",
     ),
+    sync_on_start: bool = typer.Option(
+        False,
+        "--sync-on-start",
+        help=(
+            "Synchronize already-indexed files before watching. "
+            "Defaults off; use 'cgc index --force' for a full re-index."
+        ),
+    ),
 ):
     """
     Watch a directory for file changes and automatically update the code graph.
@@ -1511,6 +1793,7 @@ def watch(
     
     The watcher will:
     - Perform an initial scan if the directory is not yet indexed
+    - Attach immediately for already-indexed directories unless --sync-on-start is passed
     - Monitor for file creation, modification, deletion, and moves
     - Automatically re-index affected files and update relationships
     
@@ -1520,12 +1803,13 @@ def watch(
         cgc watch .                    # Watch current directory
         cgc watch /path/to/project     # Watch specific directory
         cgc watch --poll .             # Use polling for Docker/NFS/SMB mounts
+        cgc watch --sync-on-start .    # Reconcile current files before watching
         cgc w .                        # Using shortcut alias
 
     Set CGC_WATCH_POLLING=1 to use polling without passing --poll.
     """
     _load_credentials()
-    watch_helper(path, context, use_polling=poll or None)
+    watch_helper(path, context, use_polling=poll or None, sync_on_start=sync_on_start)
 
 @app.command()
 def unwatch(
@@ -1533,7 +1817,11 @@ def unwatch(
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
-    Stop watching a directory for changes.
+    [MCP only] Stop watching a directory for changes.
+
+    Not supported from the CLI: this cannot reach a watcher running in another
+    process. Press Ctrl+C in the 'cgc watch' terminal, or use the
+    'unwatch_directory' MCP tool.
     
     Note: This command is primarily for MCP server mode.
     For CLI watch mode, simply press Ctrl+C in the watch terminal.
@@ -1549,7 +1837,10 @@ def watching(
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
-    List all directories currently being watched for changes.
+    [MCP only] List all directories currently being watched for changes.
+
+    Not supported from the CLI: this cannot reach a watcher running in another
+    process. Use the 'list_watched_paths' MCP tool.
     
     Note: This command is primarily for MCP server mode.
     For CLI watch mode, check the terminal where you ran 'cgc watch'.
@@ -1593,7 +1884,7 @@ def find_by_name(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
 
     # Resolve effective fuzzy setting: CLI flag wins, else config, else true.
@@ -1725,7 +2016,7 @@ def find_by_pattern(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -1818,7 +2109,7 @@ def find_by_type(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -1873,7 +2164,7 @@ def find_by_variable(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -1919,7 +2210,7 @@ def find_by_content_search(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -1978,7 +2269,7 @@ def find_by_decorator_search(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2026,7 +2317,7 @@ def find_by_argument_search(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2082,7 +2373,7 @@ def analyze_calls(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2138,7 +2429,7 @@ def analyze_callers(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2199,7 +2490,7 @@ def analyze_chain(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2269,7 +2560,7 @@ def analyze_kotlin_call_audit(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, _, code_finder = services[:3]
 
     try:
@@ -2329,7 +2620,7 @@ def analyze_dependencies(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2394,7 +2685,7 @@ def analyze_inheritance_tree(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2444,7 +2735,7 @@ def analyze_inheritance_tree(
 @analyze_app.command("complexity")
 def analyze_complexity(
     path: Optional[str] = typer.Argument(None, help="Function name or file path to analyze"),
-    threshold: int = typer.Option(10, "--threshold", "-t", help="Complexity threshold for warnings"),
+    threshold: Optional[int] = typer.Option(None, "--threshold", "-t", help="Complexity threshold for warnings (default: from config or 10)"),
     limit: int = typer.Option(20, "--limit", "-l", help="Maximum results to show"),
     file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path to scope analysis"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
@@ -2464,8 +2755,19 @@ def analyze_complexity(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
+
+    # Read threshold from config if not explicitly provided via CLI
+    if threshold is None:
+        configured = config_manager.get_config_value("COMPLEXITY_THRESHOLD")
+        if configured is not None:
+            try:
+                threshold = int(configured)
+            except (ValueError, TypeError):
+                threshold = 10
+        else:
+            threshold = 10
 
     _FILE_EXTENSIONS = ('.py', '.js', '.ts', '.jsx', '.tsx', '.go', '.rs', '.rb',
                         '.java', '.cpp', '.c', '.cs', '.swift', '.kt', '.scala',
@@ -2541,7 +2843,7 @@ def analyze_dead_code(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2595,7 +2897,7 @@ def analyze_overrides(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2650,7 +2952,7 @@ def analyze_variable_usage(
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
-        return
+        raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
@@ -2747,10 +3049,13 @@ def cypher_legacy(
 def index_abbrev(
     path: Optional[str] = typer.Argument(None, help="Path to index"),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-index (delete existing and rebuild)"),
+    summarize: bool = typer.Option(False, "--summarize", "-s", help="Display a codebase summary after indexing"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use")
 ):
     """Shortcut for 'cgc index'"""
-    index(path, force=force, context=context)
+    # `summarize` must be passed explicitly: omitted, it keeps its OptionInfo
+    # sentinel, which is truthy — so `cgc i` always printed the summary.
+    index(path, force=force, summarize=summarize, context=context)
 
 @app.command("ls", rich_help_panel="Shortcuts")
 def list_abbrev(
@@ -2763,10 +3068,13 @@ def list_abbrev(
 def delete_abbrev(
     path: Optional[str] = typer.Argument(None, help="Path to delete"),
     all_repos: bool = typer.Option(False, "--all", help="Delete all indexed repositories"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt (for CI/non-interactive use)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use")
 ):
     """Shortcut for 'cgc delete'"""
-    delete(path, all_repos, context=context)
+    # `yes` must be forwarded explicitly: omitted, it keeps its OptionInfo
+    # sentinel, which is truthy — silently skipping the confirmation.
+    delete(path, all_repos, yes=yes, context=context)
 
 @app.command("v", rich_help_panel="Shortcuts")
 def visualize_abbrev(
@@ -2782,9 +3090,22 @@ def visualize_abbrev(
 def watch_abbrev(
     path: str = typer.Argument(".", help="Path to watch"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+    poll: bool = typer.Option(
+        False,
+        "--poll",
+        help="Use watchdog's polling observer for Docker bind mounts and network filesystems.",
+    ),
+    sync_on_start: bool = typer.Option(
+        False,
+        "--sync-on-start",
+        help=(
+            "Synchronize already-indexed files before watching. "
+            "Defaults off; use 'cgc index --force' for a full re-index."
+        ),
+    ),
 ):
     """Shortcut for 'cgc watch'"""
-    watch(path, context=context)
+    watch(path, context=context, poll=poll, sync_on_start=sync_on_start)
 
 
 # ============================================================================
@@ -2854,9 +3175,6 @@ def main(
         os.environ["CGC_RUNTIME_DB_TYPE"] = database
     # Initialize context object for sharing state with subcommands
     ctx.ensure_object(dict)
-    
-    if database:
-        os.environ["CGC_RUNTIME_DB_TYPE"] = database
 
     # Store visual flag in context for subcommands to access
     if visual:
@@ -3029,6 +3347,10 @@ def _write_datasource_graph(ingested: dict, context: Optional[str] = None) -> No
         GraphWriter(driver, db_manager=db_manager).write_datasource_graph(ingested)
     finally:
         db_manager.close_driver()
+
+
+from codegraphcontext.cli.simulator import simulate_app
+app.add_typer(simulate_app, name="simulate")
 
 
 if __name__ == "__main__":

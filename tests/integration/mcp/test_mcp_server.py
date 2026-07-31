@@ -1,7 +1,9 @@
 
 import pytest
 import asyncio
+import io
 import json
+import sys
 from unittest.mock import MagicMock, AsyncMock, patch
 from codegraphcontext.server import MCPServer
 
@@ -28,6 +30,36 @@ class TestMCPServer:
                 # Let's mock the internal handlers instead.
                 
                 return server
+
+    def test_initialize_returns_result_not_internal_error(self, mock_server, monkeypatch, capsys):
+        """The stdio `initialize` handshake must return a result, not an internal error.
+
+        Regression guard: server.py once referenced the module-level LLM_SYSTEM_PROMPT
+        while importing only build_system_prompt, so every `initialize` request raised
+        NameError and was returned as a -32603 error. That fails the handshake, which
+        makes the server unusable for any stdio MCP client.
+        """
+        request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "test-client", "version": "1.0"},
+            },
+        }
+        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(request) + "\n"))
+
+        async def run_test():
+            await mock_server._run_loop(asyncio.get_running_loop())
+
+        asyncio.run(run_test())
+
+        response = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+        assert "error" not in response, response.get("error")
+        assert response["result"]["instructions"]
+        assert response["result"]["serverInfo"]["systemPrompt"]
 
     def test_tool_routing(self, mock_server):
         """Test that handle_tool_call routes to the correct internal method."""

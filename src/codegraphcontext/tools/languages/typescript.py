@@ -178,31 +178,35 @@ class TypescriptTreeSitterParser:
 
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict:
         self.index_source = index_source
-        with open(path, "r", encoding="utf-8") as f:
-            source_code = f.read()
-        tree = self.parser.parse(bytes(source_code, "utf8"))
-        root_node = tree.root_node
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                source_code = f.read()
+            tree = self.parser.parse(bytes(source_code, "utf8"))
+            root_node = tree.root_node
 
-        functions = self._find_functions(root_node)
-        classes = self._find_classes(root_node)
-        interfaces = self._find_interfaces(root_node)
-        type_aliases = self._find_type_aliases(root_node)
-        imports = self._find_imports(root_node)
-        function_calls = self._find_calls(root_node)
-        variables = self._find_variables(root_node)
+            functions = self._find_functions(root_node)
+            classes = self._find_classes(root_node)
+            interfaces = self._find_interfaces(root_node)
+            type_aliases = self._find_type_aliases(root_node)
+            imports = self._find_imports(root_node)
+            function_calls = self._find_calls(root_node)
+            variables = self._find_variables(root_node)
 
-        return {
-            "path": str(path),
-            "functions": functions,
-            "classes": classes,
-            "interfaces": interfaces,
-            "type_aliases": type_aliases,
-            "variables": variables,
-            "imports": imports,
-            "function_calls": function_calls,
-            "is_dependency": is_dependency,
-            "lang": self.language_name,
-        }
+            return {
+                "path": str(path),
+                "functions": functions,
+                "classes": classes,
+                "interfaces": interfaces,
+                "type_aliases": type_aliases,
+                "variables": variables,
+                "imports": imports,
+                "function_calls": function_calls,
+                "is_dependency": is_dependency,
+                "lang": self.language_name,
+            }
+        except Exception as e:
+            error_logger(f"Failed to parse TypeScript file {path}: {e}")
+            return {"path": str(path), "error": str(e)}
 
 
     def _find_functions(self, root_node):
@@ -372,7 +376,6 @@ class TypescriptTreeSitterParser:
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": node.end_point[0] + 1,
-                    "end_line": node.end_point[0] + 1,
                 }
                 if self.index_source:
                     interface_data["source"] = self._get_node_text(node)
@@ -391,7 +394,6 @@ class TypescriptTreeSitterParser:
                 type_alias_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
-                    "end_line": node.end_point[0] + 1,
                     "end_line": node.end_point[0] + 1,
                 }
                 if self.index_source:
@@ -583,7 +585,7 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
     
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 source_code = f.read()
                 tree = parser_wrapper.parser.parse(bytes(source_code, "utf8"))
             
@@ -632,7 +634,7 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
                         if name:
                             if name not in imports_map:
                                 imports_map[name] = []
-                            file_path_str = str(path.resolve())
+                            file_path_str = path.resolve().as_posix()
                             if file_path_str not in imports_map[name]:
                                 imports_map[name].append(file_path_str)
                                 

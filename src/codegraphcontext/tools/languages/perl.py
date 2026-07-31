@@ -263,6 +263,10 @@ class PerlTreeSitterParser:
         calls = []
         query_str = PERL_QUERIES['calls']
         for node, capture_name in execute_query(self.language, query_str, root_node):
+            # Only the @name captures carry the call name; @call captures the
+            # whole expression and must not be emitted as a call record.
+            if capture_name != "name":
+                continue
             name = self._get_node_text(node)
             context, context_type, context_line = self._get_parent_context(node)
             
@@ -281,6 +285,9 @@ class PerlTreeSitterParser:
         variables = []
         query_str = PERL_QUERIES['variables']
         for node, capture_name in execute_query(self.language, query_str, root_node):
+            # Skip the @variable container capture; only @name is the varname.
+            if capture_name != "name":
+                continue
             name = self._get_node_text(node)
             context, _, _ = self._get_parent_context(node)
             
@@ -307,11 +314,13 @@ def pre_scan_perl(files: List[Path], parser_wrapper) -> Dict[str, List[str]]:
             with open(path, "r", encoding="utf-8", errors='ignore') as f:
                 content = f.read()
             tree = parser_wrapper.parser.parse(bytes(content, "utf8"))
-            for node, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
+            for node, capture_name in execute_query(parser_wrapper.language, query_str, tree.root_node):
+                if capture_name != "name":
+                    continue
                 name = node.text.decode('utf-8')
                 if name not in name_to_files:
                     name_to_files[name] = []
-                name_to_files[name].append(str(path.resolve()))
+                name_to_files[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Error pre-scanning Perl file {path}: {e}")
     return name_to_files

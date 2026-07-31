@@ -119,7 +119,7 @@ class SwiftTreeSitterParser:
                 "classes": [],
                 "structs": [],
                 "enums": [],
-                "protocols": [],
+                "traits": [],
                 "variables": [],
                 "imports": [],
                 "function_calls": [],

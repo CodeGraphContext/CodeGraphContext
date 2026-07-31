@@ -5,17 +5,21 @@ from typing import Dict, Any, List
 from pathlib import Path
 
 from .schemas import (
-    IndexRequest, 
-    QueryRequest, 
-    SearchRequest, 
-    ToolCallRequest, 
+    IndexRequest,
+    QueryRequest,
+    SearchRequest,
+    ToolCallRequest,
     ApiResponse
 )
+from .auth import require_api_key
 from codegraphcontext.server import MCPServer
 
 import socket
 
-router = APIRouter()
+# Optional API-key auth is enforced on every route below via require_api_key.
+# It is a no-op (backward compatible) unless CGC_API_KEY is configured, in
+# which case each request must supply the key. See codegraphcontext.api.auth.
+router = APIRouter(dependencies=[Depends(require_api_key)])
 
 # Global server instance (initialized on startup)
 _server_instance: MCPServer = None
@@ -91,12 +95,9 @@ async def index_repository(
     background_tasks: BackgroundTasks,
     server: MCPServer = Depends(get_server)
 ):
-    args = {
-        "path": request.path,
-        "repo_name": request.repo_name,
-        "branch": request.branch,
-        "force": request.force
-    }
+    # The add_code_to_graph handler only understands "path" (and is_dependency);
+    # repo_name/branch/force from the request model are not supported by it.
+    args = {"path": request.path}
 
     try:
         result = await server.handle_tool_call(

@@ -49,6 +49,10 @@ class RepositoryEventHandler(FileSystemEventHandler):
         self.repo_path = repo_path.resolve()
         self.debounce_interval = debounce_interval
         self.timers = {}
+        # Guards self.timers, and serialises the graph updates that the
+        # per-path debounce timers would otherwise run concurrently.
+        self._timers_lock = threading.Lock()
+        self._update_lock = threading.RLock()
 
         self.ignore_root = self.repo_path
         self.ignore_spec = ignore_spec
@@ -91,7 +95,8 @@ class RepositoryEventHandler(FileSystemEventHandler):
             except ValueError:
                 pass
 
-        if not getattr(self, "ignore_spec", None):
+        ignore_spec = getattr(self, "ignore_spec", None)
+        if not ignore_spec:
             return False
 
         try:
@@ -99,7 +104,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
         except ValueError:
             return False
 
-        return self.ignore_spec.match_file(rel)
+        return ignore_spec.match_file(rel)
 
     def _is_supported_code_file(self, path: str | Path) -> bool:
         path_obj = Path(path)
@@ -150,7 +155,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
         info_logger(f"Syncing: {self.repo_path}")
 
         current_files = self._iter_supported_files()
-        current_paths = {str(p.resolve()) for p in current_files}
+        current_paths = {p.resolve().as_posix() for p in current_files}
         indexed = self.graph_builder.get_repo_file_paths(self.repo_path)
 
         self.imports_map = self.graph_builder.pre_scan_imports(current_files)
@@ -159,30 +164,53 @@ class RepositoryEventHandler(FileSystemEventHandler):
             self.graph_builder.delete_file_from_graph(stale)
 
         refreshed = []
+        refreshed_paths: list[str] = []
         for p in current_files:
             fd = self.graph_builder.update_file_in_graph(
                 p, self.repo_path, self.imports_map
             )
             if fd and "error" not in fd:
                 refreshed.append(fd)
+                refreshed_paths.append(p.resolve().as_posix())
 
-        self.graph_builder.delete_relationship_links(self.repo_path)
-        self.graph_builder.link_function_calls(refreshed, self.imports_map)
-        self.graph_builder.link_inheritance(refreshed, self.imports_map)
+        if refreshed_paths:
+            # Only clear edges originating from the files we touched — do not
+            # wipe the entire repo call graph like delete_relationship_links().
+            self.graph_builder.delete_outgoing_calls_from_files(refreshed_paths)
+            self.graph_builder.delete_inherits_for_files(refreshed_paths)
+            self.graph_builder.link_function_calls(refreshed, self.imports_map)
+            self.graph_builder.link_inheritance(refreshed, self.imports_map)
 
         info_logger("Sync complete")
 
     def _debounce(self, event_path, action):
-        if event_path in self.timers:
-            self.timers[event_path].cancel()
-        t = threading.Timer(self.debounce_interval, action)
-        t.start()
-        self.timers[event_path] = t
+        # Timers are keyed per path, so N files changed inside the debounce
+        # window fire N handler threads concurrently. Those handlers do
+        # read-modify-write on the shared imports_map and interleave
+        # delete/add/delete_outgoing_calls for overlapping caller sets, so one
+        # can delete edges another just created. A branch switch or `git pull`
+        # is the normal trigger. _handle_modification now takes _update_lock.
+        def _run():
+            # Drop the fired timer: entries were never removed, so self.timers
+            # grew without bound for the life of the watcher.
+            with self._timers_lock:
+                if self.timers.get(event_path) is timer:
+                    del self.timers[event_path]
+            action()
+
+        with self._timers_lock:
+            existing = self.timers.get(event_path)
+            if existing is not None:
+                existing.cancel()
+            timer = threading.Timer(self.debounce_interval, _run)
+            self.timers[event_path] = timer
+        timer.start()
 
     def cancel_timers(self):
-        for t in self.timers.values():
-            t.cancel()
-        self.timers.clear()
+        with self._timers_lock:
+            for t in self.timers.values():
+                t.cancel()
+            self.timers.clear()
 
     def _update_imports_map_for_file(self, changed_path: Path):
         """Re-scan a single file and merge its contributions into self.imports_map."""
@@ -204,6 +232,15 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
     def _handle_modification(self, event_path_str: str):
         """Incremental update: re-parse and re-link only the changed file and its neighbours."""
+        # Serialised: concurrent handlers previously did read-modify-write on
+        # the shared imports_map (lost updates) and interleaved
+        # delete_file_from_graph / add_file_to_graph /
+        # delete_outgoing_calls_from_files for overlapping caller sets, so one
+        # could delete edges another had just created.
+        with self._update_lock:
+            self._handle_modification_locked(event_path_str)
+
+    def _handle_modification_locked(self, event_path_str: str):
         info_logger(f"File change detected (incremental update): {event_path_str}")
         changed_path = Path(event_path_str)
         if self._should_ignore(changed_path):
@@ -213,8 +250,16 @@ class RepositoryEventHandler(FileSystemEventHandler):
         changed_path_str = changed_path.resolve().as_posix()
         supported_extensions = self.graph_builder.parsers.keys()
 
-        caller_paths = self.graph_builder.get_caller_file_paths(changed_path_str)
-        inheritor_paths = self.graph_builder.get_inheritance_neighbor_paths(changed_path_str)
+        caller_paths = {
+            p
+            for p in self.graph_builder.get_caller_file_paths(changed_path_str)
+            if p and not self._should_ignore(p)
+        }
+        inheritor_paths = {
+            p
+            for p in self.graph_builder.get_inheritance_neighbor_paths(changed_path_str)
+            if p and not self._should_ignore(p)
+        }
         affected_paths = {changed_path_str} | caller_paths | inheritor_paths
         info_logger(
             f"[INCREMENTAL] affected={len(affected_paths)} files "
@@ -225,7 +270,15 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
         self.graph_builder.update_file_in_graph(changed_path, self.repo_path, self.imports_map)
 
-        other_callers = list(caller_paths)
+        # Every file in affected_paths is re-parsed below and fed back into
+        # link_function_calls, so every one of them needs its outgoing CALLS
+        # cleared first. Clearing only caller_paths left the inheritance-only
+        # neighbours to have their edges re-created on top of the existing ones
+        # — and on Neo4j/Nornic the writer uses CREATE, not MERGE, so duplicate
+        # CALLS multiplied on every save. (FalkorDB and Kùzu use MERGE, which is
+        # why this never showed up there.) The changed file itself is excluded:
+        # update_file_in_graph above already deleted and rebuilt it.
+        other_callers = list(affected_paths - {changed_path_str})
         other_inheritors = list(inheritor_paths)
         if other_callers:
             self.graph_builder.delete_outgoing_calls_from_files(other_callers)
@@ -299,8 +352,26 @@ class RepositoryEventHandler(FileSystemEventHandler):
             self._debounce(event.src_path, lambda: self._handle_modification(event.src_path))
 
     def on_moved(self, event):
-        if not event.is_directory:
-            self._debounce(event.dest_path, lambda: self._handle_modification(event.dest_path))
+        if event.is_directory:
+            return
+        # Both endpoints matter. Only dest_path was handled, so the node for
+        # the *old* path and all of its symbols stayed in the graph forever:
+        # every rename duplicated every symbol in the file, and a normal
+        # refactoring session or a `git checkout` between branches accumulated
+        # them indefinitely until find_callers started returning dead paths.
+        src_path = getattr(event, "src_path", None)
+        if src_path:
+            self._debounce(src_path, lambda: self._handle_removal(src_path))
+        self._debounce(event.dest_path, lambda: self._handle_modification(event.dest_path))
+
+    def _handle_removal(self, path_str):
+        """Drop a path that no longer exists (the source side of a rename)."""
+        with self._update_lock:
+            try:
+                self.graph_builder.delete_file_from_graph(str(Path(path_str).resolve()))
+                info_logger(f"[WATCH] removed stale node for moved file: {path_str}")
+            except Exception as exc:  # noqa: BLE001 - a watcher must not die on one file
+                error_logger(f"[WATCH] failed to remove {path_str}: {exc}")
 
 
 class CodeWatcher:

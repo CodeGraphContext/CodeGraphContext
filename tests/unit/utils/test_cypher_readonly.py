@@ -27,3 +27,25 @@ def test_blocks_multi_statement_queries():
 
 def test_ignores_write_keywords_in_comments():
     assert is_read_only_cypher("// CREATE (n)\nMATCH (n) RETURN n")
+
+
+def test_blocks_write_apoc_procedures():
+    # Write-side APOC namespaces must be rejected, whether called or inline.
+    assert not is_read_only_cypher("CALL apoc.create.node(['L'], {}) YIELD node RETURN node")
+    assert not is_read_only_cypher("CALL apoc.merge.node(['L'], {id: 1}) YIELD node RETURN node")
+    assert not is_read_only_cypher("CALL apoc.refactor.mergeNodes([n]) YIELD node RETURN node")
+    assert not is_read_only_cypher(
+        "CALL apoc.periodic.iterate('MATCH (n) RETURN n', 'DELETE n', {}) YIELD batches RETURN batches"
+    )
+    # Inline (non-CALL) invocation of a write namespace is still rejected.
+    assert not is_read_only_cypher("RETURN apoc.create.uuid() AS id")
+
+
+def test_keyword_as_substring_not_false_positive():
+    # A variable/identifier that merely contains a write keyword as a substring
+    # (e.g. `created`, `deleted`, `Asset`) must NOT be rejected.
+    assert is_read_only_cypher("MATCH (n) WHERE n.created > 0 RETURN n.created AS created")
+    assert is_read_only_cypher("MATCH (n) RETURN n.deleted AS deleted")
+    assert is_read_only_cypher("MATCH (n:Asset) RETURN n")
+    # Read-only APOC helpers (path/coll/text) are still permitted inline.
+    assert is_read_only_cypher("RETURN apoc.coll.max([1, 2, 3]) AS m")

@@ -112,7 +112,7 @@ def list_bundles(verbose: bool = False, unique: bool = False):
         table.add_column("Download URL", style="blue", no_wrap=False)
     
     # Sort by full_name to group versions together
-    bundles.sort(key=lambda b: (b.get('name', ''), b.get('full_name', '')))
+    bundles.sort(key=lambda b: ((b.get('name') or ''), (b.get('full_name') or '')))
     
     for bundle in bundles:
         # Use full_name for display (includes version info)
@@ -163,10 +163,10 @@ def search_bundles(query: str):
     query_lower = query.lower()
     matching_bundles = [
         b for b in bundles
-        if query_lower in b.get('name', '').lower() or
-           query_lower in b.get('full_name', '').lower() or
-           query_lower in b.get('repo', '').lower() or
-           query_lower in b.get('description', '').lower()
+        if query_lower in (b.get('name') or '').lower() or
+           query_lower in (b.get('full_name') or '').lower() or
+           query_lower in (b.get('repo') or '').lower() or
+           query_lower in (b.get('description') or '').lower()
     ]
     
     if not matching_bundles:
@@ -289,9 +289,16 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
             if auto_load:
                 console.print("[cyan]Using existing bundle for loading...[/cyan]")
                 return str(output_path)
-            return
+            return False
         output_path.unlink()
-    
+
+    from ..utils.path_sandbox import is_safe_download_url
+
+    if not is_safe_download_url(download_url):
+        console.print("[bold red]Refusing to download from untrusted URL.[/bold red]")
+        console.print("[dim]Only HTTPS downloads from approved hosts are allowed.[/dim]")
+        raise typer.Exit(code=1)
+
     # Download with progress bar
     try:
         console.print(f"[cyan]Downloading {clean_filename}...[/cyan]")
@@ -400,7 +407,7 @@ def load_bundle_command(bundle_name: str, clear_existing: bool = False):
         if not all(services):
             return (False, "Failed to initialize database services", {})
         
-        db_manager, _, _ = services
+        db_manager, _, _, _ = services
         
         # Check if bundle exists locally
         bundle_path = Path(bundle_name)
@@ -435,8 +442,8 @@ def load_bundle_command(bundle_name: str, clear_existing: bool = False):
                             stats["nodes"] = int(part.split(":")[1].strip().replace(",", ""))
                         elif "Edges:" in part:
                             stats["edges"] = int(part.split(":")[1].strip().replace(",", ""))
-                except:
-                    pass
+                except Exception as parse_exc:
+                    console.print(f"[dim]Could not parse bundle stats from message: {parse_exc}[/dim]")
             
             return (True, message, stats)
         else:

@@ -8,12 +8,62 @@ Also manages the context system (config.yaml) alongside the existing .env file.
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from rich.console import Console
-from rich.table import Table
+try:
+    from rich.console import Console
+    from rich.table import Table
+    console = Console()
+except Exception:
+    # Lightweight fallback when 'rich' is not installed (tests or minimal envs)
+    class _TableFallback:
+        def __init__(self, show_header=True, header_style=None):
+            self._cols = []
+            self._rows = []
+
+        def add_column(self, name, **_kwargs):
+            self._cols.append(name)
+
+        def add_row(self, *cells):
+            self._rows.append([str(c) for c in cells])
+
+        def __str__(self) -> str:
+            # Simple text table rendering
+            out = []
+            if self._cols:
+                out.append(" | ".join(self._cols))
+                out.append("-" * max(10, len(out[0])))
+            for r in self._rows:
+                out.append(" | ".join(r))
+            return "\n".join(out)
+
+    class _ConsoleFallback:
+        def print(self, *args, **kwargs):
+            # Mimic rich.console.Console.print by delegating to built-in print
+            end = kwargs.get("end", "\n")
+            sep = kwargs.get("sep", " ")
+            for a in args:
+                if isinstance(a, _TableFallback):
+                    built = str(a)
+                    print(built, end=end)
+                else:
+                    print(a, end=end)
+
+    Table = _TableFallback
+    console = _ConsoleFallback()
 import os
 import yaml
 
-console = Console()
+
+def _atomic_write_text(path: Path, content: str, *, secure: bool = False) -> None:
+    """Write *content* to *path* atomically (temp file + replace)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, path)
+    if secure:
+        os.chmod(path, 0o600)
 
 # Configuration file location
 CONFIG_DIR = Path.home() / ".codegraphcontext"
@@ -37,6 +87,8 @@ DEFAULT_CONFIG = {
     "DEFAULT_DATABASE": "falkordb",
     "FALKORDB_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb"),
     "FALKORDB_SOCKET_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb.sock"),
+    # Empty selects a deterministic port derived from each embedded DB socket.
+    "FALKORDB_PORT": "",
     "LADYBUGDB_PATH": str(CONFIG_DIR / "global" / "db" / "ladybugdb"),
     "KUZUDB_PATH": str(CONFIG_DIR / "global" / "db" / "kuzudb"),
     "INDEX_VARIABLES": "true",
@@ -59,9 +111,14 @@ DEFAULT_CONFIG = {
     # SCIP indexer feature flag (default off — existing Tree-sitter behaviour unchanged)
     "SCIP_INDEXER": "false",
     "SCIP_LANGUAGES": "python,typescript,javascript,go,rust,java,dart,cpp,c,csharp",
+    "SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS": "300",
     "SKIP_EXTERNAL_RESOLUTION": "false",
     # 0 = unlimited; any positive integer caps MCP tool response size.
     "MAX_TOOL_RESPONSE_TOKENS": "0",
+    # 0 = unlimited; any positive integer caps response size in raw characters.
+    # When both MAX_TOOL_RESPONSE_TOKENS and MAX_PROMPT_CHARS are set, the
+    # stricter (smaller) effective character budget wins.
+    "MAX_PROMPT_CHARS": "0",
     # JSON object mapping tool names to integer result-count limits.
     # Example: {"find_code": 20, "analyze_code_relationships": 10, "find_dead_code": 30}
     "TOOL_RESULT_LIMITS": "{}",
@@ -72,6 +129,14 @@ DEFAULT_CONFIG = {
     "CGC_EMBEDDING_BATCH_SIZE": "256",
     # Default fuzzy matching behavior for `cgc find name` (overridable per-command with --fuzzy/--no-fuzzy)
     "FUZZY_SEARCH": "true",
+    # Default LLM model names used for graph queries when no value is explicitly configured
+    "OPENAI_MODEL": "gpt-4o",
+    "ANTHROPIC_MODEL": "claude-3-5-sonnet-20241022",
+    # Optional API key for the HTTP API gateway. Empty = auth disabled
+    # (backward compatible). When set, HTTP endpoints require the key via
+    # `Authorization: Bearer <key>` or `X-API-Key`. May also be set via the
+    # CGC_API_KEY environment variable (which takes priority).
+    "CGC_API_KEY": "",
 }
 
 # Configuration key descriptions
@@ -79,6 +144,7 @@ CONFIG_DESCRIPTIONS = {
     "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|falkordb-remote|kuzudb|nornic|ladybugdb)",
     "FALKORDB_PATH": "Path to FalkorDB database file",
     "FALKORDB_SOCKET_PATH": "Path to FalkorDB Unix socket",
+    "FALKORDB_PORT": "Optional FalkorDB port override (empty = per-database port)",
     "LADYBUGDB_PATH": "Path to LadybugDB database directory",
     "KUZUDB_PATH": "Path to KuzuDB database directory",
     "INDEX_VARIABLES": "Index variable nodes in the graph (lighter graph if false)",
@@ -100,8 +166,10 @@ CONFIG_DESCRIPTIONS = {
     "INDEX_SOURCE": "Store full source code in graph database (for faster indexing use false, for better performance use true)",
     "SCIP_INDEXER": "Use SCIP-based indexing for higher accuracy call/inheritance resolution (requires scip-<lang> tools installed)",
     "SCIP_LANGUAGES": "Comma-separated languages to index via SCIP when SCIP_INDEXER=true (python,typescript,javascript,go,rust,java,dart,cpp,c,csharp)",
+    "SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS": "Timeout in seconds for the local SCIP indexer subprocess (default 300). Raise it for large repositories whose indexer runs longer than 5 minutes; a value <= 0 or non-numeric falls back to 300.",
     "SKIP_EXTERNAL_RESOLUTION": "Skip resolution attempts for external library method calls (recommended for enterprise large Java/Spring codebases)",
     "MAX_TOOL_RESPONSE_TOKENS": "Maximum tokens per MCP tool response (0 = unlimited). Truncates oversized payloads and appends a notice.",
+    "MAX_PROMPT_CHARS": "Maximum characters per MCP tool response (0 = unlimited). When set alongside MAX_TOOL_RESPONSE_TOKENS the stricter limit wins. Truncated payloads receive a visible [CGC] notice and a stdout warning is emitted.",
     "TOOL_RESULT_LIMITS": "JSON object mapping tool names to max result counts, e.g. {\"find_code\": 20, \"analyze_code_relationships\": 10}. Missing keys use built-in defaults.",
     # Post-indexing resolution phases
     "ENABLE_INHERIT_RESOLVE": (
@@ -137,6 +205,22 @@ CONFIG_DESCRIPTIONS = {
     "FUZZY_SEARCH": (
         "Enable fuzzy matching by default for `cgc find name` (true|false). "
         "Per-invocation overrides are available via --fuzzy / --no-fuzzy."
+    ),
+    "OPENAI_MODEL": (
+        "Default OpenAI model used for graph queries. "
+        "Requires OPENAI_API_KEY environment variable. "
+        "Default: gpt-4o"
+    ),
+    "ANTHROPIC_MODEL": (
+        "Default Anthropic model used for graph queries. "
+        "Requires ANTHROPIC_API_KEY environment variable. "
+        "Default: claude-3-5-sonnet-20241022"
+    ),
+    "CGC_API_KEY": (
+        "Optional API key protecting the HTTP API gateway. Empty = "
+        "unauthenticated (backward compatible). When set, HTTP endpoints "
+        "require it via `Authorization: Bearer <key>` or the `X-API-Key` "
+        "header. The CGC_API_KEY environment variable overrides this value."
     ),
 }
 
@@ -197,6 +281,25 @@ coverage/
 """
 
 
+def resolve_model_name(provider: str, configured_value: Optional[str] = None) -> str:
+    """Get the model it should use for an LLM provider.
+
+    If the user configured a model, it uses that. Otherwise, it falls back to the default
+    model for the provider (like OPENAI_MODEL or ANTHROPIC_MODEL).
+
+    Args:
+        provider: The name of the provider, like "openai" or "anthropic" (case-insensitive).
+        configured_value: The model name from the user's config, if they set one.
+
+    Returns:
+        The model name it should use, or an empty string if it doesn't know the provider.
+    """
+    if configured_value and configured_value.strip():
+        return configured_value.strip()
+    key = f"{provider.upper()}_MODEL"
+    return DEFAULT_CONFIG.get(key, "")
+
+
 def normalize_config_path(value: str, *, absolute: bool = False, base_dir: Optional[Path] = None) -> str:
     """Normalize config path values.
 
@@ -238,9 +341,12 @@ def load_config() -> Dict[str, str]:
     """
     Load configuration with priority support.
     Priority order (highest to lowest):
-    1. Environment variables
-    2. Local .env file (in current or parent directories)
+    1. Environment variables (always highest priority)
+    2. Local .env file (ONLY in per-repo mode or when CGC_LOAD_PROJECT_ENV=1)
     3. Global ~/.codegraphcontext/.env
+    
+    BUG FIX: In global/named context mode, local repo .env files are now properly ignored
+    to prevent silent database redirection when working inside cloned repositories.
     
     Note: Does NOT create config directory - caller must call ensure_config_dir() first if needed.
     """
@@ -259,7 +365,8 @@ def load_config() -> Dict[str, str]:
         except Exception as e:
             console.print(f"[red]Error loading global config: {e}[/red]")
     
-    # Load local .env file if it exists (overrides global)
+    # Load local .env file ONLY if should_apply_project_dotenv() returns True
+    # This respects context mode (per-repo vs global/named) and environment overrides
     local_env = find_local_env()
     if local_env and local_env.exists():
         try:
@@ -269,14 +376,29 @@ def load_config() -> Dict[str, str]:
                     if line and not line.startswith("#") and "=" in line:
                         key, value = line.split("=", 1)
                         key = key.strip()
-                        # Only override if it's a config key (not database credentials in local file)
+                        value = value.strip()
+                        
+                        # In per-repo mode: allow all config keys to be overridden
+                        # In global/named mode: local .env should not be loaded at all (find_local_env returns None)
+                        # But if it somehow gets through, only allow non-DB-path keys for safety
+                        if key in DB_PATH_ENV_KEYS:
+                            # CRITICAL: Never let local .env override DB paths in global mode
+                            # This prevents silent database redirection
+                            continue
+                        
                         if key in DEFAULT_CONFIG or key in DATABASE_CREDENTIAL_KEYS:
-                            config[key] = value.strip()
+                            config[key] = value
         except Exception as e:
             console.print(f"[yellow]Warning: Error loading local .env: {e}[/yellow]")
     
-    # Environment variables have highest priority
+    # Environment variables have highest priority - always override everything
     for key in DEFAULT_CONFIG.keys():
+        env_value = os.getenv(key)
+        if env_value is not None:
+            config[key] = env_value
+    
+    # Also check for database credential environment variables
+    for key in DATABASE_CREDENTIAL_KEYS:
         env_value = os.getenv(key)
         if env_value is not None:
             config[key] = env_value
@@ -385,30 +507,27 @@ def save_config(config: Dict[str, str], preserve_db_credentials: bool = True):
                 credentials_to_write[key] = config[key]
     
     try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            f.write("# CodeGraphContext Configuration\n")
-            f.write(f"# Location: {CONFIG_FILE}\n\n")
-            
-            # Write database credentials first if they exist
-            if credentials_to_write:
-                f.write("# ===== Database Credentials =====\n")
-                for key in sorted(DATABASE_CREDENTIAL_KEYS):
-                    if key in credentials_to_write:
-                        f.write(f"{key}={credentials_to_write[key]}\n")
-                f.write("\n")
-            
-            # Write configuration settings
-            f.write("# ===== Configuration Settings =====\n")
-            for key, value in sorted(config.items()):
-                # Skip database credentials (already written above)
-                if key in DATABASE_CREDENTIAL_KEYS:
-                    continue
-                    
-                description = CONFIG_DESCRIPTIONS.get(key, "")
-                if description:
-                    f.write(f"# {description}\n")
-                f.write(f"{key}={value}\n\n")
-        
+        lines = [
+            "# CodeGraphContext Configuration",
+            f"# Location: {CONFIG_FILE}",
+            "",
+        ]
+        if credentials_to_write:
+            lines.append("# ===== Database Credentials =====")
+            for key in sorted(DATABASE_CREDENTIAL_KEYS):
+                if key in credentials_to_write:
+                    lines.append(f"{key}={credentials_to_write[key]}")
+            lines.append("")
+        lines.append("# ===== Configuration Settings =====")
+        for key, value in sorted(config.items()):
+            if key in DATABASE_CREDENTIAL_KEYS:
+                continue
+            description = CONFIG_DESCRIPTIONS.get(key, "")
+            if description:
+                lines.append(f"# {description}")
+            lines.append(f"{key}={value}")
+            lines.append("")
+        _atomic_write_text(CONFIG_FILE, "\n".join(lines), secure=True)
         console.print(f"[green]✅ Configuration saved to {CONFIG_FILE}[/green]")
     except Exception as e:
         console.print(f"[red]Error saving config: {e}[/red]")
@@ -469,6 +588,14 @@ def validate_config_value(key: str, value: str) -> tuple[bool, Optional[str]]:
                 return False, "MAX_TOOL_RESPONSE_TOKENS must be 0 (unlimited) or a positive integer"
         except ValueError:
             return False, "MAX_TOOL_RESPONSE_TOKENS must be an integer (0 = unlimited)"
+
+    if key == "MAX_PROMPT_CHARS":
+        try:
+            limit = int(value)
+            if limit < 0:
+                return False, "MAX_PROMPT_CHARS must be 0 (unlimited) or a positive integer"
+        except ValueError:
+            return False, "MAX_PROMPT_CHARS must be an integer (0 = unlimited)"
 
     if key == "TOOL_RESULT_LIMITS":
         import json as _json
@@ -661,13 +788,17 @@ def show_config():
     for key in sorted(config_settings.keys()):
         value = config_settings[key]
         description = CONFIG_DESCRIPTIONS.get(key, "")
-        
+
+        # Never print secret-like values (e.g. the HTTP API key) in plaintext.
+        if "API_KEY" in key.upper() and value:
+            value = "********"
+
         # Highlight non-default values
         if value != DEFAULT_CONFIG.get(key):
             value_style = "[bold yellow]" + value + "[/bold yellow]"
         else:
             value_style = value
-        
+
         table.add_row(key, value_style, description)
     
     console.print(table)
@@ -717,10 +848,17 @@ def _default_global_db_path(database: str) -> str:
 
     New layout: ``~/.codegraphcontext/global/db/<backend>/``
     For backward-compat, we check:
-    1. FALKORDB_PATH in config (if database is falkordb)
-    2. Legacy flat path
-    3. New layout default
+    1. CGC_RUNTIME_DB_PATH environment variable (highest priority — works for all DBs)
+    2. FALKORDB_PATH in config (if database is falkordb)
+    3. Legacy flat path
+    4. New layout default
     """
+    # Generic env var override — highest priority for any backend.
+    # Useful for relocating the global DB to a path that avoids platform-specific
+    # encoding issues (e.g. non-ASCII characters in the Windows user profile path).
+    env_override = os.environ.get("CGC_RUNTIME_DB_PATH")
+    if env_override:
+        return env_override
     if database == "falkordb":
         custom_path = load_config().get("FALKORDB_PATH")
         if custom_path:
@@ -796,16 +934,26 @@ def save_context_config(cfg: ContextConfig) -> None:
             "cgcignore_path": ctx.cgcignore_path,
         }
 
-    raw = {
-        "version": cfg.version,
-        "mode": cfg.mode,
-        "default_context": cfg.default_context,
-        "contexts": contexts_raw,
-    }
+    # Read-merge the existing file first so that unrelated top-level sections
+    # (e.g. ``workspace_mappings``) are preserved instead of being wiped out.
+    raw: Dict[str, Any] = {}
+    if CONTEXT_CONFIG_FILE.exists():
+        try:
+            with open(CONTEXT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+        except Exception:
+            raw = {}
+
+    raw["version"] = cfg.version
+    raw["mode"] = cfg.mode
+    raw["default_context"] = cfg.default_context
+    raw["contexts"] = contexts_raw
 
     try:
-        with open(CONTEXT_CONFIG_FILE, "w", encoding="utf-8") as f:
-            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+        _atomic_write_text(
+            CONTEXT_CONFIG_FILE,
+            yaml.dump(raw, default_flow_style=False, sort_keys=False),
+        )
     except Exception as e:
         console.print(f"[red]Error saving config.yaml: {e}[/red]")
 
@@ -910,7 +1058,11 @@ def resolve_context(
     if local_cgc is not None:
         # Read local config.yaml if present
         local_yaml = local_cgc / "config.yaml"
-        local_db = load_config().get("DEFAULT_DATABASE", "falkordb")
+        local_db = (
+            os.environ.get("CGC_RUNTIME_DB_TYPE")
+            or os.environ.get("DEFAULT_DATABASE")
+            or load_config().get("DEFAULT_DATABASE", "falkordb")
+        )
         if local_yaml.exists():
             try:
                 with open(local_yaml, encoding="utf-8") as f:
@@ -1177,8 +1329,10 @@ def _save_workspace_mappings(mappings: Dict[str, Dict[str, str]]) -> None:
             raw = {}
     raw["workspace_mappings"] = mappings
     try:
-        with open(CONTEXT_CONFIG_FILE, "w", encoding="utf-8") as f:
-            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+        _atomic_write_text(
+            CONTEXT_CONFIG_FILE,
+            yaml.dump(raw, default_flow_style=False, sort_keys=False),
+        )
     except Exception as e:
         console.print(f"[red]Error saving workspace mappings: {e}[/red]")
 

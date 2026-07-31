@@ -17,7 +17,7 @@ class CSSTreeSitterParser:
 
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict[str, Any]:
         """Parses a CSS file and returns its structure."""
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
             source_code = f.read()
 
         tree = self.parser.parse(bytes(source_code, "utf8"))
@@ -32,6 +32,7 @@ class CSSTreeSitterParser:
             (id_selector (id_name) @id_name)
             (tag_name) @tag_name
             (import_statement (string_value) @import_path)
+            (declaration (property_name) @var_name (#match? @var_name "^--"))
         """
 
         for node, capture_name in execute_query(self.language, query_str, root_node):
@@ -60,14 +61,22 @@ class CSSTreeSitterParser:
                     "line_number": node.start_point[0] + 1
                 })
             elif capture_name == 'var_name':
+                # CSS custom property (--foo: bar). The value is everything in
+                # the parent declaration after the ":" (excluding the ";").
+                declaration = node.parent
+                value_parts = []
+                seen_colon = False
+                for child in declaration.children:
+                    if child.type == ':':
+                        seen_colon = True
+                        continue
+                    if seen_colon and child.type != ';':
+                        value_parts.append(self._get_node_text(child))
                 variables.append({
                     "name": self._get_node_text(node),
-                    "value": None, # Value captured separately
+                    "value": " ".join(value_parts) if value_parts else None,
                     "line_number": node.start_point[0] + 1
                 })
-            elif capture_name == 'var_value':
-                if variables:
-                    variables[-1]["value"] = self._get_node_text(node)
 
         return {
             "path": str(path),
