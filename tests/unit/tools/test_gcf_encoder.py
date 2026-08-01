@@ -84,3 +84,20 @@ class TestEncodeResponse:
         result = {"success": True, "data": "test"}
         encoded = encode_response(result)
         assert json.loads(encoded) == result
+
+    def test_falls_back_to_json_when_gcf_encoding_fails(self, monkeypatch, caplog):
+        monkeypatch.setenv("CGC_OUTPUT_FORMAT", "gcf")
+        import codegraphcontext.utils.gcf_encoder as mod
+
+        def failing_encoder(_result):
+            raise ValueError("unsupported result shape")
+
+        mod._gcf_checked = True
+        mod._gcf_encode = failing_encoder
+        result = {"success": True, "data": "test"}
+
+        with caplog.at_level("DEBUG", logger="codegraphcontext.utils.gcf_encoder"):
+            encoded = encode_response(result)
+
+        assert json.loads(encoded) == result
+        assert "GCF encoding failed; falling back to JSON" in caplog.text
