@@ -12,8 +12,9 @@ import Explore from "./pages/Explore";
 import Privacy from "./pages/Privacy";
 import PRReviewerPage from "./pages/PRReviewerPage";
 import ScrollButtons from "@/components/ScrollButtons";
-import Navbar from "./components/Navbar";
+import TelemetryDashboard from "./pages/TelemetryDashboard";
 import MoveToTop from "./components/MoveToTop";
+import Navbar from "./components/Navbar";
 // Removed AOS for instant loading
 
 const queryClient = new QueryClient();
@@ -41,6 +42,7 @@ const App: React.FC = () => {
               <Route path="/explore" element={<Explore />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/pr-reviewer" element={<PRReviewerPage />} />
+              <Route path="/telemetry" element={<TelemetryDashboard />} />
               <Route path="/pr-reviewer/:owner/:repo/pull/:prNumber" element={<PRReviewerPage />} />
               <Route path="/github/:owner/:repo" element={<Explore />} />
               <Route path="/gitlab/*" element={<Explore />} />
