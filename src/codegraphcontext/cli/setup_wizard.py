@@ -184,6 +184,11 @@ def find_jetbrains_mcp_config():
                     configs.append(mcp_file)
                     print(mcp_file)
                     return configs
+    # Always return a list: callers store this directly in the config_paths
+    # mapping and iterate it, so returning None (no JetBrains install, or no
+    # mcpServer.xml yet) raised a TypeError instead of falling through to the
+    # "configure manually" path.
+    return configs
 
 
 def convert_mcp_json_to_yaml():

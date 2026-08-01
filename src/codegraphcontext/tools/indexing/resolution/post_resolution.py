@@ -192,12 +192,21 @@ def run_inheritance_reresolve(
     backend = get_backend_type(driver)
 
     def _make_write_query(caller_has_line: bool, called_has_line: bool) -> str:
+        # Every literal Cypher map here needs doubled braces — this is an
+        # f-string, so a single `{name: ...}` is parsed as a replacement field
+        # and raised NameError before the query ever reached the driver, which
+        # the caller logged as "Post-resolution failed (skipping)".
+        #
+        # The line predicates are baked in per bucket rather than tested at
+        # runtime against a possibly-null row value, which is what the
+        # caller_has_line / called_has_line bucketing exists to enable.
+        caller_line = ", line_number: row.caller_line" if caller_has_line else ""
+        called_line = ", line_number: row.new_called_line" if called_has_line else ""
         return f"""
                 UNWIND $batch AS row
-                MATCH (caller {name: row.caller_name, path: row.caller_path})
-                WHERE row.caller_line IS NULL OR caller.line_number = row.caller_line
-                MATCH (new_called:Function {name: row.called_name, path: row.new_called_path})
-                OPTIONAL MATCH (caller)-[old_edge:CALLS|HEURISTIC_CALLS]->(old_called {name: row.called_name})
+                MATCH (caller {{name: row.caller_name, path: row.caller_path{caller_line}}})
+                MATCH (new_called:Function {{name: row.called_name, path: row.new_called_path{called_line}}})
+                OPTIONAL MATCH (caller)-[old_edge:CALLS|HEURISTIC_CALLS]->(old_called {{name: row.called_name}})
                   WHERE old_edge.resolution_tier IN [8, 9]
                 DELETE old_edge
                 WITH caller, new_called, row
