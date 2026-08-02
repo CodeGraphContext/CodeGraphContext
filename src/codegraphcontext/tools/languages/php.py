@@ -31,8 +31,16 @@ PHP_QUERIES = {
             name: (name) @name
         ) @trait
     """,
+    # A top-level `use App\Models\User;` is a `namespace_use_declaration`.
+    # `use_declaration` is the *trait* use inside a class body (relied on at
+    # ~line 309), so capturing it here dropped every real import and labelled
+    # trait uses as imports instead.
+    #
+    # Capture the clause rather than the declaration: it is the level that
+    # exists once per imported symbol, so the braced group form
+    # `use Foo\{A, B as C};` yields one row per symbol for free.
     "imports": """
-        (use_declaration) @import
+        (namespace_use_clause) @import
     """,
     "calls": """
         (function_call_expression
@@ -394,40 +402,82 @@ class PhpTreeSitterParser:
         for node, capture_name in captures:
             if capture_name == "import":
                 try:
-                    import_text = self._get_node_text(node)
-                    # use Foo\Bar as Baz;
-                    # Node usually has children: name (qualified_name), optional alias
-                    
-                    name_node = None
-                    alias_node = None
-                    
+                    # `namespace_use_clause` shapes, in tree-sitter-php:
+                    #   App\Models\User          -> qualified_name
+                    #   App\Models\Post as Blog  -> qualified_name, name(alias)
+                    #   A                        -> name                 (group member)
+                    #   B as C                   -> name, name(alias)    (group member)
+                    #   function Bar\helper      -> qualified_name, with a
+                    #                               leading `function`/`const` token
+                    #
+                    # The alias, when present, is always the final `name` child.
+                    path_node = None
+                    alias = None
+                    name_children = []
+
                     for child in node.children:
-                        if child.type == "qualified_name" or child.type == "name":
-                            name_node = child
-                        # Alias in PHP: use X as Y; The 'as' is usually implicit structure or explicit?
-                        # Tree sitter grammar: use_declaration -> use_clause -> (use_as_clause (qualified_name) (name))
-                    
-                    # Assuming simple handling for now, extracting string from text
-                    # Regex might be safer given tree complexity for `use`
-                    import_match = re.search(r'use\s+([\w\\]+)(?:\s+as\s+(\w+))?', import_text)
-                    if import_match:
-                        import_path = import_match.group(1).strip()
-                        alias = import_match.group(2).strip() if import_match.group(2) else None
-                        
-                        import_data = {
-                            "name": import_path,
-                            "full_import_name": import_text,
-                            "line_number": node.start_point[0] + 1,
-                            "alias": alias,
-                            "context": (None, None),
-                            "lang": self.language_name,
-                            "is_dependency": False,
-                        }
-                        imports.append(import_data)
+                        if child.type == "qualified_name":
+                            path_node = child
+                        elif child.type == "name":
+                            name_children.append(child)
+
+                    if path_node is not None:
+                        # qualified_name carries the path; a trailing bare name
+                        # is therefore the alias.
+                        import_path = self._get_node_text(path_node)
+                        if name_children:
+                            alias = self._get_node_text(name_children[-1])
+                    elif name_children:
+                        # Group member: first name is the symbol, second (if
+                        # any) is its alias.
+                        import_path = self._get_node_text(name_children[0])
+                        if len(name_children) > 1:
+                            alias = self._get_node_text(name_children[-1])
+                    else:
+                        continue
+
+                    # A braced group prefixes its members: `use Foo\{A, B};`
+                    # means Foo\A and Foo\B. Walk up to recover the prefix so
+                    # the recorded path is the real fully-qualified name.
+                    group = node.parent
+                    if group is not None and group.type == "namespace_use_group":
+                        decl = group.parent
+                        if decl is not None:
+                            # The prefix is a `namespace_name` sibling of the
+                            # group (`use Foo\Bar\{A, B};` -> "Foo\Bar").
+                            prefix_parts = [
+                                self._get_node_text(c)
+                                for c in decl.children
+                                if c.type in ("namespace_name", "qualified_name", "name")
+                            ]
+                            if prefix_parts:
+                                import_path = (
+                                    prefix_parts[0].rstrip("\\") + "\\" + import_path
+                                )
+
+                    import_path = import_path.strip()
+                    if not import_path:
+                        continue
+
+                    import_data = {
+                        # `name` is the symbol as referenced in code — the last
+                        # segment, or the alias when one is given.
+                        "name": alias or import_path.split("\\")[-1],
+                        "full_import_name": import_path,
+                        "line_number": node.start_point[0] + 1,
+                        "alias": alias,
+                        "context": (None, None),
+                        "lang": self.language_name,
+                        "is_dependency": False,
+                    }
+                    imports.append(import_data)
                 except Exception as e:
                     error_logger(f"Error parsing import: {e}")
                     continue
 
+        # Query captures arrive in match order, not source order; sort so the
+        # emitted rows are deterministic across runs.
+        imports.sort(key=lambda i: (i["line_number"], i["full_import_name"]))
         return imports
 
     def _parse_calls(self, captures: list, source_code: str, var_type_map: dict) -> list[dict]:
