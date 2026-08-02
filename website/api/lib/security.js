@@ -8,7 +8,7 @@ const DEFAULT_REPO_COOLDOWN_MS = 5 * 60 * 1000;
 const DEFAULT_ACTIVE_JOB_TTL_MS = 45 * 60 * 1000;
 
 function parsePositiveInt(rawValue, fallback) {
-  const parsedValue = Number.parseInt(String(rawValue ?? ""), 10);
+  const parsedValue = Number.parseInt(String(rawValue ?? "", 10), 10);
   return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : fallback;
 }
 
