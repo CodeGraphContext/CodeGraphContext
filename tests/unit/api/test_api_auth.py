@@ -100,6 +100,41 @@ def test_root_stays_open_when_key_configured(client_factory):
     assert response.status_code == 200
 
 
+# --- MCP-over-SSE transport is behind the same key --------------------------
+
+# These routes dispatch to the same tools as the REST router (execute_cypher_query,
+# add_code_to_graph, delete_repository), so leaving them off the authenticated
+# router made CGC_API_KEY trivially bypassable.
+
+def test_mcp_messages_requires_key(client_factory):
+    client = client_factory(API_KEY)
+    response = client.post("/api/v1/mcp/messages", json={"jsonrpc": "2.0", "id": 1})
+    assert response.status_code == 401
+
+
+def test_mcp_sse_requires_key(client_factory):
+    client = client_factory(API_KEY)
+    response = client.get("/api/v1/mcp/sse")
+    assert response.status_code == 401
+
+
+def test_mcp_messages_rejects_wrong_key(client_factory):
+    client = client_factory(API_KEY)
+    response = client.post(
+        "/api/v1/mcp/messages",
+        json={"jsonrpc": "2.0", "id": 1},
+        headers={"X-API-Key": "nope"},
+    )
+    assert response.status_code == 401
+
+
+def test_mcp_messages_open_when_no_key_configured(client_factory):
+    # Backward compatible: without a configured key the transport stays open.
+    client = client_factory(None)
+    response = client.post("/api/v1/mcp/messages", json={"jsonrpc": "2.0", "id": 1})
+    assert response.status_code != 401
+
+
 # --- No key configured: backward compatible + warning -----------------------
 
 def test_no_key_endpoint_works_without_header(client_factory):

@@ -653,6 +653,11 @@ Suggest 2-3 specific follow-up questions or related areas the user might want to
             "links": edges
         }
         
+    except HTTPException:
+        # Preserve intentional HTTP errors (e.g. the 400 raised above when the
+        # generated Cypher is not read-only); re-wrapping them as 500 made a
+        # safety rejection look like a server failure to the frontend.
+        raise
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

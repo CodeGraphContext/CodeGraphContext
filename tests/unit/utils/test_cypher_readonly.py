@@ -29,6 +29,24 @@ def test_ignores_write_keywords_in_comments():
     assert is_read_only_cypher("// CREATE (n)\nMATCH (n) RETURN n")
 
 
+def test_quote_inside_comment_does_not_hide_write_keywords():
+    # A quote inside a comment must not open a string literal. Stripping
+    # literals before comments let that stray quote pair with a later real
+    # quote, deleting the write clause between them and passing the query.
+    assert not is_read_only_cypher(
+        "MATCH (n) // comment with '\nDELETE n WHERE n.x = 'y' RETURN n"
+    )
+    assert not is_read_only_cypher(
+        'MATCH (n) /* note: " */ DETACH DELETE n WHERE n.name = "x" RETURN n'
+    )
+
+
+def test_backtick_quoted_identifiers_are_not_write_keywords():
+    # Cypher escapes keyword-colliding labels/rel-types with backticks.
+    assert is_read_only_cypher("MATCH (n)-[r:`DELETE`]->(m) RETURN r")
+    assert is_read_only_cypher("MATCH (n) RETURN n.`create` AS c")
+
+
 def test_blocks_write_apoc_procedures():
     # Write-side APOC namespaces must be rejected, whether called or inline.
     assert not is_read_only_cypher("CALL apoc.create.node(['L'], {}) YIELD node RETURN node")

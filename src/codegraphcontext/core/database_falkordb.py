@@ -129,7 +129,11 @@ class FalkorDBManager:
                 FalkorDBManager._failed_configurations.discard(previous_configuration)
             self.shutdown()
             self._driver = None
-            self._graph = None
+            # `_graphs` (plural) is the per-graph cache; clearing the singular
+            # `_graph` left every cached wrapper bound to the worker that
+            # shutdown() just killed, so a later get_driver(graph_name=...) for
+            # any non-default graph returned a dead client.
+            self._graphs = {}
 
         self._initialized = False
         self.db_path = new_db_path

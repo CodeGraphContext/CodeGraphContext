@@ -352,8 +352,15 @@ def build_decorated_by_links(
             for item in file_data.get(key, [])
             if item.get("name")
         }
+        # Parsed imports carry `name` / `full_import_name`; there is no `source`
+        # key, so this mapped every imported symbol to None and made
+        # _resolve_decorator_path bail out to the caller's own file before it
+        # could consult imports_map. Mirrors the working construction in
+        # build_inheritance_links above.
         local_imports = {
-            imp.get("alias") or imp.get("name"): imp.get("source")
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: (
+                imp.get("full_import_name") or imp.get("name")
+            )
             for imp in file_data.get("imports", [])
             if imp.get("name") or imp.get("alias")
         }
@@ -408,8 +415,15 @@ def build_metaclass_links(
             continue
         caller_file_path = str(Path(file_data["path"]).resolve().as_posix())
         local_class_names = {c["name"] for c in file_data.get("classes", [])}
+        # Parsed imports carry `name` / `full_import_name`; there is no `source`
+        # key, so this mapped every imported symbol to None and made
+        # _resolve_decorator_path bail out to the caller's own file before it
+        # could consult imports_map. Mirrors the working construction in
+        # build_inheritance_links above.
         local_imports = {
-            imp.get("alias") or imp.get("name"): imp.get("source")
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: (
+                imp.get("full_import_name") or imp.get("name")
+            )
             for imp in file_data.get("imports", [])
             if imp.get("name") or imp.get("alias")
         }

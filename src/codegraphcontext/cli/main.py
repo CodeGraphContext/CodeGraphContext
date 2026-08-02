@@ -3086,7 +3086,10 @@ def visualize_abbrev(
 ):
     """Shortcut for 'cgc visualize'"""
     _load_credentials()
-    visualize_helper(repo, port, context=context)
+    # `port` must be passed by keyword: visualize_helper's second positional
+    # parameter is `host`, so the int landed there and the server tried to bind
+    # to host=8000 while ignoring --port entirely.
+    visualize_helper(repo, port=port, context=context)
 
 @app.command("w", rich_help_panel="Shortcuts")
 def watch_abbrev(

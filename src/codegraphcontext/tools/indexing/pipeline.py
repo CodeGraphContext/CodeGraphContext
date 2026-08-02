@@ -194,9 +194,13 @@ async def run_tree_sitter_index_async(
                     is_dependency,
                 )
         except Exception as exc:  # noqa: BLE001 - keep indexing the other files
-            path = file_data.get("path")
-            write_failures.append({"path": path, "error": str(exc)})
-            error_logger(f"Failed to write {path} to the graph: {exc}")
+            # Must not be named `path`: that is the function's repo-root Path
+            # parameter, still needed further down (`path.is_dir()`). Rebinding
+            # it to this file's path string turned a single recoverable write
+            # failure into an AttributeError that aborted the whole job.
+            failed_path = file_data.get("path")
+            write_failures.append({"path": failed_path, "error": str(exc)})
+            error_logger(f"Failed to write {failed_path} to the graph: {exc}")
             file_data["error"] = str(exc)
             file_data["parse_failed"] = True
 
