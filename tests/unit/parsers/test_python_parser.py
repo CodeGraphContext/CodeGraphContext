@@ -220,3 +220,49 @@ class Greeter:
         # Depending on implementation, methods might be in 'functions' with parent info
         # or inside 'classes'.
         # Let's assume they are captured.
+
+    def test_annotated_parameters_without_defaults_are_extracted(self, parser, temp_test_dir):
+        """Annotated params with no default must not be dropped.
+
+        `typed_parameter` has no `name` field in tree-sitter-python (only
+        `type`), so looking one up returned None and silently discarded every
+        `x: int` parameter. `x: int = 5` survived only because it is a
+        different node type (`typed_default_parameter`, which does have the
+        field), which is why the bug went unnoticed.
+        """
+        code = "def m(self, x: str, y, z: int = 5, *args: int, **kw: str):\n    pass\n"
+        f = temp_test_dir / "typed_params.py"
+        f.write_text(code, encoding="utf-8")
+
+        result = parser.parse(str(f))
+        fn = next(fn for fn in result["functions"] if fn["name"] == "m")
+
+        assert fn["args"] == ["self", "x", "y", "z", "*args", "**kw"]
+
+    def test_annotated_parameter_count_matches_ast(self, parser, temp_test_dir):
+        """Cross-check extraction against the stdlib parser on mixed signatures."""
+        import ast
+
+        code = (
+            "def a(p: int, q): pass\n"
+            "def b(r: 'Deferred', s: int = 1, *, t: bool = False): pass\n"
+            "class C:\n"
+            "    def d(self, u: dict[str, int], **rest: object): pass\n"
+        )
+        f = temp_test_dir / "mixed_params.py"
+        f.write_text(code, encoding="utf-8")
+
+        expected = 0
+        for node in ast.walk(ast.parse(code)):
+            if isinstance(node, ast.FunctionDef):
+                a = node.args
+                expected += len(a.posonlyargs) + len(a.args) + len(a.kwonlyargs)
+                expected += (1 if a.vararg else 0) + (1 if a.kwarg else 0)
+
+        result = parser.parse(str(f))
+        extracted = sum(
+            len(fn.get("args") or [])
+            for fn in result["functions"]
+            if fn["name"] != "<module>"
+        )
+        assert extracted == expected

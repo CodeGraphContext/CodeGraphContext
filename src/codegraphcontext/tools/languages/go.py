@@ -34,17 +34,39 @@ GO_QUERIES = {
             )
         ) @interface_node
     """,
+    # `import_spec` is a direct child of `import_declaration` only for a
+    # single-line `import "fmt"`. A grouped block — which gofmt produces for
+    # any file with more than one import, i.e. nearly all of them — nests the
+    # specs inside an `import_spec_list`, so matching only the direct-child
+    # shape returned zero imports for those files.
     "imports": """
         (import_declaration
             (import_spec
                 path: (interpreted_string_literal) @path
             )
         ) @import
-        
+
+        (import_declaration
+            (import_spec_list
+                (import_spec
+                    path: (interpreted_string_literal) @path
+                )
+            )
+        ) @import
+
         (import_declaration
             (import_spec
                 name: (package_identifier) @alias
                 path: (interpreted_string_literal) @path
+            )
+        ) @import_alias
+
+        (import_declaration
+            (import_spec_list
+                (import_spec
+                    name: (package_identifier) @alias
+                    path: (interpreted_string_literal) @path
+                )
             )
         ) @import_alias
     """,

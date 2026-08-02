@@ -303,9 +303,20 @@ class PythonTreeSitterParser:
                                 arg_text = self._get_node_text(name_node)
                         elif p.type == 'typed_parameter':
                             # Typed parameter: def foo(x: int)
-                            name_node = p.child_by_field_name('name')
-                            if name_node:
-                                arg_text = self._get_node_text(name_node)
+                            # `typed_parameter` has no `name` field in
+                            # tree-sitter-python — only `type`. Its children are
+                            # (<identifier|splat>, ':', type), so the parameter
+                            # is the first child. Looking up a `name` field here
+                            # returned None and silently dropped every annotated
+                            # parameter that had no default.
+                            for child in p.children:
+                                if child.type in (
+                                    'identifier',
+                                    'list_splat_pattern',
+                                    'dictionary_splat_pattern',
+                                ):
+                                    arg_text = self._get_node_text(child)
+                                    break
                         elif p.type == 'typed_default_parameter':
                             # Typed parameter with default: def foo(x: int = 5) or def foo(x: str = typer.Argument(...))
                             name_node = p.child_by_field_name('name')
