@@ -654,7 +654,7 @@ class CodeFinder:
                 OPTIONAL MATCH (repo:Repository)-[:CONTAINS]->(file)
                 WITH file, repo, COLLECT({{
                     imported_module: module.name,
-                    import_alias: module.alias,
+                    import_alias: imp.alias,
                     full_import_name: module.full_import_name
                 }}) AS imports
                 RETURN
