@@ -12,6 +12,19 @@ from typing import Any, Callable, Dict, List, Optional
 import os
 from ...core.jobs import JobManager, JobStatus
 from ...utils.debug_log import debug_log, error_logger, info_logger, warning_logger
+
+try:
+    from ...api.telemetry import telemetry_bus
+except ImportError:
+    telemetry_bus = None
+
+def _emit_telemetry(event: str, data: dict):
+    if telemetry_bus:
+        try:
+            telemetry_bus.emit(event, data)
+        except Exception:
+            pass
+
 from .discovery import discover_files_to_index
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
@@ -118,6 +131,13 @@ async def run_tree_sitter_index_async(
     if job_id:
         job_manager.update_job(job_id, total_files=len(files))
 
+    _emit_telemetry("metrics_update", {
+        "active_repositories": 1,
+        "files_analyzed": 0,
+        "graph_nodes_created": 0,
+        "indexing_rate": 0
+    })
+
     debug_log("Starting pre-scan to build imports map...")
     imports_map = pre_scan_for_imports(files, parsers.keys(), get_parser)
     debug_log(f"Pre-scan complete. Found {len(imports_map)} definitions.")
@@ -145,6 +165,7 @@ async def run_tree_sitter_index_async(
                 file_data = await asyncio.to_thread(parse_file, repo_path, file, is_dependency)
                 
                 file_data["_index_repo_path"] = str(repo_path)
+                _emit_telemetry("parsed", {"message": f"Parsed {file.name}", "file": str(file)})
                 return file_data
             except Exception as e:
                 error_logger(f"Error indexing file {file}: {e}")
@@ -163,6 +184,10 @@ async def run_tree_sitter_index_async(
             job_manager.update_job(job_id, processed_files=processed_count)
         
         if processed_count % 50 == 0:
+            rate = 0 # simple calculation could go here
+            _emit_telemetry("metrics_update", {
+                "files_analyzed": processed_count
+            })
             
             if os.environ.get("CGC_ACTIVE_PROGRESS_BAR") != "1":
                 info_logger(f"Processed {processed_count}/{len(files)} files...")
@@ -255,6 +280,7 @@ async def run_tree_sitter_index_async(
     writer.write_metaclass_links(build_metaclass_links(all_file_data, imports_map))
     writer.write_decorated_by_links(build_decorated_by_links(all_file_data, imports_map))
     t1 = time.time()
+    _emit_telemetry("edge_created", {"message": "Inheritance links created"})
     info_logger(f"Inheritance links created in {t1 - t0:.1f}s. Starting function calls...")
 
     resolved_calls = build_function_call_groups(
@@ -267,6 +293,7 @@ async def run_tree_sitter_index_async(
         job_manager.update_job(job_id, status_message="Writing function CALLS edges...")
     writer.write_function_call_groups(*resolved_calls)
     t2 = time.time()
+    _emit_telemetry("edge_created", {"message": "Function calls edges written"})
     info_logger(f"Function calls created in {t2 - t1:.1f}s. Total post-processing: {t2 - t0:.1f}s")
 
     # ── C++: Class->Function edges (post-pass, after all files written) ───────
@@ -405,3 +432,8 @@ async def run_tree_sitter_index_async(
 
     if job_id:
         job_manager.update_job(job_id, status=JobStatus.COMPLETED, end_time=datetime.now())
+
+    _emit_telemetry("metrics_update", {
+        "files_analyzed": len(files),
+        "graph_nodes_created": index_summary.get("function_nodes", 0) + index_summary.get("class_nodes", 0) if index_summary else 0
+    })

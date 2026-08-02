@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .router import router
 from .auth import log_auth_status
 from .mcp_sse import handle_sse, handle_messages
+from .telemetry_sse import router as telemetry_router
 
 def create_app() -> FastAPI:
     # Log whether API-key auth is active. Emits a prominent security warning
@@ -31,6 +32,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(router, prefix="/api/v1")
+    app.include_router(telemetry_router, prefix="/api/v1/telemetry")
 
     @app.get("/health")
     async def health():

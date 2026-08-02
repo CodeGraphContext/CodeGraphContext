@@ -13,30 +13,33 @@ export function RealtimeIndexFeed() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
 
   useEffect(() => {
-    const types: Array<'parsed' | 'node_created' | 'edge_created'> = ['parsed', 'node_created', 'edge_created'];
-    const messages = [
-      'Parsed components/Button.tsx',
-      'Created AST node for Button',
-      'Linked Button to ThemeProvider',
-      'Parsed lib/utils.ts',
-      'Created AST node for cn()',
-      'Analyzed dependencies for UserContext',
-      'Parsed pages/Dashboard.tsx'
-    ];
+    const eventSource = new EventSource('http://localhost:8000/api/v1/telemetry/sse');
 
-    const interval = setInterval(() => {
-      setFeed(prev => {
-        const newItem: FeedItem = {
-          id: Math.random().toString(36).substring(7),
-          type: types[Math.floor(Math.random() * types.length)],
-          message: messages[Math.floor(Math.random() * messages.length)],
-          timestamp: new Date()
-        };
-        return [newItem, ...prev].slice(0, 8);
-      });
-    }, 1500);
+    eventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        const type = payload.event;
+        const data = payload.data;
+        
+        if (['parsed', 'node_created', 'edge_created'].includes(type)) {
+          setFeed(prev => {
+            const newItem: FeedItem = {
+              id: Math.random().toString(36).substring(7),
+              type: type as any,
+              message: data.message || `Event: ${type}`,
+              timestamp: new Date()
+            };
+            return [newItem, ...prev].slice(0, 8);
+          });
+        }
+      } catch (e) {
+        console.error("Error parsing telemetry event:", e);
+      }
+    };
 
-    return () => clearInterval(interval);
+    return () => {
+      eventSource.close();
+    };
   }, []);
 
   const getIcon = (type: string) => {
