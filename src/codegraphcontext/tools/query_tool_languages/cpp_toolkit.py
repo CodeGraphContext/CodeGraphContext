@@ -43,7 +43,7 @@ class CppToolkit:
             return """
                 MATCH (f:File)-[i:IMPORTS]->(m:Module)
                 RETURN f.name AS file_name, m.name AS module_name, 
-                    m.full_import_name AS full_import_name, m.alias AS alias
+                    m.full_import_name AS full_import_name, i.alias AS alias
                 ORDER BY f.name
             """
 
