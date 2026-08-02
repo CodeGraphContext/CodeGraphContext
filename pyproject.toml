@@ -66,7 +66,11 @@ dependencies = [
     # "AttributeError: 'Server' object has no attribute 'list_tools'".
     # Lift this once mcp_sse.py is ported to the 2.x server API.
     "mcp>=1.0.0,<2",
-    "fastapi>=0.100.0",
+    # Keep FastAPI and Starlette in a compatible generation; newer FastAPI
+    # releases currently hang TestClient during the CI test suite.
+    "fastapi>=0.100.0,<0.115.7",
+    "starlette>=0.40.0,<0.42",
+    "anyio>=4.5,<4.6",
     "uvicorn>=0.22.0",
     "cryptography>=42.0.0"
 ]
@@ -109,6 +113,7 @@ dev = [
     "black>=23.11.0",
     "pytest-asyncio>=0.21.0",
     "pytest-mock",
+    "httpx>=0.27.0,<0.29",
     "ruff",
 ]
 # Optional drivers for `cgc datasource` ingestion (MySQL/Aurora, Cassandra).

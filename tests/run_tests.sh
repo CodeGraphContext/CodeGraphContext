@@ -21,7 +21,7 @@ if ! command -v pytest &> /dev/null; then
 fi
 
 # Export PYTHONPATH to include src
-export PYTHONPATH=$PYTHONPATH:$(pwd)/src
+export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)/src"
 
 # Parse arguments
 TEST_TYPE="${1:-all}"
