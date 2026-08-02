@@ -769,3 +769,29 @@ Please see our [CONTRIBUTING.md](.github/CONTRIBUTING.md) for detailed guideline
 If you have ideas for new features, integrations, or improvements, open an [issue](https://github.com/CodeGraphContext/CodeGraphContext/issues) or submit a Pull Request.
 
 Join discussions and help shape the future of CodeGraphContext.
+
+## Troubleshooting
+
+### Installation fails
+- Ensure you are using the supported Node.js version.
+- Run `npm install` or `npm ci`.
+- Delete `node_modules` and reinstall dependencies if necessary.
+
+### Environment variables not loading
+- Verify that a `.env` file exists.
+- Ensure all required variables are defined.
+- Restart the development server after making changes.
+
+## FAQ
+
+### How do I start the project?
+Run:
+
+```bash
+npm install
+npm run dev
+```
+
+### How do I report a bug?
+Please open a GitHub issue with reproduction steps and relevant logs.
+
