@@ -17,6 +17,7 @@ from codegraphcontext.tools.query_tool_languages.javascript_toolkit import Javas
 from codegraphcontext.tools.query_tool_languages.csharp_toolkit import CSharpToolkit
 from codegraphcontext.tools.query_tool_languages.dart_toolkit import DartToolkit
 from codegraphcontext.tools.query_tool_languages.perl_toolkit import PerlToolkit
+from codegraphcontext.tools.query_tool_languages.java_toolkit import JavaToolkit
 
 
 PLACEHOLDER_TOOLKITS = [
@@ -30,6 +31,7 @@ PLACEHOLDER_TOOLKITS = [
     CSharpToolkit,
     DartToolkit,
     PerlToolkit,
+    JavaToolkit,
 ]
 
 

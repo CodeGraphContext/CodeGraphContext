@@ -82,10 +82,12 @@ class Advanced_language_query:
 
         if language not in self.TOOLKITS:
             raise ValueError(f"Unsupported language: {language}")
-        self.toolkit = self.TOOLKITS[language]()
-
-        # Getting the language query
-        cypher_query = self.toolkit.get_cypher_query(label)
+        try:
+            self.toolkit = self.TOOLKITS[language]()
+            # Getting the language query
+            cypher_query = self.toolkit.get_cypher_query(label)
+        except NotImplementedError as exc:
+            return {"error": str(exc), "language": language, "query": query}
         try:
             debug_log(f"Executing Cypher query: {cypher_query}")
             with self.db_manager.get_driver().session() as session:
