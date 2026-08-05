@@ -265,9 +265,13 @@ class CGCBundle:
                 # Step 1: Extract ZIP (with Zip Slip protection)
                 info_logger("Extracting bundle...")
                 with zipfile.ZipFile(bundle_path, 'r') as zip_ref:
+                    extract_root = temp_path.resolve()
                     for entry in zip_ref.namelist():
                         resolved = (temp_path / entry).resolve()
-                        if not str(resolved).startswith(str(temp_path.resolve())):
+                        # Compare path components, not string prefixes: a bare
+                        # startswith also accepts a sibling directory whose name
+                        # merely extends the target's (/tmp/tmpabc vs /tmp/tmpabc2).
+                        if resolved != extract_root and extract_root not in resolved.parents:
                             return False, f"Zip Slip detected: entry '{entry}' escapes target directory"
                     zip_ref.extractall(temp_path)
                 
@@ -1009,6 +1013,16 @@ cgc import <bundle-file>.cgc
         
         return count
     
+    # Must stay in step with the node tables declared in
+    # database_embedded_kuzu.py. A label missing here falls through to the
+    # `CREATE (n:Label) SET n = $props` branch, which Kùzu rejects with
+    # "Create node n expects primary key <field> as input" — so an omission is
+    # not a slow path, it is a hard import failure for any bundle containing
+    # that label (#1322).
+    #
+    # Not yet covered: DbColumn PK(name, table_fqn) and RedisKeyPattern
+    # PK(pattern, datasource_name). Composite keys need a multi-key MERGE and a
+    # wider `_node_lookup_key` tuple; tracked separately.
     _PK_MAP = {
         'Repository': 'path', 'File': 'path', 'Directory': 'path',
         'Module': 'name',
@@ -1016,7 +1030,9 @@ cgc import <bundle-file>.cgc
         'Trait': 'uid', 'Interface': 'uid', 'Macro': 'uid',
         'Struct': 'uid', 'Enum': 'uid', 'Union': 'uid',
         'Annotation': 'uid', 'Record': 'uid', 'Property': 'uid',
-        'Parameter': 'uid',
+        'Parameter': 'uid', 'EnumMember': 'uid', 'Mixin': 'uid',
+        'Extension': 'uid', 'Object': 'uid',
+        'DbTable': 'name', 'Datasource': 'name', 'ExternalClass': 'name',
     }
     _UID_PARTS = {
         'Function': ['name', 'path', 'line_number'],
@@ -1032,6 +1048,10 @@ cgc import <bundle-file>.cgc
         'Record': ['name', 'path', 'line_number'],
         'Property': ['name', 'path', 'line_number'],
         'Parameter': ['name', 'path', 'function_line_number'],
+        'EnumMember': ['name', 'path', 'line_number'],
+        'Mixin': ['name', 'path', 'line_number'],
+        'Extension': ['name', 'path', 'line_number'],
+        'Object': ['name', 'path', 'line_number'],
     }
 
     def _import_node_batch(self, session, batch: List[Tuple], id_mapping: Dict) -> int:

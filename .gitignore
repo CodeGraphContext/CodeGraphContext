@@ -110,6 +110,9 @@ scripts/.agents/
 # file points at scripts/sync_viz_dist.sh as the build step for viz/dist. The
 # rule made that script impossible to add without -f. Only .agents/ is ignored.
 .agents
+# Local-only scratch: audit output, ad-hoc reports, throwaway DBs and logs.
+# Everything in here is developer-machine state, never part of a release.
+/local/
 *.py[cod]
 .tox/
 .mypy_cache/

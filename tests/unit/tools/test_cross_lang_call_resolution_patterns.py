@@ -696,10 +696,9 @@ class TestCrossLangCallResolutionPatterns:
         )
         assert edge["line_number"] == 363
 
-    def test_python_decorator_resolution_handles_missing_import_source(self):
-        caller_path = "/tmp/repo/app/service.py"
-        decorator_path = "/tmp/repo/.venv/lib/python3.12/site-packages/tenacity/__init__.py"
-        file_data = {
+    @staticmethod
+    def _decorated_file_data(caller_path, imports):
+        return {
             "path": caller_path,
             "lang": "python",
             "functions": [
@@ -710,7 +709,20 @@ class TestCrossLangCallResolutionPatterns:
                 }
             ],
             "classes": [],
-            "imports": [
+            "imports": imports,
+        }
+
+    def test_python_decorator_resolves_to_the_imported_module(self):
+        # An imported decorator must point at the file it was imported from.
+        # The parser emits `name` / `full_import_name` on imports (there is no
+        # `source` key), so reading the wrong key made every imported decorator
+        # resolve to the caller's own file — where no such function exists, so
+        # the writer's MATCH found nothing and the edge was silently dropped.
+        caller_path = "/tmp/repo/app/service.py"
+        decorator_path = "/tmp/repo/.venv/lib/python3.12/site-packages/tenacity/__init__.py"
+        file_data = self._decorated_file_data(
+            caller_path,
+            [
                 {
                     "name": "retry",
                     "full_import_name": "tenacity.retry",
@@ -718,12 +730,27 @@ class TestCrossLangCallResolutionPatterns:
                     "alias": None,
                 }
             ],
-        }
-
-        edges = build_decorated_by_links(
-            [file_data],
-            {"retry": [decorator_path]},
         )
+
+        edges = build_decorated_by_links([file_data], {"retry": [decorator_path]})
+
+        assert len(edges) == 1
+        edge = edges[0]
+        assert edge["decorated_name"] == "fetch_data"
+        assert edge["decorator_name"] == "retry"
+        assert edge["decorator_path"] == str(Path(decorator_path).resolve().as_posix())
+
+    def test_python_decorator_resolution_handles_missing_import_source(self):
+        # When the import carries no usable name at all, fall back to the
+        # caller's own path rather than raising.
+        caller_path = "/tmp/repo/app/service.py"
+        decorator_path = "/tmp/repo/.venv/lib/python3.12/site-packages/tenacity/__init__.py"
+        file_data = self._decorated_file_data(
+            caller_path,
+            [{"alias": "retry", "line_number": 1}],
+        )
+
+        edges = build_decorated_by_links([file_data], {"retry": [decorator_path]})
 
         assert len(edges) == 1
         edge = edges[0]

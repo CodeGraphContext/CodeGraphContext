@@ -114,6 +114,43 @@ class TestRenderHtml:
         assert "CGC Code Graph" in html
 
 
+class TestRenderHtmlEscaping:
+    """A name or title carrying markup must not escape into the document."""
+
+    BREAKOUT = "x</script><script>alert(1)</script>"
+
+    def test_node_name_cannot_close_the_script_block(self):
+        nodes = [{"id": "1", "label": "Function", "name": self.BREAKOUT, "file_path": "/a.py"}]
+        html = render_html(build_graph_data(nodes, []))
+        assert self.BREAKOUT not in html
+        # the only closing tag left is the one that ends the real script block
+        assert html.count("</script>") == 1
+
+    def test_payload_still_parses_back_to_the_original_name(self):
+        nodes = [{"id": "1", "label": "Function", "name": self.BREAKOUT, "file_path": "/a.py"}]
+        html = render_html(build_graph_data(nodes, []))
+        start = html.index("const GRAPH = ") + len("const GRAPH = ")
+        data, _ = json.JSONDecoder().raw_decode(html[start:])
+        assert data["nodes"][0]["name"] == self.BREAKOUT
+
+    def test_file_path_cannot_close_the_script_block(self):
+        nodes = [{"id": "1", "label": "File", "name": "a", "file_path": "/x</script>/a.py"}]
+        html = render_html(build_graph_data(nodes, []))
+        assert "/x</script>/a.py" not in html
+        assert html.count("</script>") == 1
+
+    def test_title_is_html_escaped(self):
+        graph_data = build_graph_data(SAMPLE_NODES, SAMPLE_EDGES)
+        html = render_html(graph_data, title="t</title><script>alert(2)</script>")
+        assert "<script>alert(2)</script>" not in html
+        assert "&lt;/title&gt;" in html
+
+    def test_ordinary_title_is_untouched(self):
+        graph_data = build_graph_data(SAMPLE_NODES, SAMPLE_EDGES)
+        html = render_html(graph_data, title="My Graph")
+        assert "My Graph" in html
+
+
 class TestOpenInBrowser:
     def test_creates_html_file(self, tmp_path):
         graph_data = build_graph_data(SAMPLE_NODES, SAMPLE_EDGES)

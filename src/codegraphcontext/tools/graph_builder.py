@@ -92,8 +92,11 @@ class GraphBuilder:
             ".ex": "elixir",
             ".exs": "elixir",
             ".el": "elisp",
+            ".sol": "solidity",
             ".html": "html",
             ".css": "css",
+            ".svelte": "svelte",
+            ".vue": "vue",
         }
         
         # Files that should be added to the graph as minimal File nodes, even if not parsed
@@ -748,10 +751,6 @@ class GraphBuilder:
                         path=caller_file_path,
                         parent_name=base_name)
 
-    def _create_all_inheritance_links(self, all_file_data: list[Dict], imports_map: dict):
-        """Create INHERITS relationships for all classes using batched UNWIND queries."""
-        return self.pre_scan_imports(files)
-
     def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
         """Add a repository node to the graph.
 
@@ -1063,6 +1062,14 @@ class GraphBuilder:
                     is_dependency,
                     is_notebook=is_notebook,
                     index_source=index_source,
+                )
+            elif parser.language_name == "solidity":
+                # Solidity resolves import remappings relative to the repo root.
+                file_data = parser.parse(
+                    path,
+                    is_dependency,
+                    index_source=index_source,
+                    repo_path=repo_path,
                 )
             else:
                 file_data = parser.parse(path, is_dependency, index_source=index_source)

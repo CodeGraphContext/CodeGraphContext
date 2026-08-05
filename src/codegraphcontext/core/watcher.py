@@ -56,6 +56,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
         self.ignore_root = self.repo_path
         self.ignore_spec = ignore_spec
+        self.cgcignore_path = cgcignore_path
         self._load_ignore_spec(cgcignore_path)
 
         self.all_file_data = []
@@ -118,11 +119,17 @@ class RepositoryEventHandler(FileSystemEventHandler):
         from ..tools.indexing.discovery import discover_files_to_index
 
         supported = self.graph_builder.parsers.keys()
+        # Forward the explicit ignore file and re-apply this handler's own spec.
+        # Without them, discovery fell back to the repo-local .cgcignore, so the
+        # initial scan and disk sync indexed files that later change events
+        # would skip — the graph kept entries the user asked to exclude, and
+        # they went stale on edit.
         files, _ = discover_files_to_index(
             self.repo_path,
+            cgcignore_path=getattr(self, "cgcignore_path", None),
             supported_extensions=set(supported),
         )
-        return files
+        return [f for f in files if not self._should_ignore(f)]
 
     def _initial_scan(self):
         info_logger(f"Initial scan: {self.repo_path}")

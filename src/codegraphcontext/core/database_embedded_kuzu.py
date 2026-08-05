@@ -729,7 +729,18 @@ class EmbeddedSessionWrapper:
         try:
             # Force loop fallback for relationship writes inside UNWIND to avoid Kuzu query planner bugs
             # which can incorrectly bind/corrupt relationship endpoints across rows in the batch.
-            if "UNWIND" in query and ("-[" in query or "]->" in query) and not getattr(self, "_skip_unwind_fallback", False):
+            # Only force it for `UNWIND $param AS row`, the single shape the
+            # recovery path below can rewrite into a per-row loop. Read queries
+            # that unwind a bound list (`WITH relationships(p) AS rels UNWIND
+            # rels AS r`, used by find_all_callers/find_all_callees and the
+            # visualizer) matched this guard too, but no `$`-UNWIND for the
+            # fallback to latch onto — so the fabricated exception fell through
+            # every handler and surfaced to the caller as a hard failure.
+            if (
+                re.search(r"UNWIND\s+\$\w+\s+AS\s+\w+", query)
+                and ("-[" in query or "]->" in query)
+                and not getattr(self, "_skip_unwind_fallback", False)
+            ):
                 raise Exception("unordered_map::at (forced fallback to avoid relationship UNWIND planner bugs)")
 
             # 2. Execute under the lock. _write_lock (name kept for backward

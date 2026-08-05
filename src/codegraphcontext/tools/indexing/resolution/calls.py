@@ -71,6 +71,7 @@ _SUFFIX_TO_LANG = {
     ".hs": "haskell",
     ".ex": "elixir", ".exs": "elixir",
     ".el": "elisp",
+    ".sol": "solidity",
 }
 
 def detect_lang_from_path(path: str) -> Optional[str]:
@@ -1142,7 +1143,9 @@ def resolve_function_call(
         and base_obj in ("$this", "this")
     ):
         enclosing_class = call.get("enclosing_class")
-        trait_hit = (local_class_trait_methods.get(enclosing_class or {}) or {}).get(
+        # `or {}` belongs outside the lookup: using {} as the *key* raises
+        # TypeError: unhashable type: 'dict' whenever enclosing_class is None.
+        trait_hit = (local_class_trait_methods.get(enclosing_class) or {}).get(
             called_name
         )
         if trait_hit:
@@ -2081,6 +2084,7 @@ def build_function_call_groups(
                 "lua":        {".lua"},
                 "haskell":    {".hs"},
                 "elixir":     {".ex", ".exs"},
+                "solidity":   {".sol"},
             }
             exts = _LANG_EXTS.get(caller_lang)
             if not exts:

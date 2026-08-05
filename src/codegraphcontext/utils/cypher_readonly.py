@@ -34,24 +34,45 @@ _FORBIDDEN_PATTERNS = (
     re.compile(r"\bapoc\.(?:create|merge|refactor|periodic)\b", re.IGNORECASE),
 )
 _STRING_LITERAL_RE = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'')
-_LINE_COMMENT_RE = re.compile(r"//[^\n]*")
-_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+# Quoted spans and comments must be recognised in a single left-to-right pass.
+# Stripping literals first would treat a quote *inside* a comment as the start
+# of a literal, pairing it with a later real quote and deleting the write
+# keywords in between:
+#
+#     MATCH (n) // note with '
+#     DELETE n WHERE n.x = 'y' RETURN n
+#
+# The `'` in the comment paired with the `'` of 'y', the DELETE vanished with
+# it, and the query was accepted as read-only. Backtick-quoted identifiers are
+# consumed here too, so `` [r:`DELETE`] `` is not mistaken for a write clause.
+_LITERAL_OR_COMMENT_RE = re.compile(
+    r"""
+      '(?:\\.|[^'\\])*'      # '...'
+    | "(?:\\.|[^"\\])*"      # "..."
+    | `(?:\\.|[^`\\])*`      # `...`
+    | //[^\n]*               # // line comment
+    | /\*.*?\*/              # /* block comment */
+    """,
+    re.VERBOSE | re.DOTALL,
+)
 
 
 def strip_string_literals(query: str) -> str:
     return _STRING_LITERAL_RE.sub("", query)
 
 
-def _strip_comments(query: str) -> str:
-    without_block = _BLOCK_COMMENT_RE.sub("", query)
-    return _LINE_COMMENT_RE.sub("", without_block)
+def _strip_literals_and_comments(query: str) -> str:
+    # Replace with a space rather than "" so neighbouring tokens cannot fuse
+    # into a new identifier once the quoted span between them is removed.
+    return _LITERAL_OR_COMMENT_RE.sub(" ", query)
 
 
 def is_read_only_cypher(query: str) -> bool:
     """Return True when *query* has no write keywords outside string literals."""
     if not query or not query.strip():
         return False
-    stripped = _strip_comments(strip_string_literals(query))
+    stripped = _strip_literals_and_comments(query)
     if ";" in stripped:
         return False
     for keyword in _FORBIDDEN_KEYWORDS:

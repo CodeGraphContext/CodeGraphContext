@@ -15,8 +15,11 @@ See https://gcformat.com for the full specification.
 """
 
 import json
+import logging
 import os
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _gcf_encode = None
 _gcf_checked = False
@@ -53,6 +56,9 @@ def encode_response(result: Any) -> str:
     if is_gcf_enabled():
         encoder = _load_gcf()
         if encoder is not None:
-            return encoder(result)
+            try:
+                return encoder(result)
+            except Exception:
+                logger.debug("GCF encoding failed; falling back to JSON", exc_info=True)
 
     return json.dumps(result, indent=2)

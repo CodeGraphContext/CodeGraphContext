@@ -239,65 +239,78 @@ def _initialize_services(
     return db_manager, graph_builder, code_finder, ctx
 
 
-async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, is_dependency: bool = False, cgcignore_path: str = None):
+async def _run_index_with_progress(graph_builder: GraphBuilder, path_obj: Path, is_dependency: bool = False, cgcignore_path: str = None, disable_progress: bool = False):
     """Internal helper to run indexing with a Live progress bar."""
     job_id = graph_builder.job_manager.create_job(str(path_obj), is_dependency=is_dependency)
     
-    # Create the progress bar
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        MofNCompleteColumn(),
-        TimeRemainingColumn(),
-        TextColumn("[dim]{task.fields[filename]}"),
-        console=console,
-        transient=True,
-    ) as progress:
+    disable_progress = (
+        disable_progress
+        or not console.is_terminal
+        or os.environ.get("CI", "").lower() == "true"
+    )
+
+    if not disable_progress:
+        os.environ["CGC_ACTIVE_PROGRESS_BAR"] = "1"
+
+    try:
+        # Create the progress bar
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            MofNCompleteColumn(),
+            TimeRemainingColumn(),
+            TextColumn("[dim]{task.fields[filename]}"),
+            console=console,
+            transient=True,
+            disable=disable_progress,
+        ) as progress:
         
-        task_id = progress.add_task(
-            "Indexing...", 
-            total=None,  # Will be updated once file discovery is done
-            filename=""
-        )
+            task_id = progress.add_task(
+                "Indexing...", 
+                total=None,  # Will be updated once file discovery is done
+                filename=""
+            )
 
-        indexing_task = asyncio.create_task(
-            graph_builder.build_graph_from_path_async(path_obj, is_dependency=is_dependency, job_id=job_id, cgcignore_path=cgcignore_path)
-        )
+            indexing_task = asyncio.create_task(
+                graph_builder.build_graph_from_path_async(path_obj, is_dependency=is_dependency, job_id=job_id, cgcignore_path=cgcignore_path)
+            )
 
-        from ..core.jobs import JobStatus
-        
-        # Poll for updates
-        while not indexing_task.done():
-            job = graph_builder.job_manager.get_job(job_id)
-            if job:
-                if job.total_files > 0:
-                    progress.update(task_id, total=job.total_files, completed=job.processed_files)
-                
-                # Prefer post-processing status over the last parsed file path
-                current_file = job.status_message or job.current_file or ""
-                if len(current_file) > 40:
-                    current_file = "..." + current_file[-37:]
-                progress.update(task_id, filename=current_file)
-
-                if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
-                    break
+            from ..core.jobs import JobStatus
             
-            await asyncio.sleep(0.1)
+            # Poll for updates
+            while not indexing_task.done():
+                job = graph_builder.job_manager.get_job(job_id)
+                if job:
+                    if job.total_files > 0:
+                        progress.update(task_id, total=job.total_files, completed=job.processed_files)
+                    
+                    # Prefer post-processing status over the last parsed file path
+                    current_file = job.status_message or job.current_file or ""
+                    if len(current_file) > 40:
+                        current_file = "..." + current_file[-37:]
+                    progress.update(task_id, filename=current_file)
 
-        # Wait for actual completion and handle final state
-        try:
-            await indexing_task
-            job = graph_builder.job_manager.get_job(job_id)
-            if job and job.status == JobStatus.FAILED:
-                error_msg = job.errors[0] if job.errors else "Unknown error"
-                raise RuntimeError(error_msg)
-        except Exception as e:
-            raise e
+                    if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
+                        break
+                
+                await asyncio.sleep(0.1)
+
+            # Wait for actual completion and handle final state
+            try:
+                await indexing_task
+                job = graph_builder.job_manager.get_job(job_id)
+                if job and job.status == JobStatus.FAILED:
+                    error_msg = job.errors[0] if job.errors else "Unknown error"
+                    raise RuntimeError(error_msg)
+            except Exception as e:
+                raise e
+    finally:
+        os.environ.pop("CGC_ACTIVE_PROGRESS_BAR", None)
 
 
-def index_helper(path: str, context: Optional[str] = None):
+def index_helper(path: str, context: Optional[str] = None, no_progress: bool = False):
     """Synchronously indexes a repository in a given context."""
     time_start = time.time()
     path_obj = Path(path).resolve()
@@ -357,7 +370,7 @@ def index_helper(path: str, context: Optional[str] = None):
     console.print(f"Starting indexing for: {path_obj}")
 
     try:
-        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path, disable_progress=no_progress))
         time_end = time.time()
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)
@@ -614,18 +627,16 @@ def _render_offline_visualization(
     def _ident(value) -> Optional[str]:
         return None if value is None else str(value)
 
-    # KùzuDB spells its internal dict fields lowercase (_label/_src/_dst/_id);
-    # LadybugDB spells the *same* fields uppercase (_LABEL/_SRC/_DST/_ID) —
-    # confirmed against a live query on each embedded backend. Keying on one
-    # casing only silently discards every row on the other backend, and
-    # `_render_offline_visualization` reports an empty graph (issue #1458).
-    def _meta(value: dict, name: str) -> Any:
-        """Read a backend-internal dict field regardless of its casing."""
-        lower, upper = f"_{name}", f"_{name.upper()}"
-        return value[lower] if lower in value else value.get(upper)
+    # Kùzu spells the internal record keys in lowercase (_label/_src/_dst/_id);
+    # Ladybug returns the same fields uppercased (_LABEL/_SRC/_DST/_ID). Look
+    # up both spellings so either backend reaches the offline renderer (#1458).
+    def _meta(d: dict, key: str, default=None):
+        if key in d:
+            return d[key]
+        return d.get(key.upper(), default)
 
-    def _has_meta(value: dict, name: str) -> bool:
-        return f"_{name}" in value or f"_{name.upper()}" in value
+    def _has_meta(d: dict, key: str) -> bool:
+        return key in d or key.upper() in d
 
     # Neo4j returns driver objects carrying .labels / .type that support
     # dict()/Mapping access. FalkorDB's own driver objects also carry
@@ -633,8 +644,8 @@ def _render_offline_visualization(
     # in a plain `.properties` dict, and its Edge exposes `.relation` /
     # `.src_node` / `.dest_node` instead of `.type` / `.start_node` /
     # `.end_node`. Kùzu and Ladybug return plain dicts carrying _label plus
-    # _src/_dst (Ladybug uppercase, see `_meta` above). Check the driver
-    # attributes first — a driver object may also be dict-like.
+    # _src/_dst. Check the driver attributes first — a driver object may
+    # also be dict-like.
     def _is_relationship(value) -> bool:
         if hasattr(value, "labels"):
             return False
@@ -642,7 +653,7 @@ def _render_offline_visualization(
             return True
         if hasattr(value, "relation") and hasattr(value, "src_node"):
             return True
-        return isinstance(value, dict) and _has_meta(value, "src") and _has_meta(value, "dst")
+        return isinstance(value, dict) and _has_meta(value, "_src") and _has_meta(value, "_dst")
 
     def _is_node(value) -> bool:
         if hasattr(value, "labels"):
@@ -651,9 +662,9 @@ def _render_offline_visualization(
             return False
         if hasattr(value, "relation") and hasattr(value, "src_node"):
             return False
-        # Kùzu/Ladybug relationships also carry _label, so _src/_dst is what
+        # Kùzu relationships also carry _label, so _src/_dst is what
         # distinguishes them from nodes.
-        return isinstance(value, dict) and _has_meta(value, "label") and not _has_meta(value, "src")
+        return isinstance(value, dict) and _has_meta(value, "_label") and not _has_meta(value, "_src")
 
     def _node_payload(value) -> Dict[str, Any]:
         if hasattr(value, "labels"):
@@ -664,8 +675,8 @@ def _render_offline_visualization(
             label = labels[0] if labels else "Node"
             node_id = getattr(value, "element_id", None) or getattr(value, "id", None)
         else:
-            props, label = dict(value), _meta(value, "label") or "Node"
-            node_id = _meta(value, "id")
+            props, label = dict(value), _meta(value, "_label", "Node")
+            node_id = _meta(value, "_id")
         if node_id is None:
             node_id = props.get("path") or props.get("name")
         return {
@@ -700,9 +711,9 @@ def _render_offline_visualization(
             }
         if isinstance(value, dict):
             return {
-                "source": _ident(_meta(value, "src")),
-                "target": _ident(_meta(value, "dst")),
-                "type": _meta(value, "label") or "RELATED",
+                "source": _ident(_meta(value, "_src")),
+                "target": _ident(_meta(value, "_dst")),
+                "type": _meta(value, "_label", "RELATED"),
             }
         return None
 
@@ -846,7 +857,7 @@ def visualize_helper(
         db_manager.close_driver()
 
 
-def reindex_helper(path: str, context: Optional[str] = None):
+def reindex_helper(path: str, context: Optional[str] = None, no_progress: bool = False):
     """Force re-index by deleting and rebuilding the repository."""
     time_start = time.time()
     path_obj = Path(path).resolve()
@@ -879,7 +890,7 @@ def reindex_helper(path: str, context: Optional[str] = None):
     console.print(f"[cyan]Re-indexing: {path_obj}[/cyan]")
     
     try:
-        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path))
+        asyncio.run(_run_index_with_progress(graph_builder, path_obj, is_dependency=False, cgcignore_path=ctx.cgcignore_path, disable_progress=no_progress))
         time_end = time.time()
         elapsed = time_end - time_start
         _print_call_resolution_diagnostics(graph_builder)
