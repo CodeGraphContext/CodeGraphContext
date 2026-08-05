@@ -12,6 +12,7 @@ import json
 import os
 import tempfile
 import webbrowser
+from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -53,6 +54,24 @@ def node_color(label: str) -> str:
 def edge_color(rel_type: str) -> str:
     """Return the hex colour string for a given relationship type."""
     return _EDGE_COLORS.get(rel_type, _EDGE_COLORS["default"])
+
+
+def _json_for_script(data: Any) -> str:
+    """Serialise ``data`` for inlining inside a ``<script>`` element.
+
+    ``json.dumps`` escapes quotes and backslashes but leaves ``<``, ``>`` and
+    ``&`` alone, so a node name or file path containing ``</script>`` closes
+    the element early and the rest of the document is parsed as markup. Those
+    three characters only ever appear inside string literals, so replacing
+    them with their ``\\uXXXX`` form keeps the payload valid JSON and valid
+    JavaScript while making it inert as markup.
+    """
+    return (
+        json.dumps(data, indent=2)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
 
 
 def build_graph_data(
@@ -125,14 +144,15 @@ def render_html(
     str
         Complete HTML document as a string.
     """
-    graph_json = json.dumps(graph_data, indent=2)
+    graph_json = _json_for_script(graph_data)
+    safe_title = html_escape(title)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{title}</title>
+  <title>{safe_title}</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
@@ -198,7 +218,7 @@ def render_html(
 </head>
 <body>
   <div id="header">
-    <h1>🏗 {title}</h1>
+    <h1>🏗 {safe_title}</h1>
     <span id="stats"></span>
   </div>
   <div id="canvas-container">
