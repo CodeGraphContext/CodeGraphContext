@@ -71,14 +71,15 @@ async def run_scip_index_async(
         warning_logger(f"Could not load/create .cgcignore for SCIP indexing: {e}")
 
     def should_skip_file(file_path: Path) -> bool:
+        # SCIP indexes can reference documents outside the project root,
+        # e.g. scip-go emits Go build cache paths for cgo/generated code.
+        if not file_path.is_relative_to(index_root):
+            return True
         if file_path.is_file() and file_path_has_ignore_dir_segment(file_path, index_root):
             return True
         if not ignore_spec:
             return False
-        try:
-            rel_path = file_path.relative_to(index_root).as_posix()
-        except ValueError:
-            return False
+        rel_path = file_path.relative_to(index_root).as_posix()
         return ignore_spec.match_file(rel_path)
 
     try:
@@ -98,12 +99,11 @@ async def run_scip_index_async(
             raise RuntimeError("SCIP parse returned empty result")
 
         files_data = scip_data.get("files", {})
-        if ignore_spec:
-            files_data = {
-                abs_path_str: file_data
-                for abs_path_str, file_data in files_data.items()
-                if not should_skip_file(Path(abs_path_str))
-            }
+        files_data = {
+            abs_path_str: file_data
+            for abs_path_str, file_data in files_data.items()
+            if not should_skip_file(Path(abs_path_str))
+        }
         file_paths = [Path(p) for p in files_data.keys() if Path(p).exists()]
 
         imports_map = pre_scan_for_imports(file_paths, parsers_keys, get_parser)
@@ -191,12 +191,39 @@ async def run_scip_index_async(
             cgcignore_path=cgcignore_path,
             supported_extensions=set(parsers_keys),
         )
+        minimal_nodes = 0
         for repo_file in supplementary_files:
             abs_str = str(repo_file.resolve())
             if abs_str in scip_abs_paths:
                 continue
             ts_parser = get_parser(repo_file.suffix)
             if not ts_parser:
+                # No parser: still record the file. `discover_files_to_index`
+                # returns supported extensions *plus* generic ones (.md, .json,
+                # .yaml, Dockerfile, .gitignore …), and the Tree-sitter pipeline
+                # gives those a minimal File node (pipeline.py, via
+                # `add_minimal_file_node`) precisely so the graph accounts for
+                # every discovered file.
+                #
+                # Skipping them here left the SCIP path short by exactly the
+                # number of non-code files, so `cgc index` compared a graph
+                # count against the discovery count and reported "only N of M
+                # files indexed. Continuing." on every run, forever.
+                try:
+                    await asyncio.to_thread(
+                        writer.add_minimal_file_node,
+                        repo_file,
+                        index_root,
+                        is_dependency,
+                    )
+                    minimal_nodes += 1
+                    processed += 1
+                    if job_id:
+                        job_manager.update_job(
+                            job_id, processed_files=processed, current_file=abs_str
+                        )
+                except Exception as e:
+                    debug_log(f"Minimal file node failed for {abs_str}: {e}")
                 continue
             try:
                 ts_data = ts_parser.parse(repo_file, is_dependency, index_source=True)
@@ -222,6 +249,10 @@ async def run_scip_index_async(
             imports_map = pre_scan_for_imports(all_paths, parsers_keys, get_parser)
             info_logger(
                 f"[SCIP+TS] Supplemented {supplemented} files not covered by SCIP indexer"
+            )
+        if minimal_nodes:
+            info_logger(
+                f"[SCIP+TS] Recorded {minimal_nodes} non-code file(s) as minimal File nodes"
             )
 
         info_logger(

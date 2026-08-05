@@ -12,6 +12,7 @@ def test_node_labels_include_core_entities():
 def test_relationship_types_include_core_edges():
     assert "CONTAINS" in sc.RELATIONSHIP_TYPES
     assert "CALLS" in sc.RELATIONSHIP_TYPES
+    assert "HEURISTIC_CALLS" in sc.RELATIONSHIP_TYPES
     assert "IMPORTS" in sc.RELATIONSHIP_TYPES
 
 

@@ -62,7 +62,7 @@ class _FakeDBManager:
     def __init__(self, recorder):
         self._recorder = recorder
 
-    def get_driver(self):
+    def get_driver(self, graph_name=None):
         return _FakeDriver(self._recorder)
 
 

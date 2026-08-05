@@ -29,10 +29,11 @@ class TestPythonParser:
         """Parse a simple python file and verify output."""
         code = "def hello():\n    print('world')"
         f = temp_test_dir / "test.py"
-        f.write_text(code)
+        f.write_text(code, encoding="utf-8")
 
         # Act
         result = parser.parse(str(f))
+        assert isinstance(result, dict)
 
         # Assert
         # We expect a list of nodes/edges or a structure containing them
@@ -43,16 +44,21 @@ class TestPythonParser:
         
         assert "functions" in result
         funcs = result["functions"]
-        assert len(funcs) == 1
-        assert funcs[0]["name"] == "hello"
+        # The parser appends a synthetic "<module>" frame for module-level
+        # context (see _attach_module_context); exclude it when asserting on
+        # user-defined functions.
+        user_funcs = [f for f in funcs if f["name"] != "<module>"]
+        assert len(user_funcs) == 1
+        assert user_funcs[0]["name"] == "hello"
 
     def test_module_level_call_uses_module_context(self, parser, temp_test_dir):
         """Top-level executable calls should be linked from a synthetic module frame."""
         code = "from pkg.utils import helper\n\nresult = helper()\n"
         f = temp_test_dir / "__main__.py"
-        f.write_text(code)
+        f.write_text(code, encoding="utf-8")
 
         result = parser.parse(str(f))
+        assert isinstance(result, dict)
 
         module_func = next(
             func for func in result["functions"]
@@ -112,6 +118,86 @@ class TestPythonParser:
         assert calls["f3"]["context"][0] == "f2"
         assert calls["f3"]["context"][1] == "nested_call"
 
+    def test_nested_call_inside_method_uses_enclosing_function_context(self, parser, temp_test_dir):
+        """Calls nested inside method arguments (e.g. list.append(helper())) should
+        attribute to the enclosing function, not the method name."""
+        code = (
+            "def _helper(x): return x * 2\n"
+            "def process(data, results):\n"
+            "    results.append(_helper(data))\n"
+        )
+        f = temp_test_dir / "method_nested.py"
+        f.write_text(code)
+
+        result = parser.parse(str(f))
+        calls = [c for c in result["function_calls"] if c["name"] == "_helper"]
+        assert len(calls) == 1
+        helper_call = calls[0]
+        # _helper's caller should be "process" (the enclosing function),
+        # NOT "append" (which is a method, not a Function node in the graph).
+        assert helper_call["context"][0] == "process"
+        assert helper_call["context"][1] == "function_definition"
+
+    def test_method_name_collision_uses_enclosing_function_context(self, parser, temp_test_dir):
+        """When a local function has the same name as a method call,
+        nested calls inside the method's arguments should still
+        attribute to the enclosing function, not the colliding local function."""
+        code = (
+            "def append(item): return item\n"
+            "def process(data, results):\n"
+            "    results.append(append(data))\n"
+        )
+        f = temp_test_dir / "collision.py"
+        f.write_text(code)
+        result = parser.parse(str(f))
+        calls = [c for c in result["function_calls"] if c["name"] == "append"]
+        # Find the direct call `append(data)` inside `results.append(...)`
+        # It should have context pointing to "process", not "append"
+        inner_append_call = [c for c in calls if c["full_name"] == "append"]
+        assert len(inner_append_call) == 1
+        assert inner_append_call[0]["context"][0] == "process"
+
+    def test_multiline_from_import_captures_all_names(self, parser, temp_test_dir):
+        """Multi-line from...import(...) must capture ALL imported names,
+        not just the first one (child_by_field_name vs children_by_field_name)."""
+        code = (
+            "from pkg.utils import (\n"
+            "    VERSION,\n"
+            "    _configure_stdio,\n"
+            "    _get_logs_dir,\n"
+            "    _setup_logging,\n"
+            "    ROOT,\n"
+            ")\n"
+        )
+        f = temp_test_dir / "multi_import.py"
+        f.write_text(code)
+        result = parser.parse(str(f))
+        names = {imp["name"] for imp in result["imports"]}
+        assert names == {"VERSION", "_configure_stdio", "_get_logs_dir", "_setup_logging", "ROOT"}
+        # Also verify full_import_name
+        full_names = {imp["full_import_name"] for imp in result["imports"]}
+        assert "pkg.utils._configure_stdio" in full_names
+        assert "pkg.utils.ROOT" in full_names
+
+    def test_multiline_from_import_with_alias(self, parser, temp_test_dir):
+        """from...import with aliases must capture both name and alias."""
+        code = (
+            "from pkg.utils import (\n"
+            "    VERSION as VER,\n"
+            "    configure as setup,\n"
+            ")\n"
+        )
+        f = temp_test_dir / "alias_import.py"
+        f.write_text(code)
+        result = parser.parse(str(f))
+        imports_by_name = {imp["name"]: imp for imp in result["imports"]}
+        assert "VERSION" in imports_by_name
+        assert imports_by_name["VERSION"]["alias"] == "VER"
+        assert imports_by_name["VERSION"]["full_import_name"] == "pkg.utils.VERSION"
+        assert "configure" in imports_by_name
+        assert imports_by_name["configure"]["alias"] == "setup"
+        assert imports_by_name["configure"]["full_import_name"] == "pkg.utils.configure"
+
     def test_parse_class_with_method(self, parser, temp_test_dir):
         """Parse a class with a method."""
         code = """
@@ -120,9 +206,10 @@ class Greeter:
         return f"Hello {name}"
 """
         f = temp_test_dir / "classes.py"
-        f.write_text(code)
+        f.write_text(code, encoding="utf-8")
 
         result = parser.parse(str(f))
+        assert isinstance(result, dict)
 
         assert "classes" in result
         classes = result["classes"]
@@ -133,3 +220,49 @@ class Greeter:
         # Depending on implementation, methods might be in 'functions' with parent info
         # or inside 'classes'.
         # Let's assume they are captured.
+
+    def test_annotated_parameters_without_defaults_are_extracted(self, parser, temp_test_dir):
+        """Annotated params with no default must not be dropped.
+
+        `typed_parameter` has no `name` field in tree-sitter-python (only
+        `type`), so looking one up returned None and silently discarded every
+        `x: int` parameter. `x: int = 5` survived only because it is a
+        different node type (`typed_default_parameter`, which does have the
+        field), which is why the bug went unnoticed.
+        """
+        code = "def m(self, x: str, y, z: int = 5, *args: int, **kw: str):\n    pass\n"
+        f = temp_test_dir / "typed_params.py"
+        f.write_text(code, encoding="utf-8")
+
+        result = parser.parse(str(f))
+        fn = next(fn for fn in result["functions"] if fn["name"] == "m")
+
+        assert fn["args"] == ["self", "x", "y", "z", "*args", "**kw"]
+
+    def test_annotated_parameter_count_matches_ast(self, parser, temp_test_dir):
+        """Cross-check extraction against the stdlib parser on mixed signatures."""
+        import ast
+
+        code = (
+            "def a(p: int, q): pass\n"
+            "def b(r: 'Deferred', s: int = 1, *, t: bool = False): pass\n"
+            "class C:\n"
+            "    def d(self, u: dict[str, int], **rest: object): pass\n"
+        )
+        f = temp_test_dir / "mixed_params.py"
+        f.write_text(code, encoding="utf-8")
+
+        expected = 0
+        for node in ast.walk(ast.parse(code)):
+            if isinstance(node, ast.FunctionDef):
+                a = node.args
+                expected += len(a.posonlyargs) + len(a.args) + len(a.kwonlyargs)
+                expected += (1 if a.vararg else 0) + (1 if a.kwarg else 0)
+
+        result = parser.parse(str(f))
+        extracted = sum(
+            len(fn.get("args") or [])
+            for fn in result["functions"]
+            if fn["name"] != "<module>"
+        )
+        assert extracted == expected

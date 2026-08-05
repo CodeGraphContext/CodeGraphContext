@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+
+import { Analytics } from "@vercel/analytics/react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -11,9 +12,8 @@ import Explore from "./pages/Explore";
 import Privacy from "./pages/Privacy";
 import PRReviewerPage from "./pages/PRReviewerPage";
 import Contributing from "./pages/contributing";
-
 import Navbar from "./components/Navbar";
-
+import MoveToTop from "./components/MoveToTop";
 // Removed AOS for instant loading
 
 const queryClient = new QueryClient();
@@ -30,9 +30,11 @@ const App: React.FC = () => {
           disableTransitionOnChange
         >
           <TooltipProvider>
+            <Analytics />
             <Toaster />
             <Sonner />
             <Navbar />
+            <MoveToTop />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/pre-indexed" element={<Index />} />

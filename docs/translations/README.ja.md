@@ -11,7 +11,7 @@
 - 🇯🇵 [日本語](README.ja.md)
 - 🇪🇸 Español (準備中)
 
-🌍 **CodeGraphContext をあなたの言語に翻訳することにご協力ください！ https://github.com/Shashankss1205/CodeGraphContext/issues で Issue と PR を作成してください！**
+🌍 **CodeGraphContext をあなたの言語に翻訳することにご協力ください！ https://github.com/CodeGraphContext/CodeGraphContext/issues で Issue と PR を作成してください！**
 
 <p align="center">
   <br>

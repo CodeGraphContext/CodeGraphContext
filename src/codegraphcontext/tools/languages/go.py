@@ -34,17 +34,39 @@ GO_QUERIES = {
             )
         ) @interface_node
     """,
+    # `import_spec` is a direct child of `import_declaration` only for a
+    # single-line `import "fmt"`. A grouped block — which gofmt produces for
+    # any file with more than one import, i.e. nearly all of them — nests the
+    # specs inside an `import_spec_list`, so matching only the direct-child
+    # shape returned zero imports for those files.
     "imports": """
         (import_declaration
             (import_spec
                 path: (interpreted_string_literal) @path
             )
         ) @import
-        
+
+        (import_declaration
+            (import_spec_list
+                (import_spec
+                    path: (interpreted_string_literal) @path
+                )
+            )
+        ) @import
+
         (import_declaration
             (import_spec
                 name: (package_identifier) @alias
                 path: (interpreted_string_literal) @path
+            )
+        ) @import_alias
+
+        (import_declaration
+            (import_spec_list
+                (import_spec
+                    name: (package_identifier) @alias
+                    path: (interpreted_string_literal) @path
+                )
             )
         ) @import_alias
     """,
@@ -177,7 +199,7 @@ class GoTreeSitterParser:
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict:
         """Parses a file and returns its structure in a standardized dictionary format."""
         self.index_source = index_source
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
             source_code = f.read()
 
         # Extract Go package declaration for package_name field on File nodes
@@ -607,14 +629,14 @@ def pre_scan_go(files: list[Path], parser_wrapper) -> dict:
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 tree = parser_wrapper.parser.parse(bytes(f.read(), "utf8"))
 
             for capture, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(path.resolve()))
+                imports_map[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     

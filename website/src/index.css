@@ -325,3 +325,21 @@ body {
     }
   }
 }
+.scroll-btn {
+  position: fixed;
+  right: 24px;
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 1000;
+}
+
+.scroll-up {
+  bottom: 84px;
+}
+
+.scroll-down {
+  bottom: 24px;
+}
