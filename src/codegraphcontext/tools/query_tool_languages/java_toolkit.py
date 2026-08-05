@@ -12,15 +12,23 @@ from typing import Any, Dict, List, Optional
 
 
 class JavaToolkit:
-    """Spring-aware Java analysis methods backed by CodeFinder / raw Cypher."""
+    """Spring-aware Java analysis methods backed by CodeFinder / raw Cypher.
 
-    def __init__(self, code_finder: Any):
-        """
-        Args:
-            code_finder: A ``CodeFinder`` instance (or compatible duck-type).
-        """
+    Note: The generic ``advanced_language_query`` path calls this toolkit
+    with no arguments (consistent with all other language toolkits). The
+    Spring-specific MCP tools (``find_java_spring_endpoints`` /
+    ``find_java_spring_beans``) pass a ``code_finder`` via ``_init_with``.
+    """
+
+    def __init__(self) -> None:
+        self._cf: Any = None
+        self._driver: Any = None
+
+    def _init_with(self, code_finder: Any) -> "JavaToolkit":
+        """Initialise with a live CodeFinder for Spring-specific queries."""
         self._cf = code_finder
         self._driver = code_finder.driver
+        return self
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -249,5 +257,6 @@ class JavaToolkit:
     # Legacy shim — keeps existing callers working
     def get_cypher_query(self, query: str) -> str:
         raise NotImplementedError(
+            "AdvancedLanguageQuery is not implemented yet for Java. "
             "Use find_spring_endpoints(), find_beans_by_stereotype(), etc. instead."
         )
