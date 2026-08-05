@@ -14,6 +14,22 @@ logger = logging.getLogger(__name__)
 
 _MAX_TRAVERSAL_DEPTH = 20
 
+# Names that are entry points rather than dead code. Matched on the *whole*
+# name, lowercased. This used to be a substring test (`name CONTAINS 'main'`,
+# `toLower(name) CONTAINS 'entry'`), which silently excluded any function whose
+# name merely contained one of them — `domain_check`, `remainder`,
+# `maintain_index`, `entry_count` — so genuinely unused code was never
+# reported and there was no way to tell.
+_ENTRY_POINT_NAMES = (
+    "main",
+    "setup",
+    "run",
+    "application",
+    "entry",
+    "entrypoint",
+)
+_ENTRY_POINT_NAMES_CYPHER = "[" + ", ".join(f"'{n}'" for n in _ENTRY_POINT_NAMES) + "]"
+
 
 def _sanitize_depth(depth, default: int = 3) -> int:
     """Coerce and clamp a traversal depth before interpolating it into Cypher.
@@ -809,19 +825,16 @@ class CodeFinder:
             query = f"""
                 MATCH (func:Function)
                 WHERE func.is_dependency = false {repo_filter} {func_ignore}
-                  AND NOT func.name IN ['main', 'setup', 'run']
+                  AND NOT toLower(func.name) IN {_ENTRY_POINT_NAMES_CYPHER}
                   AND func.name <> '<module>'
                   AND NOT (func.name STARTS WITH '__' AND func.name ENDS WITH '__')
                   AND NOT func.name STARTS WITH '_test'
                   AND NOT func.name STARTS WITH 'test_'
-                  AND NOT func.name CONTAINS 'main'
-                  AND NOT toLower(func.name) CONTAINS 'application'
-                  AND NOT toLower(func.name) CONTAINS 'entry'
-                  AND NOT toLower(func.name) CONTAINS 'entrypoint'
                   {decorator_filter}
                 WITH func
-                OPTIONAL MATCH (caller:Function)-[:CALLS|HEURISTIC_CALLS]->(func)
-                WHERE caller.is_dependency = false {caller_ignore}
+                OPTIONAL MATCH (caller)-[:CALLS|HEURISTIC_CALLS]->(func)
+                WHERE (caller.is_dependency IS NULL OR caller.is_dependency = false)
+                  {caller_ignore}
                 WITH func, count(caller) as caller_count
                 WHERE caller_count = 0
                 OPTIONAL MATCH (file:File)-[:CONTAINS]->(func)
