@@ -6,17 +6,34 @@ from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logge
 from codegraphcontext.utils.tree_sitter_manager import execute_query
 
 C_QUERIES = {
+    # A pointer return type wraps the function declarator from the OUTSIDE:
+    # `char* f()` is
+    #     function_definition > pointer_declarator > function_declarator > identifier
+    # The second alternative below used to nest these the other way round, which
+    # matches nothing, so no function returning `T*` or `T**` was extracted —
+    # and because pre_scan_c shares this query they were invisible as call
+    # targets too.
     "functions": """
         (function_definition
             declarator: (function_declarator
                 declarator: (identifier) @name
             )
         ) @function_node
-        
+
         (function_definition
-            declarator: (function_declarator
-                declarator: (pointer_declarator
+            declarator: (pointer_declarator
+                declarator: (function_declarator
                     declarator: (identifier) @name
+                )
+            )
+        ) @function_node
+
+        (function_definition
+            declarator: (pointer_declarator
+                declarator: (pointer_declarator
+                    declarator: (function_declarator
+                        declarator: (identifier) @name
+                    )
                 )
             )
         ) @function_node
@@ -762,15 +779,25 @@ def pre_scan_c(files: list[Path], parser_wrapper) -> dict:
                 declarator: (identifier) @name
             )
         )
-        
+
         (function_definition
-            declarator: (function_declarator
-                declarator: (pointer_declarator
+            declarator: (pointer_declarator
+                declarator: (function_declarator
                     declarator: (identifier) @name
                 )
             )
         )
-        
+
+        (function_definition
+            declarator: (pointer_declarator
+                declarator: (pointer_declarator
+                    declarator: (function_declarator
+                        declarator: (identifier) @name
+                    )
+                )
+            )
+        )
+
         (struct_specifier
             name: (type_identifier) @name
         )
