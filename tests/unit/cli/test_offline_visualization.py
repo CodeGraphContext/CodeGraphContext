@@ -102,6 +102,21 @@ _FN1 = _FalkorNode(1, ["File"], {"path": "/repo/a.py", "name": "a.py"})
 _FN2 = _FalkorNode(2, ["Function"], {"name": "alpha", "path": "/repo/a.py", "line_number": 3})
 FALKORDB_RECORDS = [_Record([_FN1, _FalkorEdge(_FN1.id, "CONTAINS", _FN2.id), _FN2])]
 
+# --- Real LadybugDB shape: plain dicts, same as Kùzu, but the internal
+# metadata fields are UPPERCASE — confirmed against a live query on the real
+# `ladybug` package: `MATCH (n)-[r]->(m) RETURN n, r, m` returns dict keys
+# ['_ID', '_LABEL', 'name', 'path'] for nodes and
+# ['_SRC', '_DST', '_LABEL', '_ID'] for relationships (issue #1458). ---------
+
+LADYBUG_RECORDS = [
+    _Record([
+        {"_ID": "0:1", "_LABEL": "File", "path": "/repo/a.py", "name": "a.py"},
+        {"_SRC": "0:1", "_DST": "0:2", "_LABEL": "CONTAINS"},
+        {"_ID": "0:2", "_LABEL": "Function", "name": "alpha", "path": "/repo/a.py",
+         "line_number": 3},
+    ])
+]
+
 
 @pytest.mark.parametrize(
     "records,label",
@@ -110,16 +125,19 @@ FALKORDB_RECORDS = [_Record([_FN1, _FalkorEdge(_FN1.id, "CONTAINS", _FN2.id), _F
         (LADYBUG_RECORDS, "ladybug-style uppercase dicts"),
         (NEO4J_RECORDS, "neo4j-style objects"),
         (FALKORDB_RECORDS, "real falkordb-style objects"),
+        (LADYBUG_RECORDS, "real ladybugdb-style dicts (uppercase keys)"),
     ],
 )
 def test_offline_renderer_handles_both_driver_shapes(records, label, tmp_path, monkeypatch):
-    """Kùzu/Ladybug return plain dicts carrying `_label`/`_src`/`_dst`. Neo4j
-    returns driver objects with `.labels`/`.type` that are dict-convertible.
-    FalkorDB also carries `.labels` but is NOT dict-convertible (properties
-    live in `.properties`), and its edges use `.src_node`/`.dest_node`/
-    `.relation` rather than `.start_node`/`.end_node`/`.type`. The renderer
-    must understand all three shapes or it crashes (FalkorDB) or silently
-    produces an empty graph."""
+    """Kùzu returns plain dicts carrying `_label`/`_src`/`_dst` (lowercase);
+    LadybugDB returns the same plain-dict shape but UPPERCASE
+    (`_LABEL`/`_SRC`/`_DST`). Neo4j returns driver objects with
+    `.labels`/`.type` that are dict-convertible. FalkorDB also carries
+    `.labels` but is NOT dict-convertible (properties live in `.properties`),
+    and its edges use `.src_node`/`.dest_node`/`.relation` rather than
+    `.start_node`/`.end_node`/`.type`. The renderer must understand all four
+    shapes or it crashes (FalkorDB) or silently produces an empty graph
+    (LadybugDB, issue #1458)."""
     monkeypatch.setattr("webbrowser.open", lambda *_a, **_k: True)
     out = tmp_path / "graph.html"
 
