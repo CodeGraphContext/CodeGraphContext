@@ -1,16 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-07-25T16:55:34Z",
+  "exported_at": "2026-08-05T19:34:42Z",
   "format_version": "1.0.0",
   "repo": "sample_project_csharp",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "8bd1a8f7",
-  "branch": "main",
-  "generator": "PYv0.5.1",
+  "commit": "b1e459d5",
+  "branch": "fix/parser-csharp-variables",
+  "generator": "PYv0.5.6",
   "name": "sample_project_csharp.cgc",
   "graph_metrics": {
-    "total_nodes": 130,
-    "total_edges": 195
+    "total_nodes": 156,
+    "total_edges": 224
   }
 }
