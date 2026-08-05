@@ -2830,15 +2830,18 @@ def analyze_complexity(
 
 @analyze_app.command("dead-code")
 def analyze_dead_code(
-    path: Optional[str] = typer.Argument(None, help="Path to analyze (not yet implemented)"),
+    path: Optional[str] = typer.Argument(None, help="Repository path to scope the analysis to"),
     exclude_decorators: Optional[str] = typer.Option(None, "--exclude", "-e", help="Comma-separated decorators to exclude"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
-    Find potentially unused functions and classes.
-    
+    Find potentially unused functions.
+
+    Without a path the whole database is scanned, which on a shared graph
+    reports dead code from every indexed repository. Pass a path to scope it.
+
     Example:
-        cgc analyze dead-code
+        cgc analyze dead-code .
         cgc analyze dead-code --exclude route,task,api
     """
     _load_credentials()
@@ -2849,8 +2852,11 @@ def analyze_dead_code(
     
     try:
         exclude_list = exclude_decorators.split(',') if exclude_decorators else []
-        results = code_finder.find_dead_code(exclude_list)
-        
+        # `path` was accepted and then dropped, so running inside one repository
+        # still reported dead code from every repository in the database.
+        repo_path = Path(path).resolve().as_posix() if path else None
+        results = code_finder.find_dead_code(exclude_list, repo_path=repo_path)
+
         unused_funcs = results.get('potentially_unused_functions', [])
         
         if not unused_funcs:
