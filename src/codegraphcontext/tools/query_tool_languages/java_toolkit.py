@@ -114,8 +114,8 @@ class JavaToolkit:
             f"""
             MATCH (c:Class)
             WHERE {where}
-            OPTIONAL MATCH ()-[:INJECTS]->(c)
-            WITH c, count(*) AS injection_count
+            OPTIONAL MATCH ()-[inj:INJECTS]->(c)
+            WITH c, count(inj) AS injection_count
             RETURN c.name AS name, c.spring_stereotype AS stereotype,
                    c.path AS file, c.line_number AS line_number,
                    injection_count

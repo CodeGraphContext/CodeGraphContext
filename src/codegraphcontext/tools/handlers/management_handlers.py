@@ -354,15 +354,15 @@ def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
                     }
                 
                 # 1. Files
-                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as c"
+                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(DISTINCT f) as c"
                 file_count = session.run(file_query, path=repo_path_obj).single()["c"]
                 
                 # 2. Functions
-                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(func) as c"
+                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(DISTINCT func) as c"
                 func_count = session.run(func_query, path=repo_path_obj).single()["c"]
                 
                 # 3. Classes
-                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(cls:Class) RETURN count(cls) as c"
+                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(cls:Class) RETURN count(DISTINCT cls) as c"
                 class_count = session.run(class_query, path=repo_path_obj).single()["c"]
                 
                 # 4. Modules (imported)

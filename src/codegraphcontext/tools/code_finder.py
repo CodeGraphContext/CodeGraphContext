@@ -1224,16 +1224,31 @@ class CodeFinder:
         try:
             if query_type == "find_callers":
                 results = self.who_calls_function(target, context, repo_path=repo_path)
-                # Hoist target_file_path (constant across rows) to the envelope once,
-                # instead of repeating the absolute path in every row (payload slimming).
-                target_file_path = next((r.pop("target_file_path", None) for r in results), None) if results else None
-                for r in results:
-                    r.pop("target_file_path", None)
-                return {
+                # target_file_path is only constant when `context` pinned a single
+                # definition. Without it, who_calls_function matches
+                # Function {name: $function_name} across every file, so rows
+                # legitimately carry different targets — hoisting the first row's
+                # value and stripping the rest reported every caller as calling
+                # whichever definition happened to sort first.
+                #
+                # Hoist only when the rows agree; otherwise leave the field on each
+                # row so the ambiguity is visible to the caller.
+                target_paths = {r.get("target_file_path") for r in results}
+                target_file_path = target_paths.pop() if len(target_paths) == 1 else None
+                if target_file_path is not None:
+                    for r in results:
+                        r.pop("target_file_path", None)
+                envelope = {
                     "query_type": "find_callers", "target": target, "context": context,
                     "target_file_path": target_file_path, "results": results,
                     "summary": f"Found {len(results)} functions that call '{target}'"
                 }
+                if target_file_path is None and len(target_paths) > 1:
+                    envelope["note"] = (
+                        f"'{target}' is defined in {len(target_paths)} files; each result "
+                        "carries its own target_file_path. Pass `context` to disambiguate."
+                    )
+                return envelope
             
             elif query_type == "find_callees":
                 results = self.what_does_function_call(target, context, repo_path=repo_path)
@@ -1285,7 +1300,10 @@ class CodeFinder:
                 }
             
             elif query_type in ["dead_code", "unused", "unreachable"]:
-                results = self.find_dead_code(repo_path=repo_path)
+                # graph_name must be forwarded: find_dead_code defaults it to None and
+                # re-assigns the shared self._active_graph, so omitting it here
+                # silently redirected the query to the default graph.
+                results = self.find_dead_code(repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "dead_code", "results": results,
                     "summary": f"Found {len(results['potentially_unused_functions'])} potentially unused functions"
@@ -1294,7 +1312,7 @@ class CodeFinder:
             elif query_type == "find_complexity":
                 limit_val = context if context else target
                 limit = int(limit_val) if limit_val and str(limit_val).isdigit() else 10
-                results = self.find_most_complex_functions(limit, repo_path=repo_path)
+                results = self.find_most_complex_functions(limit, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "find_complexity", "limit": limit, "results": results,
                     "summary": f"Found the top {len(results)} most complex functions"

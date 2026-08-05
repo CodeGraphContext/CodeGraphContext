@@ -19,6 +19,25 @@ def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args)
 
     if not path:
         return {"error": "Path is a required argument (repo_path)."}
+
+    # `graph_name` is advertised in this tool's schema but indexing cannot yet
+    # honour it: GraphBuilder binds its GraphWriter to the default driver at
+    # construction, so a named graph would need a per-job writer threaded
+    # through the whole pipeline. Refuse explicitly rather than write to the
+    # default graph and report success — an agent that believed the repository
+    # landed in a named graph would find nothing there later, with no error to
+    # explain it.
+    graph_name = args.get("graph_name")
+    if graph_name:
+        return {
+            "error": (
+                f"Indexing into a named graph is not supported yet, so "
+                f"graph_name={graph_name!r} cannot be honoured. Omit it to index "
+                "into the default graph, or select the graph via the CLI context "
+                "(`cgc context create` / `cgc index --context`)."
+            ),
+            "unsupported_argument": "graph_name",
+        }
     
     try:
         path_obj = Path(path).resolve()

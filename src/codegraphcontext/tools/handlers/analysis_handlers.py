@@ -236,8 +236,8 @@ def find_java_spring_beans(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     query = f"""
         MATCH (c:Class)
         WHERE {where_clause}
-        OPTIONAL MATCH ()-[:INJECTS]->(c)
-        WITH c, count(*) AS injection_count
+        OPTIONAL MATCH ()-[inj:INJECTS]->(c)
+        WITH c, count(inj) AS injection_count
         RETURN c.name AS name, c.spring_stereotype AS stereotype,
                c.path AS file, c.line_number AS line_number, injection_count
         ORDER BY stereotype, name
@@ -296,7 +296,8 @@ def find_datasource_nodes(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         {kp_where}
         OPTIONAL MATCH (kp:RedisKeyPattern)-[:STORED_IN]->(d)
         RETURN d.name AS datasource,
-               collect({{pattern: kp.pattern, key_type: kp.key_type, count: kp.count}}) AS key_patterns
+               [x IN collect(kp) | {{pattern: x.pattern, key_type: x.key_type,
+                                     count: x.count}}] AS key_patterns
     """
 
     try:
