@@ -56,3 +56,44 @@ def test_cypher_fallback_instruction_is_not_self_contradictory():
     assert "`path` vs `path`" not in prompts.LLM_SYSTEM_PROMPT
     # ...and it still tells the model to consult the schema.
     assert "Graph Schema Reference" in prompts.LLM_SYSTEM_PROMPT
+
+
+def test_every_tool_definition_has_a_matching_wrapper():
+    """Every public tool definition should have a corresponding wrapper
+    method on MCPServer."""
+    for tool_name in TOOLS:
+        assert hasattr(
+            MCPServer, f"{tool_name}_tool"
+        ), f"Missing wrapper method: {tool_name}_tool"
+
+
+def test_every_wrapper_has_a_tool_definition():
+    """Every public *_tool wrapper should correspond to a declared MCP tool."""
+    excluded = {
+        "_init_tools",
+        "_load_disabled_tools",
+        "_normalize_tool_name",
+        "_get_version",
+        "handle_tool_call",
+    }
+
+    wrapper_methods = {
+        name[:-5]
+        for name, member in inspect.getmembers(MCPServer, inspect.isfunction)
+        if name.endswith("_tool") and name not in excluded
+    }
+
+    missing = wrapper_methods - set(TOOLS.keys())
+    assert not missing, (
+        "Wrapper methods without matching tool definitions: "
+        f"{sorted(missing)}"
+    )
+
+
+def test_tool_definition_keys_match_declared_names():
+    """The dictionary key should always match the tool's declared name."""
+    for key, definition in TOOLS.items():
+        assert definition["name"] == key
+
+
+
