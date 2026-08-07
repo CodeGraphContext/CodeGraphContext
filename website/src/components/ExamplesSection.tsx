@@ -44,7 +44,7 @@ const examplesData = [
 
 const ExamplesSection = () => {
   return (
-    <section className="py-24 px-4" data-aos="fade-in">
+    <section className="pt-24 pb-12 px-4" data-aos="fade-in">
       <div className="container mx-auto max-w-6xl">
         <div className="text-center mb-16" data-aos="fade-down">
           <h2 className="text-4xl md:text-5xl font-bold mb-6 bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent py-2">
