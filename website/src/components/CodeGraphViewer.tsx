@@ -21,7 +21,7 @@ import { exportSvg } from "../lib/svg-exporter";
 import { packageInteractiveExport } from "../lib/html-exporter";
 import { toast } from "sonner";
 import { getOrCreateSessionId } from "../lib/utils";
-import { generateNodeSummary, type NodeSummary } from "../lib/summary-engine";
+import { generateNodeSummary, type NodeSummary, loadLLMConfig, saveLLMConfig, type LLMConfig, executeClientAIQuery } from "../lib/summary-engine";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -616,6 +616,8 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
   const [highlightLine, setHighlightLine] = useState<number | null>(null);
   const [selectedNode, setSelectedNode] = useState<any | null>(null);
   const [nodeSummary, setNodeSummary] = useState<NodeSummary | null>(null);
+  const [llmConfig, setLlmConfig] = useState<LLMConfig>(loadLLMConfig());
+  const [showLlmSettings, setShowLlmSettings] = useState<boolean>(false);
   const isCodeResizing = useRef(false);
   const codeResizeStartX = useRef(0);
   const codeResizeStartW = useRef(420);
@@ -1469,32 +1471,42 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
     try {
       const searchParams = new URLSearchParams(window.location.search);
       const backend = searchParams.get("backend");
-      const backendUrl = backend || window.location.origin;
-      const url = `${backendUrl.replace(/\/$/, "")}/api/ai_query`;
 
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: aiQuery,
-          repo_path: data.metadata?.path || null,
-        }),
-      });
+      if (backend) {
+        const backendUrl = backend || window.location.origin;
+        const url = `${backendUrl.replace(/[\\/]+$/, "")}/api/ai_query`;
+        
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            query: aiQuery,
+            repo_path: data.metadata?.path || null,
+          }),
+        });
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `Server error (${response.status})`);
-      }
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || `Server error (${response.status})`);
+        }
 
-      const resData = await response.json();
-      if (resData.success) {
-        setAiResponse(resData);
-        // Automatically focus and zoom to the query result nodes
-        highlightAIQueryResultNodes(resData);
+        const resData = await response.json();
+        if (resData.success) {
+          setAiResponse(resData);
+          highlightAIQueryResultNodes(resData);
+        } else {
+          setAiError(resData.error || "An error occurred during AI analysis.");
+        }
       } else {
-        setAiError(resData.error || "An error occurred during AI analysis.");
+        const resData = await executeClientAIQuery(aiQuery, data.nodes, data.links, llmConfig);
+        if (resData.success) {
+          setAiResponse(resData);
+          highlightAIQueryResultNodes(resData);
+        } else {
+          setAiError(resData.error || "An error occurred during AI analysis.");
+        }
       }
     } catch (err: any) {
       console.error("AI Query Error:", err);
@@ -1503,7 +1515,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
     } finally {
       setAiLoading(false);
     }
-  }, [aiQuery, data, highlightAIQueryResultNodes]);
+  }, [aiQuery, data, highlightAIQueryResultNodes, llmConfig]);
 
   const getLinkColor = useCallback((link: any) => {
     const isFocused = focusSet ? focusSet.links.has(link) : true;
@@ -1662,10 +1674,65 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
               <div className="flex-1 overflow-y-auto px-2 py-1 custom-scrollbar">
                 {isAIMode ? (
                   <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
-                    <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-                      <MessageSquare className="w-3 h-3 text-purple-400 animate-pulse" /> AI Knowledge Explorer
-                    </h3>
-                    <p className="text-[11px] text-gray-400 leading-relaxed">Ask natural language questions about your repository's code graph.</p>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2 m-0">
+                        <MessageSquare className="w-3 h-3 text-purple-400 animate-pulse" /> AI Knowledge Explorer
+                      </h3>
+                      {!new URLSearchParams(window.location.search).get("backend") && (
+                        <button 
+                          onClick={() => setShowLlmSettings(!showLlmSettings)}
+                          title="BYOK Settings"
+                          className="text-gray-500 hover:text-white"
+                        >
+                          <Settings2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                    
+                    {!new URLSearchParams(window.location.search).get("backend") && (llmConfig.provider === 'none' || showLlmSettings) ? (
+                      <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg space-y-3">
+                        <div className="text-[11px] text-purple-200 leading-relaxed">
+                          <strong>Client-Side Engine:</strong> Configure your API key to run queries locally in your browser.
+                        </div>
+                        <select
+                          value={llmConfig.provider}
+                          onChange={e => setLlmConfig({...llmConfig, provider: e.target.value as any})}
+                          className={`w-full p-2 text-xs rounded border ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
+                        >
+                          <option value="none">Select Provider</option>
+                          <option value="gemini">Google Gemini</option>
+                          <option value="mistral">Mistral AI</option>
+                        </select>
+                        <input
+                          type="password"
+                          placeholder="API Key"
+                          value={llmConfig.apiKey}
+                          onChange={e => setLlmConfig({...llmConfig, apiKey: e.target.value})}
+                          className={`w-full p-2 text-xs rounded border ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
+                        />
+                        <Button 
+                          size="sm" 
+                          className="w-full text-xs" 
+                          onClick={() => {
+                            saveLLMConfig(llmConfig);
+                            setShowLlmSettings(false);
+                            toast.success("LLM Config Saved");
+                          }}
+                        >
+                          Save Config
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-[11px] text-gray-400 leading-relaxed flex items-center justify-between">
+                          <span>Ask natural language questions about your repository's code graph.</span>
+                          {!new URLSearchParams(window.location.search).get("backend") && (
+                            <span className="text-[9px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded ml-2 whitespace-nowrap">Browser BYOK</span>
+                          )}
+                          {new URLSearchParams(window.location.search).get("backend") && (
+                            <span className="text-[9px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded ml-2 whitespace-nowrap">Neo4j Engine</span>
+                          )}
+                        </p>
 
                     <div className="space-y-2 mt-2">
                       <textarea
@@ -1763,6 +1830,8 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                           </div>
                         )}
                       </motion.div>
+                    )}
+                    </>
                     )}
                   </motion.div>
                 ) : isPathMode ? (

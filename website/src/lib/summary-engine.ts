@@ -416,7 +416,83 @@ Respond with ONLY the summary, no markdown formatting.`;
   return null;
 }
 
-async function callGemini(prompt: string, apiKey: string, model?: string): Promise<string> {
+export async function executeClientAIQuery(
+  query: string,
+  nodes: GraphNode[],
+  links: GraphLink[],
+  config: LLMConfig
+): Promise<any> {
+  if (config.provider === 'none' || !config.apiKey) {
+    throw new Error("No LLM configured for client-side execution");
+  }
+
+  // Minify the graph to save tokens
+  // If the graph is insanely huge, a lightweight RAG can be applied here.
+  // For Gemini 2.0 Flash (1M tokens), up to ~5000 nodes is typically fine.
+  const minifiedNodes = nodes.map(n => ({
+    id: n.id,
+    name: n.name,
+    type: n.type,
+    filePath: n.filePath
+  }));
+
+  const minifiedLinks = links.map(l => ({
+    source: typeof l.source === 'object' ? l.source.id : l.source,
+    target: typeof l.target === 'object' ? l.target.id : l.target,
+    type: l.type
+  }));
+
+  const graphContext = JSON.stringify({ nodes: minifiedNodes, edges: minifiedLinks });
+
+  const prompt = `You are an expert AI software architect analyzing a code graph.
+
+Graph Data:
+${graphContext}
+
+User Query: "${query}"
+
+Based on the graph data provided, answer the user's query.
+Respond with a strict JSON object (no markdown, no backticks) containing two keys:
+1. "explanation": A detailed, plain-English explanation answering the query.
+2. "nodeIds": An array of node IDs (strings or numbers) that are relevant to your explanation and should be highlighted in the graph visualization. If no specific nodes apply, return an empty array.
+
+JSON Format:
+{
+  "explanation": "...",
+  "nodeIds": [123, 456]
+}`;
+
+  try {
+    let rawResult = "";
+    if (config.provider === 'gemini') {
+      rawResult = await callGemini(prompt, config.apiKey, config.model, 2000, true);
+    } else if (config.provider === 'mistral') {
+      rawResult = await callMistral(prompt, config.apiKey, config.model, 2000, true);
+    }
+
+    if (!rawResult) throw new Error("Empty response from LLM");
+
+    // Attempt to parse JSON. Some models still include markdown backticks.
+    const jsonStr = rawResult.replace(/^\\s*\`\`\`json/i, '').replace(/\`\`\`\\s*$/i, '').trim();
+    const resultObj = JSON.parse(jsonStr);
+
+    return {
+      success: true,
+      explanation: resultObj.explanation || "No explanation provided.",
+      nodes: (resultObj.nodeIds || []).map((id: any) => ({ id })),
+      translation_explanation: "Processed purely client-side using your BYOK LLM."
+    };
+  } catch (err: any) {
+    console.error(`Client AI Query failed (${config.provider}):`, err);
+    return {
+      success: false,
+      error: err.message || "Failed to process the query."
+    };
+  }
+}
+
+
+async function callGemini(prompt: string, apiKey: string, model?: string, maxTokens: number = 200, jsonMode: boolean = false): Promise<string> {
   const modelId = model || 'gemini-2.0-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
   
@@ -426,9 +502,10 @@ async function callGemini(prompt: string, apiKey: string, model?: string): Promi
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
-        maxOutputTokens: 200,
+        maxOutputTokens: maxTokens,
         temperature: 0.3,
-      },
+        ...(jsonMode ? { responseMimeType: "application/json" } : {})
+      }
     }),
   });
 
@@ -441,7 +518,7 @@ async function callGemini(prompt: string, apiKey: string, model?: string): Promi
   return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-async function callMistral(prompt: string, apiKey: string, model?: string): Promise<string> {
+async function callMistral(prompt: string, apiKey: string, model?: string, maxTokens: number = 200, jsonMode: boolean = false): Promise<string> {
   const modelId = model || 'mistral-small-latest';
   const url = 'https://api.mistral.ai/v1/chat/completions';
 
@@ -454,8 +531,9 @@ async function callMistral(prompt: string, apiKey: string, model?: string): Prom
     body: JSON.stringify({
       model: modelId,
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 200,
+      max_tokens: maxTokens,
       temperature: 0.3,
+      ...(jsonMode ? { response_format: { type: "json_object" } } : {})
     }),
   });
 
