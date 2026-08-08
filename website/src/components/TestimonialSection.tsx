@@ -39,7 +39,7 @@ export default function TestimonialSection() {
   const prev = () => setIndex((i) => (i - 1 + reviews.length) % reviews.length);
 
   return (
-    <section className="py-24 px-4 bg-black">
+    <section className="py-12 px-4 bg-black">
       <div className="container mx-auto max-w-6xl">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}

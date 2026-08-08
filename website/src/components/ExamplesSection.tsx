@@ -47,7 +47,7 @@ const examplesData = [
 
 const ExamplesSection = () => {
   return (
-    <section className="py-24 px-4 relative bg-black">
+    <section className="pt-24 pb-12 px-4 relative bg-black">
       <SectionDivider variant="wave" className="absolute top-0 left-0 right-0 z-0 opacity-40" />
       
       <div className="container mx-auto max-w-6xl relative z-10">
