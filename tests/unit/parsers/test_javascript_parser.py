@@ -118,6 +118,39 @@ function greet(name) {
     assert "greet" in call_names or "log" in call_names
 
 
+
+def test_parse_javascript_destructured_and_rest_parameters(js_parser, temp_test_dir):
+    """Regression test for #1527 — destructured and rest params must be extracted."""
+    code = """
+function plain(a, b) { return a + b; }
+function withDefault(a, b = 10) { return a + b; }
+function withRest(a, ...rest) { return rest; }
+function withObj({ x, y }) { return x + y; }
+function withArr([first, second]) { return first; }
+const arrow = ({label}) => label;
+"""
+    f = temp_test_dir / "params.js"
+    f.write_text(code)
+
+    result = js_parser.parse(f)
+    funcs = {fn["name"]: fn for fn in result["functions"]}
+
+    assert "a" in funcs["plain"]["args"]
+    assert "b" in funcs["plain"]["args"]
+
+    assert "a" in funcs["withDefault"]["args"]
+    assert "b" in funcs["withDefault"]["args"]
+
+    assert "a" in funcs["withRest"]["args"]
+    rest_params = [p for p in funcs["withRest"]["args"] if p.startswith("...")]
+    assert len(rest_params) == 1, f"Expected one rest param, got {funcs['withRest']['args']}"
+
+    # Destructured object — must not silently drop all params
+    assert len(funcs["withObj"]["args"]) > 0, "withObj should have at least one param placeholder"
+
+    # Destructured array — must not silently drop all params
+    assert len(funcs["withArr"]["args"]) > 0, "withArr should have at least one param placeholder"
+
 def test_pre_scan_javascript_indexes_functions(temp_test_dir):
     code = """
 function helper() {}

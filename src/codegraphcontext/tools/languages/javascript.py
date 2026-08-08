@@ -360,11 +360,23 @@ class JavascriptTreeSitterParser:
                     left_child = child.child_by_field_name('left')
                     if left_child and left_child.type == 'identifier':
                         params.append(self._get_node_text(left_child))
-                elif child.type == 'rest_pattern':
+                elif child.type in ('rest_element', 'rest_pattern'):
                     # Rest parameter: ...args
-                    argument = child.child_by_field_name('argument')
-                    if argument and argument.type == 'identifier':
-                        params.append(f"...{self._get_node_text(argument)}")
+                    # Try named field first, then direct identifier child
+                    name_node = (child.child_by_field_name('name') or
+                                 child.child_by_field_name('argument'))
+                    if name_node is None:
+                        name_node = next(
+                            (c for c in child.children if c.type == 'identifier'), None
+                        )
+                    if name_node:
+                        params.append(f"...{self._get_node_text(name_node)}")
+                elif child.type == 'object_pattern':
+                    # Destructured object: {a, b} or {a: renamed}
+                    params.append("{...}")
+                elif child.type == 'array_pattern':
+                    # Destructured array: [a, b]
+                    params.append("[...]")
         return params
 
 
