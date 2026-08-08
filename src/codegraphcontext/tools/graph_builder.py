@@ -1011,7 +1011,7 @@ class GraphBuilder:
             file_data = self.parse_file(repo_path, path)
 
             if "error" not in file_data:
-                self.add_file_to_graph(file_data, repo_name, imports_map, ts_config=ts_config)
+                self.add_file_to_graph(file_data, repo_name, imports_map)
                 return file_data
             if not file_data.get("unsupported"):
                 # Generic file type (.md, .yml, .json, etc.) — create a bare File node

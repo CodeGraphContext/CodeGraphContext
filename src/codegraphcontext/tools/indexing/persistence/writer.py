@@ -86,6 +86,9 @@ class GraphWriter:
     def __init__(self, driver: Any, db_manager: Any = None):
         self.driver = driver
         self._db_manager = db_manager
+        # {repo_root: (base_url, paths_map)} — tsconfig is read from disk, and
+        # TS import resolution runs once per import of every file.
+        self._ts_config_cache: Dict[str, Any] = {}
         if db_manager is None:
             warning_logger(
                 "[GraphWriter] db_manager not provided; "
@@ -202,6 +205,59 @@ class GraphWriter:
                 )
 
         execute_write_operation(self.driver, backend, _work)
+    def _resolve_ts_module(
+        self, import_source: str, importing_file: str, repo_root: str
+    ) -> Optional[str]:
+        """Absolute path a TS/TSX specifier points at, or None if unresolvable.
+
+        Bare specifiers (`react`) stay unresolved on purpose — they are real
+        package names and should keep sharing one Module node under that name.
+        Only project-relative and tsconfig-aliased specifiers are rewritten, so
+        `@utils/x` and `./utils/x` collapse onto the same node instead of
+        fragmenting the graph.
+
+        tsconfig parsing is cached per repository root: it reads and parses
+        JSON from disk, and this runs once per import of every file.
+        """
+        try:
+            from ...ts_import_resolver import parse_tsconfig_paths, resolve_ts_import
+        except ImportError:  # pragma: no cover - resolver is part of the package
+            return None
+
+        try:
+            root = Path(repo_root)
+            # Find tsconfig.json by walking up from the *importing file*, not
+            # from the repo root. The root passed here is the indexed
+            # repository, which is not always the TS project directory — for
+            # the TS fixture it is a level above, so every aliased import
+            # failed to resolve while relative ones still worked. Walking up
+            # also handles a monorepo, where each package has its own tsconfig.
+            project_root = root
+            probe = Path(importing_file).parent
+            for candidate in (probe, *probe.parents):
+                if (candidate / "tsconfig.json").is_file():
+                    project_root = candidate
+                    break
+                if candidate == root:
+                    break
+
+            key = str(project_root)
+            cache = self._ts_config_cache
+            if key not in cache:
+                cache[key] = parse_tsconfig_paths(project_root)
+            base_url, paths_map = cache[key]
+
+            return resolve_ts_import(
+                import_source=import_source,
+                importing_file_path=Path(importing_file),
+                project_root=project_root,
+                base_url=base_url,
+                paths_map=paths_map,
+            )
+        except Exception as exc:  # noqa: BLE001 - resolution is best-effort
+            debug_log(f"TS import resolution failed for {import_source!r}: {exc}")
+            return None
+
     def add_file_to_graph(
         self,
         file_data: Dict[str, Any],
@@ -537,6 +593,15 @@ class GraphWriter:
             for imp in file_data.get("imports", []):
                 if lang in {"javascript", "typescript", "tsx"}:
                     module_name = imp.get("source")
+                    # Resolve TS/TSX specifiers to an absolute file path so the
+                    # same target reached two ways shares one Module node.
+                    # `@utils/string-helpers` (a tsconfig alias) and
+                    # `./utils/string-helpers` otherwise create two, fragmenting
+                    # the graph for any project using path aliases.
+                    if module_name and lang in {"typescript", "tsx"}:
+                        resolved = self._resolve_ts_module(module_name, file_path_str, resolved_repo_str)
+                        if resolved:
+                            module_name = resolved
                     if module_name:
                         js_imports.append(
                             {
