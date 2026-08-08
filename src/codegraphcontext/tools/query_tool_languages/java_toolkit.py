@@ -12,15 +12,23 @@ from typing import Any, Dict, List, Optional
 
 
 class JavaToolkit:
-    """Spring-aware Java analysis methods backed by CodeFinder / raw Cypher."""
+    """Spring-aware Java analysis methods backed by CodeFinder / raw Cypher.
 
-    def __init__(self, code_finder: Any):
-        """
-        Args:
-            code_finder: A ``CodeFinder`` instance (or compatible duck-type).
-        """
+    Note: The generic ``advanced_language_query`` path calls this toolkit
+    with no arguments (consistent with all other language toolkits). The
+    Spring-specific MCP tools (``find_java_spring_endpoints`` /
+    ``find_java_spring_beans``) pass a ``code_finder`` via ``_init_with``.
+    """
+
+    def __init__(self) -> None:
+        self._cf: Any = None
+        self._driver: Any = None
+
+    def _init_with(self, code_finder: Any) -> "JavaToolkit":
+        """Initialise with a live CodeFinder for Spring-specific queries."""
         self._cf = code_finder
         self._driver = code_finder.driver
+        return self
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -106,8 +114,8 @@ class JavaToolkit:
             f"""
             MATCH (c:Class)
             WHERE {where}
-            OPTIONAL MATCH ()-[:INJECTS]->(c)
-            WITH c, count(*) AS injection_count
+            OPTIONAL MATCH ()-[inj:INJECTS]->(c)
+            WITH c, count(inj) AS injection_count
             RETURN c.name AS name, c.spring_stereotype AS stereotype,
                    c.path AS file, c.line_number AS line_number,
                    injection_count
@@ -236,7 +244,7 @@ class JavaToolkit:
         where = " AND ".join(conditions)
         return self._run(
             f"""
-            MATCH (caller)-[c:CALLS]->(callee)
+            MATCH (caller)-[c:CALLS|HEURISTIC_CALLS]->(callee)
             WHERE {where}
             RETURN caller.name AS caller, callee.name AS callee,
                    c.resolution_tier AS resolution_tier, caller.path AS file
@@ -249,5 +257,6 @@ class JavaToolkit:
     # Legacy shim — keeps existing callers working
     def get_cypher_query(self, query: str) -> str:
         raise NotImplementedError(
+            "AdvancedLanguageQuery is not implemented yet for Java. "
             "Use find_spring_endpoints(), find_beans_by_stereotype(), etc. instead."
         )

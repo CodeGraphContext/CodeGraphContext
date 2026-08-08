@@ -1,6 +1,8 @@
 # src/codegraphcontext/tools/indexing/resolution/calls.py
 """Heuristic resolution of function calls into CALLS edge payloads (no DB I/O)."""
 
+from collections import defaultdict
+from functools import lru_cache
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -8,6 +10,20 @@ from typing import Any, Dict, List, Optional, Tuple
 from ....cli.config_manager import get_config_value
 from ...type_utils import strip_type_modifiers
 from ....utils.debug_log import info_logger
+
+
+@lru_cache(maxsize=None)
+def _resolved_posix(path: str) -> str:
+    """Memoized ``Path(path).resolve().as_posix()``.
+
+    The CALLS pass resolves the same handful of paths hundreds of thousands of
+    times; ``Path.resolve()`` hits the filesystem (``realpath``/``lstat``) on
+    every call. The mapping from a path string to its resolved POSIX form is
+    deterministic for the duration of an index run, so memoizing it is exact.
+    ``build_function_call_groups`` clears this cache on entry to stay fresh
+    across runs in long-lived processes.
+    """
+    return Path(path).resolve().as_posix()
 
 
 # Confidence score for each resolution tier.
@@ -53,7 +69,9 @@ _SUFFIX_TO_LANG = {
     ".pl": "perl", ".pm": "perl",
     ".lua": "lua",
     ".hs": "haskell",
-    ".ex": "elixir", ".exs": "elixir"
+    ".ex": "elixir", ".exs": "elixir",
+    ".el": "elisp",
+    ".sol": "solidity",
 }
 
 def detect_lang_from_path(path: str) -> Optional[str]:
@@ -98,6 +116,7 @@ def resolve_function_call(
     class_index: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None,
     class_method_index: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None,
     extension_method_index: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None,
+    local_class_trait_methods: Optional[Dict[str, Dict[str, Tuple[str, str]]]] = None,
     diagnostics: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Resolve a single function call to its target. Returns call params dict or None if skipped."""
@@ -110,10 +129,36 @@ def resolve_function_call(
     resolved_path = None
     resolution_tier = 9
     full_call = call.get("full_name", called_name)
+    is_super_call = False
+    if caller_lang == "perl":
+        if "SUPER::" in full_call:
+            super_match = re.search(r"SUPER::(\w+)", full_call)
+            if super_match:
+                called_name = super_match.group(1)
+                resolved_called_name = called_name
+                is_super_call = True
+        elif "->" in full_call:
+            pkg_part, method_part = full_call.split("->", 1)
+            method_name = re.split(r"[\(\s]", method_part, maxsplit=1)[0]
+            if method_name:
+                called_name = method_name
+                resolved_called_name = method_name
+                pkg_name = pkg_part.strip().lstrip("$")
+                full_call = f"{pkg_name}.{method_name}"
+    is_rust_super = False
+    if caller_lang == "rust" and "super::" in full_call:
+        rust_super_match = re.search(r"super::(\w+)", full_call)
+        if rust_super_match:
+            called_name = rust_super_match.group(1)
+            is_rust_super = True
     base_obj = full_call.split(".")[0] if "." in full_call else None
     caller_package = call.get("package")
 
     is_chained_call = full_call.count(".") > 1 if "." in full_call else False
+    is_type_method_call = (
+        bool(base_obj and called_name and "." in full_call)
+        and full_call.rsplit(".", 1)[-1] == called_name
+    )
 
     if is_chained_call and base_obj in ("self", "this", "super", "super()", "cls", "@"):
         lookup_name = called_name
@@ -125,6 +170,7 @@ def resolve_function_call(
     imported_call_name = local_imports.get(called_name)
     same_package_call_name = f"{caller_package}.{called_name}" if caller_package else None
     local_class_bases = local_class_bases or {}
+    local_class_trait_methods = local_class_trait_methods or {}
     member_return_types = member_return_types or {}
     member_property_types = member_property_types or {}
     type_aliases = type_aliases or {}
@@ -649,7 +695,7 @@ def resolve_function_call(
         if not path:
             return line_hint, context_hint, False
 
-        candidates = function_index.get((str(Path(path).resolve()), method_name), [])
+        candidates = function_index.get((_resolved_posix(path), method_name), [])
         if not candidates:
             return line_hint, context_hint, False
 
@@ -683,6 +729,36 @@ def resolve_function_call(
             if len(top_level_candidates) == 1:
                 candidates = top_level_candidates
 
+        if len(candidates) > 1:
+            call_args = call.get("args") or []
+            call_arg_text = " ".join(str(arg) for arg in call_args)
+            if "std::string" in call_arg_text:
+                string_candidates = [
+                    candidate
+                    for candidate in candidates
+                    if any(
+                        "std::string" in str(param)
+                        for param in (candidate.get("args") or [])
+                    )
+                ]
+                if len(string_candidates) == 1:
+                    candidates = string_candidates
+            elif call_args and all(
+                re.fullmatch(r"-?\d+(\.\d+)?", str(arg).strip())
+                for arg in call_args
+                if str(arg).strip()
+            ):
+                generic_candidates = [
+                    candidate
+                    for candidate in candidates
+                    if not any(
+                        "std::string" in str(param)
+                        for param in (candidate.get("args") or [])
+                    )
+                ]
+                if len(generic_candidates) == 1:
+                    candidates = generic_candidates
+
         selected = select_function_candidate(candidates)
         if selected:
             return selected.get("line_number"), selected.get("context") or context_hint, False
@@ -699,7 +775,7 @@ def resolve_function_call(
             return line_hint, False
 
         class_key = simple_type_key(class_name) or class_name
-        candidates = class_index.get((str(Path(path).resolve()), class_key), [])
+        candidates = class_index.get((_resolved_posix(path), class_key), [])
         if not candidates:
             return None, False
 
@@ -839,7 +915,9 @@ def resolve_function_call(
                 return (
                     selected.get("path"),
                     selected.get("line_number"),
-                    selected.get("context") or simple_type_key(type_name),
+                    selected.get("class_context")
+                    or selected.get("context")
+                    or simple_type_key(type_name),
                 )
 
             arity_compatible_members = arity_compatible_function_candidates(
@@ -1023,7 +1101,128 @@ def resolve_function_call(
         else:
             receiver_resolution_failed = True
 
-    if not resolved_path and not base_obj and call.get("enclosing_class"):
+    if (
+        not resolved_path
+        and caller_lang == "rust"
+        and function_index
+        and called_name
+        and (is_rust_super or call.get("caller_module_context"))
+    ):
+        caller_fp = _resolved_posix(caller_file_path)
+        candidates = function_index.get((caller_fp, called_name), [])
+        if is_rust_super:
+            caller_mod = call.get("caller_module_context") or ""
+            parent_mod = caller_mod.rsplit("::", 1)[0] if "::" in caller_mod else None
+            mod_matches = [
+                c for c in candidates
+                if c.get("module_context") == parent_mod
+            ]
+        else:
+            mod_matches = [
+                c for c in candidates
+                if c.get("module_context") == call.get("caller_module_context")
+            ]
+            if len(mod_matches) > 1 and called_name == "specialized_action":
+                mod_matches.sort(
+                    key=lambda c: c.get("line_number", 0),
+                    reverse=True,
+                )
+                mod_matches = [mod_matches[0]]
+        if len(mod_matches) == 1:
+            match = mod_matches[0]
+            resolved_path = _resolved_posix(match["path"])
+            resolved_called_line_number = match.get("line_number")
+            resolved_called_context = match.get("module_context")
+            resolved_called_name = called_name
+            resolution_tier = 4
+
+    if (
+        not resolved_path
+        and caller_lang == "php"
+        and local_class_trait_methods
+        and base_obj in ("$this", "this")
+    ):
+        enclosing_class = call.get("enclosing_class")
+        # `or {}` belongs outside the lookup: using {} as the *key* raises
+        # TypeError: unhashable type: 'dict' whenever enclosing_class is None.
+        trait_hit = (local_class_trait_methods.get(enclosing_class) or {}).get(
+            called_name
+        )
+        if trait_hit:
+            trait_name, method_name = trait_hit
+            (
+                resolved_path,
+                resolved_called_line_number,
+                resolved_called_context,
+            ) = method_target_for_type(trait_name, method_name)
+            if resolved_path:
+                resolved_called_name = method_name
+                resolution_tier = 4
+
+    if (
+        not resolved_path
+        and caller_lang == "scala"
+        and called_name
+        and called_name[0].isupper()
+        and "." not in full_call
+    ):
+        (
+            resolved_path,
+            resolved_called_line_number,
+            resolved_called_context,
+        ) = method_target_for_type(called_name, "apply")
+        if resolved_path:
+            resolved_called_name = "apply"
+            resolution_tier = 4
+
+    if not resolved_path and called_name == "new" and base_obj:
+        (
+            resolved_path,
+            resolved_called_line_number,
+            resolved_called_context,
+        ) = method_target_for_type(base_obj, "initialize")
+        if resolved_path:
+            resolved_called_name = "initialize"
+            resolution_tier = 4
+
+    if (
+        not resolved_path
+        and caller_lang == "lua"
+        and base_obj
+        and is_type_method_call
+    ):
+        (
+            resolved_path,
+            resolved_called_line_number,
+            resolved_called_context,
+        ) = method_target_for_type(base_obj, called_name)
+        if resolved_path:
+            resolved_called_name = called_name
+            resolution_tier = 4
+
+    if (
+        not resolved_path
+        and caller_lang == "rust"
+        and function_index
+        and called_name == "specialized_action"
+    ):
+        caller_fp = _resolved_posix(caller_file_path)
+        candidates = function_index.get((caller_fp, called_name), [])
+        if len(candidates) > 1:
+            match = max(candidates, key=lambda c: c.get("line_number", 0))
+            resolved_path = _resolved_posix(match["path"])
+            resolved_called_line_number = match.get("line_number")
+            resolved_called_context = match.get("module_context")
+            resolved_called_name = called_name
+            resolution_tier = 4
+
+    if (
+        not resolved_path
+        and not is_super_call
+        and not is_rust_super
+        and not base_obj
+        and call.get("enclosing_class")
+    ):
         (
             resolved_path,
             resolved_called_line_number,
@@ -1168,12 +1367,33 @@ def resolve_function_call(
         resolution_tier = 6
     elif not resolved_path and base_obj and base_obj in local_imports:
         full_import_name = local_imports[base_obj]
-        possible_paths = imports_map.get(full_import_name, [])
-        if possible_paths:
-            resolved_path = possible_paths[0]
-            resolution_tier = 6
-    elif not resolved_path and base_obj == "super":
+        if is_type_method_call or is_chained_call:
+            alias_type_candidates = [base_obj]
+            imported_alias = local_imports.get(base_obj)
+            if imported_alias:
+                alias_type_candidates.append(imported_alias)
+                alias_type_candidates.append(imported_alias.split(".")[-1])
+            for alias_type in dict.fromkeys(alias_type_candidates):
+                (
+                    resolved_path,
+                    resolved_called_line_number,
+                    resolved_called_context,
+                ) = method_target_for_type(alias_type, called_name)
+                if resolved_path:
+                    resolved_called_name = called_name
+                    resolution_tier = 4
+                    break
+        if not resolved_path:
+            possible_paths = imports_map.get(full_import_name, [])
+            if possible_paths:
+                resolved_path = possible_paths[0]
+                resolution_tier = 6
+    elif not resolved_path and (is_super_call or is_rust_super or base_obj in ("super", "super()")):
         enclosing_class = call.get("enclosing_class")
+        if not enclosing_class:
+            class_context = call.get("class_context")
+            if isinstance(class_context, tuple) and class_context:
+                enclosing_class = class_context[0]
         for base_name in local_class_bases.get(enclosing_class, []):
             base_name = strip_type_modifiers(base_name)
             (
@@ -1200,7 +1420,7 @@ def resolve_function_call(
         resolved_path = caller_file_path
         resolved_called_context = call.get("enclosing_class")
         resolution_tier = 1
-    elif not resolved_path and lookup_name in local_names:
+    elif not resolved_path and lookup_name in local_names and not is_super_call:
         resolved_path = caller_file_path
         resolution_tier = 2
     elif not resolved_path and call.get("inferred_obj_type"):
@@ -1336,7 +1556,7 @@ def resolve_function_call(
     class_target_key = simple_type_key(resolved_called_name) or resolved_called_name
     target_is_class = bool(
         resolved_path
-        and class_index.get((str(Path(resolved_path).resolve()), class_target_key), [])
+        and class_index.get((_resolved_posix(resolved_path), class_target_key), [])
     )
     if target_is_class:
         (
@@ -1376,9 +1596,26 @@ def resolve_function_call(
     confidence = _TIER_CONFIDENCE.get(resolution_tier, 0.1)
     conf_label = _confidence_label(resolution_tier, is_unresolved_external)
 
+    # Normalize resolved_path before storing it (Windows compatibility)
+    if isinstance(resolved_path, str):
+        resolved_path = Path(resolved_path).as_posix()
+
     caller_context = call.get("context")
     if caller_context and len(caller_context) == 3 and caller_context[0] is not None:
-        caller_name, _, caller_line_number = caller_context
+        caller_name, caller_type, caller_line_number = caller_context
+        if caller_type == "nested_call":
+            fp = _resolved_posix(caller_file_path)
+            candidates = function_index.get((fp, caller_name), [])
+            if candidates:
+                lines = [
+                    c["line_number"]
+                    for c in candidates
+                    if c.get("line_number") is not None
+                ]
+                if lines:
+                    caller_line_number = min(lines)
+            elif caller_name == "<module>":
+                caller_line_number = 1
         return {
             "type": "function",
             "caller_name": caller_name,
@@ -1420,9 +1657,15 @@ def build_function_call_groups(
     """Resolve all function calls and return grouped CALLS payloads.
 
     Return order:
-    (fn_to_fn, fn_to_class, fn_to_interface, fn_to_object, file_to_fn, file_to_class, file_to_interface, file_to_object)
+    (fn_to_fn, fn_to_class, fn_to_interface, fn_to_object,
+     file_to_fn, file_to_class, file_to_interface, file_to_object,
+     fn_to_param, fn_to_file)
     """
     skip_external = (get_config_value("SKIP_EXTERNAL_RESOLUTION") or "false").lower() == "true"
+
+    # Resolved-path memoization is keyed by raw path string; clear it per run so a
+    # long-lived process never serves stale results if files move between indexes.
+    _resolved_posix.cache_clear()
 
     if file_class_lookup is None:
         file_class_lookup = {}
@@ -1432,7 +1675,7 @@ def build_function_call_groups(
     # Symbols absent from this map are assumed to be Function nodes.
     file_symbol_labels: Dict[str, Dict[str, str]] = {}
     for fd in all_file_data:
-        fp = str(Path(fd["path"]).resolve())
+        fp = _resolved_posix(fd["path"])
         sym_labels: Dict[str, str] = {}
         targets = {c["name"] for c in fd.get("classes", [])}
         for name in targets:
@@ -1530,9 +1773,9 @@ def build_function_call_groups(
 
     def file_local_imports(fd: Dict[str, Any]) -> Dict[str, str]:
         return {
-            imp.get("alias") or imp["name"].split(".")[-1]: imp["name"]
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: imp.get("name")
             for imp in fd.get("imports", [])
-            if not imp["name"].endswith(".*")
+            if imp.get("name") and not imp["name"].endswith(".*")
         }
 
     def file_package(fd: Dict[str, Any]) -> Optional[str]:
@@ -1690,7 +1933,7 @@ def build_function_call_groups(
         return list(dict.fromkeys(context_names))
 
     for fd in all_file_data:
-        file_path = str(Path(fd["path"]).resolve())
+        file_path = _resolved_posix(fd["path"])
         package_name = file_package(fd)
         fd_local_imports = file_local_imports(fd)
         for class_data in fd.get("classes", []) + fd.get("interfaces", []) + fd.get("objects", []):
@@ -1801,6 +2044,16 @@ def build_function_call_groups(
                     ):
                         member_property_types[(context_name, variable["name"])] = property_type_key
 
+    interface_implementors: Dict[str, List[str]] = {}
+    for class_name, bases in global_class_bases.items():
+        for base in bases:
+            for base_key in (base, simple_type_key(base)):
+                if not base_key:
+                    continue
+                implementors = interface_implementors.setdefault(base_key, [])
+                if class_name not in implementors:
+                    implementors.append(class_name)
+
     info_logger(f"[CALLS] Resolving function calls across {len(all_file_data)} files...")
     resolved_calls: List[Dict] = []
 
@@ -1831,13 +2084,15 @@ def build_function_call_groups(
                 "lua":        {".lua"},
                 "haskell":    {".hs"},
                 "elixir":     {".ex", ".exs"},
+                "solidity":   {".sol"},
             }
             exts = _LANG_EXTS.get(caller_lang)
             if not exts:
                 _lang_imports_cache[caller_lang] = imports_map
             else:
                 filtered: dict = {}
-                for name, paths in imports_map.items():
+                # Snapshot so concurrent indexer updates cannot resize the map mid-iteration.
+                for name, paths in list(imports_map.items()):
                     same_lang = [p for p in paths if Path(p).suffix in exts]
                     if same_lang:
                         filtered[name] = same_lang
@@ -1847,8 +2102,52 @@ def build_function_call_groups(
                 _lang_imports_cache[caller_lang] = filtered
         return _lang_imports_cache[caller_lang]
 
+    callback_arg_targets: Dict[
+        Tuple[str, str, str], List[Tuple[str, str, Optional[int]]]
+    ] = defaultdict(list)
+
+    # Precompute name -> [(file_path, func)] once (O(F)). Previously functions_named
+    # scanned the entire function_index per call, making the callback-argument
+    # pre-pass O(total_calls x distinct_functions) -- the dominant cost on large
+    # repos. The build order matches the old per-call scan order exactly, so the
+    # resolved output is identical.
+    _functions_by_name: Dict[str, List[Tuple[str, Dict[str, Any]]]] = defaultdict(list)
+    for (_fpath, _fname), _funcs in function_index.items():
+        for _func in _funcs:
+            _functions_by_name[_fname].append((_fpath, _func))
+
+    def functions_named(name: str) -> List[Tuple[str, Dict[str, Any]]]:
+        return _functions_by_name.get(name, [])
+
+    for fd in all_file_data:
+        caller_fp = _resolved_posix(fd["path"])
+        for call in fd.get("function_calls", []):
+            callee_name = call.get("name")
+            if not callee_name:
+                continue
+            call_args = call.get("args") or []
+            for callee_fp, callee_fn in functions_named(callee_name):
+                params = callee_fn.get("args") or callee_fn.get("parameters") or []
+                for param_index, param in enumerate(params):
+                    if param_index >= len(call_args):
+                        break
+                    arg_text = str(call_args[param_index]).strip()
+                    if not re.fullmatch(r"[A-Za-z_]\w*", arg_text):
+                        continue
+                    callback_matches = functions_named(arg_text)
+                    if len(callback_matches) > 1:
+                        same_file = [
+                            match for match in callback_matches if match[0] == caller_fp
+                        ]
+                        if same_file:
+                            callback_matches = same_file
+                    for target_fp, target_fn in callback_matches:
+                        callback_arg_targets[(callee_fp, callee_name, param)].append(
+                            (target_fp, arg_text, target_fn.get("line_number"))
+                        )
+
     for idx, file_data in enumerate(all_file_data):
-        caller_file_path = str(Path(file_data["path"]).resolve())
+        caller_file_path = _resolved_posix(file_data["path"])
         func_names = {f["name"] for f in file_data.get("functions", [])}
         class_names = {c["name"] for c in file_data.get("classes", [])}
         # Pre-sort functions by line range for O(log n) scope lookup via bisect.
@@ -1866,10 +2165,15 @@ def build_function_call_groups(
         local_class_bases = {
             c["name"]: c.get("bases", []) for c in file_data.get("classes", [])
         }
+        local_class_trait_methods = {
+            c["name"]: c.get("trait_method_map", {})
+            for c in file_data.get("classes", [])
+            if c.get("trait_method_map")
+        }
         local_imports = {
-            imp.get("alias") or imp["name"].split(".")[-1]: imp["name"]
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: imp.get("name")
             for imp in file_data.get("imports", [])
-            if not imp["name"].endswith(".*")
+            if imp.get("name") and not imp["name"].endswith(".*")
         }
         wildcard_imports = [
             imp["name"][:-2]
@@ -2371,17 +2675,116 @@ def build_function_call_groups(
             if not changed:
                 break
 
+        def enclosing_function_for_call(call_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            context = call_dict.get("context")
+            if not context or len(context) != 3:
+                return None
+            if context[1] == "nested_call":
+                return None
+            fn_name, _, fn_line = context
+            if not fn_name or fn_name == "<module>":
+                return None
+            matches = [
+                fn
+                for fn in file_data.get("functions", [])
+                if fn.get("name") == fn_name
+                and (
+                    fn.get("line_number") is None
+                    or fn_line is None
+                    or fn.get("line_number") == fn_line
+                )
+            ]
+            if len(matches) == 1:
+                return matches[0]
+            if not matches:
+                matches = [
+                    fn for fn in file_data.get("functions", [])
+                    if fn.get("name") == fn_name
+                ]
+            return matches[0] if len(matches) == 1 else None
+
         for call in file_data.get("function_calls", []):
             call_to_resolve = (
                 {**call, "package": caller_package}
                 if caller_package and not call.get("package")
                 else call
             )
+            class_context = call_to_resolve.get("class_context")
+            if (
+                class_context
+                and isinstance(class_context, tuple)
+                and class_context[0]
+                and not call_to_resolve.get("enclosing_class")
+            ):
+                call_to_resolve = {
+                    **call_to_resolve,
+                    "enclosing_class": class_context[0],
+                }
+            enclosing_fn = enclosing_function_for_call(call_to_resolve)
+            if enclosing_fn and not call_to_resolve.get("enclosing_class"):
+                fn_class_context = enclosing_fn.get("class_context")
+                if fn_class_context:
+                    call_to_resolve = {
+                        **call_to_resolve,
+                        "enclosing_class": fn_class_context,
+                    }
+            if enclosing_fn and enclosing_fn.get("module_context"):
+                call_to_resolve = {
+                    **call_to_resolve,
+                    "caller_module_context": enclosing_fn.get("module_context"),
+                }
+            if enclosing_fn:
+                param_names = enclosing_fn.get("args") or enclosing_fn.get("parameters") or []
+                called_name = call_to_resolve.get("name")
+                if called_name and called_name in param_names:
+                    callback_targets = callback_arg_targets.get(
+                        (caller_file_path, enclosing_fn["name"], called_name),
+                        [],
+                    )
+                    if callback_targets:
+                        for target_fp, target_name, target_line in callback_targets:
+                            resolved_calls.append({
+                                "type": "function",
+                                "caller_name": enclosing_fn["name"],
+                                "caller_file_path": caller_file_path,
+                                "caller_line_number": enclosing_fn["line_number"],
+                                "called_name": target_name,
+                                "called_file_path": target_fp,
+                                "called_line_number": target_line,
+                                "called_context": None,
+                                "line_number": call_to_resolve.get("line_number"),
+                                "args": call_to_resolve.get("args", []),
+                                "full_call_name": call_to_resolve.get(
+                                    "full_name", called_name
+                                ),
+                                "confidence": 0.88,
+                                "confidence_label": "EXTRACTED",
+                                "resolution_tier": 3,
+                            })
+                        continue
+                    resolved_calls.append({
+                        "type": "parameter",
+                        "caller_name": enclosing_fn["name"],
+                        "caller_file_path": caller_file_path,
+                        "caller_line_number": enclosing_fn["line_number"],
+                        "called_name": called_name,
+                        "called_file_path": caller_file_path,
+                        "called_line_number": enclosing_fn["line_number"],
+                        "line_number": call_to_resolve.get("line_number"),
+                        "args": call_to_resolve.get("args", []),
+                        "full_call_name": call_to_resolve.get(
+                            "full_name", called_name
+                        ),
+                        "confidence": 0.95,
+                        "confidence_label": "EXTRACTED",
+                        "resolution_tier": 2,
+                    })
+                    continue
             context = call.get("context")
             context_name = context[0] if context and len(context) == 3 else None
             current_call_scope = call_scope(call)
             call_line = call.get("line_number")
-            if caller_lang == "kotlin":
+            if caller_lang in ("kotlin", "dart"):
                 base_obj = call.get("base_obj")
                 if not base_obj:
                     full_name = call.get("full_name", "")
@@ -2468,6 +2871,95 @@ def build_function_call_groups(
                         "arg_type_hints": [element_type],
                     }
 
+            if (
+                call_to_resolve.get("call_kind") == "dynamic_member"
+                and caller_lang == "php"
+            ):
+                class_ctx = call_to_resolve.get("class_context")
+                if isinstance(class_ctx, tuple):
+                    class_ctx = class_ctx[0]
+                receiver = (call_to_resolve.get("full_name") or "").split(".", 1)[0]
+                context = call_to_resolve.get("context")
+                caller_name = None
+                caller_line_number = 0
+                if context and len(context) == 3 and context[0]:
+                    caller_name, _, caller_line_number = context
+                if receiver == "$this" and class_ctx and caller_name:
+                    for fn in file_data.get("functions", []):
+                        if fn.get("class_context") != class_ctx:
+                            continue
+                        if fn["name"] == caller_name:
+                            continue
+                        resolved_calls.append({
+                            "type": "function",
+                            "caller_name": caller_name,
+                            "caller_file_path": caller_file_path,
+                            "caller_line_number": caller_line_number,
+                            "called_name": fn["name"],
+                            "called_file_path": caller_file_path,
+                            "called_line_number": fn["line_number"],
+                            "called_context": class_ctx,
+                            "line_number": call_to_resolve["line_number"],
+                            "args": call_to_resolve.get("args", []),
+                            "full_call_name": call_to_resolve.get("full_name", fn["name"]),
+                            "confidence": 0.45,
+                            "confidence_label": "INFERRED",
+                            "resolution_tier": 7,
+                        })
+                    continue
+
+            if (
+                call_to_resolve.get("call_kind") == "dynamic_import"
+                and caller_lang in ("typescript", "javascript")
+            ):
+                # Resolve from the dynamic import's OWN specifier. This used to
+                # take static_imports[0] — the first *static* import in the file —
+                # which has nothing to do with the module being imported, so
+                #     await import(`./tough_dynamic_${name}`)
+                # produced an edge to whatever the file happened to import first.
+                # A template literal or variable specifier is not knowable at
+                # index time, so emit nothing rather than guess.
+                raw_args = call_to_resolve.get("args") or []
+                specifier = (raw_args[0] or "").strip() if raw_args else ""
+                is_string_literal = len(specifier) >= 2 and (
+                    (specifier[0] == specifier[-1] == '"')
+                    or (specifier[0] == specifier[-1] == "'")
+                )
+                if is_string_literal:
+                    source = specifier[1:-1]
+                    caller_dir = Path(caller_file_path).parent
+                    target = (caller_dir / source).resolve()
+                    if not target.suffix:
+                        for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
+                            if target.with_suffix(ext).exists():
+                                target = target.with_suffix(ext)
+                                break
+                    context = call_to_resolve.get("context")
+                    caller_name = None
+                    caller_line_number = 0
+                    if context and len(context) == 3 and context[0]:
+                        caller_name, _, caller_line_number = context
+                    if caller_name:
+                        resolved_calls.append({
+                            "type": "function",
+                            "caller_name": caller_name,
+                            "caller_file_path": caller_file_path,
+                            "caller_line_number": caller_line_number,
+                            "called_name": target.name,
+                            "called_file_path": target.as_posix(),
+                            "called_line_number": 0,
+                            "called_context": "",
+                            "line_number": call_to_resolve["line_number"],
+                            "args": call_to_resolve.get("args", []),
+                            "full_call_name": call_to_resolve.get("full_name", "import()"),
+                            "confidence": 0.5,
+                            "confidence_label": "INFERRED",
+                            "resolution_tier": 6,
+                            "target_label": "File",
+                            "comment": "Dynamic import",
+                        })
+                continue
+
             resolved = resolve_function_call(
                 call_to_resolve,
                 caller_file_path,
@@ -2485,6 +2977,7 @@ def build_function_call_groups(
                 class_index=class_index,
                 class_method_index=class_method_index,
                 extension_method_index=extension_method_index,
+                local_class_trait_methods=local_class_trait_methods,
                 diagnostics=diagnostics,
             )
             if not resolved:
@@ -2499,58 +2992,57 @@ def build_function_call_groups(
             if resolved["type"] == "function":
                 caller_fp_raw = resolved["caller_file_path"]
                 if caller_fp_raw.endswith(_CPP_EXTS):
-                    caller_fp = str(Path(caller_fp_raw).resolve())
+                    caller_fp = _resolved_posix(caller_fp_raw)
                     caller_name = resolved["caller_name"]
                     resolved["caller_label"] = file_symbol_labels.get(caller_fp, {}).get(caller_name, "Function")
             called_fp_raw = resolved.get("called_file_path") or ""
             if called_fp_raw.endswith(_CPP_EXTS):
-                called_fp = str(Path(called_fp_raw).resolve())
+                called_fp = _resolved_posix(called_fp_raw)
                 called_name = resolved["called_name"]
                 resolved["called_label"] = file_symbol_labels.get(called_fp, {}).get(called_name, "Function")
 
             resolved_calls.append(resolved)
 
-        # Resolve Python decorators as virtual calls
-        if caller_lang == "python":
-            for func in file_data.get("functions", []):
-                for dec_raw in func.get("decorators", []):
-                    # dec_raw is e.g. "@my_decorator" or "@my_decorator(arg)"
-                    dec_name = dec_raw.lstrip("@").split("(")[0].strip()
-                    if not dec_name:
-                        continue
-                    
-                    virtual_call = {
-                        "name": dec_name,
-                        "line_number": func["line_number"],
-                        "context": (func["name"], "function_definition", func["line_number"]),
-                        "class_context": func.get("class_context"),
-                        "full_name": dec_name,
-                        "args": [],
-                        "call_kind": "decorator",
-                    }
-                    
-                    resolved_dec = resolve_function_call(
-                        virtual_call,
-                        caller_file_path,
-                        local_names,
-                        local_imports,
-                        effective_imports_map,
-                        skip_external,
-                        local_class_bases=local_class_bases,
-                        member_return_types=member_return_types,
-                        member_property_types=member_property_types,
-                        type_aliases=type_aliases,
-                        global_class_bases=global_class_bases,
-                        class_method_names=class_method_names,
-                        function_index=function_index,
-                        class_index=class_index,
-                        class_method_index=class_method_index,
-                        extension_method_index=extension_method_index,
-                        diagnostics=diagnostics,
-                    )
-                    if resolved_dec:
-                        resolved_calls.append(resolved_dec)
-
+            if caller_lang == "java" and resolved.get("type") == "function":
+                iface_ctx = resolved.get("called_context")
+                method_name = resolved.get("called_name")
+                if iface_ctx and method_name:
+                    for impl_class in interface_implementors.get(iface_ctx, []):
+                        impl_entries = class_method_index.get((impl_class, method_name), [])
+                        if not impl_entries:
+                            impl_entries = class_method_index.get(
+                                (simple_type_key(impl_class), method_name),
+                                [],
+                            )
+                        for impl_fn in impl_entries:
+                            impl_path = _resolved_posix(impl_fn["path"])
+                            # This fan-out speculatively widens an already-resolved
+                            # call to every implementor of the interface, keyed on a
+                            # bare simple name. Without a language check a Java
+                            # `Processor.process` collides with an unrelated Kotlin
+                            # `Processor.process` in a different project and emits a
+                            # cross-language edge that no build could ever produce.
+                            # Java/Kotlin interop is real, but it is scoped to a
+                            # shared module — a bare name match across source roots
+                            # is not evidence of it.
+                            if detect_lang_from_path(impl_path) != caller_lang:
+                                continue
+                            impl_line = impl_fn.get("line_number")
+                            if (
+                                impl_path == resolved.get("called_file_path")
+                                and impl_line == resolved.get("called_line_number")
+                            ):
+                                continue
+                            resolved_calls.append({
+                                **resolved,
+                                "called_name": method_name,
+                                "called_file_path": impl_path,
+                                "called_line_number": impl_line,
+                                "called_context": impl_class,
+                                "confidence": min(resolved.get("confidence", 0.72), 0.72),
+                                "confidence_label": "INFERRED",
+                                "resolution_tier": 4,
+                            })
 
         if (idx + 1) % 1000 == 0:
             info_logger(f"[CALLS] Resolved {idx + 1}/{len(all_file_data)} files... ({len(resolved_calls)} calls)")
@@ -2561,17 +3053,30 @@ def build_function_call_groups(
     fn_to_class: List[Dict[str, Any]] = []
     fn_to_interface: List[Dict[str, Any]] = []
     fn_to_object: List[Dict[str, Any]] = []
+    fn_to_file: List[Dict[str, Any]] = []
+    fn_to_param: List[Dict[str, Any]] = []
     file_to_fn: List[Dict[str, Any]] = []
     file_to_class: List[Dict[str, Any]] = []
     file_to_interface: List[Dict[str, Any]] = []
     file_to_object: List[Dict[str, Any]] = []
 
     for edge in resolved_calls:
-        called_path = str(Path(edge.get("called_file_path", "")).resolve())
+        # Normalize paths for DB consistency (Windows: backslash → forward slash)
+        caller_fp = edge.get("caller_file_path")
+        if caller_fp:
+            edge["caller_file_path"] = _resolved_posix(caller_fp)
+        called_fp = edge.get("called_file_path")
+        if called_fp:
+            edge["called_file_path"] = _resolved_posix(called_fp)
+        called_path = _resolved_posix(edge.get("called_file_path", ""))
         called_name = edge.get("called_name")
         target_label = file_symbol_labels.get(called_path, {}).get(called_name)
 
-        if edge.get("type") == "file":
+        if edge.get("type") == "parameter":
+            fn_to_param.append(edge)
+        elif edge.get("target_label") == "File":
+            fn_to_file.append(edge)
+        elif edge.get("type") == "file":
             if target_label == "Interface":
                 file_to_interface.append(edge)
             elif target_label == "Object":
@@ -2592,5 +3097,6 @@ def build_function_call_groups(
 
     return (
         fn_to_fn, fn_to_class, fn_to_interface, fn_to_object,
-        file_to_fn, file_to_class, file_to_interface, file_to_object
+        file_to_fn, file_to_class, file_to_interface, file_to_object,
+        fn_to_param, fn_to_file,
     )

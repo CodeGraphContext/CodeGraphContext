@@ -1,10 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-05-19T02:33:42.624488",
-  "format_version": "1.0",
+  "exported_at": "2026-07-25T16:56:35Z",
+  "format_version": "1.0.0",
   "repo": "sample_project_java",
-  "repo_path": "/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project_java",
+  "repo_path": ".",
   "is_dependency": false,
-  "commit": "0c6be239",
-  "languages": []
+  "commit": "8bd1a8f7",
+  "branch": "main",
+  "generator": "PYv0.5.1",
+  "name": "sample_project_java.cgc",
+  "graph_metrics": {
+    "total_nodes": 159,
+    "total_edges": 224
+  }
 }

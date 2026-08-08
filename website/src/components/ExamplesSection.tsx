@@ -1,13 +1,13 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { MessageCircle, Search, Eye, BarChart3 } from "lucide-react";
-import { motion } from "framer-motion";
+import GlassCard from "./GlassCard";
+import SectionDivider from "./SectionDivider";
 
 const examplesData = [
   {
     icon: MessageCircle,
     category: "Indexing",
     title: "Add Projects to Graph",
+    color: "primary",
     examples: [
       "Please index the code in the `/path/to/my-project` directory.",
       "Add the project at `~/dev/my-app` to the code graph."
@@ -17,6 +17,7 @@ const examplesData = [
     icon: Search,
     category: "Analysis",
     title: "Code Relationships", 
+    color: "accent",
     examples: [
       "Show me all functions that call `process_data()`",
       "Find the class hierarchy for `BaseProcessor`"
@@ -26,6 +27,7 @@ const examplesData = [
     icon: Eye,
     category: "Monitoring",
     title: "Live Updates",
+    color: "graph-node-3",
     examples: [
       "Watch the `/project` directory for changes.",
       "Keep the graph updated for my active development."
@@ -35,6 +37,7 @@ const examplesData = [
     icon: BarChart3,
     category: "Insights",
     title: "Code Quality",
+    color: "graph-node-1",
     examples: [
       "Find dead code in my project",
       "Show the most complex functions by cyclomatic complexity"
@@ -44,59 +47,50 @@ const examplesData = [
 
 const ExamplesSection = () => {
   return (
-    <section className="py-24 px-4" data-aos="fade-in">
-      <div className="container mx-auto max-w-6xl">
-        <div className="text-center mb-16" data-aos="fade-down">
-          <h2 className="text-4xl md:text-5xl font-bold mb-6 bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent py-2">
+    <section className="py-24 px-4 relative bg-black">
+      <SectionDivider variant="wave" className="absolute top-0 left-0 right-0 z-0 opacity-40" />
+      
+      <div className="container mx-auto max-w-6xl relative z-10">
+        <div className="text-center mb-16">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black mb-6 gradient-text uppercase tracking-tight py-2">
             Natural Language Interface
           </h2>
-          <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
+          <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest max-w-3xl mx-auto">
             Interact with your code graph using plain English. No complex queries or syntax to learn.
           </p>
         </div>
         
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {examplesData.map((example, index) => (
-            <div key={index} data-aos="fade-up" data-aos-delay={index * 100}>
-              <Card className="h-full border-border/50 group animate-float-up bg-white/95 dark:bg-card/50 shadow-sm hover:shadow-lg transition-shadow duration-300">
-                <CardHeader>
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="p-3 rounded-xl bg-primary/5 border border-primary/15 group-hover:bg-primary/10 transition-colors dark:bg-primary/20 dark:border-primary/30">
-                      <example.icon className="h-6 w-6 text-primary" />
-                    </div>
-                    <div>
-                      <Badge variant="secondary" className="mb-2">{example.category}</Badge>
-                      <CardTitle className="text-xl font-semibold">{example.title}</CardTitle>
-                    </div>
+            <div key={index}>
+              <GlassCard glowColor="none" className="h-full group p-6 sm:p-8">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className={`p-3 rounded-full bg-${example.color}/10 text-${example.color} group-hover:bg-${example.color}/20 transition-colors`}>
+                    <example.icon className="h-5 w-5" />
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {example.examples.map((text, idx) => (
-                      <div key={idx} className="p-3 rounded-md border-l-4 border-accent/30 bg-muted/30 hover:border-accent/60 transition-colors">
-                        <p className="text-sm text-muted-foreground italic">"{text}"</p>
+                  <div>
+                    <span className={`text-[8px] font-black px-3 py-1 rounded-full bg-${example.color}/10 text-${example.color} uppercase tracking-widest mb-2 inline-block`}>
+                      {example.category}
+                    </span>
+                    <h3 className="text-sm font-black uppercase tracking-widest text-white">{example.title}</h3>
+                  </div>
+                </div>
+                
+                <div className="space-y-4 pl-2 border-l border-white/10 ml-5">
+                  {example.examples.map((text, idx) => (
+                    <div key={idx} className="relative group/bubble">
+                      <div className={`absolute -left-[23px] top-3 w-2.5 h-2.5 rounded-full bg-${example.color}/20 border border-${example.color}/40 group-hover/bubble:bg-${example.color} transition-colors`}></div>
+                      <div className="p-4 rounded-3xl rounded-tl-sm bg-white/5 border border-white/5 group-hover/bubble:border-white/10 transition-colors">
+                        <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">"{text}"</p>
                       </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
             </div>
           ))}
         </div>
         
-        <div className="text-center mt-16" data-aos="fade-up" data-aos-delay="200">
-          <Card className="max-w-2xl mx-auto bg-white/95 dark:bg-card/50 shadow-sm p-2">
-            <CardContent className="pt-8">
-              <h3 className="text-2xl font-bold mb-4">Ready to enhance your AI assistant?</h3>
-              <p className="text-muted-foreground mb-6">
-                Start building intelligent code understanding today with CodeGraphContext.
-              </p>
-              <div className="p-3 rounded-md bg-muted/40 max-w-md mx-auto border shadow-inner">
-                <code className="text-accent font-mono">$ pip install codegraphcontext</code>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
       </div>
     </section>
   );

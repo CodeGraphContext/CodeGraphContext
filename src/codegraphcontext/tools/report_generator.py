@@ -16,12 +16,65 @@ Usage::
 
 from __future__ import annotations
 
+import os
 import textwrap
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..utils.debug_log import info_logger
+
+
+def resolve_report_repo_scope(db_manager: Any, cwd: Optional[Path] = None) -> Optional[str]:
+    """Pick a single indexed repository to scope report queries."""
+    cwd_str = (cwd or Path.cwd()).resolve().as_posix()
+    try:
+        with db_manager.get_driver().session() as session:
+            repos = session.run(
+                "MATCH (r:Repository) RETURN r.path AS path ORDER BY r.path"
+            ).data()
+    except Exception:
+        return None
+
+    # DB stores all paths as forward slashes — keep them that way.
+    paths = [r["path"] for r in repos if r.get("path")]
+    if not paths:
+        return None
+
+    # Prefer the longest repo path that contains cwd (nested workspace roots).
+    matches = []
+    for repo_path in paths:
+        if cwd_str == repo_path or cwd_str.startswith(repo_path + "/"):
+            matches.append(repo_path)
+    if matches:
+        return max(matches, key=len)
+
+    if len(paths) == 1:
+        return paths[0]
+
+    # Multi-repo global DB: scope to the repo with the most indexed files.
+    try:
+        with db_manager.get_driver().session() as session:
+            row = session.run(
+                """
+                MATCH (r:Repository)
+                OPTIONAL MATCH (r)-[:CONTAINS*]->(f:File)
+                RETURN r.path AS path, count(f) AS file_count
+                ORDER BY file_count DESC, path ASC
+                LIMIT 1
+                """
+            ).single()
+            if row and row.get("path"):
+                return row["path"]
+    except Exception:
+        pass
+    return None
+
+
+def _repo_params(repo_path: Optional[str]) -> Dict[str, Any]:
+    if not repo_path:
+        return {}
+    return {"repo_path": repo_path + "/"}
 
 
 def _run_cypher(driver: Any, query: str, params: Optional[Dict] = None) -> List[Dict]:
@@ -56,20 +109,21 @@ def _code_block(cypher: str) -> str:
 
 # ── Individual report sections ────────────────────────────────────────────────
 
-def _section_god_nodes(driver: Any, limit: int = 15) -> str:
+def _section_god_nodes(driver: Any, limit: int = 15, repo_path: Optional[str] = None) -> str:
     """Functions / classes with the highest number of incoming CALLS edges."""
     rows = _run_cypher(
         driver,
         """
-        MATCH ()-[:CALLS]->(target)
+        MATCH ()-[:CALLS|HEURISTIC_CALLS]->(target)
         WITH target, count(*) AS in_degree
         WHERE in_degree > 1
+          AND ($repo_path IS NULL OR target.path STARTS WITH $repo_path)
         RETURN labels(target)[0] AS kind, target.name AS name,
                target.path AS path, in_degree
         ORDER BY in_degree DESC
         LIMIT $limit
         """,
-        {"limit": limit},
+        {"limit": limit, "repo_path": (repo_path + "/") if repo_path else None},
     )
     if not rows or "_error" in rows[0]:
         return ""
@@ -89,19 +143,20 @@ def _section_god_nodes(driver: Any, limit: int = 15) -> str:
     return out
 
 
-def _section_complexity(driver: Any, limit: int = 15) -> str:
+def _section_complexity(driver: Any, limit: int = 15, repo_path: Optional[str] = None) -> str:
     """Most complex functions by cyclomatic complexity."""
     rows = _run_cypher(
         driver,
         """
         MATCH (fn:Function)
         WHERE fn.cyclomatic_complexity IS NOT NULL AND fn.cyclomatic_complexity > 1
+          AND ($repo_path IS NULL OR fn.path STARTS WITH $repo_path)
         RETURN fn.name AS name, fn.path AS path,
                fn.cyclomatic_complexity AS complexity
         ORDER BY complexity DESC
         LIMIT $limit
         """,
-        {"limit": limit},
+        {"limit": limit, "repo_path": (repo_path + "/") if repo_path else None},
     )
     if not rows or "_error" in rows[0]:
         return ""
@@ -118,13 +173,15 @@ def _section_complexity(driver: Any, limit: int = 15) -> str:
     return out
 
 
-def _section_cross_module_calls(driver: Any, limit: int = 20) -> str:
+def _section_cross_module_calls(driver: Any, limit: int = 20, repo_path: Optional[str] = None) -> str:
     """Cross-directory (cross-module) CALLS edges — potential surprising connections."""
     rows = _run_cypher(
         driver,
         """
-        MATCH (caller)-[c:CALLS]->(callee)
+        MATCH (caller)-[c:CALLS|HEURISTIC_CALLS]->(callee)
         WHERE caller.path IS NOT NULL AND callee.path IS NOT NULL
+          AND ($repo_path IS NULL OR caller.path STARTS WITH $repo_path)
+          AND ($repo_path IS NULL OR callee.path STARTS WITH $repo_path)
           AND caller.path <> callee.path
         WITH caller, callee, c,
              [p IN split(caller.path, '/') WHERE p <> '' | p][-3] AS caller_pkg,
@@ -136,7 +193,7 @@ def _section_cross_module_calls(driver: Any, limit: int = 20) -> str:
                c.confidence_label AS label
         LIMIT $limit
         """,
-        {"limit": limit},
+        {"limit": limit, "repo_path": (repo_path + "/") if repo_path else None},
     )
     if not rows or "_error" in rows[0]:
         return ""
@@ -161,19 +218,33 @@ def _section_cross_module_calls(driver: Any, limit: int = 20) -> str:
     return out
 
 
-def _section_dead_code(driver: Any, limit: int = 20) -> str:
+def _section_dead_code(driver: Any, limit: int = 20, repo_path: Optional[str] = None) -> str:
     """Functions with no incoming CALLS edges (potential dead code)."""
+    # Share the entry-point list with `CodeFinder.find_dead_code` so the report
+    # and the CLI/MCP tool cannot disagree. They previously did, in both
+    # directions: this query had no name exclusions at all (so every dunder and
+    # `test_*` showed up as dead), while `find_dead_code` restricted callers to
+    # `(caller:Function)` and so missed the File-sourced edges that this one
+    # correctly counts.
+    from .code_finder import _ENTRY_POINT_NAMES_CYPHER
+
     rows = _run_cypher(
         driver,
-        """
+        f"""
         MATCH (fn:Function)
-        WHERE fn.is_dependency IS NULL OR fn.is_dependency = false
-        AND NOT ()-[:CALLS]->(fn)
+        WHERE (fn.is_dependency IS NULL OR fn.is_dependency = false)
+          AND ($repo_path IS NULL OR fn.path STARTS WITH $repo_path)
+          AND NOT toLower(fn.name) IN {_ENTRY_POINT_NAMES_CYPHER}
+          AND fn.name <> '<module>'
+          AND NOT (fn.name STARTS WITH '__' AND fn.name ENDS WITH '__')
+          AND NOT fn.name STARTS WITH '_test'
+          AND NOT fn.name STARTS WITH 'test_'
+          AND NOT ()-[:CALLS|HEURISTIC_CALLS]->(fn)
         RETURN fn.name AS name, fn.path AS path
         ORDER BY fn.path, fn.name
         LIMIT $limit
         """,
-        {"limit": limit},
+        {"limit": limit, "repo_path": (repo_path + "/") if repo_path else None},
     )
     if not rows or "_error" in rows[0]:
         return ""
@@ -276,7 +347,7 @@ def _section_suggested_queries() -> str:
         (
             "Callers of a specific function",
             """
-            MATCH (caller)-[:CALLS]->(fn:Function {name: 'yourFunctionName'})
+            MATCH (caller)-[:CALLS|HEURISTIC_CALLS]->(fn:Function {name: 'yourFunctionName'})
             RETURN caller.name, caller.path LIMIT 20
             """,
         ),
@@ -306,7 +377,7 @@ def _section_suggested_queries() -> str:
         (
             "CALLS edges with low confidence (potential mis-resolutions)",
             """
-            MATCH (a)-[c:CALLS]->(b)
+            MATCH (a)-[c:CALLS|HEURISTIC_CALLS]->(b)
             WHERE c.confidence_label = 'AMBIGUOUS'
             RETURN a.name, b.name, c.resolution_tier, a.path LIMIT 20
             """,
@@ -325,6 +396,7 @@ def generate_report(
     db_manager: Any,
     output_path: Optional[Path] = None,
     include_java: bool = False,
+    repo_path: Optional[str] = None,
     god_node_limit: int = 15,
     complexity_limit: int = 15,
     cross_module_limit: int = 20,
@@ -335,6 +407,7 @@ def generate_report(
         db_manager:      DatabaseManager instance.
         output_path:     If provided, write the report to this path.
         include_java:    Include Spring/Maven sections (--java flag).
+        repo_path:       Optional repository root path to scope all sections.
         god_node_limit:  Max rows for god-nodes section.
         complexity_limit: Max rows for complexity section.
         cross_module_limit: Max rows for cross-module section.
@@ -343,14 +416,19 @@ def generate_report(
         The full report as a markdown string.
     """
     driver = db_manager.get_driver()
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    if repo_path is None:
+        repo_path = resolve_report_repo_scope(db_manager)
 
     sections = []
-    sections.append(f"# CGC Report\n\n_Generated: {now}_\n")
-    sections.append(_section_god_nodes(driver, god_node_limit))
-    sections.append(_section_complexity(driver, complexity_limit))
-    sections.append(_section_cross_module_calls(driver, cross_module_limit))
-    sections.append(_section_dead_code(driver))
+    header = f"# CGC Report\n\n_Generated: {now}_\n"
+    if repo_path:
+        header += f"\n_Scoped to repository: `{repo_path}`_\n"
+    sections.append(header)
+    sections.append(_section_god_nodes(driver, god_node_limit, repo_path))
+    sections.append(_section_complexity(driver, complexity_limit, repo_path))
+    sections.append(_section_cross_module_calls(driver, cross_module_limit, repo_path))
+    sections.append(_section_dead_code(driver, repo_path=repo_path))
 
     if include_java:
         sections.append(_section_spring_endpoints(driver))

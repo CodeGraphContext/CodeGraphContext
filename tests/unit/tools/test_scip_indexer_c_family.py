@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from codegraphcontext.tools.scip_indexer import ScipIndexParser, ScipIndexer
+from codegraphcontext.tools.scip_indexer import ScipIndexParser, ScipIndexer, detect_project_lang
 
 
 def test_compdb_host_paths_to_container(tmp_path: Path) -> None:
@@ -91,6 +91,30 @@ def test_find_csharp_project_nested(sample_projects_path: Path) -> None:
     csproj = ScipIndexer._find_csharp_project(root)
     assert csproj is not None
     assert csproj.name == "Example.App.csproj"
+
+
+def test_detect_project_lang_skips_venv_files(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+    (project_root / "src").mkdir()
+    (project_root / "src" / "app.py").write_text("print('ok')\n")
+
+    venv_dir = project_root / ".venv"
+    venv_dir.mkdir()
+    for index in range(3):
+        (venv_dir / f"noise{index}.js").write_text("console.log('noise')\n")
+
+    lang = detect_project_lang(project_root, ["python", "javascript"])
+    assert lang == "python"
+
+
+def test_find_csharp_project_skips_ignored_directories(tmp_path: Path) -> None:
+    root = tmp_path / "sample_project_csharp"
+    ignored_dir = root / ".venv"
+    ignored_dir.mkdir(parents=True)
+    (ignored_dir / "Example.App.csproj").write_text("<Project />\n")
+
+    assert ScipIndexer._find_csharp_project(root) is None
 
 
 def test_build_command_csharp_includes_working_directory(sample_projects_path: Path) -> None:

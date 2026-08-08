@@ -1,16 +1,16 @@
 # src/codegraphcontext/tools/indexing/resolution/post_resolution.py
-"""Post-resolution pass: tighten low-confidence CALLS edges using INHERITS graph.
+"""Post-resolution pass: tighten low-confidence CALLS / HEURISTIC_CALLS edges using INHERITS graph.
 
 This module is called AFTER the initial CALLS graph is written.  It looks for
 edges with confidence < 0.5 (tiers 8 and 9) where the call target has a
 unique implementor that can be determined from the INHERITS graph.
 
-Algorithm for each low-confidence CALLS edge (caller → called_name → same_file):
+Algorithm for each low-confidence CALLS / HEURISTIC_CALLS edge (caller → called_name → same_file):
   1. Find all Function nodes with name = called_name across the codebase
   2. Find which of those are in classes that INHERIT from a common base
   3. If the caller file imports exactly one of those base types, resolve to
      the matching implementor
-  4. Update the CALLS edge: set called_file_path, confidence, resolution_tier=10
+  4. Update the CALLS / HEURISTIC_CALLS edge: set called_file_path, confidence, resolution_tier=10
 
 Tier 10 = inheritance-graph resolved (confidence: 0.78)
 
@@ -24,6 +24,7 @@ import time
 from typing import Any, Dict, List, Optional, Set
 
 from ....utils.debug_log import info_logger, warning_logger
+from ..persistence.utils import get_backend_type, execute_read_operation, execute_write_operation
 
 # Tier 10: resolved via inheritance graph (better than tier 8 first-match bias)
 _TIER_INHERIT_CONFIDENCE = 0.78
@@ -39,7 +40,7 @@ def run_inheritance_reresolve(
     repo_path: str,
     vector_resolver: Optional[Any] = None,
 ) -> int:
-    """Re-resolve low-confidence CALLS edges using INHERITS graph + optional embeddings.
+    """Re-resolve low-confidence CALLS / HEURISTIC_CALLS edges using INHERITS graph + optional embeddings.
 
     Returns the number of edges that were improved.
     """
@@ -50,12 +51,13 @@ def run_inheritance_reresolve(
     # "/opt/repos/myapp" must not accidentally match "/opt/repos/myapp_extra".
     repo_path_prefix = repo_path.rstrip("/") + "/"
 
-    # Step 1: find all low-confidence same-file CALLS edges (tier 8 or 9)
+    # Step 1: find all low-confidence same-file CALLS / HEURISTIC_CALLS edges (tier 8 or 9)
     # These are edges where the resolver gave up and pointed to the caller's file.
-    with driver.session() as session:
-        low_confidence = list(session.run(
+    backend = get_backend_type(driver)
+    def _read_work_1(session):
+        return list(session.run(
             """
-            MATCH (caller)-[c:CALLS]->(called)
+            MATCH (caller)-[c:CALLS|HEURISTIC_CALLS]->(called)
             WHERE (caller.path STARTS WITH $repo_path_prefix
                    OR called.path STARTS WITH $repo_path_prefix)
               AND c.resolution_tier IN [8, 9]
@@ -70,6 +72,7 @@ def run_inheritance_reresolve(
             """,
             repo_path_prefix=repo_path_prefix,
         ))
+    low_confidence = execute_read_operation(driver, backend, _read_work_1)
 
     info_logger(f"[INHERIT-RESOLVE] Found {len(low_confidence)} low-confidence edges to re-examine")
     if not low_confidence:
@@ -87,7 +90,9 @@ def run_inheritance_reresolve(
 
     _NAMES_BATCH = 500  # stay well under Cypher parameter-list limits
     unique_names_list = list(unique_names)
-    with driver.session() as session:
+    backend = get_backend_type(driver)
+    def _read_work_2(session):
+        local_impls = {}
         for _i in range(0, len(unique_names_list), _NAMES_BATCH):
             chunk = unique_names_list[_i : _i + _NAMES_BATCH]
             result = session.run(
@@ -105,7 +110,10 @@ def run_inheritance_reresolve(
                 repo_path_prefix=repo_path_prefix,
             )
             for row in result:
-                name_to_impls.setdefault(row["queried_name"], []).append(dict(row))
+                local_impls.setdefault(row["queried_name"], []).append(dict(row))
+        return local_impls
+    
+    name_to_impls.update(execute_read_operation(driver, backend, _read_work_2))
 
     # Step 3: for each low-confidence edge, check if INHERITS narrows candidates
     # Strategy:
@@ -128,12 +136,14 @@ def run_inheritance_reresolve(
             continue
 
         best_path = None
+        best_line = None
         confidence = _TIER_INHERIT_CONFIDENCE
         tier = _TIER_INHERIT
 
         if len(candidates) == 1:
             # Unambiguous: single implementation outside the caller file
             best_path = candidates[0]["path"]
+            best_line = candidates[0].get("line_number")
         else:
             # Multiple candidates — prefer those that are part of an INHERITS hierarchy
             inheriting = [c for c in candidates if c.get("parent_name")]
@@ -141,6 +151,7 @@ def run_inheritance_reresolve(
 
             if len(pool) == 1:
                 best_path = pool[0]["path"]
+                best_line = pool[0].get("line_number")
             elif vector_resolver is not None:
                 # Use embedding similarity to disambiguate
                 vec_path = vector_resolver.resolve(
@@ -151,6 +162,7 @@ def run_inheritance_reresolve(
                 )
                 if vec_path:
                     best_path = vec_path
+                    best_line = next((c.get("line_number") for c in pool if c["path"] == vec_path), None)
                     confidence = _TIER_EMBED_CONFIDENCE
                     tier = _TIER_EMBED
             # else: too ambiguous without vector — skip
@@ -165,6 +177,7 @@ def run_inheritance_reresolve(
             "called_name": called_name,
             "call_line": row["call_line"],
             "new_called_path": best_path,
+            "new_called_line": best_line,
             "confidence": confidence,
             "resolution_tier": tier,
         })
@@ -175,32 +188,56 @@ def run_inheritance_reresolve(
 
     info_logger(f"[INHERIT-RESOLVE] Re-resolving {len(improvements)} edges...")
 
-    # Step 4: write updated edges in batches
     batch_size = 500
-    with driver.session() as session:
-        for i in range(0, len(improvements), batch_size):
-            batch = improvements[i : i + batch_size]
-            session.run(
-                """
+    backend = get_backend_type(driver)
+
+    def _make_write_query(caller_has_line: bool, called_has_line: bool) -> str:
+        # Every literal Cypher map here needs doubled braces — this is an
+        # f-string, so a single `{name: ...}` is parsed as a replacement field
+        # and raised NameError before the query ever reached the driver, which
+        # the caller logged as "Post-resolution failed (skipping)".
+        #
+        # The line predicates are baked in per bucket rather than tested at
+        # runtime against a possibly-null row value, which is what the
+        # caller_has_line / called_has_line bucketing exists to enable.
+        caller_line = ", line_number: row.caller_line" if caller_has_line else ""
+        called_line = ", line_number: row.new_called_line" if called_has_line else ""
+        return f"""
                 UNWIND $batch AS row
-                MATCH (caller {name: row.caller_name, path: row.caller_path})
-                WHERE row.caller_line IS NULL OR caller.line_number = row.caller_line
-                MATCH (new_called:Function {name: row.called_name, path: row.new_called_path})
-                OPTIONAL MATCH (caller)-[old_edge:CALLS]->(old_called {name: row.called_name})
+                MATCH (caller {{name: row.caller_name, path: row.caller_path{caller_line}}})
+                MATCH (new_called:Function {{name: row.called_name, path: row.new_called_path{called_line}}})
+                OPTIONAL MATCH (caller)-[old_edge:CALLS|HEURISTIC_CALLS]->(old_called {{name: row.called_name}})
                   WHERE old_edge.resolution_tier IN [8, 9]
                 DELETE old_edge
                 WITH caller, new_called, row
-                MERGE (caller)-[c:CALLS {called_name: row.called_name}]->(new_called)
+                MERGE (caller)-[c:CALLS {{called_name: row.called_name}}]->(new_called)
                 SET c.line_number = coalesce(row.call_line, c.line_number),
                     c.confidence = row.confidence,
                     c.resolution_tier = row.resolution_tier,
                     c.resolution_method = 'inheritance'
-                """,
-                batch=batch,
-            )
-            improved += len(batch)
+                """
+
+    def _write_work(session):
+        local_improved = 0
+        for i in range(0, len(improvements), batch_size):
+            batch = improvements[i : i + batch_size]
+            # Partition into 4 groups based on what line numbers are available
+            buckets = {(True, True): [], (True, False): [], (False, True): [], (False, False): []}
+            for row in batch:
+                key = (
+                    row.get("caller_line") is not None and isinstance(row.get("caller_line"), int),
+                    row.get("new_called_line") is not None and isinstance(row.get("new_called_line"), int),
+                )
+                buckets[key].append(row)
+            for (caller_has_line, called_has_line), sub_batch in buckets.items():
+                if not sub_batch:
+                    continue
+                session.run(_make_write_query(caller_has_line, called_has_line), batch=sub_batch)
+            local_improved += len(batch)
+        return local_improved
+    improved += execute_write_operation(driver, backend, _write_work)
 
     info_logger(
-        f"[INHERIT-RESOLVE] Improved {improved} CALLS edges in {time.time()-t0:.1f}s"
+        f"[INHERIT-RESOLVE] Improved {improved} CALLS / HEURISTIC_CALLS edges in {time.time()-t0:.1f}s"
     )
     return improved

@@ -68,7 +68,16 @@ If Claude Desktop or Cursor does not show CGC tools:
 
 ---
 
-## 5. System Health Check (`doctor`)
+## 5. HTTP API Gateway
+
+### Gateway does not respond
+- **Check**: Confirm the process is running: `cgc api start --port 8000`.
+- **Health probe**: `curl http://localhost:8000/health` should return `{"status":"ok"}`.
+- **Database errors on `/api/v1/status`**: Run `cgc doctor`—the gateway uses the same database configuration as the CLI.
+
+---
+
+## 6. System Health Check (`doctor`)
 
 To execute a comprehensive diagnostic test of the active environment, run:
 

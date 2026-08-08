@@ -21,14 +21,16 @@ HASKELL_QUERIES = {
         (class) @class_node
         (data_type) @data_type_node
         (newtype) @newtype_node
-        (type_synomym) @type_synonym_node
+        (type_synomym) @type_synonym_node  ; "type_synomym" is the grammar's own (misspelled) node name, not a CGC typo
     """,
     "imports": """
         (import) @import
     """,
     "calls": """
-        (apply
-            function: (variable) @callee) @apply_node
+        (apply) @apply_node
+    """,
+    "instances": """
+        (instance) @instance_node
     """,
     # Polymorphic parameters use `variable` under type `function`, not a separate `type_variable` kind
     # in tree-sitter-haskell; keep variables to top-level/type signatures only.
@@ -88,6 +90,36 @@ class HaskellTreeSitterParser:
             curr = curr.parent
         return None, None, None
 
+    def _get_enclosing_function_context(
+        self, node: Any
+    ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+        """Return the nearest enclosing function (skip local do-notation bind nodes)."""
+        curr = node.parent
+        while curr:
+            if curr.type == "function":
+                name_node = curr.child_by_field_name("name")
+                if name_node:
+                    return (
+                        self._get_node_text(name_node),
+                        "function",
+                        curr.start_point[0] + 1,
+                    )
+            if curr.type == "bind":
+                name_node = curr.child_by_field_name("name")
+                if (
+                    name_node
+                    and name_node.type == "variable"
+                    and curr.parent
+                    and curr.parent.type == "declarations"
+                ):
+                    return (
+                        self._get_node_text(name_node),
+                        "function",
+                        curr.start_point[0] + 1,
+                    )
+            curr = curr.parent
+        return None, None, None
+
     def _pattern_arg_names(self, patterns_node: Any) -> List[str]:
         if not patterns_node:
             return []
@@ -124,6 +156,7 @@ class HaskellTreeSitterParser:
             parsed_classes: List[Dict[str, Any]] = []
             parsed_imports: List[Dict[str, Any]] = []
             parsed_calls: List[Dict[str, Any]] = []
+            parsed_instances: List[Dict[str, Any]] = []
 
             for capture_name, query in HASKELL_QUERIES.items():
                 if capture_name == "variables":
@@ -137,6 +170,8 @@ class HaskellTreeSitterParser:
                     parsed_imports.extend(self._parse_imports(results, source_code))
                 elif capture_name == "calls":
                     parsed_calls.extend(self._parse_calls(results, source_code, path))
+                elif capture_name == "instances":
+                    parsed_instances.extend(self._parse_instances(results, source_code, path))
 
             return {
                 "path": str(path),
@@ -145,6 +180,7 @@ class HaskellTreeSitterParser:
                 "variables": parsed_variables,
                 "imports": parsed_imports,
                 "function_calls": parsed_calls,
+                "typeclass_instances": parsed_instances,
                 "is_dependency": is_dependency,
                 "lang": self.language_name,
             }
@@ -160,9 +196,48 @@ class HaskellTreeSitterParser:
             "variables": [],
             "imports": [],
             "function_calls": [],
+            "typeclass_instances": [],
             "is_dependency": is_dependency,
             "lang": self.language_name,
         }
+
+    def _apply_callee_name(self, apply_node: Any) -> Optional[str]:
+        fn = apply_node.child_by_field_name("function")
+        while fn and fn.type == "apply":
+            fn = fn.child_by_field_name("function")
+        if not fn or fn.type not in ("variable", "constructor"):
+            return None
+        return self._get_node_text(fn) or None
+
+    def _parse_instances(
+        self, captures: List[Tuple[Any, str]], source_code: str, path: Path
+    ) -> List[Dict[str, Any]]:
+        instances: List[Dict[str, Any]] = []
+        seen: set = set()
+        for node, cap in captures:
+            if cap != "instance_node" or node.type != "instance":
+                continue
+            key = (node.start_byte, node.end_byte)
+            if key in seen:
+                continue
+            seen.add(key)
+            typeclass_name = None
+            implementing_type = None
+            for child in node.children:
+                if child.type == "name":
+                    typeclass_name = self._get_node_text(child)
+                elif child.type == "type_patterns":
+                    implementing_type = self._get_node_text(child).strip()
+            if not typeclass_name or not implementing_type:
+                continue
+            instances.append({
+                "typeclass": typeclass_name,
+                "implementing_type": implementing_type,
+                "line_number": node.start_point[0] + 1,
+                "path": str(path),
+                "lang": self.language_name,
+            })
+        return instances
 
     def _parse_functions(
         self, captures: List[Tuple[Any, str]], source_code: str, path: Path
@@ -373,10 +448,7 @@ class HaskellTreeSitterParser:
         for node, cap in captures:
             if cap != "apply_node" or node.type != "apply":
                 continue
-            callee = node.child_by_field_name("function")
-            if not callee or callee.type != "variable":
-                continue
-            call_name = self._get_node_text(callee)
+            call_name = self._apply_callee_name(node)
             if not call_name:
                 continue
             key = (node.start_byte, node.end_byte)
@@ -385,7 +457,7 @@ class HaskellTreeSitterParser:
             seen_calls.add(key)
 
             start_line = node.start_point[0] + 1
-            ctx_name, ctx_type, ctx_line = self._get_parent_context(node)
+            ctx_name, ctx_type, ctx_line = self._get_enclosing_function_context(node)
             calls.append(
                 {
                     "name": call_name,

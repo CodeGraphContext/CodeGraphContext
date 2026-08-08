@@ -1,0 +1,58 @@
+/* Scroll Performance Optimizations - Issue #1064 */
+
+[class*="glass"],
+[class*="blur"],
+[class*="glow"],
+.card,
+nav {
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+[class*="backdrop"] {
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+body.is-scrolling [class*="shadow"],
+body.is-scrolling [class*="glow"] {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+  filter: none !important;
+}
+
+body.is-scrolling [class*="animate"],
+body.is-scrolling [class*="float"],
+body.is-scrolling [class*="pulse"],
+body.is-scrolling [class*="blob"] {
+  animation-play-state: paused !important;
+  transition: none !important;
+}
+
+section,
+.container {
+  contain: layout style;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  [class*="glass"],
+  [class*="blur"] {
+    backdrop-filter: blur(4px) !important;
+    -webkit-backdrop-filter: blur(4px) !important;
+  }
+  [class*="glow"],
+  [class*="shadow"] {
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+    filter: none !important;
+  }
+}

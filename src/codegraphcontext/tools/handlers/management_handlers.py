@@ -1,5 +1,5 @@
 # src/codegraphcontext/tools/handlers/management_handlers.py
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from dataclasses import asdict
 from datetime import datetime
 from ...core.jobs import JobManager, JobStatus
@@ -10,9 +10,10 @@ from ..graph_builder import GraphBuilder
 
 def list_indexed_repositories(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """Tool to list indexed repositories."""
+    graph_name = args.get("graph_name")
     try:
         debug_log("Listing indexed repositories.")
-        results = code_finder.list_indexed_repositories()
+        results = code_finder.list_indexed_repositories(graph_name=graph_name)
         return {
             "success": True,
             "repositories": results
@@ -23,19 +24,33 @@ def list_indexed_repositories(code_finder: CodeFinder, **args) -> Dict[str, Any]
 
 def delete_repository(graph_builder: GraphBuilder, **args) -> Dict[str, Any]:
     """Tool to delete a repository from the graph."""
-    repo_path = args.get("repo_path")
+    from ...cli.config_manager import is_db_deletion_allowed
+
+    if not is_db_deletion_allowed():
+        return {
+            "error": (
+                "Repository deletion is disabled. Set ALLOW_DB_DELETION=true in "
+                "~/.codegraphcontext/.env to enable destructive MCP operations."
+            )
+        }
+
+    repo_path = args.get("repo_path") or args.get("path") or args.get("repo")
+
+    if not repo_path:
+        return {"error": "Repository path is required (repo_path)."}
+    repo_path = str(repo_path).strip()
+    graph_name = args.get("graph_name")
     try:
         debug_log(f"Deleting repository: {repo_path}")
-        if graph_builder.delete_repository_from_graph(repo_path):
+        if graph_builder.delete_repository_from_graph(repo_path, graph_name=graph_name):
             return {
                 "success": True,
                 "message": f"Repository '{repo_path}' deleted successfully."
             }
-        else:
-                return {
-                "success": False,
-                "message": f"Repository '{repo_path}' not found in the graph."
-            }
+        return {
+            "success": False,
+            "message": f"Repository '{repo_path}' not found in the graph."
+        }
     except Exception as e:
         debug_log(f"Error deleting repository: {str(e)}")
         return {"error": f"Failed to delete repository: {str(e)}"}
@@ -123,20 +138,50 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     
     bundle_name = args.get("bundle_name")
     clear_existing = args.get("clear_existing", False)
-    
+    graph_name = args.get("graph_name")
+
     if not bundle_name:
         return {"error": "bundle_name is required"}
     
     try:
         debug_log(f"Loading bundle: {bundle_name}")
-        
-        # Check if bundle exists locally
-        bundle_path = Path(bundle_name)
-        
+
+        if clear_existing:
+            from ...cli.config_manager import is_db_deletion_allowed
+
+            if not is_db_deletion_allowed():
+                return {
+                    "error": (
+                        "Bundle import with clear_existing is disabled. Set "
+                        "ALLOW_DB_DELETION=true in ~/.codegraphcontext/.env."
+                    )
+                }
+
+        from ...utils.path_sandbox import is_path_allowed, sanitize_bundle_filename, is_safe_download_url
+
+        def _ensure_allowed_bundle_path(candidate: Path) -> Optional[Dict[str, Any]]:
+            resolved = candidate.resolve()
+            if not is_path_allowed(resolved):
+                return {
+                    "error": (
+                        f"Bundle path '{resolved}' is outside allowed roots. "
+                        "Use a bundle under the workspace or CGC_ALLOWED_ROOTS."
+                    )
+                }
+            return None
+
+        bundle_path = Path(bundle_name).resolve()
+        sandbox_error = _ensure_allowed_bundle_path(bundle_path)
+        if sandbox_error:
+            return sandbox_error
+
         # If it doesn't exist as-is, try with .cgc extension
         if not bundle_path.exists() and not str(bundle_name).endswith('.cgc'):
-            bundle_path = Path(f"{bundle_name}.cgc")
-        
+            bundle_path = Path(f"{bundle_name}.cgc").resolve()
+            sandbox_error = _ensure_allowed_bundle_path(bundle_path)
+            if sandbox_error:
+                return sandbox_error
+
         if not bundle_path.exists():
             # Try to download from registry
             debug_log(f"Bundle {bundle_name} not found locally, checking registry...")
@@ -145,11 +190,18 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
             if not download_url:
                 return {"error": f"Bundle not found locally or in registry: {bundle_name}. {error}"}
             
-            # Determine output filename from metadata
-            filename = bundle_meta.get('bundle_name', f"{bundle_name}.cgc")
-            # Save to current working directory
-            target_path = Path.cwd() / filename
-            
+            if not is_safe_download_url(download_url):
+                return {"error": f"Refusing to download bundle from untrusted URL: {download_url}"}
+
+            filename = sanitize_bundle_filename(
+                bundle_meta.get('bundle_name', f"{bundle_name}.cgc"),
+                default=f"{bundle_name}.cgc",
+            )
+            target_path = (Path.cwd() / filename).resolve()
+            sandbox_error = _ensure_allowed_bundle_path(target_path)
+            if sandbox_error:
+                return sandbox_error
+
             debug_log(f"Downloading bundle to {target_path}...")
             try:
                 BundleRegistry.download_file(download_url, target_path)
@@ -166,7 +218,8 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         bundle = CGCBundle(code_finder.db_manager)
         success, message = bundle.import_from_bundle(
             bundle_path=bundle_path,
-            clear_existing=clear_existing
+            clear_existing=clear_existing,
+            graph_name=graph_name
         )
         
         if success:
@@ -203,16 +256,15 @@ def search_registry_bundles(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     
     try:
         debug_log(f"Searching registry for: {query}")
-        
-        # Fetch directly from core registry
+
         bundles = BundleRegistry.fetch_available_bundles()
-        
+
         if not bundles:
             return {
                 "success": True,
                 "bundles": [],
                 "total": 0,
-                "message": "No bundles found in registry"
+                "message": "No bundles found in registry",
             }
         
         # Filter by query if provided
@@ -263,6 +315,13 @@ def search_registry_bundles(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         return response
     
     except Exception as e:
+        from ...core.bundle_registry import RegistryUnavailableError
+        if isinstance(e, RegistryUnavailableError):
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Bundle registry unreachable — internet connection required.",
+            }
         debug_log(f"Error searching registry: {str(e)}")
         return {"error": f"Failed to search registry: {str(e)}"}
 
@@ -272,14 +331,15 @@ def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     from pathlib import Path
     
     repo_path = args.get("repo_path")
-    
+    graph_name = args.get("graph_name")
+
     try:
         debug_log(f"Getting stats for: {repo_path or 'all repositories'}")
-        
-        with code_finder.db_manager.get_driver().session() as session:
+
+        with code_finder.db_manager.get_driver(graph_name).session() as session:
             if repo_path:
                 # Stats for specific repository
-                repo_path_obj = str(Path(repo_path).resolve())
+                repo_path_obj = Path(repo_path).resolve().as_posix()
                 
                 # Check if repository exists
                 repo_query = """
@@ -294,15 +354,15 @@ def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
                     }
                 
                 # 1. Files
-                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as c"
+                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(DISTINCT f) as c"
                 file_count = session.run(file_query, path=repo_path_obj).single()["c"]
                 
                 # 2. Functions
-                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(func) as c"
+                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(DISTINCT func) as c"
                 func_count = session.run(func_query, path=repo_path_obj).single()["c"]
                 
                 # 3. Classes
-                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(cls:Class) RETURN count(cls) as c"
+                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(cls:Class) RETURN count(DISTINCT cls) as c"
                 class_count = session.run(class_query, path=repo_path_obj).single()["c"]
                 
                 # 4. Modules (imported)
@@ -349,3 +409,24 @@ def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     except Exception as e:
         debug_log(f"Error getting stats: {str(e)}")
         return {"error": f"Failed to get stats: {str(e)}"}
+
+
+def list_graphs(db_manager, **args) -> Dict[str, Any]:
+    """Tool to list all available graphs in the FalkorDB instance."""
+    try:
+        if hasattr(db_manager, 'list_graphs'):
+            graphs = db_manager.list_graphs()
+            return {
+                "success": True,
+                "graphs": graphs,
+                "total": len(graphs)
+            }
+        else:
+            return {
+                "success": True,
+                "graphs": [],
+                "message": "list_graphs is not supported by this database backend"
+            }
+    except Exception as e:
+        debug_log(f"Error listing graphs: {str(e)}")
+        return {"error": f"Failed to list graphs: {str(e)}"}

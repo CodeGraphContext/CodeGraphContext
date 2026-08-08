@@ -1,18 +1,21 @@
 import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Download, Package, Calendar, HardDrive, Star, Loader2, ExternalLink, Copy, Check, HelpCircle } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Search, Download, Package, Calendar, HardDrive, Star, Loader2, ExternalLink, Copy, Check, HelpCircle, ChevronLeft, ChevronRight, Share2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import GlassCard from './GlassCard';
+import SectionDivider from './SectionDivider';
 
 interface Bundle {
     name: string;
     repo: string;
-    bundle_name?: string;  // Full bundle filename (e.g., "python-bitcoin-utils-main-61d1969.cgc")
+    bundle_name?: string;  // Full bundle filename (e.g., "numpy-v1.0.0.cgc")
     version?: string;
     commit: string;
     size: string;
@@ -21,6 +24,7 @@ interface Bundle {
     category?: string;
     description?: string;
     stars?: number;
+    source?: string;
 }
 
 const BundleRegistrySection = () => {
@@ -29,6 +33,7 @@ const BundleRegistrySection = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [copiedBundleIndex, setCopiedBundleIndex] = useState<number | null>(null);
+    const [downloadingUrls, setDownloadingUrls] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
         fetchBundles();
@@ -53,32 +58,6 @@ const BundleRegistrySection = () => {
                 console.warn('Local Vercel api/bundles endpoint unavailable, attempting direct fetch:', apiErr);
             }
 
-            // In development, try to fetch live weekly bundles directly from GitHub Releases to show all 33 repos
-            if (import.meta.env.DEV) {
-                try {
-                    const ghResponse = await fetch(
-                        'https://api.github.com/repos/CodeGraphContext/CodeGraphContext/releases',
-                        { headers: { 'Accept': 'application/vnd.github.v3+json' } }
-                    );
-                    if (ghResponse.ok) {
-                        const releases = await ghResponse.json();
-                        const weeklyReleases = releases.filter((r: any) =>
-                            r.tag_name.startsWith('bundles-') && r.tag_name !== 'bundles-latest'
-                        );
-                        if (weeklyReleases.length > 0) {
-                            const parsed = parseWeeklyBundles(weeklyReleases[0]);
-                            if (parsed && parsed.length > 0) {
-                                setBundles(parsed);
-                                setLoading(false);
-                                return;
-                            }
-                        }
-                    }
-                } catch (ghErr) {
-                    console.error('Failed to fetch direct GitHub releases in DEV mode:', ghErr);
-                }
-            }
-
             // Fallback to local mock bundles if offline or rate-limited
             setBundles(getMockBundles());
         } catch (error) {
@@ -86,6 +65,45 @@ const BundleRegistrySection = () => {
             setBundles(getMockBundles());
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDownloadBundle = async (downloadUrl: string, bundleName: string) => {
+        setDownloadingUrls(prev => ({ ...prev, [downloadUrl]: true }));
+        const toastId = toast.loading(`Downloading ${bundleName}...`);
+
+        try {
+            const response = await fetch(downloadUrl);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const base64Text = await response.text();
+            
+            // Decode base64 to binary
+            const binaryString = atob(base64Text.trim());
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            const blob = new Blob([bytes], { type: "application/octet-stream" });
+            const cleanFilename = bundleName.replace('.base64', '');
+            
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = cleanFilename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            toast.success(`Successfully downloaded ${cleanFilename}!`, { id: toastId });
+        } catch (err: any) {
+            console.error("Failed to decode and download bundle:", err);
+            toast.error("Failed to download bundle: " + err.message, { id: toastId });
+        } finally {
+            setDownloadingUrls(prev => ({ ...prev, [downloadUrl]: false }));
         }
     };
 
@@ -100,7 +118,8 @@ const BundleRegistrySection = () => {
             generated_at: '2026-01-13T00:00:00Z',
             category: 'Data Science',
             description: 'Fundamental package for scientific computing',
-            stars: 25000
+            stars: 25000,
+            source: 'trending'
         },
         {
             name: 'pandas',
@@ -112,7 +131,8 @@ const BundleRegistrySection = () => {
             generated_at: '2026-01-13T00:00:00Z',
             category: 'Data Science',
             description: 'Data analysis and manipulation library',
-            stars: 40000
+            stars: 40000,
+            source: 'trending'
         },
         {
             name: 'fastapi',
@@ -124,7 +144,8 @@ const BundleRegistrySection = () => {
             generated_at: '2026-01-13T00:00:00Z',
             category: 'Web Framework',
             description: 'Modern web framework for building APIs',
-            stars: 70000
+            stars: 70000,
+            source: 'server-indexed'
         },
         {
             name: 'requests',
@@ -136,7 +157,8 @@ const BundleRegistrySection = () => {
             generated_at: '2026-01-13T00:00:00Z',
             category: 'HTTP',
             description: 'HTTP library for Python',
-            stars: 50000
+            stars: 50000,
+            source: 'server-indexed'
         },
         {
             name: 'flask',
@@ -148,162 +170,187 @@ const BundleRegistrySection = () => {
             generated_at: '2026-01-13T00:00:00Z',
             category: 'Web Framework',
             description: 'Lightweight WSGI web application framework',
-            stars: 65000
+            stars: 65000,
+            source: 'community'
         }
     ];
 
-    const parseWeeklyBundles = (release: any): Bundle[] => {
-        // Parse bundle files from release assets
-        return release.assets
-            .filter((asset: any) => asset.name.endsWith('.cgc'))
-            .map((asset: any) => {
-                const nameParts = asset.name.replace('.cgc', '').split('-');
-                return {
-                    name: nameParts[0],
-                    repo: `${nameParts[0]}/${nameParts[0]}`,
-                    version: nameParts[1] || 'latest',
-                    commit: nameParts[2] || 'unknown',
-                    size: `${(asset.size / 1024 / 1024).toFixed(1)}MB`,
-                    download_url: asset.browser_download_url,
-                    generated_at: asset.updated_at,
-                    category: 'Pre-indexed'
-                };
+
+
+    const categories = [
+        { id: 'all', label: 'All' },
+        { id: 'trending', label: 'Trending Repos' },
+        { id: 'server-indexed', label: 'Server Indexed' },
+        { id: 'community', label: 'Community' }
+    ];
+
+    const filteredBundles = bundles
+        .filter(bundle => {
+            const matchesSearch =
+                (bundle.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+                (bundle.repo?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+                (bundle.description?.toLowerCase() || '').includes(searchQuery.toLowerCase());
+
+            const matchesCategory =
+                selectedCategory === 'all' || bundle.source === selectedCategory;
+
+            return matchesSearch && matchesCategory;
+        })
+        .sort((a, b) => {
+            const timeA = a.generated_at ? new Date(a.generated_at).getTime() : 0;
+            const timeB = b.generated_at ? new Date(b.generated_at).getTime() : 0;
+            return timeB - timeA;
+        });
+
+    const handleCopyCommand = (bundleName: string, index: number) => {
+        const cmd = `cgc load ${bundleName}`;
+        navigator.clipboard.writeText(cmd)
+            .then(() => {
+                setCopiedBundleIndex(index);
+                toast.success('Command copied to clipboard!');
+                setTimeout(() => setCopiedBundleIndex(null), 2500);
+            })
+            .catch(() => toast.error('Failed to copy command'));
+    };
+
+    const handleShareRegistry = () => {
+        const shareUrl = `${window.location.origin}/pre-indexed`;
+        navigator.clipboard.writeText(shareUrl)
+            .then(() => {
+                toast.success('Registry share link copied to clipboard!');
+            })
+            .catch(() => {
+                toast.error('Failed to copy share link');
             });
     };
 
-    const filteredBundles = bundles.filter(bundle => {
-        const matchesSearch =
-            (bundle.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-            (bundle.repo?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-            (bundle.description?.toLowerCase() || '').includes(searchQuery.toLowerCase());
-
-        const matchesCategory =
-            selectedCategory === 'all' || bundle.category === selectedCategory;
-
-        return matchesSearch && matchesCategory;
-    });
-
-    const categories = ['all', ...new Set(bundles.map(b => b.category).filter(Boolean))];
-
-    const handleCopyCommand = async (bundleName: string, index: number) => {
-        const command = `cgc load ${bundleName}`;
-        try {
-            await navigator.clipboard.writeText(command);
-            setCopiedBundleIndex(index);
-            toast.success('Command copied to clipboard!');
-            setTimeout(() => setCopiedBundleIndex(null), 2000);
-        } catch (err) {
-            toast.error('Failed to copy command');
-            console.error('Copy failed:', err);
+    const scrollSlider = (direction: 'left' | 'right') => {
+        const slider = document.getElementById('registry-slider');
+        if (slider) {
+            const scrollAmount = direction === 'left' ? -380 : 380;
+            slider.scrollBy({ left: scrollAmount, behavior: 'smooth' });
         }
     };
 
     return (
-        <section id="bundle-registry" className="py-20 px-4">
-            <div className="container mx-auto max-w-7xl">
-                {/* Header */}
-                <div className="text-center mb-12" data-aos="fade-up">
-                    <Badge variant="secondary" className="mb-4">
-                        <Package className="w-4 h-4 mr-2" />
-                        Bundle Registry
-                    </Badge>
-                    <div className="flex items-center justify-center gap-3 mb-4">
-                        <h2 className="text-4xl font-bold">Pre-indexed Repositories</h2>
+        <section id="registry" className="w-full py-24 bg-black relative overflow-hidden">
+            <SectionDivider variant="dots" className="absolute top-0 left-0 right-0 z-0 opacity-50" />
+            <div className="max-w-7xl mx-auto px-6 relative z-10 pt-10">
+                
+                {/* Section Header */}
+                <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
+                    <div>
+                        <Badge variant="secondary" className="mb-4 bg-white/10 text-white rounded-full uppercase tracking-widest text-[10px] font-bold">
+                            <Package className="w-4 h-4 mr-2" />
+                            Bundle Registry
+                        </Badge>
+                        <motion.h2 
+                            initial={{ opacity: 0, y: -20 }}
+                            whileInView={{ opacity: 1, y: 0 }}
+                            viewport={{ once: true }}
+                            transition={{ duration: 0.5 }}
+                            className="text-3xl sm:text-4xl md:text-5xl font-black mb-6 uppercase tracking-tight py-2 text-white"
+                        >
+                            Pre-indexed CGC Bundles
+                        </motion.h2>
+                        <motion.p 
+                            initial={{ opacity: 0, y: 20 }}
+                            whileInView={{ opacity: 1, y: 0 }}
+                            viewport={{ once: true }}
+                            transition={{ duration: 0.5, delay: 0.1 }}
+                            className="text-sm font-mono text-gray-400 uppercase tracking-widest max-w-2xl"
+                        >
+                            Browse and download pre-compiled context bundles for popular repositories. Or search servers and community contributions.
+                        </motion.p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto shrink-0">
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full sm:w-auto border-white/10 bg-transparent text-white hover:bg-purple-600 hover:text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-all duration-300 rounded-full uppercase tracking-widest text-[10px] font-bold px-6 py-6"
+                            onClick={handleShareRegistry}
+                        >
+                            <Share2 className="w-4 h-4 mr-2" />
+                            Share Registry
+                        </Button>
+
                         <Dialog>
                             <DialogTrigger asChild>
-                                <button 
-                                    className="inline-flex items-center justify-center rounded-full p-2 hover:bg-muted transition-colors"
-                                    aria-label="Help - How to use pre-indexed bundles"
-                                >
-                                    <HelpCircle className="w-6 h-6 text-muted-foreground hover:text-primary" />
-                                </button>
+                                <Button variant="outline" size="sm" className="w-full sm:w-auto border-white/10 bg-transparent text-white hover:bg-purple-600 hover:text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-all duration-300 rounded-full uppercase tracking-widest text-[10px] font-bold px-6 py-6">
+                                    <HelpCircle className="w-4 h-4 mr-2" />
+                                    How to Use Bundles
+                                </Button>
                             </DialogTrigger>
-                            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                                <DialogHeader>
-                                    <DialogTitle>How to Use Pre-indexed Bundles</DialogTitle>
-                                    <DialogDescription>
-                                        Learn how to quickly download and load pre-indexed repositories
-                                    </DialogDescription>
-                                </DialogHeader>
-                                <div className="space-y-4 mt-4">
-                                    <div className="prose dark:prose-invert max-w-none">
-                                        <h3 className="text-lg font-semibold mb-2">What are Pre-indexed Bundles?</h3>
-                                        <p className="text-sm text-muted-foreground mb-4">
-                                            Pre-indexed bundles are ready-to-use knowledge graph snapshots of popular repositories. 
-                                            Instead of indexing code yourself (which can take time), you can download and load these bundles instantly.
-                                        </p>
-
-                                        <h3 className="text-lg font-semibold mb-2">Quick Start Guide</h3>
-                                        <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
-                                            <li>Browse the available bundles below and find one you need</li>
-                                            <li>Click the <strong>Download Bundle</strong> button to download the .cgc file</li>
-                                            <li>Copy the CLI command shown (click the copy icon next to it)</li>
-                                            <li>Run the command in your terminal to load the bundle</li>
-                                            <li>Start using the knowledge graph with your AI assistant immediately!</li>
-                                        </ol>
-
-                                        <h3 className="text-lg font-semibold mb-2 mt-4">Example Usage</h3>
-                                        <div className="bg-muted p-3 rounded-md font-mono text-xs space-y-2">
-                                            <div># Download a bundle (e.g., numpy)</div>
-                                            <div># Then load it:</div>
-                                            <div className="text-primary font-semibold">cgc load numpy-1.26.4.cgc</div>
-                                        </div>
-
-                                        <div className="mt-6 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                                            <h4 className="text-sm font-semibold mb-2 text-blue-900 dark:text-blue-100">💡 Pro Tip</h4>
-                                            <p className="text-xs text-blue-800 dark:text-blue-200">
-                                                Use the copy button next to each command to avoid typos. The bundle filename is automatically included in the command.
-                                            </p>
-                                        </div>
-
-                                        {/* Placeholder for video/GIF */}
-                                        <div className="mt-6 bg-muted rounded-lg p-8 text-center border-2 border-dashed">
-                                            <Package className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
-                                            <p className="text-sm text-muted-foreground">
-                                                Video tutorial coming soon!
-                                            </p>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                                For now, follow the steps above to get started
-                                            </p>
-                                        </div>
-                                    </div>
+                        <DialogContent className="sm:max-w-[480px] bg-black border border-white/20 rounded-3xl text-white">
+                            <DialogHeader>
+                                <DialogTitle className="font-black uppercase tracking-widest text-lg">How to Use Pre-indexed Bundles</DialogTitle>
+                                <DialogDescription className="text-xs font-mono text-gray-500 uppercase tracking-widest">
+                                    Get up and running with a pre-built repository context in seconds.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4 py-4">
+                                <div className="space-y-2">
+                                    <h4 className="font-bold text-xs uppercase tracking-widest">1. Install the CLI</h4>
+                                    <pre className="bg-white/5 border border-white/10 p-3 rounded-2xl text-[10px] font-mono overflow-x-auto text-white">pip install codegraphcontext</pre>
                                 </div>
-                            </DialogContent>
-                        </Dialog>
+                                <div className="space-y-2">
+                                    <h4 className="font-bold text-xs uppercase tracking-widest">2. Download and Load a Bundle</h4>
+                                    <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">
+                                        Click "Copy Command" on any bundle card below to copy the load command. It automatically downloads and installs the bundle context locally:
+                                    </p>
+                                    <pre className="bg-white/5 border border-white/10 p-3 rounded-2xl text-[10px] font-mono overflow-x-auto text-white">cgc load numpy</pre>
+                                </div>
+                                <div className="space-y-2">
+                                    <h4 className="font-bold text-xs uppercase tracking-widest">3. Query Context with AI Tools</h4>
+                                    <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">
+                                        Ask questions or use our MCP server to feed the code index directly to Cursor, Windsurf, or Claude:
+                                    </p>
+                                    <pre className="bg-white/5 border border-white/10 p-3 rounded-2xl text-[10px] font-mono overflow-x-auto text-white">cgc query "How is indexing structured?"</pre>
+                                </div>
+                            </div>
+                        </DialogContent>
+                    </Dialog>
                     </div>
-                    <p className="text-xl text-muted-foreground">
-                        Download and load instantly - no indexing required
-                    </p>
                 </div>
 
-                {/* Development Mode Alert */}
                 {import.meta.env.DEV && (
-                    <Alert className="mb-6 border-blue-500 bg-blue-50 dark:bg-blue-950/20">
-                        <AlertDescription className="text-blue-800 dark:text-blue-200">
+                    <Alert className="mb-6 border-purple-500 bg-purple-50 dark:bg-purple-950/20">
+                        <AlertDescription className="text-purple-800 dark:text-purple-200">
                             <strong>Development Mode:</strong> Showing mock bundle data.
-                            Deploy to production to see real bundles from GitHub Releases.
+                            Deploy to production to see real bundles from the Hugging Face registry.
                         </AlertDescription>
                     </Alert>
                 )}
 
                 {/* Search and Filters */}
-                <div className="mb-8 space-y-4" data-aos="fade-up">
+                <div className="mb-8 space-y-4">
                     <div className="relative">
-                        <Search className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
+                        <Search className="absolute left-4 top-3.5 h-5 w-5 text-gray-500" />
+                        <label htmlFor="bundle-search" className="sr-only">
+                            Search bundles
+                        </label>
                         <Input
-                            placeholder="Search bundles by name, repository, or description..."
+                            id="bundle-search"
+                            name="bundleSearch"
+                            type="search"
+                            placeholder="SEARCH BUNDLES..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-10"
+                            className="pl-12 bg-black border-white/20 text-white rounded-full h-12 uppercase tracking-widest text-xs font-mono placeholder:text-gray-600 focus-visible:ring-1 focus-visible:ring-white"
                         />
                     </div>
 
                     {/* Category Tabs */}
                     <Tabs value={selectedCategory} onValueChange={setSelectedCategory}>
-                        <TabsList>
+                        <TabsList className="bg-white/5 p-1.5 rounded-full border border-white/10 gap-1 h-auto">
                             {categories.map(category => (
-                                <TabsTrigger key={category} value={category}>
-                                    {category === 'all' ? 'All' : category}
+                                <TabsTrigger 
+                                    key={category.id} 
+                                    value={category.id}
+                                    className="py-2.5 px-6 text-[10px] font-black uppercase tracking-widest rounded-full transition-all duration-300 data-[state=active]:bg-purple-600 data-[state=active]:text-white data-[state=active]:shadow-[0_0_15px_rgba(168,85,247,0.4)] text-gray-500 hover:text-white"
+                                >
+                                    {category.label}
                                 </TabsTrigger>
                             ))}
                         </TabsList>
@@ -330,128 +377,159 @@ const BundleRegistrySection = () => {
                 )}
 
                 {!loading && filteredBundles.length > 0 && (
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6" data-aos="fade-up">
-                        {filteredBundles.map((bundle, index) => (
-                            <Card
-                                key={`${bundle.repo}-${index}`}
-                                className="hover:shadow-lg transition-all duration-300 hover:scale-105"
-                            >
-                                <CardHeader>
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex-1">
-                                            <CardTitle className="text-lg">{bundle.name}</CardTitle>
-                                            <CardDescription className="text-sm mt-1">
-                                                <a
-                                                    href={`https://github.com/${bundle.repo}`}
+                    <div className="w-full py-4">
+                        {/* Vertical Scroll Grid */}
+                        <div
+                            id="registry-grid"
+                            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 overflow-y-auto max-h-[780px] pr-2 pb-4"
+                            style={{
+                                scrollbarWidth: 'thin',
+                                scrollbarColor: 'rgba(255,255,255,0.15) transparent'
+                            }}
+                        >
+                            {filteredBundles.map((bundle, index) => (
+                                <motion.div 
+                                    key={`${bundle.name}-${bundle.version || index}`} 
+                                    className="h-full"
+                                    initial={{ opacity: 0, y: 30 }}
+                                    whileInView={{ opacity: 1, y: 0 }}
+                                    viewport={{ once: true, margin: "-50px" }}
+                                    transition={{ duration: 0.5, delay: index * 0.05 }}
+                                >
+                                    <GlassCard
+                                        glowColor="none"
+                                        className="h-full flex flex-col justify-between"
+                                    >
+                                        <div className="p-6 pb-4">
+                                            <div className="flex items-start justify-between">
+                                                <div className="flex-1 min-w-0">
+                                                    <CardTitle className="text-lg text-white font-black uppercase tracking-widest truncate">{bundle.name}</CardTitle>
+                                                    <CardDescription className="text-[10px] font-mono mt-1 truncate">
+                                                        <a
+                                                            href={`https://github.com/${bundle.repo}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="inline-flex items-center gap-1 text-gray-600 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 transition-colors underline underline-offset-2"
+                                                        >
+                                                            {bundle.repo}
+                                                            <ExternalLink className="h-3 w-3 shrink-0" />
+                                                        </a>
+                                                    </CardDescription>
+                                                </div>
+                                                {bundle.category && (
+                                                    <Badge variant="outline" className="ml-2 shrink-0 border-purple-500/30 text-purple-400 bg-purple-500/10 rounded-full text-[8px] uppercase tracking-widest font-black">
+                                                        {bundle.category}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="p-6 pt-0 space-y-5">
+                                            {/* Description */}
+                                            {bundle.description ? (
+                                                <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest line-clamp-2 h-8">
+                                                    {bundle.description}
+                                                </p>
+                                            ) : (
+                                                <div className="h-8" />
+                                            )}
+
+                                            {/* Stats */}
+                                            <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-600 dark:text-gray-400 font-mono">
+                                                {bundle.stars ? (
+                                                    <div className="flex items-center gap-1">
+                                                        <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400/20" />
+                                                        <span>{(bundle.stars / 1000).toFixed(1)}k stars</span>
+                                                    </div>
+                                                ) : (
+                                                    <div />
+                                                )}
+                                                <div className="flex items-center gap-1">
+                                                    <HardDrive className="w-3.5 h-3.5 text-purple-400" />
+                                                    <span>{bundle.size}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1 col-span-2">
+                                                    <Calendar className="w-3.5 h-3.5 text-purple-400" />
+                                                    <span>{new Date(bundle.generated_at).toLocaleDateString()}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Version Info */}
+                                            <div className="flex gap-2 text-[10px]">
+                                                {bundle.version && (
+                                                    <Badge variant="secondary" className="bg-white/10 text-gray-300 hover:bg-purple-500/30 border-0">v{bundle.version}</Badge>
+                                                )}
+                                                <a href={`https://github.com/${bundle.repo}/commit/${bundle.commit}`}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
-                                                    className="inline-flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors underline underline-offset-2"
+                                                    className="inline-flex items-center gap-1"
                                                 >
-                                                    {bundle.repo}
-                                                    <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                                                    <Badge
+                                                        variant="secondary"
+                                                        className="font-mono cursor-pointer bg-white/10 text-gray-300 hover:bg-purple-500/30 border-0"
+                                                    >
+                                                        {bundle.commit?.slice(0, 7) || 'unknown'}
+                                                        <ExternalLink className="h-2.5 w-2.5 ml-1" />
+                                                    </Badge>
                                                 </a>
-                                            </CardDescription>
-                                        </div>
-                                        {bundle.category && (
-                                            <Badge variant="outline" className="ml-2">
-                                                {bundle.category}
-                                            </Badge>
-                                        )}
-                                    </div>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                    {/* Description */}
-                                    {bundle.description && (
-                                        <p className="text-sm text-muted-foreground line-clamp-2">
-                                            {bundle.description}
-                                        </p>
-                                    )}
-
-                                    {/* Stats */}
-                                    <div className="grid grid-cols-2 gap-2 text-sm">
-                                        {bundle.stars && (
-                                            <div className="flex items-center gap-1 text-muted-foreground">
-                                                <Star className="w-4 h-4" />
-                                                <span>{(bundle.stars / 1000).toFixed(1)}k</span>
                                             </div>
-                                        )}
-                                        <div className="flex items-center gap-1 text-muted-foreground">
-                                            <HardDrive className="w-4 h-4" />
-                                            <span>{bundle.size}</span>
+
+                                            {/* Action Buttons */}
+                                            <div className="flex gap-2 w-full pt-2">
+                                                <Button className="flex-1 bg-gradient-to-r from-purple-600 to-cyan-500 shadow-[0_0_15px_rgba(168,85,247,0.3)] ring-1 ring-purple-500/30 hover:opacity-90 text-white border-0 text-[10px] uppercase font-bold tracking-wider py-3 px-2 rounded-full" asChild>
+                                                    <a href={`/explore?bundle_url=${encodeURIComponent(bundle.download_url)}`}>
+                                                        <img src="/cgcIcon.png" alt="CGC" className="w-3 h-3 mr-1 shrink-0" />
+                                                        Visualize
+                                                    </a>
+                                                </Button>
+                                                <Button 
+                                                    variant="outline" 
+                                                    className="flex-1 text-[10px] uppercase font-bold tracking-wider py-3 px-2 rounded-full bg-transparent border-white/20 text-white hover:bg-purple-600 hover:text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-colors overflow-hidden"
+                                                    onClick={() => handleDownloadBundle(bundle.download_url, bundle.bundle_name || `${bundle.name}.cgc`)}
+                                                    disabled={downloadingUrls[bundle.download_url]}
+                                                >
+                                                    {downloadingUrls[bundle.download_url] ? (
+                                                        <Loader2 className="w-3 h-3 mr-1 animate-spin shrink-0" />
+                                                    ) : (
+                                                        <Download className="w-3 h-3 mr-1 shrink-0" />
+                                                    )}
+                                                    <span className="truncate">
+                                                        {downloadingUrls[bundle.download_url] ? "DL'ING..." : "DOWNLOAD"}
+                                                    </span>
+                                                </Button>
+                                            </div>
+
+                                            {/* Usage Hint */}
+                                            <div className="bg-white/5 border border-white/10 p-2.5 rounded-full px-4 text-[10px] font-mono flex items-center justify-between gap-2 group/code">
+                                                <span className="flex-1 truncate text-gray-400">
+                                                    cgc load {bundle.bundle_name || `${bundle.name}-${bundle.version || 'latest'}.cgc`}
+                                                </span>
+                                                <button
+                                                    onClick={() => handleCopyCommand(
+                                                        bundle.bundle_name || `${bundle.name}-${bundle.version || 'latest'}.cgc`,
+                                                        index
+                                                    )}
+                                                    className="shrink-0 p-1.5 rounded-full hover:bg-purple-600 hover:text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-colors"
+                                                    aria-label={`Copy command for ${bundle.name}`}
+                                                    title="Copy to clipboard"
+                                                >
+                                                    {copiedBundleIndex === index ? (
+                                                        <Check className="w-3.5 h-3.5 text-green-400" />
+                                                    ) : (
+                                                        <Copy className="w-3.5 h-3.5 text-gray-600 dark:text-gray-500 group-hover/code:text-white" />
+                                                    )}
+                                                </button>
+                                            </div>
                                         </div>
-                                        <div className="flex items-center gap-1 text-muted-foreground col-span-2">
-                                            <Calendar className="w-4 h-4" />
-                                            <span>{new Date(bundle.generated_at).toLocaleDateString()}</span>
-                                        </div>
-                                    </div>
-
-                                    {/* Version Info */}
-                                    <div className="flex gap-2 text-xs">
-                                        {bundle.version && (
-                                            <Badge variant="secondary">v{bundle.version}</Badge>
-                                        )}
-                                        <a href={`https://github.com/${bundle.repo}/commit/${bundle.commit}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1"
-                                        >
-                                       <Badge
-                                       variant="secondary"
-                                       className="font-mono cursor-pointer hover:bg-muted"
-                                        >
-                                       {bundle.commit}
-                                       <ExternalLink className="h-3 w-3 ml-1" />
-                                       </Badge>
-                                       </a>
-
-                                    </div>
-
-                                    {/* Action Buttons */}
-                                    <div className="flex flex-col sm:flex-row gap-3 w-full">
-                                        <Button className="flex-1 bg-gradient-to-br from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-md border-0" asChild>
-                                            <a href={`/explore?bundle_url=${encodeURIComponent(bundle.download_url)}`}>
-                                                <img src="/cgcIcon.png" alt="CGC" className="w-5 h-5 mr-2 shrink-0 drop-shadow-[0_0_4px_rgba(255,255,255,0.5)]" />
-                                                Visualize
-                                            </a>
-                                        </Button>
-                                        <Button variant="outline" className="flex-1" asChild>
-                                            <a href={bundle.download_url} download>
-                                                <Download className="w-4 h-4 mr-2 shrink-0" />
-                                                Download
-                                            </a>
-                                        </Button>
-                                    </div>
-
-                                    {/* Usage Hint with Copy Button */}
-                                    <div className="bg-muted p-2 rounded text-xs font-mono flex items-center justify-between gap-2 group">
-                                        <span className="flex-1 truncate">
-                                            cgc load {bundle.bundle_name || `${bundle.name}-${bundle.version || 'latest'}.cgc`}
-                                        </span>
-                                        <button
-                                            onClick={() => handleCopyCommand(
-                                                bundle.bundle_name || `${bundle.name}-${bundle.version || 'latest'}.cgc`,
-                                                index
-                                            )}
-                                            className="shrink-0 p-1 rounded hover:bg-background transition-colors"
-                                            aria-label={`Copy command for ${bundle.name}`}
-                                            title="Copy to clipboard"
-                                        >
-                                            {copiedBundleIndex === index ? (
-                                                <Check className="w-4 h-4 text-green-600 dark:text-green-400" />
-                                            ) : (
-                                                <Copy className="w-4 h-4 text-muted-foreground group-hover:text-foreground" />
-                                            )}
-                                        </button>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))}
+                                    </GlassCard>
+                                </motion.div>
+                            ))}
+                        </div>
                     </div>
                 )}
 
                 {/* Stats Summary */}
                 {!loading && bundles.length > 0 && (
-                    <div className="mt-12 text-center text-sm text-muted-foreground" data-aos="fade-up">
+                    <div className="mt-12 text-center text-[10px] font-mono uppercase tracking-widest text-gray-500">
                         <p>
                             Showing {filteredBundles.length} of {bundles.length} available bundles
                         </p>

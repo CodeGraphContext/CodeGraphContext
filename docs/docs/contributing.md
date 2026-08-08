@@ -34,11 +34,15 @@ Thank you for your interest in contributing to CodeGraphContext (CGC). We welcom
 ## Development Workflows
 
 ### Debug Logging
-Enable verbose debug logs during execution by setting the environment variable:
+Enable verbose debug logs during execution by setting the environment variables:
 ```bash
-export CGC_LOG_LEVEL=DEBUG
+export DEBUG_LOGS=true          # developer/troubleshooting logs
+export ENABLE_APP_LOGS=DEBUG    # application log level (default: CRITICAL)
 cgc index
 ```
+
+`LIBRARY_LOG_LEVEL` controls the verbosity of third-party libraries (neo4j,
+asyncio, urllib3) separately, and defaults to `WARNING`.
 
 ### Running the Test Suite
 The testing pipeline utilizes `pytest`. Ensure all checks pass locally before pushing changes:
@@ -48,10 +52,7 @@ The testing pipeline utilizes `pytest`. Ensure all checks pass locally before pu
 pytest
 
 # Test a specific driver module
-pytest tests/integration/test_kuzudb.py
-
-# Run tests bypassing re-indexing cache
-CGC_SKIP_REINDEX=true pytest
+pytest tests/unit/core/test_database_kuzu_compat.py
 ```
 
 *Note: Integration tests for remote databases like Neo4j require a running local database instance (refer to docker-compose.yml).*

@@ -9,7 +9,7 @@ import threading
 from typing import Optional, Tuple
 from neo4j import GraphDatabase, Driver
 
-from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
+from codegraphcontext.utils.debug_log import info_logger, error_logger
 
 class NornicDriverWrapper:
     """
@@ -60,10 +60,14 @@ class NornicDBManager:
         self.nornic_database = os.getenv('NORNIC_DATABASE') 
         self._initialized = True
 
-    def get_driver(self) -> Driver:
+    def get_driver(self, graph_name: str = None) -> Driver:
         """
         Gets the Nornic driver instance, creating it if it doesn't exist.
         This method is thread-safe.
+
+        The `graph_name` parameter is accepted for interface parity with
+        FalkorDB (which supports multiple graphs per instance); Nornic
+        backend ignores it.
 
         Returns:
             The a wrapper for Nornic Driver instance.
@@ -90,8 +94,12 @@ class NornicDBManager:
                         raise ValueError(validation_error)
 
                     info_logger(f"Creating Nornic driver connection to {self.nornic_uri}")
+                    uri_to_use = self.nornic_uri
+                    if uri_to_use.startswith('nornic'):
+                        uri_to_use = uri_to_use.replace('nornic', 'bolt', 1)
+                    
                     self._driver = GraphDatabase.driver(
-                        self.nornic_uri,
+                        uri_to_use,
                         auth=(self.nornic_username, self.nornic_password)
                     )
                     try:
@@ -188,7 +196,11 @@ class NornicDBManager:
             except Exception as e:
                 return False, f"Error parsing URI or checking connectivity: {str(e)}"
             
-            driver = GraphDatabase.driver(uri, auth=(username, password))
+            uri_to_use = uri
+            if uri_to_use.startswith('nornic'):
+                uri_to_use = uri_to_use.replace('nornic', 'bolt', 1)
+            
+            driver = GraphDatabase.driver(uri_to_use, auth=(username, password))
             
             session_kwargs = {}
             if database:
