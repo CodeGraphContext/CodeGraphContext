@@ -168,8 +168,8 @@ CodeGraphContext supports multiple graph database backends to suit your environm
 | **Platform** | **All (Windows Native, macOS, Linux)** | **All (Windows Native, macOS, Linux)** | Unix-only (Linux/macOS/WSL) | All Platforms |
 | **Use Case** | Desktop, IDE, Local development | Custom research projects | Specialized Unix development | Enterprise, Massive graphs |
 | **Requirement**| `pip install kuzu` | `pip install ladybug` | `pip install falkordblite` | Neo4j Server / Docker / Nornic Cloud |
-| **Speed** | ⚡ Extremely Fast | ⚡ Fast | 🚀 Scalable |
-| **Persistence**| Yes (to disk) | Yes (to disk) | Yes (to disk) |
+| **Speed** | ⚡ Extremely Fast | ⚡ Fast | 🚀 Scalable | 🌐 Network-dependent |
+| **Persistence**| Yes (to disk) | Yes (to disk) | Yes (to disk) | Yes (server-side) |
 
 ---
 
