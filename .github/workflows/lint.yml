@@ -1,0 +1,43 @@
+name: Lint
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: python -m pip install --upgrade pip ruff
+
+      - name: Ruff check (M4 core + embeddings)
+        run: |
+          ruff check \
+            src/codegraphcontext/core/graph_query.py \
+            src/codegraphcontext/core/database_kuzu.py \
+            src/codegraphcontext/core/database_ladybug.py \
+            src/codegraphcontext/core/database_embedded_kuzu.py \
+            src/codegraphcontext/tools/indexing/embeddings.py \
+            src/codegraphcontext/tools/indexing/vector_resolver.py \
+            --select F,E9
+
+      - name: Ruff format check (M4 core + embeddings)
+        run: |
+          ruff format --check \
+            src/codegraphcontext/core/graph_query.py \
+            src/codegraphcontext/core/database_kuzu.py \
+            src/codegraphcontext/core/database_ladybug.py \
+            src/codegraphcontext/tools/indexing/embeddings.py \
+            src/codegraphcontext/tools/indexing/vector_resolver.py

@@ -1,32 +1,70 @@
+# src/codegraphcontext/tools/handlers/indexing_handlers.py
+import os
 from typing import Any, Dict
 from pathlib import Path
 import asyncio
-import os
 from ...utils.debug_log import debug_log
+from ...utils.path_sandbox import is_path_allowed as _is_path_allowed
+from ...utils.repo_path import repo_record_matches_path
 from ..package_resolver import get_local_package_path
+
 
 def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args) -> Dict[str, Any]:
     """
     Tool implementation to index a directory of code.
     Runs indexing asynchronously via a background job.
     """
-    path = args.get("path")
+    path = args.get("path") or args.get("repo_path")
     is_dependency = args.get("is_dependency", False)
+
+    if not path:
+        return {"error": "Path is a required argument (repo_path)."}
+
+    # `graph_name` is advertised in this tool's schema but indexing cannot yet
+    # honour it: GraphBuilder binds its GraphWriter to the default driver at
+    # construction, so a named graph would need a per-job writer threaded
+    # through the whole pipeline. Refuse explicitly rather than write to the
+    # default graph and report success — an agent that believed the repository
+    # landed in a named graph would find nothing there later, with no error to
+    # explain it.
+    graph_name = args.get("graph_name")
+    if graph_name:
+        return {
+            "error": (
+                f"Indexing into a named graph is not supported yet, so "
+                f"graph_name={graph_name!r} cannot be honoured. Omit it to index "
+                "into the default graph, or select the graph via the CLI context "
+                "(`cgc context create` / `cgc index --context`)."
+            ),
+            "unsupported_argument": "graph_name",
+        }
     
     try:
         path_obj = Path(path).resolve()
 
+        # --- Path-traversal guard ---------------------------------------------------
+        if not _is_path_allowed(path_obj):
+            return {
+                "error": (
+                    f"Path '{path}' is outside the allowed roots. "
+                    "Only subdirectories of the current working directory (or paths "
+                    "listed in the CGC_ALLOWED_ROOTS environment variable) can be indexed."
+                )
+            }
+        # -----------------------------------------------------------------------------
+
         if not path_obj.exists():
             return {
-                "success": True,
+                "success": False,
                 "status": "path_not_found",
-                "message": f"Path '{path}' does not exist."
+                "error": f"Path '{path}' does not exist.",
+                "message": f"Path '{path}' does not exist.",
             }
 
         # Prevent re-indexing the same repository.
         indexed_repos = list_repos_func().get("repositories", [])
         for repo in indexed_repos:
-            if Path(repo["path"]).resolve() == path_obj:
+            if repo_record_matches_path(repo, path_obj):
                 return {
                     "success": False,
                     "message": f"Repository '{path}' is already indexed."
@@ -81,7 +119,16 @@ def add_package_to_graph(graph_builder, job_manager, loop, list_repos_func, **ar
         
         if not package_path:
             return {"error": f"Could not find package '{package_name}' for language '{language}'. Make sure it's installed."}
-        
+
+        package_resolved = Path(package_path).resolve()
+        if not _is_path_allowed(package_resolved):
+            return {
+                "error": (
+                    f"Package path '{package_resolved}' is outside allowed roots. "
+                    "Add its parent directory to CGC_ALLOWED_ROOTS to index packages."
+                )
+            }
+
         if not os.path.exists(package_path):
             return {"error": f"Package path '{package_path}' does not exist"}
         

@@ -3,6 +3,13 @@
 This module provides a thread-safe singleton manager for the FalkorDB Lite database connection.
 FalkorDB Lite is an embedded graph database that requires no external server setup.
 """
+
+class FalkorDBUnavailableError(RuntimeError):
+    """
+    Raised when FalkorDB Lite is installed but cannot actually run in this
+    environment (e.g. falkordb.so not found in a PyInstaller bundle,
+    or GRAPH.QUERY not available). Callers should fall back to KùzuDB.
+    """
 import os
 import sys
 import subprocess
@@ -13,7 +20,57 @@ import re
 from pathlib import Path
 from typing import Optional, Tuple
 
+from codegraphcontext.utils.cypher_ddl import ddl_kind, is_schema_ddl
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
+
+# ---------------------------------------------------------------------------
+# Compatibility patch: newer redis-py releases assume every Connection exposes
+# ``host`` and ``port`` attributes, but ``UnixDomainSocketConnection`` historically
+# has neither. Two failure modes have been observed in the wild:
+#
+#   1. redis-py >= 5.x added OpenTelemetry error telemetry that reads ``conn.port``
+#      inside its error handler. The missing attribute raised a secondary
+#      ``AttributeError`` that masked the real connection error.
+#   2. redis-py >= 6.x added a maintenance-notifications handshake
+#      (``activate_maint_notifications_handling_if_enabled`` →
+#      ``_enable_maintenance_notifications``) that raises ``ValueError`` on any
+#      connection without a ``host`` attribute — breaking FalkorDB Lite's
+#      Unix-socket connection entirely (upstream issue #1035).
+#
+# Patching the class at import time is cheap and fixes every call-site. The
+# values themselves are inert sentinels: FalkorDB Lite never uses TCP, so no
+# code path will dereference them as a real ``(host, port)`` pair.
+# ---------------------------------------------------------------------------
+try:
+    from redis.connection import UnixDomainSocketConnection as _UDSC
+
+    # ``port`` was never an attribute on UDSC; if it is missing, install a sentinel.
+    if not hasattr(_UDSC, 'port'):
+        _UDSC.port = 0  # type: ignore[attr-defined]
+
+    # ``host`` is trickier. On redis-py >= 6 ``UDSC`` inherits an *abstract*
+    # ``host`` property (from ``MaintNotificationsAbstractConnection``) whose
+    # default body just returns ``None``. The maintenance-notifications
+    # handshake then does ``getattr(self, "host", None)``; because the property
+    # *exists* on the class, ``getattr`` returns ``None`` instead of falling
+    # through to its default — and the handshake raises ValueError.
+    #
+    # ``hasattr(_UDSC, 'host')`` is therefore the wrong check: we must inspect
+    # an instance. We probe a bare instance (``object.__new__`` skips
+    # ``__init__``, so we don't need a path) and override the class attribute
+    # with an inert string whenever the inherited property would yield ``None``.
+    try:
+        _probe = object.__new__(_UDSC)
+        if getattr(_probe, 'host', None) is None:
+            _UDSC.host = 'localhost'  # type: ignore[attr-defined]
+        del _probe
+    except Exception:
+        # Probing failed for an unrelated reason; do the safe thing and
+        # install the sentinel anyway. Worst case we shadow a working property
+        # with a constant, which is still preferable to a crash.
+        _UDSC.host = 'localhost'  # type: ignore[attr-defined]
+except Exception:
+    pass  # redis not installed or class structure changed — safe to ignore
 
 class FalkorDBManager:
     """
@@ -23,10 +80,12 @@ class FalkorDBManager:
     _instance = None
     _process = None
     _driver = None
-    _graph = None
+    _graphs = {}
     _lock = threading.Lock()
+    _failed_configurations: set[tuple[str, str]] = set()
+    _STARTUP_TIMEOUT_SEC = 5
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         """Standard singleton pattern implementation."""
         if cls._instance is None:
             with cls._lock:
@@ -34,14 +93,11 @@ class FalkorDBManager:
                     cls._instance = super(FalkorDBManager, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self, db_path: Optional[str] = None, socket_path: Optional[str] = None):
         """
-        Initializes the manager with default database path.
+        Initializes the manager with default database path or explicit overrides.
         The `_initialized` flag prevents re-initialization on subsequent calls.
         """
-        if hasattr(self, '_initialized'):
-            return
-
         # Configuration priority:
         # 1. Environment variable (highest priority)
         # 2. Config manager (supports project-local .env)
@@ -57,34 +113,73 @@ class FalkorDBManager:
             config_db_path = None
             config_socket_path = None
         
-        # Database path with fallback chain
-        self.db_path = os.getenv(
+        # Database path with fallback chain (Explicit > Env > Config/Default)
+        new_db_path = db_path or os.getenv(
             'FALKORDB_PATH',
-            config_db_path or str(Path.home() / '.codegraphcontext' / 'falkordb.db')
+            config_db_path or str(Path.home() / '.codegraphcontext' / 'global' / 'falkordb.db')
         )
+        new_db_path = os.path.abspath(new_db_path)
+
+        if hasattr(self, '_initialized') and getattr(self, 'db_path', None) == new_db_path:
+            return
+
+        if hasattr(self, '_initialized') and getattr(self, 'db_path', None) != new_db_path:
+            previous_configuration = getattr(self, '_configuration_key', None)
+            if previous_configuration is not None:
+                FalkorDBManager._failed_configurations.discard(previous_configuration)
+            self.shutdown()
+            self._driver = None
+            # `_graphs` (plural) is the per-graph cache; clearing the singular
+            # `_graph` left every cached wrapper bound to the worker that
+            # shutdown() just killed, so a later get_driver(graph_name=...) for
+            # any non-default graph returned a dead client.
+            self._graphs = {}
+
+        self._initialized = False
+        self.db_path = new_db_path
         
         # Socket path with fallback chain
-        self.socket_path = os.getenv(
-            'FALKORDB_SOCKET_PATH',
-            config_socket_path or str(Path.home() / '.codegraphcontext' / 'falkordb.sock')
-        )
+        if socket_path:
+            self.socket_path = socket_path
+        elif db_path:
+            # If a custom DB path was given but no socket path, infer socket path automatically
+            # near the custom database rather than putting it in the global directory.
+            db_dir = Path(db_path).parent
+            self.socket_path = str(db_dir / 'falkordb.sock')
+        else:
+            self.socket_path = os.getenv(
+                'FALKORDB_SOCKET_PATH',
+                config_socket_path or str(Path.home() / '.codegraphcontext' / 'global' / 'falkordb.sock')
+            )
+        self.socket_path = os.path.abspath(self.socket_path)
+        self._configuration_key = (self.db_path, self.socket_path)
         
         self.graph_name = os.getenv('FALKORDB_GRAPH_NAME', 'codegraph')
         self._initialized = True
-        
-        # Register cleanup on exit
-        atexit.register(self.shutdown)
 
-    def get_driver(self):
+        if not getattr(self, "_atexit_registered", False):
+            atexit.register(self.shutdown)
+            self._atexit_registered = True
+
+    def get_driver(self, graph_name: str = None):
         """
         Gets the FalkorDB connection, starting the subprocess if necessary.
-        This method is thread-safe.
+        This method is thread-safe. Supports multiple graphs by name.
+
+        Args:
+            graph_name: Name of the graph to use. Defaults to FALKORDB_GRAPH_NAME env var.
 
         Returns:
             A FalkorDB graph instance that mimics Neo4j driver interface.
         """
         import platform
-        
+        graph_name = graph_name or self.graph_name
+
+        if self._configuration_key in FalkorDBManager._failed_configurations:
+            raise FalkorDBUnavailableError(
+                "FalkorDB Lite previously failed to start for this database configuration."
+            )
+
         if platform.system() == "Windows":
             raise RuntimeError(
                 "CodeGraphContext uses redislite/FalkorDB, which does not support Windows.\n"
@@ -112,17 +207,36 @@ class FalkorDBManager:
                         from falkordb import FalkorDB
                         
                         info_logger(f"Connecting to FalkorDB Lite at {self.socket_path}")
-                        self._driver = FalkorDB(unix_socket_path=self.socket_path)
-                        self._graph = self._driver.select_graph(self.graph_name)
-                        
+                        try:
+                            self._driver = FalkorDB(unix_socket_path=self.socket_path)
+                            g = self._driver.select_graph(self.graph_name)
+                        except ValueError as ve:
+                            # redis-py >= 6 raises ValueError on Unix-socket connections that
+                            # lack a 'host' attribute (see upstream issue #1035). Even with the
+                            # import-time shim above, newer redis-py revisions may shift the
+                            # check. Convert to FalkorDBUnavailableError so the caller can fall
+                            # back to KùzuDB instead of crashing the whole MCP server.
+                            raise FalkorDBUnavailableError(
+                                f"FalkorDB Lite client refused the Unix-socket connection: {ve}. "
+                                "This typically indicates a redis-py / falkordblite version mismatch."
+                            ) from ve
+
                         # Test the connection
                         try:
                             # Graph creation is lazy in some clients, force a query
-                            self._graph.query("RETURN 1")
+                            g.query("RETURN 1")
+                            self._graphs[self.graph_name] = g
                             info_logger(f"FalkorDB Lite connection established successfully")
                             info_logger(f"Graph name: {self.graph_name}")
                         except Exception as e:
-                            info_logger(f"Initial ping check: {e}")
+                            # A wrapper that cannot run RETURN 1 is unusable; raise the
+                            # typed error so the caller's fallback logic engages instead
+                            # of returning a broken manager.
+                            self._driver = None
+                            self._graph = None
+                            raise FalkorDBUnavailableError(
+                                f"FalkorDB Lite connected but failed the initial health check: {e}"
+                            ) from e
                             
                     except ImportError as e:
                         error_logger(
@@ -130,12 +244,22 @@ class FalkorDBManager:
                             "  pip install falkordblite"
                         )
                         raise ValueError("FalkorDB client missing.") from e
+                    except FalkorDBUnavailableError:
+                        FalkorDBManager._failed_configurations.add(self._configuration_key)
+                        raise
                     except Exception as e:
+                        FalkorDBManager._failed_configurations.add(self._configuration_key)
                         error_logger(f"Failed to initialize FalkorDB: {e}")
                         raise
 
+        if graph_name not in self._graphs:
+            with self._lock:
+                if graph_name not in self._graphs:
+                    self._graphs[graph_name] = self._driver.select_graph(graph_name)
+                    info_logger(f"Selected graph: {graph_name}")
+
         # Return a wrapper that provides Neo4j-like session interface
-        return FalkorDBDriverWrapper(self._graph)
+        return FalkorDBDriverWrapper(self._graphs[graph_name])
 
     def _ensure_server_running(self):
         """Starts the FalkorDB worker subprocess if not reachable."""
@@ -152,64 +276,210 @@ class FalkorDBManager:
             try:
                 from falkordb import FalkorDB
                 d = FalkorDB(unix_socket_path=self.socket_path)
-                try:
-                    d.execute_command("PING")
-                except AttributeError:
-                    pass
-                info_logger("Connected to existing FalkorDB Lite process.")
+                # Test not just connectivity (PING), but functionality (GRAPH.QUERY)
+                # This ensures we don't connect to a "stale" process that doesn't have the module loaded
+                test_graph = d.select_graph('__cgc_health_check')
+                test_graph.query("RETURN 1")
+                info_logger("Connected to existing (functional) FalkorDB Lite process.")
                 return
-            except Exception:
-                # Stale socket or unresponsive
-                info_logger("Found stale socket, cleaning up...")
+            except ValueError as ve:
+                # redis-py >= 6 maintenance-notifications handshake (issue #1035) — this
+                # backend cannot work in the current environment regardless of socket state.
+                raise FalkorDBUnavailableError(
+                    f"FalkorDB Lite client refused the Unix-socket connection: {ve}. "
+                    "This typically indicates a redis-py / falkordblite version mismatch."
+                ) from ve
+            except Exception as e:
+                # Stale socket, unresponsive, or "brainless" (unknown command GRAPH.QUERY)
+                info_logger(f"Existing FalkorDB process at {self.socket_path} is stale or non-functional: {e}")
+                info_logger("Cleaning up and attempting fresh start...")
                 try:
                     os.remove(self.socket_path)
                 except OSError:
                     pass
 
         # 2. Start Subprocess
-        env = os.environ.copy()
-        env['FALKORDB_PATH'] = self.db_path
-        env['FALKORDB_SOCKET_PATH'] = self.socket_path
+        env = self._build_worker_environment()
         
         # Determine python executable
         python_exe = sys.executable
         
         # We assume codegraphcontext is installed or in python path
-        cmd = [python_exe, '-m', 'codegraphcontext.core.falkor_worker']
+        if getattr(sys, 'frozen', False):
+            # In frozen mode, the executable is the bundle itself.
+            # We tell the bundle to run the worker instead of the app via environment variable.
+            env['CGC_RUN_FALKOR_WORKER'] = 'true'
+            cmd = [python_exe]
+        else:
+            # If not frozen, sys.executable should be python.
+            # But on some platforms (like PIP installs), it might be the 'cgc' entry point script.
+            # We check if it looks like python, otherwise search the PATH.
+            import shutil
+            exe_name = os.path.basename(python_exe).lower()
+            if not any(x in exe_name for x in ['python', 'py.exe', 'pypy']):
+                python_exe = shutil.which('python3') or shutil.which('python') or sys.executable
+            
+            cmd = [python_exe, '-m', 'codegraphcontext.core.falkor_worker']
         
         info_logger("Starting FalkorDB Lite worker subprocess...")
         self._process = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        # Drain stdout/stderr continuously so a long-running chatty worker cannot
+        # fill the OS pipe buffers and block the server. The (bounded) captured
+        # output is still available for the startup failure report below.
+        self._stdout_lines = []
+        self._stderr_lines = []
+
+        def _drain(stream, buf, limit=200):
+            try:
+                for line in iter(stream.readline, b''):
+                    buf.append(line)
+                    if len(buf) > limit:
+                        del buf[:len(buf) - limit]
+            except Exception:
+                pass
+            finally:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+        self._drain_threads = [
+            threading.Thread(target=_drain, args=(self._process.stdout, self._stdout_lines), daemon=True),
+            threading.Thread(target=_drain, args=(self._process.stderr, self._stderr_lines), daemon=True),
+        ]
+        for t in self._drain_threads:
+            t.start()
         
-        # 3. Wait for Readiness
+        # 3. Wait for Readiness. The Unix socket can appear before Redis has
+        # loaded the FalkorDB module, so validate GRAPH.QUERY instead of
+        # treating socket creation alone as ready.
         start_time = time.time()
-        timeout = 20 # seconds
+        timeout = self._STARTUP_TIMEOUT_SEC
+        last_error = None
         
         while time.time() - start_time < timeout:
             if os.path.exists(self.socket_path):
-                # Socket created!
-                # Give it a tiny sleep to ensure listening
-                time.sleep(0.2)
-                return
+                try:
+                    from falkordb import FalkorDB
+                    d = FalkorDB(unix_socket_path=self.socket_path)
+                    test_graph = d.select_graph('__cgc_health_check')
+                    test_graph.query("RETURN 1")
+                    return
+                except ValueError as ve:
+                    # redis-py version mismatch — no point retrying, the handshake
+                    # will keep failing the same way until the user fixes deps.
+                    raise FalkorDBUnavailableError(
+                        f"FalkorDB Lite client refused the Unix-socket connection: {ve}. "
+                        "This typically indicates a redis-py / falkordblite version mismatch."
+                    ) from ve
+                except Exception as e:
+                    last_error = e
             
             # Check if process died
             if self._process.poll() is not None:
-                out, err = self._process.communicate()
-                raise RuntimeError(f"FalkorDB worker failed to start (Exit Code {self._process.returncode}):\nSTDOUT: {out.decode()}\nSTDERR: {err.decode()}")
+                # The drain threads own the pipes (communicate() would race with
+                # them); give them a moment to flush the remaining output.
+                for t in self._drain_threads:
+                    t.join(timeout=1)
+                out = b''.join(self._stdout_lines)
+                err = b''.join(self._stderr_lines)
+                returncode = self._process.returncode
+
+                # Exit 0 means the worker detected an already-running FalkorDB instance.
+                if returncode == 0 and os.path.exists(self.socket_path):
+                    try:
+                        from falkordb import FalkorDB
+                        d = FalkorDB(unix_socket_path=self.socket_path)
+                        test_graph = d.select_graph('__cgc_health_check')
+                        test_graph.query("RETURN 1")
+                        return
+                    except Exception as e:
+                        last_error = e
+
+                # Any other exit code during startup means this backend is toast.
+                # Raise FalkorDBUnavailableError to trigger the automatic KùzuDB fallback.
+                raise FalkorDBUnavailableError(
+                    f"FalkorDB Lite worker failed to start (Exit Code {returncode}).\n"
+                    f"STDOUT: {out.decode().strip()}\n"
+                    f"STDERR: {err.decode().strip()}"
+                )
             
             time.sleep(0.5)
             
-        raise RuntimeError("Timed out waiting for FalkorDB Lite to start.")
+        # Timeout is also a "backend not usable here" signal — raise the typed
+        # exception so the documented KùzuDB fallback fires instead of crashing.
+        raise FalkorDBUnavailableError(
+            f"Timed out waiting for FalkorDB Lite to start. Last error: {last_error}"
+        )
 
-    def close_driver(self):
-        """Closes the connection."""
-        self._driver = None
-        self._graph = None
+    def _build_worker_environment(self) -> dict[str, str]:
+        """Pass a deterministic, per-context port to the FalkorDB worker."""
+        from .falkor_worker import get_falkordb_port
+        from codegraphcontext.cli.config_manager import get_config_value
+
+        env = os.environ.copy()
+        env["FALKORDB_PATH"] = self.db_path
+        env["FALKORDB_SOCKET_PATH"] = self.socket_path
+        configured_port = os.getenv("FALKORDB_PORT") or get_config_value("FALKORDB_PORT")
+        env["FALKORDB_PORT"] = configured_port or str(get_falkordb_port(self.socket_path))
+        return env
+
+    def list_graphs(self):
+        """Return names of all graphs in this FalkorDB instance."""
+        if self._driver is None:
+            self.get_driver()  # ensure connected
+        return self._driver.list_graphs()
+
+    def close_driver(self, *, teardown: bool = False):
+        """Closes the connection. Pass teardown=True to stop the worker subprocess."""
+        if self._driver is not None:
+            info_logger("Closing FalkorDB Lite connection")
+            # Dropping the reference alone leaks the underlying redis
+            # connection pool: `connected_clients` on the server grew by one
+            # per get_driver()/close_driver() cycle and never came back down,
+            # which in a long-running MCP server that switches contexts trends
+            # toward the redis `maxclients` limit.
+            self._disconnect_pool(self._driver)
+            self._driver = None
+            self._graph = None
+            self._graphs = {}
+        if teardown:
+            self.shutdown()
+            FalkorDBManager._failed_configurations.discard(self._configuration_key)
+
+    @staticmethod
+    def _disconnect_pool(driver) -> None:
+        """Best-effort release of the redis connection pool behind *driver*."""
+        for attr in ("connection", "_conn"):
+            conn = getattr(driver, attr, None)
+            pool = getattr(conn, "connection_pool", None)
+            if pool is not None:
+                try:
+                    pool.disconnect()
+                except Exception as exc:  # noqa: BLE001 - closing must never raise
+                    info_logger(f"FalkorDB pool disconnect failed: {exc}")
+                return
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception as exc:  # noqa: BLE001
+                    info_logger(f"FalkorDB connection close failed: {exc}")
+                return
 
     def shutdown(self):
-        """Kills the subprocess on exit."""
+        """Persist and stop the embedded server before terminating its worker."""
         if self._process:
             if self._process.poll() is None:
                 info_logger("Stopping FalkorDB subprocess...")
+                try:
+                    from redis import Redis
+
+                    Redis(unix_socket_path=self.socket_path).shutdown(save=True)
+                except Exception as exc:
+                    # Redis closes the control connection after accepting SHUTDOWN;
+                    # worker termination remains the fallback if that did not happen.
+                    info_logger(f"FalkorDB shutdown command did not return cleanly: {exc}")
                 self._process.terminate()
                 try:
                     self._process.wait(timeout=5)
@@ -218,10 +488,13 @@ class FalkorDBManager:
     
     def is_connected(self) -> bool:
         """Checks if the database connection is currently active."""
-        if self._graph is None:
+        if self._driver is None:
             return False
         try:
-            self._graph.query("RETURN 1")
+            g = self._graphs.get(self.graph_name)
+            if g is None:
+                g = self._driver.select_graph(self.graph_name)
+            g.query("RETURN 1")
             return True
         except Exception:
             return False
@@ -274,11 +547,21 @@ class FalkorDBDriverWrapper:
     
     def __init__(self, graph):
         self.graph = graph
-    
-    def session(self):
-        """Returns a session-like object for FalkorDB."""
-        return FalkorDBSessionWrapper(self.graph)
-    
+
+    def session(self, **kwargs):
+        """Returns a session-like object for FalkorDB.
+
+        Neo4j-specific kwargs are accepted and ignored, except
+        ``default_access_mode``: when it requests READ access we route the
+        session through FalkorDB's server-enforced read-only command
+        (``GRAPH.RO_QUERY``). This gives the user-facing query path real
+        write protection at the database layer instead of relying solely on
+        the regex guard.
+        """
+        access_mode = kwargs.get("default_access_mode")
+        read_only = isinstance(access_mode, str) and access_mode.strip().upper() in ("READ", "R")
+        return FalkorDBSessionWrapper(self.graph, read_only=read_only)
+
     def close(self):
         """FalkorDB Lite doesn't need explicit close for sessions."""
         pass
@@ -288,14 +571,47 @@ class FalkorDBSessionWrapper:
     """
     Wrapper class to provide Neo4j session-like interface for FalkorDB Lite.
     """
-    
-    def __init__(self, graph):
+
+    def __init__(self, graph, read_only: bool = False):
         self.graph = graph
-    
+        self.read_only = read_only
+
     def run(self, query, **parameters):
         """
         Execute a Cypher query on FalkorDB.
+
+        Read-only sessions use ``graph.ro_query`` (GRAPH.RO_QUERY), which the
+        FalkorDB server refuses to run for any write operation. This is the
+        session-level enforcement layer for user-facing read queries; the
+        write-oriented constraint/schema translation below is skipped entirely
+        so that a smuggled write cannot be silently rewritten into a success.
         """
+        if self.read_only:
+            try:
+                ro_query = getattr(self.graph, "ro_query", None)
+                if callable(ro_query):
+                    result = ro_query(query, parameters)
+                else:
+                    # Older FalkorDB clients lack ro_query; fall back to the
+                    # normal path. The regex guard is still the gate here.
+                    result = self.graph.query(query, parameters)
+                return FalkorDBResultWrapper(result)
+            except Exception as e:
+                error_logger(f"FalkorDB read-only query failed: {query[:100]}... Error: {e}")
+                raise
+
+        constraint_command = self._translate_constraint_command(query)
+        if constraint_command is not None:
+            try:
+                self.graph.execute_command(*constraint_command)
+                return FalkorDBResultWrapper(None)
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "already exists" in error_msg or "already created" in error_msg:
+                    return FalkorDBResultWrapper(None)
+                error_logger(f"FalkorDB constraint failed: {constraint_command!r} Error: {e}")
+                raise
+
         # Translate Neo4j schema queries to FalkorDB syntax
         query = self._translate_schema_query(query)
         
@@ -303,45 +619,111 @@ class FalkorDBSessionWrapper:
             result = self.graph.query(query, parameters)
             return FalkorDBResultWrapper(result)
         except Exception as e:
-            # Ignore errors about existing constraints/indexes
+            # "already exists" is only benign for schema DDL, where it means the
+            # index/constraint was created by an earlier run. Applying the test
+            # to *every* query turned genuine data-write failures into an empty
+            # success wrapper (.data() == [], .single() is None), so callers
+            # blew up with a TypeError far away from the real cause.
             error_msg = str(e).lower()
-            if "already exists" in error_msg or "already created" in error_msg:
+            is_benign_ddl = self._is_schema_ddl(query) and (
+                "already exists" in error_msg
+                or "already created" in error_msg
+                or "already indexed" in error_msg
+            )
+            if is_benign_ddl:
                 return FalkorDBResultWrapper(None)
-                
+
             error_logger(f"FalkorDB query failed: {query[:100]}... Error: {e}")
             raise
 
+    @staticmethod
+    def _is_schema_ddl(query: str) -> bool:
+        """True when *query* is a schema statement, matched on its leading
+        keyword rather than by searching the whole text (which would also
+        match the same words inside a string literal)."""
+        head = query.lstrip().lstrip("(").lstrip()
+        return bool(
+            re.match(
+                r"(?is)\A(CREATE|DROP)\s+"
+                r"(BTREE\s+|RANGE\s+|TEXT\s+|POINT\s+|VECTOR\s+|FULLTEXT\s+)?"
+                r"(INDEX|CONSTRAINT)\b",
+                head,
+            )
+            # FalkorDB's procedural index API, e.g.
+            # CALL db.idx.fulltext.createNodeIndex('Function', 'name', ...)
+            or bool(re.match(r"(?is)\ACALL\s+db\.idx\.", head))
+        )
+
+    def _translate_constraint_command(self, query: str):
+        """
+        Translate Neo4j-style CREATE CONSTRAINT queries to GRAPH.CONSTRAINT CREATE.
+        FalkorDB 4.16.x expects this command path instead of GRAPH.QUERY.
+        """
+        q_upper = query.upper()
+        if "CREATE CONSTRAINT" not in q_upper:
+            return None
+
+        normalized = re.sub(r"\s+IF NOT EXISTS", "", query, flags=re.IGNORECASE)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+
+        entity_match = re.search(r"FOR\s*\((\w+):([^)]+)\)", normalized, flags=re.IGNORECASE)
+        if not entity_match:
+            return None
+        entity_type = "NODE"
+        label = entity_match.group(2).strip()
+
+        composite_match = re.search(
+            r"REQUIRE\s*\(([^)]+)\)\s*IS\s+UNIQUE",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        single_match = re.search(
+            r"REQUIRE\s+\w+\.([A-Za-z_][A-Za-z0-9_]*)\s+IS\s+UNIQUE",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+
+        if composite_match:
+            props = [part.split(".")[-1].strip() for part in composite_match.group(1).split(",") if part.strip()]
+            constraint_type = "UNIQUE"
+        elif single_match:
+            props = [single_match.group(1).strip()]
+            constraint_type = "UNIQUE"
+        else:
+            return None
+
+        return [
+            "GRAPH.CONSTRAINT",
+            "CREATE",
+            self.graph.name,
+            constraint_type,
+            entity_type,
+            label,
+            "PROPERTIES",
+            len(props),
+            *props,
+        ]
+
     def _translate_schema_query(self, query: str) -> str:
         """Translate Neo4j schema queries to FalkorDB/RedisGraph syntax."""
-        q_upper = query.upper()
-        
-        # Handle Fulltext Indexes (Not supported in same syntax, skip for now)
-        if "CREATE FULLTEXT INDEX" in q_upper:
-            return "RETURN 1"
-            
-        # Handle Constraints
-        if "CREATE CONSTRAINT" in q_upper:
-            # Remove "IF NOT EXISTS"
-            query = re.sub(r'\s+IF NOT EXISTS', '', query, flags=re.IGNORECASE)
-            
-            # Handle composite keys: (n.p1, n.p2) -> downgrade to INDEX
-            if "," in query:
-                match_node = re.search(r'FOR\s+(\([^)]+\))', query, flags=re.IGNORECASE)
-                match_props = re.search(r'REQUIRE\s+(\([^)]+\))\s+IS UNIQUE', query, flags=re.IGNORECASE)
-                
-                if match_node and match_props:
-                    return f"CREATE INDEX FOR {match_node.group(1)} ON {match_props.group(1)}"
+        # Classify on the statement's leading keyword, not by searching the
+        # whole text: a substring test also matches these words inside a string
+        # literal, which silently replaced ordinary data queries with
+        # "RETURN 1" — a fabricated result of the wrong shape, with no error.
+        kind = ddl_kind(query)
+        if kind is None:
+            return query
 
-            # Handle simple uniqueness: CREATE CONSTRAINT name FOR (n:Label) REQUIRE n.prop IS UNIQUE
-            # TO: CREATE CONSTRAINT ON (n:Label) ASSERT n.prop IS UNIQUE
-            
-            # Remove constraint name
-            query = re.sub(r'CREATE CONSTRAINT\s+\w+\s+', 'CREATE CONSTRAINT ', query, flags=re.IGNORECASE)
-            query = re.sub(r'\s+FOR\s+', ' ON ', query, flags=re.IGNORECASE)
-            query = re.sub(r'\s+REQUIRE\s+', ' ASSERT ', query, flags=re.IGNORECASE)
-            
-        # Handle Regular Indexes
-        elif "CREATE INDEX" in q_upper:
+        # Fulltext indexes: not supported in the same syntax, skip for now.
+        if kind == "fulltext":
+            return "RETURN 1"
+
+        # Constraints go through GRAPH.CONSTRAINT in run().
+        if kind == "constraint":
+            return "RETURN 1"
+
+        # Handle regular indexes
+        if kind == "index":
             # Remove "IF NOT EXISTS"
             query = re.sub(r'\s+IF NOT EXISTS', '', query, flags=re.IGNORECASE)
             # Remove Index Name: CREATE INDEX name FOR -> CREATE INDEX FOR
@@ -358,10 +740,19 @@ class FalkorDBSessionWrapper:
 
 class FalkorDBRecord(dict):
     """
-    Dict wrapper that provides a .data() method for compatibility with Neo4j records.
+    Dict wrapper that provides a .data() method and integer/key index access
+    for compatibility with Neo4j and Kuzu records.
     """
     def data(self):
         return self
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            keys = list(self.keys())
+            if 0 <= key < len(keys):
+                return super().__getitem__(keys[key])
+            raise IndexError(f"Index {key} out of range")
+        return super().__getitem__(key)
 
 class FalkorDBResultWrapper:
     """

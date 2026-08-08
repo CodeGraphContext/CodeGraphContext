@@ -98,14 +98,14 @@ cgc stats /path/to/repo              # Stats for specific repo
 ### **Query the Graph**
 ```bash
 # Find all classes
-cgc cypher "MATCH (c:Class) RETURN c.name LIMIT 20"
+cgc query "MATCH (c:Class) RETURN c.name LIMIT 20"
 
 # Find all functions
-cgc cypher "MATCH (f:Function) RETURN f.name LIMIT 20"
+cgc query "MATCH (f:Function) RETURN f.name LIMIT 20"
 
 # Search for specific code
-cgc search class Flask
-cgc search function render_template
+cgc find name Flask
+cgc find name render_template
 ```
 
 ---
@@ -195,7 +195,7 @@ Available Bundles
 - [ ] Search for a bundle: `cgc registry search <query>`
 - [ ] Download a bundle: `cgc load <name>`
 - [ ] View loaded repos: `cgc list`
-- [ ] Query the graph: `cgc cypher "<query>"`
+- [ ] Query the graph: `cgc query "<query>"`
 
 ---
 

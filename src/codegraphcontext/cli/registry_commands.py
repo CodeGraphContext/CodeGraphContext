@@ -11,99 +11,20 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-import time
 
 console = Console()
 
 GITHUB_ORG = "CodeGraphContext"
 GITHUB_REPO = "CodeGraphContext"
-REGISTRY_API_URL = f"https://api.github.com/repos/{GITHUB_ORG}/{GITHUB_REPO}/releases"
-MANIFEST_URL = f"https://github.com/{GITHUB_ORG}/{GITHUB_REPO}/releases/download/on-demand-bundles/manifest.json"
 
 
 def fetch_available_bundles() -> List[Dict[str, Any]]:
-    """
-    Fetch all available bundles from GitHub Releases.
-    Returns a list of bundle dictionaries with metadata.
-    Preserves all versions - no deduplication.
-    """
-    all_bundles = []
-    
+    """Fetch all available bundles from the Hugging Face registry (delegates to core BundleRegistry)."""
+    from ..core.bundle_registry import BundleRegistry, RegistryUnavailableError
     try:
-        # 1. Fetch on-demand bundles from manifest
-        try:
-            response = requests.get(MANIFEST_URL, timeout=10)
-            if response.status_code == 200:
-                manifest = response.json()
-                if manifest.get('bundles'):
-                    for bundle in manifest['bundles']:
-                        bundle['source'] = 'on-demand'
-                        # Ensure bundle has a full_name field (with version info)
-                        if 'bundle_name' in bundle:
-                            # Extract full name without .cgc extension
-                            bundle['full_name'] = bundle['bundle_name'].replace('.cgc', '')
-                        all_bundles.append(bundle)
-        except Exception as e:
-            console.print(f"[dim]Note: Could not fetch on-demand bundles: {e}[/dim]")
-        
-        # 2. Fetch weekly pre-indexed bundles
-        try:
-            response = requests.get(REGISTRY_API_URL, timeout=10)
-            if response.status_code == 200:
-                releases = response.json()
-                
-                # Find weekly releases (bundles-YYYYMMDD pattern)
-                weekly_releases = [r for r in releases if r['tag_name'].startswith('bundles-') and r['tag_name'] != 'bundles-latest']
-                
-                if weekly_releases:
-                    # Get the most recent weekly release
-                    latest_weekly = weekly_releases[0]
-                    
-                    for asset in latest_weekly.get('assets', []):
-                        if asset['name'].endswith('.cgc'):
-                            # Full bundle name without extension
-                            full_name = asset['name'].replace('.cgc', '')
-                            
-                            # Parse bundle name
-                            name_parts = full_name.split('-')
-                            bundle = {
-                                'name': name_parts[0],  # Base package name
-                                'full_name': full_name,  # Complete name with version
-                                'repo': f"{name_parts[0]}/{name_parts[0]}",  # Simplified
-                                'bundle_name': asset['name'],
-                                'version': name_parts[1] if len(name_parts) > 1 else 'latest',
-                                'commit': name_parts[2] if len(name_parts) > 2 else 'unknown',
-                                'size': f"{asset['size'] / 1024 / 1024:.1f}MB",
-                                'download_url': asset['browser_download_url'],
-                                'generated_at': asset['updated_at'],
-                                'source': 'weekly'
-                            }
-                            all_bundles.append(bundle)
-        except Exception as e:
-            console.print(f"[dim]Note: Could not fetch weekly bundles: {e}[/dim]")
-        
-        # Normalize all bundles to have required fields
-        for bundle in all_bundles:
-            # Ensure 'name' field exists (base package name)
-            if 'name' not in bundle:
-                repo = bundle.get('repo', '')
-                if '/' in repo:
-                    bundle['name'] = repo.split('/')[-1]
-                else:
-                    # Extract from full_name or bundle_name
-                    full_name = bundle.get('full_name', bundle.get('bundle_name', 'unknown'))
-                    bundle['name'] = full_name.split('-')[0]
-            
-            # Ensure 'full_name' exists
-            if 'full_name' not in bundle:
-                bundle['full_name'] = bundle.get('bundle_name', bundle.get('name', 'unknown')).replace('.cgc', '')
-        
-        # NO DEDUPLICATION - Keep all versions
-        return all_bundles
-    
-    except Exception as e:
-        console.print(f"[bold red]Error fetching bundles: {e}[/bold red]")
-        return []
+        return BundleRegistry.fetch_available_bundles()
+    except RegistryUnavailableError:
+        raise
 
 
 def _get_base_package_name(bundle_name: str) -> str:
@@ -115,17 +36,27 @@ def _get_base_package_name(bundle_name: str) -> str:
         'flask-main-abc123' -> 'flask'
         'requests' -> 'requests'
     """
+    import re
     # Remove .cgc extension if present
     name = bundle_name.replace('.cgc', '')
     
-    # Split by hyphen and take the first part
-    # This assumes package names don't contain hyphens (may need refinement)
-    parts = name.split('-')
-    
-    # For multi-word package names like 'python-bitcoin-utils',
-    # we need smarter logic. For now, take first part.
-    # TODO: Improve this with a known package list or better heuristics
-    return parts[0]
+    # If the bundle name contains '-main-' or '-master-', split on that
+    for branch_indicator in ('-main-', '-master-'):
+        if branch_indicator in name:
+            return name.split(branch_indicator)[0]
+            
+    # Try matching standard trailing branch and commit hash pattern
+    # e.g., -[branch]-[commit_hash] where commit_hash is a hex string
+    match = re.search(r'-(?:main|master|dev|development|release)-[a-fA-F0-9]{7,40}$', name)
+    if match:
+        return name[:match.start()]
+        
+    # Try matching generic trailing branch and 7-8 char hex commit hash
+    match_generic = re.search(r'-([a-zA-Z0-9_]+)-([a-fA-F0-9]{7,8})$', name)
+    if match_generic:
+        return name[:match_generic.start()]
+        
+    return name
 
 
 def list_bundles(verbose: bool = False, unique: bool = False):
@@ -138,13 +69,21 @@ def list_bundles(verbose: bool = False, unique: bool = False):
     """
     console.print("[cyan]Fetching available bundles...[/cyan]")
     
-    bundles = fetch_available_bundles()
-    
+    try:
+        bundles = fetch_available_bundles()
+    except Exception as e:
+        from ..core.bundle_registry import RegistryUnavailableError
+        if isinstance(e, RegistryUnavailableError):
+            console.print(f"[bold red]Registry unavailable:[/bold red] {e}")
+            console.print("[dim]An internet connection is required to access the bundle registry.[/dim]")
+            raise typer.Exit(code=1)
+        raise
+
     if not bundles:
         console.print("[yellow]No bundles found in registry.[/yellow]")
-        console.print("[dim]The registry may be empty or unreachable.[/dim]")
+        console.print("[dim]The registry may be empty.[/dim]")
         return
-    
+
     # If unique flag is set, keep only the most recent version per package
     if unique:
         unique_bundles = {}
@@ -173,7 +112,7 @@ def list_bundles(verbose: bool = False, unique: bool = False):
         table.add_column("Download URL", style="blue", no_wrap=False)
     
     # Sort by full_name to group versions together
-    bundles.sort(key=lambda b: (b.get('name', ''), b.get('full_name', '')))
+    bundles.sort(key=lambda b: ((b.get('name') or ''), (b.get('full_name') or '')))
     
     for bundle in bundles:
         # Use full_name for display (includes version info)
@@ -200,27 +139,40 @@ def list_bundles(verbose: bool = False, unique: bool = False):
 
 def search_bundles(query: str):
     """Search for bundles matching the query."""
+    if not query or not query.strip():
+        console.print("[bold red]Error:[/bold red] Search query cannot be empty.")
+        raise typer.Exit(code=1)
+
     console.print(f"[cyan]Searching for '{query}'...[/cyan]")
     
-    bundles = fetch_available_bundles()
-    
+    try:
+        bundles = fetch_available_bundles()
+    except Exception as e:
+        from ..core.bundle_registry import RegistryUnavailableError
+        if isinstance(e, RegistryUnavailableError):
+            console.print(f"[bold red]Registry unavailable:[/bold red] {e}")
+            console.print("[dim]An internet connection is required to search the bundle registry.[/dim]")
+            raise typer.Exit(code=1)
+        raise
+
     if not bundles:
         console.print("[yellow]No bundles found in registry.[/yellow]")
-        return
-    
+        raise typer.Exit(code=1)
+
     # Filter bundles
     query_lower = query.lower()
     matching_bundles = [
         b for b in bundles
-        if query_lower in b.get('name', '').lower() or
-           query_lower in b.get('repo', '').lower() or
-           query_lower in b.get('description', '').lower()
+        if query_lower in (b.get('name') or '').lower() or
+           query_lower in (b.get('full_name') or '').lower() or
+           query_lower in (b.get('repo') or '').lower() or
+           query_lower in (b.get('description') or '').lower()
     ]
     
     if not matching_bundles:
         console.print(f"[yellow]No bundles found matching '{query}'[/yellow]")
         console.print("[dim]Try a different search term or use 'cgc registry list' to see all bundles[/dim]")
-        return
+        raise typer.Exit(code=1)
     
     # Create table
     table = Table(show_header=True, header_style="bold magenta", title=f"Search Results for '{query}'")
@@ -248,6 +200,8 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
     and base names (e.g., 'python-bitcoin-utils' - picks most recent version).
     """
     console.print(f"[cyan]Looking for bundle '{name}'...[/cyan]")
+
+    lookup_name = name[:-4] if name.lower().endswith('.cgc') else name
     
     bundles = fetch_available_bundles()
     
@@ -258,7 +212,7 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
     # Strategy 1: Try exact match on full_name (with version)
     bundle = None
     for b in bundles:
-        if b.get('full_name', '').lower() == name.lower():
+        if b.get('full_name', '').lower() == lookup_name.lower():
             bundle = b
             console.print(f"[dim]Found exact match: {b.get('full_name')}[/dim]")
             break
@@ -268,7 +222,7 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
     if not bundle:
         matching_bundles = []
         for b in bundles:
-            if b.get('name', '').lower() == name.lower():
+            if b.get('name', '').lower() == lookup_name.lower():
                 matching_bundles.append(b)
         
         if matching_bundles:
@@ -280,7 +234,7 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
             console.print(f"[cyan]  → {bundle.get('full_name')}[/cyan]")
             
             if len(matching_bundles) > 1:
-                console.print(f"\n[dim]Other available versions:[/dim]")
+                console.print("\n[dim]Other available versions:[/dim]")
                 for b in matching_bundles[1:4]:  # Show up to 3 alternatives
                     console.print(f"[dim]  • {b.get('full_name')}[/dim]")
                 if len(matching_bundles) > 4:
@@ -291,7 +245,7 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
     if not bundle:
         # Find bundles with similar base names
         suggestions = []
-        name_lower = name.lower()
+        name_lower = lookup_name.lower()
         for b in bundles:
             base_name = b.get('name', '').lower()
             full_name = b.get('full_name', '').lower()
@@ -318,11 +272,14 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
     
     # Determine output path
     bundle_filename = bundle.get('bundle_name', f"{name}.cgc")
+    is_base64 = download_url.endswith('.base64') or bundle_filename.endswith('.base64')
+    clean_filename = bundle_filename.replace('.base64', '')
+    
     if output_dir:
-        output_path = Path(output_dir) / bundle_filename
+        output_path = Path(output_dir) / clean_filename
         output_path.parent.mkdir(parents=True, exist_ok=True)
     else:
-        output_path = Path.cwd() / bundle_filename
+        output_path = Path.cwd() / clean_filename
     
     # Check if already exists
     if output_path.exists():
@@ -330,14 +287,21 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
         if not typer.confirm("Overwrite?", default=False):
             console.print("[yellow]Download cancelled[/yellow]")
             if auto_load:
-                console.print(f"[cyan]Using existing bundle for loading...[/cyan]")
+                console.print("[cyan]Using existing bundle for loading...[/cyan]")
                 return str(output_path)
-            return
+            return False
         output_path.unlink()
-    
+
+    from ..utils.path_sandbox import is_safe_download_url
+
+    if not is_safe_download_url(download_url):
+        console.print("[bold red]Refusing to download from untrusted URL.[/bold red]")
+        console.print("[dim]Only HTTPS downloads from approved hosts are allowed.[/dim]")
+        raise typer.Exit(code=1)
+
     # Download with progress bar
     try:
-        console.print(f"[cyan]Downloading {bundle_filename}...[/cyan]")
+        console.print(f"[cyan]Downloading {clean_filename}...[/cyan]")
         console.print(f"[dim]From: {download_url}[/dim]")
         
         response = requests.get(download_url, stream=True, timeout=30)
@@ -352,11 +316,20 @@ def download_bundle(name: str, output_dir: Optional[str] = None, auto_load: bool
         ) as progress:
             task = progress.add_task(f"Downloading {bundle.get('size', 'unknown')}...", total=total_size)
             
-            with open(output_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        progress.update(task, advance=len(chunk))
+            if is_base64:
+                # Read entire base64 response, decode it, and write it
+                base64_content = response.content.strip()
+                import base64
+                decoded_content = base64.b64decode(base64_content)
+                with open(output_path, 'wb') as f:
+                    f.write(decoded_content)
+                progress.update(task, completed=total_size)
+            else:
+                with open(output_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            progress.update(task, advance=len(chunk))
         
         console.print(f"[bold green]✓ Downloaded successfully: {output_path}[/bold green]")
         
@@ -392,14 +365,14 @@ def request_bundle(repo_url: str, wait: bool = False):
     console.print("[cyan]Please use one of these methods:[/cyan]\n")
     
     console.print("1. [bold]Via Website (Recommended):[/bold]")
-    console.print(f"   Visit: https://codegraphcontext.vercel.app")
+    console.print("   Visit: https://codegraphcontext.vercel.app")
     console.print(f"   Enter: {repo_url}")
-    console.print(f"   Click 'Generate Bundle'\n")
+    console.print("   Click 'Generate Bundle'\n")
     
     console.print("2. [bold]Via GitHub Actions (Manual):[/bold]")
     console.print(f"   Go to: https://github.com/{GITHUB_ORG}/{GITHUB_REPO}/actions")
-    console.print(f"   Select: 'Generate Bundle On-Demand'")
-    console.print(f"   Click: 'Run workflow'")
+    console.print("   Select: 'Generate Bundle On-Demand'")
+    console.print("   Click: 'Run workflow'")
     console.print(f"   Enter: {repo_url}\n")
     
     console.print("[dim]Bundle generation typically takes 5-10 minutes.[/dim]")
@@ -434,7 +407,7 @@ def load_bundle_command(bundle_name: str, clear_existing: bool = False):
         if not all(services):
             return (False, "Failed to initialize database services", {})
         
-        db_manager, _, _ = services
+        db_manager, _, _, _ = services
         
         # Check if bundle exists locally
         bundle_path = Path(bundle_name)
@@ -469,8 +442,8 @@ def load_bundle_command(bundle_name: str, clear_existing: bool = False):
                             stats["nodes"] = int(part.split(":")[1].strip().replace(",", ""))
                         elif "Edges:" in part:
                             stats["edges"] = int(part.split(":")[1].strip().replace(",", ""))
-                except:
-                    pass
+                except Exception as parse_exc:
+                    console.print(f"[dim]Could not parse bundle stats from message: {parse_exc}[/dim]")
             
             return (True, message, stats)
         else:

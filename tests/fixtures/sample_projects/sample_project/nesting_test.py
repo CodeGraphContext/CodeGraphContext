@@ -1,0 +1,20 @@
+def level1():
+    def level2():
+        def level3():
+            def level4():
+                def level5():
+                    def level6():
+                        def level7():
+                            def level8():
+                                def level9():
+                                    def level10():
+                                        return "nested"
+                                    return level10()
+                                return level9()
+                            return level8()
+                        return level7()
+                    return level6()
+                return level5()
+            return level4()
+        return level3()
+    return level2()

@@ -4,11 +4,48 @@ This module provides a thread-safe singleton manager for the Neo4j database conn
 """
 import os
 import re
+import socket
 import threading
+from urllib.parse import urlparse
 from typing import Optional, Tuple
 from neo4j import GraphDatabase, Driver
 
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
+
+
+class Neo4jConnectionError(Exception):
+    """Raised when Neo4j cannot be reached or authenticated with actionable guidance."""
+
+    def __init__(self, message: str, reason: Optional[str] = None, source: Optional[str] = None, suggestions: Optional[list] = None):
+        super().__init__(message)
+        self.reason = reason or message
+        self.source = source or "unknown"
+        self.suggestions = suggestions or []
+
+    def __str__(self) -> str:
+        base = f"Neo4j connection failed (source: {self.source}). Reason: {self.reason}"
+        if not self.suggestions:
+            return base
+        suggestion_block = "\n" + "\n".join(f"  - {s}" for s in self.suggestions)
+        return f"{base}\nSuggested fixes:{suggestion_block}"
+
+class Neo4jDriverWrapper:
+    """
+    A simple wrapper around the Neo4j Driver to inject a database name into session() calls.
+    """
+    def __init__(self, driver: Driver, database: str = None):
+        self._driver = driver
+        self._database = database
+
+    def session(self, **kwargs):
+        """Proxy method to get a session from the underlying driver."""
+        if self._database and 'database' not in kwargs:
+            kwargs["database"] = self._database
+        return self._driver.session(**kwargs)
+    
+    def close(self):
+        """Proxy method to close the underlying driver."""
+        self._driver.close()
 
 class DatabaseManager:
     """
@@ -42,30 +79,35 @@ class DatabaseManager:
         self.neo4j_uri = os.getenv('NEO4J_URI')
         self.neo4j_username = os.getenv('NEO4J_USERNAME', 'neo4j')
         self.neo4j_password = os.getenv('NEO4J_PASSWORD')
+        self.neo4j_database = os.getenv('NEO4J_DATABASE') # Optional, if not set, will use default database configured in Neo4j
         self._initialized = True
 
-    def get_driver(self) -> Driver:
+    def get_driver(self, graph_name: str = None) -> Driver:
         """
         Gets the Neo4j driver instance, creating it if it doesn't exist.
         This method is thread-safe.
+
+        The `graph_name` parameter is accepted for interface parity with
+        FalkorDB (which supports multiple graphs per instance); Neo4j
+        selects the database via NEO4J_DATABASE, so the argument is ignored.
 
         Raises:
             ValueError: If Neo4j credentials are not set in environment variables.
 
         Returns:
-            The active Neo4j Driver instance.
+            The a wrapper for Neo4j Driver instance.
         """
         if self._driver is None:
             with self._lock:
                 if self._driver is None:
                     # Ensure all necessary credentials are provided.
-                    if not all([self.neo4j_uri, self.neo4j_username, self.neo4j_password]):
-                        raise ValueError(
-                            "Neo4j credentials must be set via environment variables:\n"
-                            "- NEO4J_URI\n"
-                            "- NEO4J_USERNAME\n"
-                            "- NEO4J_PASSWORD"
-                        )
+                    missing = self.get_missing_credentials(
+                        self.neo4j_uri,
+                        self.neo4j_username,
+                        self.neo4j_password,
+                    )
+                    if missing:
+                        raise ValueError(self.build_missing_credentials_message(missing))
                     
                     #validating the config before creating the driver/attempting connection
                     is_valid, validation_error = self.validate_config(
@@ -77,6 +119,17 @@ class DatabaseManager:
                     if not is_valid:
                         error_logger(f"Configuration validation failed: {validation_error}")
                         raise ValueError(validation_error)
+
+                    # Fast fail on unreachable host/port before creating a full Neo4j driver.
+                    is_reachable, reachability_error = self.check_port_reachable(self.neo4j_uri)
+                    if not is_reachable:
+                        source = self.get_db_selection_source()
+                        raise Neo4jConnectionError(
+                            "Neo4j service is not reachable",
+                            reason=reachability_error,
+                            source=source,
+                            suggestions=self.get_neo4j_suggestions(),
+                        )
 
                     info_logger(f"Creating Neo4j driver connection to {self.neo4j_uri}")
                     self._driver = GraphDatabase.driver(
@@ -95,12 +148,19 @@ class DatabaseManager:
                             self.neo4j_username,
                             self.neo4j_password
                         )
-                        error_logger(f"Failed to connect to Neo4j: {e}")
+                        source = self.get_db_selection_source()
+                        reason = detailed_error or "Unable to establish a Neo4j session"
+                        error_logger(f"Neo4j connection failed (source: {source}). Reason: {reason}")
                         if self._driver:
                             self._driver.close()
                         self._driver = None
-                        raise
-        return self._driver
+                        raise Neo4jConnectionError(
+                            "Neo4j session initialization failed",
+                            reason=reason,
+                            source=source,
+                            suggestions=self.get_neo4j_suggestions(),
+                        ) from e
+        return Neo4jDriverWrapper(self._driver, database=self.neo4j_database)
 
     def close_driver(self):
         """Closes the Neo4j driver connection if it exists."""
@@ -116,7 +176,10 @@ class DatabaseManager:
         if self._driver is None:
             return False
         try:
-            with self._driver.session() as session:
+            session_kwargs = {}
+            if self.neo4j_database:
+                session_kwargs['database'] = self.neo4j_database
+            with self._driver.session(**session_kwargs) as session:
                 session.run("RETURN 1").consume()
             return True
         except Exception:
@@ -125,6 +188,69 @@ class DatabaseManager:
     def get_backend_type(self) -> str:
         """Returns the database backend type."""
         return 'neo4j'
+
+    @staticmethod
+    def get_db_selection_source() -> str:
+        """Best-effort source for why neo4j is selected (environment, .env, mcp.json, etc.)."""
+        return os.getenv("CGC_DB_SELECTION_SOURCE", "unknown")
+
+    @staticmethod
+    def get_missing_credentials(uri: Optional[str], username: Optional[str], password: Optional[str]) -> list:
+        missing = []
+        if not uri:
+            missing.append("NEO4J_URI")
+        if not username:
+            missing.append("NEO4J_USERNAME")
+        if not password:
+            missing.append("NEO4J_PASSWORD")
+        return missing
+
+    @staticmethod
+    def build_missing_credentials_message(missing_keys: list) -> str:
+        missing_block = ", ".join(missing_keys)
+        return (
+            f"Neo4j credentials not configured: {missing_block}.\n"
+            "Run:\n"
+            "  cgc config set NEO4J_URI bolt://localhost:7687\n"
+            "  cgc config set NEO4J_USERNAME neo4j\n"
+            "  cgc config set NEO4J_PASSWORD <your-password>"
+        )
+
+    @staticmethod
+    def get_neo4j_suggestions() -> list:
+        return [
+            "Start Neo4j Desktop and ensure your database is running.",
+            "Or run Docker: docker run -d -p 7687:7687 -p 7474:7474 neo4j",
+            "Verify NEO4J_URI, NEO4J_USERNAME, and NEO4J_PASSWORD.",
+        ]
+
+    @staticmethod
+    def extract_host_port(uri: str) -> Tuple[Optional[str], int]:
+        """Extract host and port from Neo4j URI, defaulting port to 7687."""
+        parsed = urlparse(uri)
+        host = parsed.hostname
+        port = parsed.port or 7687
+        return host, port
+
+    @staticmethod
+    def check_port_reachable(uri: str, timeout_seconds: float = 2.0) -> Tuple[bool, Optional[str]]:
+        """Lightweight TCP preflight check for Neo4j endpoint reachability."""
+        try:
+            host, port = DatabaseManager.extract_host_port(uri)
+            if not host:
+                return False, "Invalid Neo4j URI: missing hostname"
+
+            with socket.create_connection((host, port), timeout=timeout_seconds):
+                return True, None
+        except OSError:
+            host, port = DatabaseManager.extract_host_port(uri)
+            return False, (
+                f"Neo4j is not running on {host}:{port}. "
+                "Please start Neo4j Desktop or run Docker: "
+                "docker run -d -p 7687:7687 -p 7474:7474 neo4j"
+            )
+        except Exception as e:
+            return False, f"Neo4j endpoint validation failed: {e}"
 
 
     @staticmethod
@@ -163,7 +289,7 @@ class DatabaseManager:
         return True, None
 
     @staticmethod
-    def test_connection(uri: str, username: str, password: str) -> Tuple[bool, Optional[str]]:
+    def test_connection(uri: str, username: str, password: str, database: str=None) -> Tuple[bool, Optional[str]]:
         """
         Tests the Neo4j database connection.
         
@@ -172,41 +298,18 @@ class DatabaseManager:
         """
         try:
             from neo4j import GraphDatabase
-            import socket
-            
             # First, test if the host is reachable
-            try:
-                # Extract host and port from URI
-                host_port = uri.split('://')[1]
-                if ':' in host_port:
-                    host = host_port.split(':')[0]
-                    port = int(host_port.split(':')[1])
-                else:
-                    host = host_port
-                    port = 7687 # Default Neo4j port
-                
-                # Test socket connection
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(5)
-                result = sock.connect_ex((host, port))
-                sock.close()
-                
-                if result != 0:
-                    return False, (
-                        f"Cannot reach Neo4j server at {host}:{port}\n"
-                        "Troubleshooting:\n"
-                        "  • Is Neo4j running? Check with: docker ps (for Docker)\n"
-                        "  • Is the port correct? Default is 7687\n"
-                        "  • Is there a firewall blocking the connection?\n"
-                        f"  • Try: docker compose up -d (if using Docker)"
-                    )
-            except Exception as e:
-                return False, f"Error parsing URI or checking connectivity: {str(e)}"
+            is_reachable, reachability_error = DatabaseManager.check_port_reachable(uri)
+            if not is_reachable:
+                return False, reachability_error
             
             # Now test Neo4j authentication
             driver = GraphDatabase.driver(uri, auth=(username, password))
             
-            with driver.session() as session:
+            session_kwargs = {}
+            if database:
+                session_kwargs['database'] = database # Pass database to session if provided
+            with driver.session(**session_kwargs) as session:
                 result = session.run("RETURN 'Connection successful' as status")
                 result.single()
             
@@ -228,14 +331,13 @@ class DatabaseManager:
                     "    - Remove data: docker volume rm <volume_name>\n"
                     "    - Restart: docker compose up -d"
                 )
-            elif "serviceunAvailable" in error_msg or "failed to establish connection" in error_msg:
+            elif "serviceunavailable" in error_msg or "failed to establish connection" in error_msg or "couldn't connect to" in error_msg:
                 return False, (
-                    "Neo4j service is not available\n"
+                    "Neo4j service is not reachable on the configured host/port.\n"
                     "Troubleshooting:\n"
-                    "  • Is Neo4j running? Check: docker ps\n"
-                    "  • Start Neo4j: docker compose up -d\n"
-                    "  • Check logs: docker compose logs neo4j\n"
-                    "  • Wait 30-60 seconds after starting for Neo4j to initialize"
+                    "  • Start Neo4j Desktop or ensure your instance is running\n"
+                    "  • Run Docker: docker run -d -p 7687:7687 -p 7474:7474 neo4j\n"
+                    "  • Check that NEO4J_URI points to the correct host and port"
                 )
             elif "unable to retrieve routing information" in error_msg:
                 return False, (

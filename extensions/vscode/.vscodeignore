@@ -1,0 +1,21 @@
+src/**
+tsconfig.json
+eslint.config.mjs
+.eslintrc*
+**/*.test.js
+**/*.test.ts
+**/*.map
+**/*.ts
+**/*.tsx
+node_modules/**
+!node_modules/@vscode/**
+.vscode/**
+.vscode-test/**
+.gitignore
+.vscodeignore
+build-webview.js
+vsc-extension-quickstart.md
+scripts/**
+
+# Keep the bundled cgc binary in the VSIX.
+!bin/**

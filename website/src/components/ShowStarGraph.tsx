@@ -53,13 +53,13 @@ export default function ShowStarGraph() {
 
   return (
     <>
-      <section className="px-4 bg-gradient-to-b from-secondary/10 to-background" data-aos="fade-up">
+      <section className="px-4 bg-background" data-aos="fade-up">
         <div className="container mx-auto max-w-6xl">
           <div className="text-center mb-12" data-aos="fade-down">
             <div className="flex items-center justify-center gap-2 mb-4">
               <Star className="h-6 w-6 text-yellow-500 fill-yellow-500" />
 
-              <h2 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent py-2">
+              <h2 className="text-4xl md:text-5xl font-bold text-foreground py-2">
                 Star History
               </h2>
               <TrendingUp className="h-6 w-6 text-green-500" />

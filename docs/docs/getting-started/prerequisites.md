@@ -1,41 +1,49 @@
-# Prerequisites & Context
+# System Prerequisites
 
-Before installing CodeGraphContext (CGC), it helps to understand the pieces involved. CGC is a **Client-Server system**, even if you run it all on your laptop.
-
-## The Three Components
-
-1.  **The Engine (This Tool)**
-    *   A Python package responsible for parsing code and talking to the database.
-2.  **The Database**
-    *   Where the graph lives. CGC needs a place to store "Function A calls Function B".
-3.  **The Client**
-    *   **CLI:** Your terminal.
-    *   **MCP:** Your AI Editor (Cursor, VS Code, Claude).
+CodeGraphContext (CGC) is designed as a client-server architecture. To ensure a successful installation, understand the primary roles and requirements of the environment.
 
 ---
 
-## 💻 System Requirements
+## Architecture Components
 
-*   **OS:** Linux, macOS, or Windows (WSL recommended).
-*   **Python:** 3.10 or higher.
-*   **Memory:** At least 4GB RAM (Graph DBs love RAM).
+1. **The Ingestion Engine**: The core Python package responsible for scanning source directories, running Tree-sitter and SCIP syntax parsers, and linking references.
+2. **The Graph Storage Layer**: The database backend containing nodes and edges representing code entities and their interactions.
+3. **The Interface Clients**:
+    - **CLI (`cgc`)**: Terminal interface used for managing indices, running analytical searches, and system diagnostics.
+    - **MCP Server**: Gateway enabling Model Context Protocol communication for IDEs and AI assistants.
 
-## 🗄️ Database Options (Context)
+---
 
-You do **not** need to install a database yet. The installer will help you. But you should know your choice:
+## Hardware & OS Requirements
 
-| Option | Best For... | Complexity |
+| Resource | Minimum Requirement | Notes |
 | :--- | :--- | :--- |
-| **FalkorDB Lite** | **Quick Start / Linux / macOS.** Runs inside Python. No extra setup. | ⭐ |
-| **Neo4j** | **Windows / Production / Large Team.** Persistent storage. Requires Docker or Desktop App. | ⭐⭐⭐ |
+| **Operating System** | Linux, macOS, or Windows | Windows WSL is supported but native installation works via KuzuDB. |
+| **Python Version** | Python 3.10 or higher | Python 3.10+ is required for the core package and KuzuDB. |
+| **Memory** | 4 GB RAM | Large repositories benefit from 8 GB+ memory during initial scans. |
 
 ---
 
-## 🤖 AI Assistant (Optional)
+## Database Backend Selection
 
-If you plan to use CGC with an AI, you need an **MCP-compliant client**. We officially support:
+CGC supports multiple database engines. You only need to set up the engine that fits your requirements.
 
-*   [Cursor IDE](https://cursor.sh)
-*   [VS Code](https://code.visualstudio.com/) 
-*   [Claude Desktop App](https://claude.ai/download)
-*   ...and **any other tool** relevant to Agentic Coding that supports the Model Context Protocol.
+| Database Backend | Setup Type | Target Platform | Use Case |
+| :--- | :--- | :--- | :--- |
+| **FalkorDB Lite (Default)** | In-process (Embedded) | Unix (Linux/macOS), Python 3.12+ | Default when `falkordblite` is installed. In-memory, extremely low latency. |
+| **KuzuDB** | In-process (Embedded) | Cross-Platform (Linux/macOS/Windows) | Automatic fallback on Windows or when FalkorDB Lite is unavailable. Python 3.10+. |
+| **LadybugDB** | In-process (Embedded) | Cross-Platform | Alternative embedded engine; `pip install ladybug`. |
+| **FalkorDB Remote** | Networked Server | Cross-Platform Client | Connects to a remote FalkorDB/Redis-compatible server. |
+| **Neo4j** | Networked Server | Cross-Platform Client | Enterprise clustering, Neo4j Browser, AuraDB. |
+| **Nornic DB** | Embedded / Bolt client | Cross-Platform | Neo4j-compatible driver without a full Neo4j deployment. |
+
+---
+
+## Development Environment Interfaces
+
+To use CodeGraphContext inside your coding workflow, ensure you have an MCP-compliant workspace interface, such as:
+
+- **Cursor IDE** (Native MCP Support)
+- **VS Code** (with the Continue or similar MCP extension)
+- **Claude Desktop** (Native local process or SSE support)
+- **Windsurf IDE / OpenCode**

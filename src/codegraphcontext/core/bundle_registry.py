@@ -1,3 +1,4 @@
+# src/codegraphcontext/core/bundle_registry.py
 import requests
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
@@ -5,10 +6,63 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-GITHUB_ORG = "CodeGraphContext"
-GITHUB_REPO = "CodeGraphContext"
-REGISTRY_API_URL = f"https://api.github.com/repos/{GITHUB_ORG}/{GITHUB_REPO}/releases"
-MANIFEST_URL = f"https://github.com/{GITHUB_ORG}/{GITHUB_REPO}/releases/download/on-demand-bundles/manifest.json"
+
+class RegistryUnavailableError(RuntimeError):
+    """Raised when the remote bundle registry cannot be reached."""
+
+
+import os
+import re
+
+#: Hugging Face dataset repos are `owner/name`; anything else (a slash-prefixed
+#: value, a scheme, a host) would let HF_REGISTRY_REPO steer the request to an
+#: arbitrary host — and therefore steer any credential attached to it.
+_HF_REPO_RE = re.compile(r"\A[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*\Z")
+
+DEFAULT_HF_REGISTRY_REPO = "codegraphcontext/registry"
+
+
+def _github_headers() -> dict:
+    """Return GitHub API headers, including auth token if available.
+
+    Only ever attach this to api.github.com requests. The registry manifest
+    lives on huggingface.co and must not receive a GitHub credential.
+    """
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"token {token}"
+    return headers
+
+
+def _huggingface_headers() -> dict:
+    """Headers for huggingface.co. Uses HF_TOKEN — never the GitHub token."""
+    headers = {"Accept": "application/json"}
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _resolve_hf_registry_repo() -> str:
+    """Return the configured HF dataset repo, rejecting anything not `owner/name`."""
+    hf_repo = os.environ.get("HF_REGISTRY_REPO") or DEFAULT_HF_REGISTRY_REPO
+    if not _HF_REPO_RE.match(hf_repo):
+        logger.warning(
+            "Ignoring invalid HF_REGISTRY_REPO %r (expected 'owner/name'); "
+            "falling back to %s",
+            hf_repo,
+            DEFAULT_HF_REGISTRY_REPO,
+        )
+        return DEFAULT_HF_REGISTRY_REPO
+    return hf_repo
+
+
+def _get_manifest_url() -> str:
+    return (
+        f"https://huggingface.co/datasets/{_resolve_hf_registry_repo()}"
+        "/raw/main/manifest.json"
+    )
 
 class BundleRegistry:
     """
@@ -19,65 +73,32 @@ class BundleRegistry:
     @staticmethod
     def fetch_available_bundles() -> List[Dict[str, Any]]:
         """
-        Fetch all available bundles from GitHub Releases and the on-demand manifest.
+        Fetch all available bundles from the Hugging Face raw dataset registry manifest.
         Returns a list of bundle dictionaries with metadata.
         Preserves all versions - no deduplication.
         """
         all_bundles = []
-        
-        # 1. Fetch on-demand bundles from manifest
+        fetch_errors: list[str] = []
+
         try:
-            response = requests.get(MANIFEST_URL, timeout=10)
+            response = requests.get(_get_manifest_url(), headers=_huggingface_headers(), timeout=10)
             if response.status_code == 200:
                 manifest = response.json()
                 if manifest.get('bundles'):
                     for bundle in manifest['bundles']:
                         bundle['source'] = 'on-demand'
-                        # Ensure bundle has a full_name field (with version info)
                         if 'bundle_name' in bundle:
-                            # Extract full name without .cgc extension
                             bundle['full_name'] = bundle['bundle_name'].replace('.cgc', '')
                         all_bundles.append(bundle)
+            else:
+                fetch_errors.append(
+                    f"registry manifest returned HTTP {response.status_code}"
+                )
+        except requests.RequestException as e:
+            fetch_errors.append(f"network error: {e}")
         except Exception as e:
+            fetch_errors.append(str(e))
             logger.warning(f"Could not fetch on-demand bundles from manifest: {e}")
-        
-        # 2. Fetch weekly pre-indexed bundles
-        try:
-            response = requests.get(REGISTRY_API_URL, timeout=10)
-            if response.status_code == 200:
-                releases = response.json()
-                
-                # Find weekly releases (bundles-YYYYMMDD pattern)
-                weekly_releases = [r for r in releases if r['tag_name'].startswith('bundles-') and r['tag_name'] != 'bundles-latest']
-                
-                if weekly_releases:
-                    # Get the most recent weekly release
-                    latest_weekly = weekly_releases[0]
-                    
-                    for asset in latest_weekly.get('assets', []):
-                        if asset['name'].endswith('.cgc'):
-                            # Full bundle name without extension
-                            full_name = asset['name'].replace('.cgc', '')
-                            
-                            # Parse bundle name
-                            name_parts = full_name.split('-')
-                            bundle = {
-                                'name': name_parts[0],  # Base package name
-                                'full_name': full_name,  # Complete name with version
-                                'repo': f"{name_parts[0]}/{name_parts[0]}",  # Simplified
-                                'bundle_name': asset['name'],
-                                'version': name_parts[1] if len(name_parts) > 1 else 'latest',
-                                'commit': name_parts[2] if len(name_parts) > 2 else 'unknown',
-                                'size_bytes': asset.get('size', 0),
-                                'size': f"{asset['size'] / 1024 / 1024:.1f}MB",
-                                'download_url': asset['browser_download_url'],
-                                'generated_at': asset['updated_at'],
-                                'source': 'weekly'
-                            }
-                            all_bundles.append(bundle)
-        except Exception as e:
-            logger.warning(f"Could not fetch weekly bundles from GitHub API: {e}")
-        
         # Normalize all bundles to have required fields
         for bundle in all_bundles:
             # Ensure 'name' field exists (base package name)
@@ -94,6 +115,11 @@ class BundleRegistry:
             if 'full_name' not in bundle:
                 bundle['full_name'] = bundle.get('bundle_name', bundle.get('name', 'unknown')).replace('.cgc', '')
         
+        if not all_bundles and fetch_errors:
+            raise RegistryUnavailableError(
+                "Bundle registry is unreachable (internet connection required). "
+                + "; ".join(fetch_errors)
+            )
         return all_bundles
 
     @staticmethod

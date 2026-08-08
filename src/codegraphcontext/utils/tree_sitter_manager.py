@@ -1,3 +1,4 @@
+# src/codegraphcontext/utils/tree_sitter_manager.py
 """
 Tree-sitter language and parser management module.
 
@@ -11,11 +12,68 @@ Key design principles:
 4. Support optional tree-sitter dependency
 """
 
-from typing import Dict, Optional
-import threading
+from __future__ import annotations
 
-from tree_sitter import Language, Parser
-from tree_sitter_language_pack import get_language
+from typing import TYPE_CHECKING, Any, Dict, Optional
+import threading
+import sys
+
+if TYPE_CHECKING:
+    from tree_sitter import Language, Parser
+
+Language = Any
+Parser = Any
+_tree_sitter_import_error: Optional[ImportError] = None
+_Language = None
+_Parser = None
+_get_language = None
+
+
+def _missing_tree_sitter_error(import_error: ImportError) -> ImportError:
+    """Return an actionable error for optional tree-sitter dependencies."""
+    if sys.version_info >= (3, 13):
+        return ImportError(
+            "Tree-sitter parsing is not available on Python 3.13 because "
+            "tree-sitter-language-pack does not publish cp313 wheels. "
+            "Install CodeGraphContext with Python 3.12 or 3.14 to use indexing/parsing."
+        )
+    return ImportError(
+        "tree-sitter and tree-sitter-language-pack are required for code parsing. "
+        "Install them with: pip install codegraphcontext[parsing]"
+    )
+
+
+def _load_tree_sitter_dependencies():
+    """Load optional tree-sitter dependencies only when parsing is used."""
+    global _tree_sitter_import_error, _Language, _Parser, _get_language
+
+    if _Language is not None and _Parser is not None and _get_language is not None:
+        return _Language, _Parser, _get_language
+
+    try:
+        from tree_sitter import Language as ImportedLanguage, Parser as ImportedParser
+        try:
+            from tree_sitter_language_pack import get_language as imported_get_language
+            # Test it immediately using a version-agnostic pattern
+            test_lang = imported_get_language('python')
+            try:
+                # 0.22+ style
+                test_parser = ImportedParser(test_lang)
+            except (TypeError, ValueError):
+                # < 0.22 style
+                test_parser = ImportedParser()
+                test_parser.set_language(test_lang)
+        except (ImportError, Exception):
+            # Fallback to tree_sitter_languages
+            from tree_sitter_languages import get_language as imported_get_language
+    except ImportError as e:
+        _tree_sitter_import_error = e
+        raise _missing_tree_sitter_error(e) from e
+
+    _Language = ImportedLanguage
+    _Parser = ImportedParser
+    _get_language = imported_get_language
+    return _Language, _Parser, _get_language
 
 
 # Language name aliases for compatibility
@@ -33,11 +91,13 @@ LANGUAGE_ALIASES = {
     "go": "go",
     "php": "php",
     ".php": "php",
+    "lua": "lua",
     
     # Canonical names (map to themselves for consistency)
     "python": "python",
     "javascript": "javascript",
     "typescript": "typescript",
+    "tsx": "tsx",
     "cpp": "cpp",
     "c_sharp": "c_sharp",
     "c": "c",
@@ -53,6 +113,32 @@ LANGUAGE_ALIASES = {
     ".swift": "swift",
     "typescriptjsx": "tsx",
     "tsx": "tsx",
+    "dart": "dart",
+    "perl": "perl",
+    "pl": "perl",
+    "pm": "perl",
+    "elixir": "elixir",
+    "ex": "elixir",
+    "exs": "elixir",
+    "elisp": "elisp",
+    "el": "elisp",
+    ".el": "elisp",
+    "emacs-lisp": "elisp",
+    "emacs_lisp": "elisp",
+    "solidity": "solidity",
+    "sol": "solidity",
+    ".sol": "solidity",
+    "html": "html",
+    "css": "css",
+    "svelte": "svelte",
+    ".svelte": "svelte",
+    "vue": "vue",
+    ".vue": "vue",
+}
+
+# Canonical names that differ from tree-sitter-language-pack names
+LANGUAGE_PACK_NAMES = {
+    "c_sharp": "csharp",
 }
 
 
@@ -111,6 +197,7 @@ class TreeSitterManager:
         """
         # Normalize the language name
         canonical_name = self._normalize_language_name(lang)
+        _, _, load_language = _load_tree_sitter_dependencies()
         
         # Check cache first (fast path, no lock needed for reads)
         if canonical_name in self._language_cache:
@@ -123,15 +210,9 @@ class TreeSitterManager:
                 return self._language_cache[canonical_name]
             
             try:
-                # Special handling for C# which is available as tree_sitter_c_sharp
-                if canonical_name == "c_sharp":
-                    import tree_sitter_c_sharp
-                    # tree_sitter_c_sharp.language() returns a PyCapsule, wrap it in Language
-                    capsule = tree_sitter_c_sharp.language()
-                    language = Language(capsule)
-                else:
-                    # Load the language from tree-sitter-language-pack
-                    language = get_language(canonical_name)
+                # Map canonical name to language-pack name where they differ
+                pack_name = LANGUAGE_PACK_NAMES.get(canonical_name, canonical_name)
+                language = load_language(pack_name)
                 
                 self._language_cache[canonical_name] = language
                 return language
@@ -162,9 +243,22 @@ class TreeSitterManager:
             ValueError: If language is not supported
             Exception: If parser creation fails
         """
+        _, parser_cls, _ = _load_tree_sitter_dependencies()
         language = self.get_language_safe(lang)
-        # In tree-sitter 0.25+, Parser takes language in constructor
-        parser = Parser(language)
+        
+        # Determine if we need to use set_language (older tree-sitter)
+        # In tree-sitter 0.22+, Parser takes language in constructor
+        # In older versions, it must be set via set_language()
+        try:
+            parser = parser_cls(language)
+            # Check if it actually worked by attempting a tiny parse
+            # If language wasn't set, this usually returns None or fails
+            if parser.parse(b"") is None:
+                raise TypeError("Language not set")
+        except (TypeError, ValueError, AttributeError):
+            parser = parser_cls()
+            parser.set_language(language)
+        
         return parser
     
     def is_language_available(self, lang: str) -> bool:
@@ -227,54 +321,109 @@ def create_parser(lang: str) -> Parser:
     return get_tree_sitter_manager().create_parser(lang)
 
 
+# Serialises query construction and execution across threads.
+#
+# `cgc index` runs parsers on a thread pool, and building a `Query` / running a
+# `QueryCursor` concurrently on different languages crashes the native
+# extension — a hard `Fatal Python error: Segmentation fault`, not a Python
+# exception, so nothing above can catch or retry it (#1370). Reported
+# tracebacks show three threads inside this function at once, on three
+# different grammars.
+#
+# The lock is process-wide rather than per-language on purpose: the reports
+# involve *different* languages crashing together, so a per-language lock would
+# not have prevented them. Parsing itself (`parser.parse`) stays parallel; only
+# the query step is serialised, and it is a small fraction of per-file work.
+_QUERY_LOCK = threading.Lock()
+
+
 def execute_query(language: Language, query_string: str, node):
     """
     Execute a tree-sitter query and return captures in backward-compatible format.
-    
+
     This function provides compatibility with the old tree-sitter 0.20.x API where
-    you could call query.captures(node). The new 0.25+ API uses QueryCursor.
-    
+    you could call query.captures(node). The new 0.22+ API uses QueryCursor.
+
+    Thread-safe: query construction and execution are serialised (see
+    `_QUERY_LOCK`), because doing them concurrently segfaults the native
+    extension.
+
     Args:
         language: Tree-sitter Language object
         query_string: Query string in tree-sitter query syntax
         node: Tree-sitter Node to query
-        
+
     Returns:
         List of (node, capture_name) tuples, compatible with old API
-        
-    Example:
-        >>> from tree_sitter_language_pack import get_language
-        >>> lang = get_language('python')
-        >>> parser = Parser(lang)
-        >>> tree = parser.parse(b'def hello(): pass')
-        >>> captures = execute_query(lang, '(function_definition) @func', tree.root_node)
-        >>> for node, name in captures:
-        ...     print(f'{name}: {node.type}')
     """
-    from tree_sitter import Query, QueryCursor
-    
     try:
-        # Create query and cursor
+        from tree_sitter import Query
+    except ImportError as e:
+        raise _missing_tree_sitter_error(e) from e
+
+    with _QUERY_LOCK:
+        return _execute_query_locked(Query, language, query_string, node)
+
+
+def _execute_query_locked(Query, language: Language, query_string: str, node):
+    """Body of `execute_query`; callers must hold `_QUERY_LOCK`."""
+
+    # 1. Create the Query object
+    try:
+        # New API (0.22+)
         query = Query(language, query_string)
-        cursor = QueryCursor(query)
+    except (TypeError, ValueError, AttributeError):
+        # Old API (< 0.22)
+        try:
+            query = language.query(query_string)
+        except Exception as e:
+            raise Exception(f"Failed to create query: {e}")
+
+    # 2. Execute the query
+    try:
+        from tree_sitter import QueryCursor
+        # Modern API (0.22+)
+        try:
+            # 0.25.2 style: QueryCursor(query).captures(node) 
+            # returns dict {name: [nodes]} in some versions or list of tuples in others
+            cursor = QueryCursor(query)
+            res = cursor.captures(node)
+            
+            if isinstance(res, dict):
+                captures = []
+                for name, nodes in res.items():
+                    for n in nodes:
+                        captures.append((n, name))
+                return captures
+            
+            # Fallback for list of (node, capture_index) or (node, name)
+            # Try to map indices back to names if they are integers
+            if res and len(res) > 0 and isinstance(res[0][1], int):
+                return [(n, query.capture_names[idx]) for n, idx in res]
+            return res
+            
+        except (TypeError, ValueError):
+            # 0.22 style: QueryCursor().captures(query, node)
+            cursor = QueryCursor()
+            res = cursor.captures(query, node)
+            if isinstance(res, dict):
+                captures = []
+                for name, nodes in res.items():
+                    for n in nodes:
+                        captures.append((n, name))
+                return captures
+            if res and len(res) > 0 and isinstance(res[0][1], int):
+                return [(n, query.capture_names[idx]) for n, idx in res]
+            return res
         
-        # Execute query and convert to old format
-        captures = []
-        
-        # Use matches() which returns (pattern_index, captures_dict) tuples
-        for pattern_index, captures_dict in cursor.matches(node):
-            # captures_dict is {capture_name: [nodes]}
-            for capture_name, nodes in captures_dict.items():
-                for captured_node in nodes:
-                    # Old format: (node, capture_name)
-                    captures.append((captured_node, capture_name))
-        
-        return captures
-        
-    except Exception as e:
-        # Provide helpful error message
-        raise Exception(
-            f"Failed to execute query: {e}\n"
-            f"Query string: {query_string[:100]}..."
-        )
+    except (ImportError, AttributeError, NameError, TypeError):
+        # Fallback to old API (< 0.22) or if QueryCursor failed
+        try:
+            return query.captures(node)
+        except Exception as e:
+            # Final failure if all paths fail
+            raise Exception(
+                f"Failed to execute query: {e}\n"
+                f"Query string: {query_string[:100]}..."
+            )
 

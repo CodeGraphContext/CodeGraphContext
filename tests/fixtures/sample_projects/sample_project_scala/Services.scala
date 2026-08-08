@@ -1,17 +1,19 @@
-package com.example.services
-
-trait Service[T] {
-  def process(item: T): Boolean
+trait Greeter {
+  def greet(name: String): String = s"Hello, $name"
 }
 
-class StringService extends Service[String] {
-  override def process(item: String): Boolean = item.nonEmpty
+trait Logging {
+  def log(msg: String): Unit = println(s"[LOG] $msg")
 }
 
-class IntService extends Service[Int] {
-  override def process(item: Int): Boolean = item > 0
+case class User(name: String)
+
+object User {
+  def apply(name: String): User = new User(name.trim)
 }
 
-object ServiceManager {
-  def runService[T](service: Service[T], item: T): Boolean = service.process(item)
+class AppService extends Greeter with Logging {
+  def start(user: User): Unit = {
+    log(greet(user.name))
+  }
 }

@@ -1,33 +1,102 @@
+# src/codegraphcontext/cli/config_manager.py
 """
 Configuration management for CodeGraphContext.
 Handles reading, writing, and validating configuration settings.
+Also manages the context system (config.yaml) alongside the existing .env file.
 """
 
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Dict, Any
-from rich.console import Console
-from rich.table import Table
-import os
+from typing import Optional, Dict, Any, List
+try:
+    from rich.console import Console
+    from rich.table import Table
+    console = Console()
+except Exception:
+    # Lightweight fallback when 'rich' is not installed (tests or minimal envs)
+    class _TableFallback:
+        def __init__(self, show_header=True, header_style=None):
+            self._cols = []
+            self._rows = []
 
-console = Console()
+        def add_column(self, name, **_kwargs):
+            self._cols.append(name)
+
+        def add_row(self, *cells):
+            self._rows.append([str(c) for c in cells])
+
+        def __str__(self) -> str:
+            # Simple text table rendering
+            out = []
+            if self._cols:
+                out.append(" | ".join(self._cols))
+                out.append("-" * max(10, len(out[0])))
+            for r in self._rows:
+                out.append(" | ".join(r))
+            return "\n".join(out)
+
+    class _ConsoleFallback:
+        def print(self, *args, **kwargs):
+            # Mimic rich.console.Console.print by delegating to built-in print
+            end = kwargs.get("end", "\n")
+            sep = kwargs.get("sep", " ")
+            for a in args:
+                if isinstance(a, _TableFallback):
+                    built = str(a)
+                    print(built, end=end)
+                else:
+                    print(a, end=end)
+
+    Table = _TableFallback
+    console = _ConsoleFallback()
+import os
+import yaml
+
+
+def _atomic_write_text(path: Path, content: str, *, secure: bool = False) -> None:
+    """Write *content* to *path* atomically (temp file + replace)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, path)
+    if secure:
+        os.chmod(path, 0o600)
 
 # Configuration file location
 CONFIG_DIR = Path.home() / ".codegraphcontext"
 CONFIG_FILE = CONFIG_DIR / ".env"
 
+# Keys that pin embedded DB directories; must not bleed across profiles via local .env
+DB_PATH_ENV_KEYS = frozenset({
+    "FALKORDB_PATH", "FALKORDB_SOCKET_PATH", "KUZUDB_PATH", "LADYBUGDB_PATH",
+})
+
 # Database credential keys (stored in same .env file but not managed as config)
-DATABASE_CREDENTIAL_KEYS = {"NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"}
+DATABASE_CREDENTIAL_KEYS = {
+    "NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE",
+    "NORNIC_URI", "NORNIC_USERNAME", "NORNIC_PASSWORD", "NORNIC_DATABASE",
+    "FALKORDB_HOST", "FALKORDB_PORT", "FALKORDB_PASSWORD", "FALKORDB_SSL",
+    "FALKORDB_GRAPH_NAME",
+}
 
 # Default configuration values
 DEFAULT_CONFIG = {
     "DEFAULT_DATABASE": "falkordb",
-    "FALKORDB_PATH": str(CONFIG_DIR / "falkordb.db"),
-    "FALKORDB_SOCKET_PATH": str(CONFIG_DIR / "falkordb.sock"),
+    "FALKORDB_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb"),
+    "FALKORDB_SOCKET_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb.sock"),
+    # Empty selects a deterministic port derived from each embedded DB socket.
+    "FALKORDB_PORT": "",
+    "LADYBUGDB_PATH": str(CONFIG_DIR / "global" / "db" / "ladybugdb"),
+    "KUZUDB_PATH": str(CONFIG_DIR / "global" / "db" / "kuzudb"),
     "INDEX_VARIABLES": "true",
     "ALLOW_DB_DELETION": "false",
     "DEBUG_LOGS": "false",
     "DEBUG_LOG_PATH": str(Path.home() / "mcp_debug.log"),
     "ENABLE_APP_LOGS": "CRITICAL",
+    "LIBRARY_LOG_LEVEL": "WARNING",
     "LOG_FILE_PATH": str(CONFIG_DIR / "logs" / "cgc.log"),
     "MAX_FILE_SIZE_MB": "10",
     "IGNORE_TEST_FILES": "false",
@@ -39,18 +108,51 @@ DEFAULT_CONFIG = {
     "CACHE_ENABLED": "true",
     "IGNORE_DIRS": "node_modules,venv,.venv,env,.env,dist,build,target,out,.git,.idea,.vscode,__pycache__",
     "INDEX_SOURCE": "true",
+    # SCIP indexer feature flag (default off — existing Tree-sitter behaviour unchanged)
+    "SCIP_INDEXER": "false",
+    "SCIP_LANGUAGES": "python,typescript,javascript,go,rust,java,dart,cpp,c,csharp",
+    "SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS": "300",
+    "SKIP_EXTERNAL_RESOLUTION": "false",
+    # 0 = unlimited; any positive integer caps MCP tool response size.
+    "MAX_TOOL_RESPONSE_TOKENS": "0",
+    # 0 = unlimited; any positive integer caps response size in raw characters.
+    # When both MAX_TOOL_RESPONSE_TOKENS and MAX_PROMPT_CHARS are set, the
+    # stricter (smaller) effective character budget wins.
+    "MAX_PROMPT_CHARS": "0",
+    # JSON object mapping tool names to integer result-count limits.
+    # Example: {"find_code": 20, "analyze_code_relationships": 10, "find_dead_code": 30}
+    "TOOL_RESULT_LIMITS": "{}",
+    # Post-indexing resolution phases (default off)
+    "ENABLE_INHERIT_RESOLVE": "false",
+    "ENABLE_VECTOR_RESOLVE": "false",
+    "CGC_EMBEDDING_MODEL": "local",
+    "CGC_EMBEDDING_BATCH_SIZE": "256",
+    # Default fuzzy matching behavior for `cgc find name` (overridable per-command with --fuzzy/--no-fuzzy)
+    "FUZZY_SEARCH": "true",
+    # Default LLM model names used for graph queries when no value is explicitly configured
+    "OPENAI_MODEL": "gpt-4o",
+    "ANTHROPIC_MODEL": "claude-3-5-sonnet-20241022",
+    # Optional API key for the HTTP API gateway. Empty = auth disabled
+    # (backward compatible). When set, HTTP endpoints require the key via
+    # `Authorization: Bearer <key>` or `X-API-Key`. May also be set via the
+    # CGC_API_KEY environment variable (which takes priority).
+    "CGC_API_KEY": "",
 }
 
 # Configuration key descriptions
 CONFIG_DESCRIPTIONS = {
-    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb)",
+    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|falkordb-remote|kuzudb|nornic|ladybugdb)",
     "FALKORDB_PATH": "Path to FalkorDB database file",
     "FALKORDB_SOCKET_PATH": "Path to FalkorDB Unix socket",
+    "FALKORDB_PORT": "Optional FalkorDB port override (empty = per-database port)",
+    "LADYBUGDB_PATH": "Path to LadybugDB database directory",
+    "KUZUDB_PATH": "Path to KuzuDB database directory",
     "INDEX_VARIABLES": "Index variable nodes in the graph (lighter graph if false)",
     "ALLOW_DB_DELETION": "Allow full database deletion commands",
     "DEBUG_LOGS": "Enable debug logging (for development/troubleshooting)",
     "DEBUG_LOG_PATH": "Path to debug log file",
     "ENABLE_APP_LOGS": "Application log level (DEBUG|INFO|WARNING|ERROR|CRITICAL|DISABLED)",
+    "LIBRARY_LOG_LEVEL": "Log level for third-party libraries (neo4j, asyncio, urllib3) (DEBUG|INFO|WARNING|ERROR|CRITICAL)",
     "LOG_FILE_PATH": "Path to application log file",
     "MAX_FILE_SIZE_MB": "Maximum file size to index (in MB)",
     "IGNORE_TEST_FILES": "Skip test files during indexing",
@@ -62,36 +164,189 @@ CONFIG_DESCRIPTIONS = {
     "CACHE_ENABLED": "Enable caching for faster re-indexing",
     "IGNORE_DIRS": "Comma-separated list of directory names to ignore during indexing",
     "INDEX_SOURCE": "Store full source code in graph database (for faster indexing use false, for better performance use true)",
+    "SCIP_INDEXER": "Use SCIP-based indexing for higher accuracy call/inheritance resolution (requires scip-<lang> tools installed)",
+    "SCIP_LANGUAGES": "Comma-separated languages to index via SCIP when SCIP_INDEXER=true (python,typescript,javascript,go,rust,java,dart,cpp,c,csharp)",
+    "SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS": "Timeout in seconds for the local SCIP indexer subprocess (default 300). Raise it for large repositories whose indexer runs longer than 5 minutes; a value <= 0 or non-numeric falls back to 300.",
+    "SKIP_EXTERNAL_RESOLUTION": "Skip resolution attempts for external library method calls (recommended for enterprise large Java/Spring codebases)",
+    "MAX_TOOL_RESPONSE_TOKENS": "Maximum tokens per MCP tool response (0 = unlimited). Truncates oversized payloads and appends a notice.",
+    "MAX_PROMPT_CHARS": "Maximum characters per MCP tool response (0 = unlimited). When set alongside MAX_TOOL_RESPONSE_TOKENS the stricter limit wins. Truncated payloads receive a visible [CGC] notice and a stdout warning is emitted.",
+    "TOOL_RESULT_LIMITS": "JSON object mapping tool names to max result counts, e.g. {\"find_code\": 20, \"analyze_code_relationships\": 10}. Missing keys use built-in defaults.",
+    # Post-indexing resolution phases
+    "ENABLE_INHERIT_RESOLVE": (
+        "[Phase 5] Re-resolve ambiguous same-file CALLS edges using the inheritance graph (INHERITS relationships). "
+        "When enabled, methods called on an interface or abstract class are re-pointed to the correct concrete "
+        "implementation based on the class hierarchy, reducing tier-7 fallback edges. "
+        "WHEN TO ENABLE: any Java/Kotlin/C# codebase that uses inheritance or interface-based DI (e.g. Spring, OSGi). "
+        "PREREQUISITES: run 'cgc index' first so INHERITS edges exist in the graph. No extra tools needed. "
+        "COST: adds ~1-5 min per 50K functions at the end of each 'cgc index' run. Safe to toggle on/off — only adds new edges, never removes existing ones."
+    ),
+    "ENABLE_VECTOR_RESOLVE": (
+        "[Phase 4 + Phase 5 tiebreaker] Generate semantic embeddings for all Function nodes and use vector "
+        "similarity as a tiebreaker when inheritance resolution alone cannot distinguish between multiple candidates. "
+        "Phase 4 writes a 384-dim embedding to every Function node; Phase 5 queries those embeddings during re-resolution. "
+        "WHEN TO ENABLE: large codebases (>10K functions) where inheritance alone leaves many ambiguous calls "
+        "(tier-7 fallbacks still high after ENABLE_INHERIT_RESOLVE). Also useful for cross-language repos. "
+        "PREREQUISITES: (1) fastembed must be installed — run 'pip install fastembed'. "
+        "(2) Neo4j must be the active database (vector index not supported on FalkorDB/KuzuDB). "
+        "(3) ENABLE_INHERIT_RESOLVE should also be true — vector is a tiebreaker for Phase 5, not a replacement. "
+        "COST: Phase 4 takes ~15 min per 50K functions on CPU (first run only; incremental updates are fast). "
+        "Embedding model (~40 MB) is downloaded automatically on first use from HuggingFace."
+    ),
+    "CGC_EMBEDDING_MODEL": (
+        "Embedding backend for ENABLE_VECTOR_RESOLVE. "
+        "'local' uses fastembed (BAAI/bge-small-en-v1.5, 384-dim, runs on CPU, no GPU or API key needed). "
+        "'openai' uses OpenAI text-embedding-3-small (requires OPENAI_API_KEY env var, costs money per token). "
+        "Default: local"
+    ),
+    "CGC_EMBEDDING_BATCH_SIZE": (
+        "Number of function texts to embed per batch when ENABLE_VECTOR_RESOLVE=true. "
+        "Larger values are faster but use more RAM. Default: 256. Reduce to 64 if you hit memory errors."
+    ),
+    "FUZZY_SEARCH": (
+        "Enable fuzzy matching by default for `cgc find name` (true|false). "
+        "Per-invocation overrides are available via --fuzzy / --no-fuzzy."
+    ),
+    "OPENAI_MODEL": (
+        "Default OpenAI model used for graph queries. "
+        "Requires OPENAI_API_KEY environment variable. "
+        "Default: gpt-4o"
+    ),
+    "ANTHROPIC_MODEL": (
+        "Default Anthropic model used for graph queries. "
+        "Requires ANTHROPIC_API_KEY environment variable. "
+        "Default: claude-3-5-sonnet-20241022"
+    ),
+    "CGC_API_KEY": (
+        "Optional API key protecting the HTTP API gateway. Empty = "
+        "unauthenticated (backward compatible). When set, HTTP endpoints "
+        "require it via `Authorization: Bearer <key>` or the `X-API-Key` "
+        "header. The CGC_API_KEY environment variable overrides this value."
+    ),
 }
 
 # Valid values for each config key
 CONFIG_VALIDATORS = {
-    "DEFAULT_DATABASE": ["neo4j", "falkordb"],
+    "DEFAULT_DATABASE": ["neo4j", "falkordb", "falkordb-remote", "kuzudb", "nornic", "ladybugdb"],
     "INDEX_VARIABLES": ["true", "false"],
     "ALLOW_DB_DELETION": ["true", "false"],
     "DEBUG_LOGS": ["true", "false"],
     "ENABLE_APP_LOGS": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "DISABLED"],
+    "LIBRARY_LOG_LEVEL": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     "IGNORE_TEST_FILES": ["true", "false"],
     "IGNORE_HIDDEN_FILES": ["true", "false"],
     "ENABLE_AUTO_WATCH": ["true", "false"],
     "CACHE_ENABLED": ["true", "false"],
     "INDEX_SOURCE": ["true", "false"],
+    "SCIP_INDEXER": ["true", "false"],
+    "SKIP_EXTERNAL_RESOLUTION": ["true", "false"],
+    "ENABLE_INHERIT_RESOLVE": ["true", "false"],
+    "ENABLE_VECTOR_RESOLVE": ["true", "false"],
+    "CGC_EMBEDDING_MODEL": ["local", "openai"],
+    "FUZZY_SEARCH": ["true", "false"],
 }
 
+SUPPORTED_DATABASES: List[str] = CONFIG_VALIDATORS["DEFAULT_DATABASE"]
+DATABASE_CLI_HELP = (
+    "Database backend ("
+    + "|".join(SUPPORTED_DATABASES)
+    + "). Defaults to DEFAULT_DATABASE from config."
+)
 
-def ensure_config_dir():
-    """Ensure configuration directory exists."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    (CONFIG_DIR / "logs").mkdir(parents=True, exist_ok=True)
+DEFAULT_CGCIGNORE_PATTERNS = """\
+# Default .cgcignore patterns
+# Lines starting with # are comments; blank lines are ignored.
+# Patterns follow .gitignore syntax.
+
+node_modules/
+venv/
+.venv/
+env/
+.env/
+dist/
+build/
+target/
+out/
+.git/
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.tox/
+.mypy_cache/
+.pytest_cache/
+coverage/
+.next/
+"""
+
+
+def resolve_model_name(provider: str, configured_value: Optional[str] = None) -> str:
+    """Get the model it should use for an LLM provider.
+
+    If the user configured a model, it uses that. Otherwise, it falls back to the default
+    model for the provider (like OPENAI_MODEL or ANTHROPIC_MODEL).
+
+    Args:
+        provider: The name of the provider, like "openai" or "anthropic" (case-insensitive).
+        configured_value: The model name from the user's config, if they set one.
+
+    Returns:
+        The model name it should use, or an empty string if it doesn't know the provider.
+    """
+    if configured_value and configured_value.strip():
+        return configured_value.strip()
+    key = f"{provider.upper()}_MODEL"
+    return DEFAULT_CONFIG.get(key, "")
+
+
+def normalize_config_path(value: str, *, absolute: bool = False, base_dir: Optional[Path] = None) -> str:
+    """Normalize config path values.
+
+    - Expands ``~`` and environment variables.
+    - Optionally resolves to an absolute path.
+    """
+    expanded = os.path.expandvars(os.path.expanduser(str(value)))
+    path_obj = Path(expanded)
+    if absolute and not path_obj.is_absolute():
+        path_obj = (base_dir or Path.cwd()) / path_obj
+    if absolute:
+        return str(path_obj.resolve())
+    return str(path_obj)
+
+
+def ensure_config_dir(path: Optional[Path] = None):
+    """
+    Ensure that the configuration directory exists.
+    Creates the directory and a logs subdirectory if they do not already exist.
+    """
+    path = path or CONFIG_DIR
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "logs").mkdir(parents=True, exist_ok=True)
+
+
+def ensure_global_cgcignore() -> bool:
+    """Create ``~/.codegraphcontext/global/.cgcignore`` with sensible defaults
+    if it does not already exist.  Returns True when a new file was created."""
+    cgcignore_path = CONFIG_DIR / "global" / ".cgcignore"
+    if cgcignore_path.exists():
+        return False
+    cgcignore_path.parent.mkdir(parents=True, exist_ok=True)
+    cgcignore_path.write_text(DEFAULT_CGCIGNORE_PATTERNS)
+    return True
+
 
 
 def load_config() -> Dict[str, str]:
     """
     Load configuration with priority support.
     Priority order (highest to lowest):
-    1. Environment variables
-    2. Local .env file (in current or parent directories)
+    1. Environment variables (always highest priority)
+    2. Local .env file (ONLY in per-repo mode or when CGC_LOAD_PROJECT_ENV=1)
     3. Global ~/.codegraphcontext/.env
+    
+    BUG FIX: In global/named context mode, local repo .env files are now properly ignored
+    to prevent silent database redirection when working inside cloned repositories.
     
     Note: Does NOT create config directory - caller must call ensure_config_dir() first if needed.
     """
@@ -101,7 +356,7 @@ def load_config() -> Dict[str, str]:
     # Load global config
     if CONFIG_FILE.exists():
         try:
-            with open(CONFIG_FILE, "r") as f:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
@@ -110,24 +365,40 @@ def load_config() -> Dict[str, str]:
         except Exception as e:
             console.print(f"[red]Error loading global config: {e}[/red]")
     
-    # Load local .env file if it exists (overrides global)
+    # Load local .env file ONLY if should_apply_project_dotenv() returns True
+    # This respects context mode (per-repo vs global/named) and environment overrides
     local_env = find_local_env()
     if local_env and local_env.exists():
         try:
-            with open(local_env, "r") as f:
+            with open(local_env, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
                         key, value = line.split("=", 1)
                         key = key.strip()
-                        # Only override if it's a config key (not database credentials in local file)
+                        value = value.strip()
+                        
+                        # In per-repo mode: allow all config keys to be overridden
+                        # In global/named mode: local .env should not be loaded at all (find_local_env returns None)
+                        # But if it somehow gets through, only allow non-DB-path keys for safety
+                        if key in DB_PATH_ENV_KEYS:
+                            # CRITICAL: Never let local .env override DB paths in global mode
+                            # This prevents silent database redirection
+                            continue
+                        
                         if key in DEFAULT_CONFIG or key in DATABASE_CREDENTIAL_KEYS:
-                            config[key] = value.strip()
+                            config[key] = value
         except Exception as e:
             console.print(f"[yellow]Warning: Error loading local .env: {e}[/yellow]")
     
-    # Environment variables have highest priority
+    # Environment variables have highest priority - always override everything
     for key in DEFAULT_CONFIG.keys():
+        env_value = os.getenv(key)
+        if env_value is not None:
+            config[key] = env_value
+    
+    # Also check for database credential environment variables
+    for key in DATABASE_CREDENTIAL_KEYS:
         env_value = os.getenv(key)
         if env_value is not None:
             config[key] = env_value
@@ -135,15 +406,48 @@ def load_config() -> Dict[str, str]:
     return config
 
 
+def should_apply_project_dotenv() -> bool:
+    """True when cwd-local ``.codegraphcontext/.env`` should merge with global config.
+
+    Project env is loaded only in **per-repo** context mode (or when
+    ``CGC_LOAD_PROJECT_ENV=1``). In **global** / **named** mode, ``~/.codegraphcontext/.env``
+    wins so clones with a checked-in ``.codegraphcontext/.env`` do not hijack config.
+
+    Set ``CGC_IGNORE_PROJECT_ENV=1`` to force skip; ``CGC_LOAD_PROJECT_ENV=1`` to force load.
+    """
+    if os.getenv("CGC_IGNORE_PROJECT_ENV", "").strip().lower() in ("1", "true", "yes"):
+        return False
+    if os.getenv("CGC_LOAD_PROJECT_ENV", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    cfg = load_context_config()
+    if cfg.mode != "per-repo":
+        return False
+    try:
+        Path.cwd().resolve().relative_to(Path.home().resolve())
+        return True
+    except ValueError:
+        # Per-repo indexing from /tmp with an isolated HOME (common in E2E/CI).
+        return True
+
+
 def find_local_env() -> Optional[Path]:
     """
     Find a local .env file by searching current directory and parents.
     Returns the first .env file found, or None.
     """
+    if not should_apply_project_dotenv():
+        return None
+
     current = Path.cwd()
     
     # Search up to 5 levels up
     for _ in range(5):
+        # 1. Prefer .codegraphcontext/.env if it exists
+        cgc_env = current / ".codegraphcontext" / ".env"
+        if cgc_env.exists() and cgc_env != CONFIG_FILE:
+            return cgc_env
+            
+        # 2. Fall back to root project .env
         env_file = current / ".env"
         if env_file.exists() and env_file != CONFIG_FILE:
             return env_file
@@ -154,6 +458,18 @@ def find_local_env() -> Optional[Path]:
         current = current.parent
     
     return None
+
+
+def codegraphcontext_dotenv_at_cwd(cwd: Optional[Path] = None) -> Optional[Path]:
+    """
+    Return ``<cwd>/.codegraphcontext/.env`` if that file exists, else None.
+
+    *cwd* defaults to ``Path.cwd()``. Parent directories are **not** searched—same rule as
+    local context resolution (``find_local_cgc_dir``).
+    """
+    root = (cwd or Path.cwd()).resolve()
+    candidate = root / ".codegraphcontext" / ".env"
+    return candidate if candidate.exists() else None
 
 
 def save_config(config: Dict[str, str], preserve_db_credentials: bool = True):
@@ -170,7 +486,7 @@ def save_config(config: Dict[str, str], preserve_db_credentials: bool = True):
     if preserve_db_credentials and CONFIG_FILE.exists():
         # Load existing credentials from file to preserve them
         try:
-            with open(CONFIG_FILE, "r") as f:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
@@ -180,6 +496,10 @@ def save_config(config: Dict[str, str], preserve_db_credentials: bool = True):
                             credentials_to_write[key] = value.strip()
         except Exception:
             pass
+        # Merge credentials from the config dict (handles both new and updated values)
+        for key in DATABASE_CREDENTIAL_KEYS:
+            if key in config:
+                credentials_to_write[key] = config[key]
     else:
         # Use credentials from the config dict being passed in
         for key in DATABASE_CREDENTIAL_KEYS:
@@ -187,30 +507,27 @@ def save_config(config: Dict[str, str], preserve_db_credentials: bool = True):
                 credentials_to_write[key] = config[key]
     
     try:
-        with open(CONFIG_FILE, "w") as f:
-            f.write("# CodeGraphContext Configuration\n")
-            f.write(f"# Location: {CONFIG_FILE}\n\n")
-            
-            # Write database credentials first if they exist
-            if credentials_to_write:
-                f.write("# ===== Database Credentials =====\n")
-                for key in sorted(DATABASE_CREDENTIAL_KEYS):
-                    if key in credentials_to_write:
-                        f.write(f"{key}={credentials_to_write[key]}\n")
-                f.write("\n")
-            
-            # Write configuration settings
-            f.write("# ===== Configuration Settings =====\n")
-            for key, value in sorted(config.items()):
-                # Skip database credentials (already written above)
-                if key in DATABASE_CREDENTIAL_KEYS:
-                    continue
-                    
-                description = CONFIG_DESCRIPTIONS.get(key, "")
-                if description:
-                    f.write(f"# {description}\n")
-                f.write(f"{key}={value}\n\n")
-        
+        lines = [
+            "# CodeGraphContext Configuration",
+            f"# Location: {CONFIG_FILE}",
+            "",
+        ]
+        if credentials_to_write:
+            lines.append("# ===== Database Credentials =====")
+            for key in sorted(DATABASE_CREDENTIAL_KEYS):
+                if key in credentials_to_write:
+                    lines.append(f"{key}={credentials_to_write[key]}")
+            lines.append("")
+        lines.append("# ===== Configuration Settings =====")
+        for key, value in sorted(config.items()):
+            if key in DATABASE_CREDENTIAL_KEYS:
+                continue
+            description = CONFIG_DESCRIPTIONS.get(key, "")
+            if description:
+                lines.append(f"# {description}")
+            lines.append(f"{key}={value}")
+            lines.append("")
+        _atomic_write_text(CONFIG_FILE, "\n".join(lines), secure=True)
         console.print(f"[green]✅ Configuration saved to {CONFIG_FILE}[/green]")
     except Exception as e:
         console.print(f"[red]Error saving config: {e}[/red]")
@@ -263,6 +580,34 @@ def validate_config_value(key: str, value: str) -> tuple[bool, Optional[str]]:
                 return False, "PARALLEL_WORKERS must be between 1 and 32"
         except ValueError:
             return False, "PARALLEL_WORKERS must be a number"
+
+    if key == "MAX_TOOL_RESPONSE_TOKENS":
+        try:
+            limit = int(value)
+            if limit < 0:
+                return False, "MAX_TOOL_RESPONSE_TOKENS must be 0 (unlimited) or a positive integer"
+        except ValueError:
+            return False, "MAX_TOOL_RESPONSE_TOKENS must be an integer (0 = unlimited)"
+
+    if key == "MAX_PROMPT_CHARS":
+        try:
+            limit = int(value)
+            if limit < 0:
+                return False, "MAX_PROMPT_CHARS must be 0 (unlimited) or a positive integer"
+        except ValueError:
+            return False, "MAX_PROMPT_CHARS must be an integer (0 = unlimited)"
+
+    if key == "TOOL_RESULT_LIMITS":
+        import json as _json
+        try:
+            parsed = _json.loads(value)
+            if not isinstance(parsed, dict):
+                return False, "TOOL_RESULT_LIMITS must be a JSON object, e.g. {\"find_code\": 20}"
+            for k, v in parsed.items():
+                if not isinstance(v, int) or v < 1:
+                    return False, f"TOOL_RESULT_LIMITS: value for '{k}' must be a positive integer"
+        except _json.JSONDecodeError:
+            return False, "TOOL_RESULT_LIMITS must be valid JSON, e.g. {\"find_code\": 20, \"find_dead_code\": 30}"
     
     if key == "MAX_DEPTH":
         if value.lower() != "unlimited":
@@ -275,15 +620,15 @@ def validate_config_value(key: str, value: str) -> tuple[bool, Optional[str]]:
     
     if key in ("LOG_FILE_PATH", "DEBUG_LOG_PATH"):
         # Validate path is writable
-        log_path = Path(value)
+        log_path = Path(normalize_config_path(value, absolute=True))
         try:
             log_path.parent.mkdir(parents=True, exist_ok=True)
         except Exception as e:
             return False, f"Cannot create log directory: {e}"
     
-    if key in ("FALKORDB_PATH", "FALKORDB_SOCKET_PATH"):
+    if key in ("FALKORDB_PATH", "FALKORDB_SOCKET_PATH", "LADYBUGDB_PATH", "KUZUDB_PATH"):
         # Validate path is writable
-        db_path = Path(value)
+        db_path = Path(normalize_config_path(value, absolute=True))
         try:
             db_path.parent.mkdir(parents=True, exist_ok=True)
         except Exception as e:
@@ -302,8 +647,20 @@ def get_config_value(key: str) -> Optional[str]:
     return config.get(key)
 
 
+def is_db_deletion_allowed() -> bool:
+    """True when destructive delete/clear operations are permitted."""
+    return str(get_config_value("ALLOW_DB_DELETION") or "false").strip().lower() == "true"
+
+
 def set_config_value(key: str, value: str) -> bool:
-    """Set a configuration value. Returns True if successful."""
+    """Set a configuration value. Returns True if successful.
+
+    The special key ``mode`` is delegated to :func:`set_context_mode` so
+    that ``cgc config set mode named`` works as expected.
+    """
+    if key.lower() == "mode":
+        return set_context_mode(value.lower())
+
     # Ensure config directory exists
     ensure_config_dir()
     
@@ -324,11 +681,57 @@ def set_config_value(key: str, value: str) -> bool:
 
 def reset_config():
     """Reset configuration to defaults (preserves database credentials)."""
+    import shutil
+    from datetime import datetime
+
     ensure_config_dir()
+    if CONFIG_FILE.exists():
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup = CONFIG_FILE.with_name(f"{CONFIG_FILE.name}.{stamp}.bak")
+        shutil.copy2(CONFIG_FILE, backup)
+        console.print(f"[dim]Backed up current config to {backup}[/dim]")
     save_config(DEFAULT_CONFIG.copy(), preserve_db_credentials=True)
     console.print("[green]✅ Configuration reset to defaults[/green]")
     console.print("[cyan]Note: Database credentials were preserved[/cyan]")
 
+
+
+_FIRST_RUN_MARKER = CONFIG_DIR / ".first_run_done"
+
+
+def _print_welcome_banner() -> None:
+    """Print a one-time welcome message explaining the context system."""
+    console.print()
+    console.print("[bold green]Welcome to CodeGraphContext![/bold green]")
+    console.print()
+    console.print("CGC organises your code graphs using [bold]contexts[/bold]:")
+    console.print("  [cyan]global[/cyan]    - One shared graph for all projects (default)")
+    console.print("  [cyan]per-repo[/cyan]  - Each repo gets its own .codegraphcontext/ folder")
+    console.print("  [cyan]named[/cyan]     - Create named workspaces (e.g. cgc index . --context MyProject)")
+    console.print()
+    console.print("Switch modes anytime:  [dim]cgc context mode <global|per-repo|named>[/dim]")
+    console.print("Or:                    [dim]cgc config set mode <global|per-repo|named>[/dim]")
+    console.print()
+
+
+def ensure_first_run_bootstrap(show_welcome: bool = False) -> bool:
+    """Run one-time setup for brand-new installs.
+
+    Creates default config files and the global .cgcignore silently.
+    Returns True when bootstrap was performed.
+    """
+    if _FIRST_RUN_MARKER.exists():
+        return False
+
+    ensure_config_dir()
+    ensure_global_cgcignore()
+    load_context_config()
+    if show_welcome:
+        _print_welcome_banner()
+
+    _FIRST_RUN_MARKER.parent.mkdir(parents=True, exist_ok=True)
+    _FIRST_RUN_MARKER.write_text("1")
+    return True
 
 
 def ensure_config_file():
@@ -385,14 +788,596 @@ def show_config():
     for key in sorted(config_settings.keys()):
         value = config_settings[key]
         description = CONFIG_DESCRIPTIONS.get(key, "")
-        
+
+        # Never print secret-like values (e.g. the HTTP API key) in plaintext.
+        if "API_KEY" in key.upper() and value:
+            value = "********"
+
         # Highlight non-default values
         if value != DEFAULT_CONFIG.get(key):
             value_style = "[bold yellow]" + value + "[/bold yellow]"
         else:
             value_style = value
-        
+
         table.add_row(key, value_style, description)
     
     console.print(table)
     console.print(f"\n[cyan]Config file: {CONFIG_FILE}[/cyan]")
+
+
+# =============================================================================
+# CONTEXT SYSTEM  (config.yaml)
+# =============================================================================
+
+CONTEXT_CONFIG_FILE = CONFIG_DIR / "config.yaml"
+_LEGACY_CONTEXT_CONFIG_FILE = CONFIG_DIR / "cgc_config.yaml"
+
+# Valid mode values
+VALID_MODES = ["global", "per-repo", "named"]
+
+
+@dataclass
+class ContextInfo:
+    """Metadata for a single named context."""
+    name: str
+    database: str = "falkordb"          # neo4j | falkordb | kuzudb
+    db_path: str = ""                    # resolved at init if empty
+    repos: List[str] = field(default_factory=list)
+    cgcignore_path: str = ""            # resolved at init if empty
+
+
+@dataclass
+class ContextConfig:
+    """Top-level structure stored in ~/.codegraphcontext/config.yaml."""
+    version: int = 1
+    mode: str = "global"                 # global | per-repo | named
+    default_context: str = ""           # used when mode=named and no --context flag
+    contexts: Dict[str, ContextInfo] = field(default_factory=dict)
+
+
+def _default_db_path(context_name: str, database: str) -> str:
+    """Return the canonical DB path for a named context."""
+    return str(CONFIG_DIR / "contexts" / context_name / "db" / database)
+
+
+_LEGACY_FALKORDB_PATH = CONFIG_DIR / "global" / "falkordb.db"
+
+
+def _default_global_db_path(database: str) -> str:
+    """Return the canonical DB path for the global context.
+
+    New layout: ``~/.codegraphcontext/global/db/<backend>/``
+    For backward-compat, we check:
+    1. CGC_RUNTIME_DB_PATH environment variable (highest priority — works for all DBs)
+    2. FALKORDB_PATH in config (if database is falkordb)
+    3. Legacy flat path
+    4. New layout default
+    """
+    # Generic env var override — highest priority for any backend.
+    # Useful for relocating the global DB to a path that avoids platform-specific
+    # encoding issues (e.g. non-ASCII characters in the Windows user profile path).
+    env_override = os.environ.get("CGC_RUNTIME_DB_PATH")
+    if env_override:
+        return env_override
+    if database == "falkordb":
+        custom_path = load_config().get("FALKORDB_PATH")
+        if custom_path:
+            resolved = Path(custom_path).resolve()
+            # Ignore paths from another profile/repo that leaked via local .env
+            if str(resolved).startswith(str(CONFIG_DIR.resolve())):
+                return str(resolved)
+        if _LEGACY_FALKORDB_PATH.exists():
+            return str(_LEGACY_FALKORDB_PATH)
+    return str(CONFIG_DIR / "global" / "db" / database)
+
+
+def _migrate_legacy_config_yaml() -> None:
+    """Rename cgc_config.yaml -> config.yaml if the old name exists and the new one does not."""
+    if _LEGACY_CONTEXT_CONFIG_FILE.exists() and not CONTEXT_CONFIG_FILE.exists():
+        import shutil
+        shutil.copy2(_LEGACY_CONTEXT_CONFIG_FILE, CONTEXT_CONFIG_FILE)
+        console.print(f"[dim]Migrated {_LEGACY_CONTEXT_CONFIG_FILE.name} -> {CONTEXT_CONFIG_FILE.name}[/dim]")
+
+
+def load_context_config() -> ContextConfig:
+    """
+    Load ~/.codegraphcontext/config.yaml.
+    Returns a ContextConfig with defaults if the file does not exist.
+    """
+    _migrate_legacy_config_yaml()
+
+    if not CONTEXT_CONFIG_FILE.exists():
+        cfg = ContextConfig()
+        save_context_config(cfg)
+        return cfg
+
+    try:
+        with open(CONTEXT_CONFIG_FILE, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+
+        contexts: Dict[str, ContextInfo] = {}
+        for name, meta in raw.get("contexts", {}).items():
+            meta = meta or {}
+            db = meta.get("database", "falkordb")
+            ctx = ContextInfo(
+                name=name,
+                database=db,
+                db_path=meta.get("db_path") or _default_db_path(name, db),
+                repos=[str(r) for r in meta.get("repos", [])],
+                cgcignore_path=meta.get("cgcignore_path") or str(
+                    CONFIG_DIR / "contexts" / name / ".cgcignore"
+                ),
+            )
+            contexts[name] = ctx
+
+        return ContextConfig(
+            version=raw.get("version", 1),
+            mode=raw.get("mode", "global"),
+            default_context=raw.get("default_context", ""),
+            contexts=contexts,
+        )
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not load config.yaml: {e}. Using defaults.[/yellow]")
+        return ContextConfig()
+
+
+def save_context_config(cfg: ContextConfig) -> None:
+    """Persist ContextConfig to ~/.codegraphcontext/config.yaml."""
+    ensure_config_dir()
+
+    contexts_raw: Dict[str, Any] = {}
+    for name, ctx in cfg.contexts.items():
+        contexts_raw[name] = {
+            "database": ctx.database,
+            "db_path": ctx.db_path,
+            "repos": ctx.repos,
+            "cgcignore_path": ctx.cgcignore_path,
+        }
+
+    # Read-merge the existing file first so that unrelated top-level sections
+    # (e.g. ``workspace_mappings``) are preserved instead of being wiped out.
+    raw: Dict[str, Any] = {}
+    if CONTEXT_CONFIG_FILE.exists():
+        try:
+            with open(CONTEXT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+        except Exception:
+            raw = {}
+
+    raw["version"] = cfg.version
+    raw["mode"] = cfg.mode
+    raw["default_context"] = cfg.default_context
+    raw["contexts"] = contexts_raw
+
+    try:
+        _atomic_write_text(
+            CONTEXT_CONFIG_FILE,
+            yaml.dump(raw, default_flow_style=False, sort_keys=False),
+        )
+    except Exception as e:
+        console.print(f"[red]Error saving config.yaml: {e}[/red]")
+
+
+# ---------------------------------------------------------------------------
+# Context Resolution
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ResolvedContext:
+    """Result of resolve_context() — everything needed to instantiate the DB."""
+    mode: str             # global | per-repo | named
+    context_name: str     # empty for global / per-repo
+    database: str         # neo4j | falkordb | kuzudb
+    db_path: str          # absolute path to the DB directory
+    cgcignore_path: str   # path to the applicable .cgcignore
+    is_local: bool = False  # True when a local .codegraphcontext/ was found
+
+
+def find_local_cgc_dir(start: Optional[Path] = None) -> Optional[Path]:
+    """
+    Check *start* (default: cwd) for a ``.codegraphcontext/`` directory that
+    belongs to a repo (i.e. is NOT the global ``~/.codegraphcontext``).
+    Returns the directory path or None.
+    """
+    current = start or Path.cwd()
+    global_dir = CONFIG_DIR.resolve()
+
+    candidate = current / ".codegraphcontext"
+    if candidate.exists() and candidate.resolve() != global_dir:
+        return candidate
+    return None
+
+
+class ContextNotFoundError(ValueError):
+    """Raised when --context names an unregistered workspace."""
+
+
+def resolve_context(
+    cli_context: Optional[str] = None,
+    cwd: Optional[Path] = None,
+) -> ResolvedContext:
+    """
+    Determine which context / DB to use.
+
+    Resolution order (highest priority first):
+      1. --context <name>  CLI flag
+      2. Local .codegraphcontext/ directory (per-repo)
+      3. Global config.yaml: mode + default_context
+      4. Ultimate fallback: global mode, default DB
+    """
+    cfg = load_context_config()
+    cwd = cwd or Path.cwd()
+
+    # --- 1. Explicit CLI flag ---
+    if cli_context:
+        ctx = cfg.contexts.get(cli_context)
+        if ctx is None:
+            raise ContextNotFoundError(
+                f"Context '{cli_context}' is not registered. "
+                f"Create it with: cgc context create {cli_context}"
+            )
+        return ResolvedContext(
+            mode="named",
+            context_name=cli_context,
+            database=ctx.database,
+            db_path=ctx.db_path,
+            cgcignore_path=ctx.cgcignore_path,
+        )
+
+    # --- 2. Local .codegraphcontext/ in repo (per-repo mode only) ---
+    local_cgc = find_local_cgc_dir(cwd) if cfg.mode == "per-repo" else None
+    
+    # If we are in per-repo mode and no local folder was found, create it in CWD
+    if local_cgc is None and cfg.mode == "per-repo":
+        local_cgc = cwd / ".codegraphcontext"
+        local_cgc.mkdir(parents=True, exist_ok=True)
+        (local_cgc / "db").mkdir(exist_ok=True)
+
+        inherited_db = load_config().get("DEFAULT_DATABASE", "falkordb")
+
+        # Copy global .env into local context for easy per-repo tweaking.
+        # Guard against the self-copy case: when cwd is the home directory,
+        # local_cgc resolves to CONFIG_DIR itself, so `local_cgc / ".env"` is
+        # CONFIG_FILE. Copying a file onto itself raises shutil.SameFileError,
+        # which crashes resolve_context for any session started from home.
+        import shutil
+        _target_env = local_cgc / ".env"
+        if CONFIG_FILE.exists() and _target_env.resolve() != CONFIG_FILE.resolve():
+            shutil.copy2(CONFIG_FILE, _target_env)
+
+        local_yaml = local_cgc / "config.yaml"
+        if not local_yaml.exists():
+            with open(local_yaml, "w", encoding="utf-8") as f:
+                yaml.safe_dump({"database": inherited_db}, f)
+
+        console.print(
+            f"[dim]Auto-initialized per-repo context at {local_cgc} "
+            f"(Database: {inherited_db})[/dim]"
+        )
+
+    if local_cgc is not None:
+        # Read local config.yaml if present
+        local_yaml = local_cgc / "config.yaml"
+        local_db = (
+            os.environ.get("CGC_RUNTIME_DB_TYPE")
+            or os.environ.get("DEFAULT_DATABASE")
+            or load_config().get("DEFAULT_DATABASE", "falkordb")
+        )
+        if local_yaml.exists():
+            try:
+                with open(local_yaml, encoding="utf-8") as f:
+                    local_raw = yaml.safe_load(f) or {}
+                local_db = local_raw.get("database", local_db)
+            except Exception:
+                pass
+        db_path = str(local_cgc / "db" / local_db)
+        cgcignore = str(local_cgc / ".cgcignore")
+        return ResolvedContext(
+            mode="per-repo",
+            context_name="",
+            database=local_db,
+            db_path=db_path,
+            cgcignore_path=cgcignore,
+            is_local=True,
+        )
+
+    # --- 2b. Saved workspace mapping (per-repo mode only) ---
+    mapping = get_workspace_mapping(cwd) if cfg.mode == "per-repo" else None
+    if mapping:
+        mapped_ctx_path = Path(mapping["context_path"])
+        if mapped_ctx_path.exists() and mapped_ctx_path.is_dir():
+            mapped_db = mapping.get("database", "falkordb")
+            return ResolvedContext(
+                mode="per-repo",
+                context_name="",
+                database=mapped_db,
+                db_path=str(mapped_ctx_path / "db" / mapped_db),
+                cgcignore_path=str(mapped_ctx_path / ".cgcignore"),
+                is_local=True,
+            )
+
+    # --- 3. Global config.yaml ---
+    if cfg.mode == "named":
+        ctx_name = cfg.default_context
+        ctx = cfg.contexts.get(ctx_name) if ctx_name else None
+        db = ctx.database if ctx else "falkordb"
+        db_path = ctx.db_path if ctx else _default_db_path(ctx_name, db) if ctx_name else ""
+        if not db_path:
+            # No default context set — fall through to global
+            pass
+        else:
+            cgcignore = (
+                ctx.cgcignore_path
+                if ctx
+                else str(CONFIG_DIR / "contexts" / ctx_name / ".cgcignore")
+            )
+            return ResolvedContext(
+                mode="named",
+                context_name=ctx_name,
+                database=db,
+                db_path=db_path,
+                cgcignore_path=cgcignore,
+            )
+
+    # --- 4. Global fallback ---
+    db = os.getenv("CGC_RUNTIME_DB_TYPE") or load_config().get("DEFAULT_DATABASE", "falkordb")
+    return ResolvedContext(
+        mode="global",
+        context_name="",
+        database=db,
+        db_path=_default_global_db_path(db),
+        cgcignore_path=str(CONFIG_DIR / "global" / ".cgcignore"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Context CRUD helpers
+# ---------------------------------------------------------------------------
+
+def create_context(
+    name: str,
+    database: str = "falkordb",
+    db_path: Optional[str] = None,
+) -> bool:
+    """Create a new named context. Returns True on success."""
+    cfg = load_context_config()
+    if name in cfg.contexts:
+        console.print(f"[yellow]Context '{name}' already exists.[/yellow]")
+        return False
+
+    resolved_db_path = db_path or _default_db_path(name, database)
+    cgcignore = str(CONFIG_DIR / "contexts" / name / ".cgcignore")
+
+    # Ensure the context directories exist (create parent of db_path so DBs can create their files/dirs)
+    Path(resolved_db_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(cgcignore).parent.mkdir(parents=True, exist_ok=True)
+
+    cfg.contexts[name] = ContextInfo(
+        name=name,
+        database=database,
+        db_path=resolved_db_path,
+        repos=[],
+        cgcignore_path=cgcignore,
+    )
+    save_context_config(cfg)
+    console.print(f"[green]✅ Created context '{name}' (DB: {database})[/green]")
+    console.print(f"   [dim]DB path: {resolved_db_path}[/dim]")
+    return True
+
+
+def delete_context(name: str) -> bool:
+    """Delete a named context from the registry. Returns True on success."""
+    cfg = load_context_config()
+    if name not in cfg.contexts:
+        console.print(f"[red]Context '{name}' not found.[/red]")
+        return False
+    del cfg.contexts[name]
+    if cfg.default_context == name:
+        cfg.default_context = ""
+    save_context_config(cfg)
+    console.print(f"[green]✅ Deleted context '{name}'[/green]")
+    console.print("[dim]Note: DB files were NOT deleted. Remove manually if needed.[/dim]")
+    return True
+
+
+def register_repo_in_context(context_name: str, repo_path: str, auto_create: bool = False) -> bool:
+    """Add a repo path to a named context (idempotent).
+
+    When *auto_create* is True the context is silently created with default
+    settings if it does not yet exist, matching the UX of
+    ``cgc index ./frontend --context ProjectAB`` "just working".
+    """
+    cfg = load_context_config()
+    ctx = cfg.contexts.get(context_name)
+    if ctx is None:
+        if not auto_create:
+            console.print(f"[red]Context '{context_name}' not found. Create it first with 'cgc context create {context_name}'.[/red]")
+            return False
+        create_context(context_name)
+        cfg = load_context_config()
+        ctx = cfg.contexts.get(context_name)
+        if ctx is None:
+            return False
+    resolved = str(Path(repo_path).resolve())
+    if resolved not in ctx.repos:
+        ctx.repos.append(resolved)
+        save_context_config(cfg)
+    return True
+
+
+def set_context_mode(mode: str) -> bool:
+    """Set the global CGC mode. Returns True on success."""
+    if mode not in VALID_MODES:
+        console.print(f"[red]Invalid mode '{mode}'. Must be one of: {', '.join(VALID_MODES)}[/red]")
+        return False
+    cfg = load_context_config()
+    cfg.mode = mode
+    save_context_config(cfg)
+    console.print(f"[green]✅ Mode set to '{mode}'[/green]")
+    return True
+
+
+def set_default_context(name: str) -> bool:
+    """Set the default named context used when no --context flag is given."""
+    cfg = load_context_config()
+    if name and name not in cfg.contexts:
+        console.print(f"[red]Context '{name}' not found. Create it first.[/red]")
+        return False
+    cfg.default_context = name
+    save_context_config(cfg)
+    console.print(f"[green]✅ Default context set to '{name}'[/green]")
+    return True
+
+
+def list_contexts() -> List[ContextInfo]:
+    """Return all named contexts."""
+    cfg = load_context_config()
+    return list(cfg.contexts.values())
+
+
+# =============================================================================
+# CHILD CONTEXT DISCOVERY
+# =============================================================================
+
+@dataclass
+class DiscoveredContext:
+    """A .codegraphcontext folder found in a child directory."""
+    path: str            # absolute path to the parent repo directory
+    cgc_path: str        # absolute path to the .codegraphcontext directory
+    repo_name: str       # name of the parent directory
+    database: str        # backend from local config.yaml, or default
+    db_path: str         # resolved db path
+    cgcignore_path: str  # path to .cgcignore if present
+
+
+def discover_child_contexts(
+    start: Optional[Path] = None,
+    max_depth: int = 1,
+) -> List[DiscoveredContext]:
+    """Walk child directories of *start* up to *max_depth* levels looking for
+    ``.codegraphcontext/`` folders that represent per-repo databases.
+
+    Returns a list of :class:`DiscoveredContext` for each match found.
+    The global ``~/.codegraphcontext`` is always excluded.
+    """
+    start = (start or Path.cwd()).resolve()
+    global_dir = CONFIG_DIR.resolve()
+    results: List[DiscoveredContext] = []
+
+    def _scan(directory: Path, depth: int) -> None:
+        if depth > max_depth:
+            return
+        try:
+            entries = sorted(directory.iterdir())
+        except PermissionError:
+            return
+        for entry in entries:
+            if not entry.is_dir() or entry.name.startswith("."):
+                continue
+            candidate = entry / ".codegraphcontext"
+            if candidate.exists() and candidate.is_dir() and candidate.resolve() != global_dir:
+                local_db = "falkordb"
+                local_yaml = candidate / "config.yaml"
+                if local_yaml.exists():
+                    try:
+                        with open(local_yaml, encoding="utf-8") as f:
+                            raw = yaml.safe_load(f) or {}
+                        local_db = raw.get("database", "falkordb")
+                    except Exception:
+                        pass
+                results.append(DiscoveredContext(
+                    path=str(entry),
+                    cgc_path=str(candidate),
+                    repo_name=entry.name,
+                    database=local_db,
+                    db_path=str(candidate / "db" / local_db),
+                    cgcignore_path=str(candidate / ".cgcignore"),
+                ))
+            if depth < max_depth:
+                _scan(entry, depth + 1)
+
+    _scan(start, 1)
+    return results
+
+
+# =============================================================================
+# WORKSPACE MAPPINGS  (global persistence of CWD -> context path)
+# =============================================================================
+
+def _load_workspace_mappings() -> Dict[str, Dict[str, str]]:
+    """Load the ``workspace_mappings`` section from config.yaml."""
+    if not CONTEXT_CONFIG_FILE.exists():
+        return {}
+    try:
+        with open(CONTEXT_CONFIG_FILE, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        return raw.get("workspace_mappings", {}) or {}
+    except Exception:
+        return {}
+
+
+def _save_workspace_mappings(mappings: Dict[str, Dict[str, str]]) -> None:
+    """Write *mappings* back into the ``workspace_mappings`` key of config.yaml,
+    preserving all other keys."""
+    ensure_config_dir()
+    raw: Dict[str, Any] = {}
+    if CONTEXT_CONFIG_FILE.exists():
+        try:
+            with open(CONTEXT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+        except Exception:
+            raw = {}
+    raw["workspace_mappings"] = mappings
+    try:
+        _atomic_write_text(
+            CONTEXT_CONFIG_FILE,
+            yaml.dump(raw, default_flow_style=False, sort_keys=False),
+        )
+    except Exception as e:
+        console.print(f"[red]Error saving workspace mappings: {e}[/red]")
+
+
+def get_workspace_mapping(cwd: Path) -> Optional[Dict[str, str]]:
+    """Look up a saved workspace mapping for *cwd*.
+
+    Returns a dict with ``context_path`` and ``database`` keys, or None.
+    """
+    mappings = _load_workspace_mappings()
+    return mappings.get(str(cwd.resolve()))
+
+
+def save_workspace_mapping(cwd: Path, context_path: Path) -> None:
+    """Persist an association from *cwd* to a ``.codegraphcontext`` directory."""
+    context_path = context_path.resolve()
+    local_db = "falkordb"
+    local_yaml = context_path / "config.yaml"
+    if local_yaml.exists():
+        try:
+            with open(local_yaml, encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+            local_db = raw.get("database", "falkordb")
+        except Exception:
+            pass
+
+    mappings = _load_workspace_mappings()
+    mappings[str(cwd.resolve())] = {
+        "context_path": str(context_path),
+        "database": local_db,
+    }
+    _save_workspace_mappings(mappings)
+
+
+def remove_workspace_mapping(cwd: Path) -> bool:
+    """Delete a saved workspace mapping. Returns True if one was removed."""
+    mappings = _load_workspace_mappings()
+    key = str(cwd.resolve())
+    if key in mappings:
+        del mappings[key]
+        _save_workspace_mappings(mappings)
+        return True
+    return False
+
+
+def list_workspace_mappings() -> Dict[str, Dict[str, str]]:
+    """Return all saved workspace mappings."""
+    return _load_workspace_mappings()

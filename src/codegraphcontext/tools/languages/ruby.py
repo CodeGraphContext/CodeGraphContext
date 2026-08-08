@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/ruby.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger, debug_logger
@@ -141,20 +142,30 @@ class RubyTreeSitterParser:
 
     def _calculate_complexity(self, node: Any) -> int:
         """Calculate cyclomatic complexity for Ruby constructs."""
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         complexity_nodes = {
             "if", "unless", "case", "when", "while", "until", "for", "rescue", "ensure",
             "and", "or", "&&", "||", "?", "ternary"
         }
         count = 1
+        skipped = False
 
-        def traverse(n):
-            nonlocal count
+        def traverse(n, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if n.type in complexity_nodes:
                 count += 1
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
 
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _get_docstring(self, node: Any) -> Optional[str]:
@@ -169,14 +180,47 @@ class RubyTreeSitterParser:
             prev_sibling = prev_sibling.prev_sibling
         return None
 
+    # Ruby parameter node types, and the prefix each carries in source. The
+    # bare `identifier` case is a required positional parameter.
+    _PARAM_PREFIXES = {
+        'optional_parameter': '',        # b = 1
+        'keyword_parameter': '',         # key:
+        'splat_parameter': '*',          # *rest
+        'hash_splat_parameter': '**',    # **opts
+        'block_parameter': '&',          # &blk
+    }
+
     def _parse_method_parameters(self, method_node: Any) -> list[str]:
-        """Parse method parameters from a method node."""
+        """Parse method parameters from a method node.
+
+        Parameters live inside a `method_parameters` child, not directly on the
+        method — the only direct `identifier` child is the method's own name,
+        which this used to skip, so every Ruby method reported no parameters at
+        all and no `HAS_PARAMETER` edge was ever created.
+        """
+        params_node = method_node.child_by_field_name('parameters')
+        if params_node is None:
+            params_node = next(
+                (c for c in method_node.children
+                 if c.type in ('method_parameters', 'parameters', 'bare_parameters')),
+                None,
+            )
+        if params_node is None:
+            return []
+
         params = []
-        # Look for parameters in the method node
-        for child in method_node.children:
-            if child.type == 'identifier' and child != method_node.child_by_field_name('name'):
-                # This is likely a parameter
+        for child in params_node.children:
+            if not child.is_named:
+                continue  # punctuation: ( ) ,
+            if child.type == 'identifier':
                 params.append(self._get_node_text(child))
+                continue
+            prefix = self._PARAM_PREFIXES.get(child.type)
+            if prefix is None:
+                continue
+            name_node = next((c for c in child.children if c.type == 'identifier'), None)
+            if name_node is not None:
+                params.append(prefix + self._get_node_text(name_node))
         return params
 
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict[str, Any]:
@@ -195,6 +239,19 @@ class RubyTreeSitterParser:
         variables = self._find_variables(root_node)
         modules = self._find_modules(root_node)
         module_inclusions = self._find_module_inclusions(root_node)
+
+        # Merge module inclusions into class bases for inheritance resolution
+        for inclusion in module_inclusions:
+            class_name = inclusion.get("class")
+            module_name = inclusion.get("module")
+            if class_name and module_name:
+                for cls in classes:
+                    if cls["name"] == class_name:
+                        if "bases" not in cls:
+                            cls["bases"] = []
+                        if module_name not in cls["bases"]:
+                            cls["bases"].append(module_name)
+                        break
 
         return {
             "path": str(path),
@@ -253,6 +310,7 @@ class RubyTreeSitterParser:
                     "line_number": func_node.start_point[0] + 1,
                     "end_line": func_node.end_point[0] + 1,
                     "args": args,
+                    "class_context": class_context,
                     "lang": self.language_name,
                     "is_dependency": False,
                 }
@@ -272,23 +330,26 @@ class RubyTreeSitterParser:
         # Collect all captures first
         all_captures = list(execute_query(self.language, query_str, root_node))
         
-        # Group captures by class node using a different approach
+        # Read each class's own `name` field rather than matching @name captures
+        # to classes by byte range. An outer class always contains an inner
+        # class's name node, so range-matching assigned the inner name to the
+        # outer class (the first container, in document order) and left the
+        # inner entry nameless — where it was then dropped. `class Client`
+        # wrapping `class TimeoutError` yielded exactly one class, named
+        # TimeoutError, carrying Client's line range.
         captures_by_class = {}
         for node, capture_name in all_captures:
-            if capture_name == 'class':
-                captures_by_class[id(node)] = {'node': node, 'name': None}
-        
-        # Now find names for each class
-        for node, capture_name in all_captures:
-            if capture_name == 'name':
-                # Find which class this name belongs to
-                for class_id, class_data in captures_by_class.items():
-                    class_node = class_data['node']
-                    # Check if this name node is within the class node
-                    if (node.start_byte >= class_node.start_byte and 
-                        node.end_byte <= class_node.end_byte):
-                        captures_by_class[class_id]['name'] = self._get_node_text(node)
-                        break
+            if capture_name != 'class':
+                continue
+            name_node = node.child_by_field_name('name')
+            if name_node is None:
+                # tree-sitter-ruby gives the `class` keyword token the same
+                # node type as the definition; only the definition has a name.
+                continue
+            captures_by_class[id(node)] = {
+                'node': node,
+                'name': self._get_node_text(name_node),
+            }
 
         # Build class entries
         for class_data in captures_by_class.values():
@@ -296,8 +357,13 @@ class RubyTreeSitterParser:
             name = class_data['name']
             
             if name:
-                # Get superclass for inheritance (simplified)
+                # Get superclass for inheritance
                 bases = []
+                superclass_node = next((child for child in class_node.children if child.type == 'superclass'), None)
+                if superclass_node:
+                    for sub in superclass_node.children:
+                        if sub.type == 'constant':
+                            bases.append(self._get_node_text(sub))
 
                 # Get context and docstring
                 context, context_type, _ = self._get_parent_context(class_node)
@@ -523,14 +589,14 @@ def pre_scan_ruby(files: list[Path], parser_wrapper) -> dict:
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 tree = parser_wrapper.parser.parse(bytes(f.read(), "utf8"))
 
             for capture, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(path.resolve()))
+                imports_map[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     

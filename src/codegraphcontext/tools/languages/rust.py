@@ -1,3 +1,4 @@
+# src/codegraphcontext/tools/languages/rust.py
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 import re
@@ -16,7 +17,7 @@ RUST_QUERIES = {
             (struct_item name: (type_identifier) @name)
             (enum_item name: (type_identifier) @name)
             (trait_item name: (type_identifier) @name)
-        ] @class
+        ] @type_node
     """,
     "imports": """
         (use_declaration) @import
@@ -30,9 +31,6 @@ RUST_QUERIES = {
             ]
         )
     """,
-    "traits": """
-        (trait_item name: (type_identifier) @name) @trait_node
-    """,  # <-- Added trait query
 }
 
 class RustTreeSitterParser:
@@ -57,16 +55,16 @@ class RustTreeSitterParser:
         root_node = tree.root_node
 
         functions = self._find_functions(root_node)
-        classes = self._find_structs(root_node)
+        structs, enums, traits = self._find_types(root_node)
         imports = self._find_imports(root_node)
         function_calls = self._find_calls(root_node)
-        traits = self._find_traits(root_node)  # <-- Added trait detection
 
         return {
             "path": str(path),
             "functions": functions,
-            "classes": classes,
-            "traits": traits,  # <-- Result for traits
+            "structs": structs,
+            "enums": enums,
+            "traits": traits,
             "variables": [],
             "imports": imports,
             "function_calls": function_calls,
@@ -116,13 +114,27 @@ class RustTreeSitterParser:
                 args.append(arg_info)
         return args
 
+    def _module_path_for_node(self, node: Any) -> Optional[str]:
+        parts: list[str] = []
+        curr = node
+        while curr:
+            if curr.type == "mod_item":
+                name_node = curr.child_by_field_name("name")
+                if name_node:
+                    parts.append(self._get_node_text(name_node))
+            curr = curr.parent
+        return "::".join(reversed(parts)) if parts else None
+
     def _find_functions(self, root_node: Any) -> list[Dict[str, Any]]:
         functions = []
-        # Query that just finds the function items
         query_str = "(function_item) @f"
-        
-        for func_node, _ in execute_query(self.language, query_str, root_node):
-            # Use child_by_field_name for reliable identification
+        seen_ids: set[int] = set()
+
+        for func_node, cap in execute_query(self.language, query_str, root_node):
+            if func_node.id in seen_ids:
+                continue
+            seen_ids.add(func_node.id)
+
             name_node = func_node.child_by_field_name("name")
             params_node = func_node.child_by_field_name("parameters")
 
@@ -137,34 +149,85 @@ class RustTreeSitterParser:
                         arg_str += f": {arg['type']}"
                     params.append(arg_str)
 
+                module_context = self._module_path_for_node(func_node)
                 func_data = {
                     "name": name,
                     "line_number": name_node.start_point[0] + 1,
                     "end_line": func_node.end_point[0] + 1,
-                    "params": params, # Renamed to params to match other languages
-                    "args": params,   # Keep args for compatibility
+                    "params": params,
+                    "args": params,
+                    "module_context": module_context,
+                    "is_extern": False,
+                    "lang": self.language_name,
+                    "is_dependency": False,
                 }
 
                 if self.index_source:
                     func_data["source"] = self._get_node_text(func_node)
                 
                 functions.append(func_data)
+
+        for node, _ in execute_query(self.language, "(foreign_mod_item) @fm", root_node):
+            extern_nodes: list[Any] = []
+
+            def collect_extern_functions(item_node: Any) -> None:
+                if item_node.type in ("function_item", "function_signature_item"):
+                    extern_nodes.append(item_node)
+                    return
+                for child in item_node.children:
+                    collect_extern_functions(child)
+
+            collect_extern_functions(node)
+            for child in extern_nodes:
+                if child.id in seen_ids:
+                    continue
+                seen_ids.add(child.id)
+                name_node = child.child_by_field_name("name")
+                if not name_node:
+                    for sub in child.children:
+                        if sub.type == "identifier":
+                            name_node = sub
+                            break
+                if not name_node:
+                    continue
+                name = self._get_node_text(name_node)
+                params_node = child.child_by_field_name("parameters")
+                raw_args = self._parse_function_args(params_node) if params_node else []
+                params = []
+                for arg in raw_args:
+                    arg_str = arg["name"]
+                    if arg["type"]:
+                        arg_str += f": {arg['type']}"
+                    params.append(arg_str)
+                functions.append({
+                    "name": name,
+                    "line_number": name_node.start_point[0] + 1,
+                    "end_line": child.end_point[0] + 1,
+                    "params": params,
+                    "args": params,
+                    "module_context": self._module_path_for_node(child),
+                    "is_extern": True,
+                    "lang": self.language_name,
+                    "is_dependency": False,
+                })
+
         return functions
 
-    def _find_structs(self, root_node: Any) -> list[Dict[str, Any]]:
-        structs = []
-        query_str = """
+    def _find_types(self, root_node: Any) -> Tuple[list, list, list]:
+        types_map = {}
+        trait_names = set()
+        
+        # 1. Find all struct, enum, and trait definitions
+        query_items = """
         [
             (struct_item) @s
             (enum_item) @e
             (trait_item) @t
         ]
         """
-        for item_node, _ in execute_query(self.language, query_str, root_node):
-            # Find name using field name or fallback
+        for item_node, cap in execute_query(self.language, query_items, root_node):
             name_node = item_node.child_by_field_name("name")
             if not name_node:
-                # Fallback: find first type_identifier
                 for child in item_node.children:
                     if child.type == "type_identifier":
                         name_node = child
@@ -172,40 +235,58 @@ class RustTreeSitterParser:
             
             if name_node:
                 name = self._get_node_text(name_node)
-                struct_data = {
+                bases = []
+                # For traits, extract supertraits: trait A: B + C
+                if cap == "t":
+                    trait_names.add(name)
+                    # Tree-sitter-rust: trait_item -> trait_bounds child?
+                    # Let's check node children for ':'
+                    has_colon = False
+                    for child in item_node.children:
+                        if child.type == ":":
+                            has_colon = True
+                        if has_colon and child.type == "trait_bounds":
+                            for bound in child.children:
+                                if bound.type == "type_identifier":
+                                    bases.append(self._get_node_text(bound))
+
+                if cap == "t":
+                    category = "trait"
+                elif cap == "e":
+                    category = "enum"
+                else:
+                    category = "struct"
+
+                types_map[name] = {
                     "name": name,
                     "line_number": name_node.start_point[0] + 1,
                     "end_line": item_node.end_point[0] + 1,
-                    "bases": [],
+                    "bases": bases,
+                    "type": category
                 }
-
                 if self.index_source:
-                    struct_data["source"] = self._get_node_text(item_node)
-                
-                structs.append(struct_data)
-        return structs
+                    types_map[name]["source"] = self._get_node_text(item_node)
 
-    def _find_traits(self, root_node: Any) -> list[Dict[str, Any]]:
-        traits = []
-        query_str = RUST_QUERIES["traits"]
-        for match in execute_query(self.language, query_str, root_node):
-            node, capture_name = match
-            if capture_name == "trait_node":
-                trait_node = node
-                name_node = next((n for n, c in execute_query(self.language, "(trait_item name: (type_identifier) @name)", trait_node) if c == "name"), None)
-                if name_node:
-                    name = self._get_node_text(name_node)
-                    trait_data = {
-                            "name": name,
-                            "line_number": name_node.start_point[0] + 1,
-                            "end_line": trait_node.end_point[0] + 1,
-                        }
-
-                    if self.index_source:
-                        trait_data["source"] = self._get_node_text(trait_node)
+        # 2. Find all impl blocks and extract traits as bases
+        query_impls = "(impl_item) @i"
+        for impl_node, _ in execute_query(self.language, query_impls, root_node):
+            identifiers = [c for c in impl_node.children if c.type == "type_identifier"]
+            has_for = any(c.type == "for" for c in impl_node.children)
+            
+            if has_for and len(identifiers) >= 2:
+                trait_name = self._get_node_text(identifiers[0])
+                type_name = self._get_node_text(identifiers[1])
+                if type_name in types_map:
+                    types_map[type_name]["bases"].append(trait_name)
                     
-                    traits.append(trait_data)
-        return traits
+        structs = [v for v in types_map.values() if v["type"] == "struct"]
+        enums = [v for v in types_map.values() if v["type"] == "enum"]
+        traits = [v for v in types_map.values() if v["type"] == "trait"]
+        for s in structs: s.pop("type")
+        for e in enums: e.pop("type")
+        for t in traits: t.pop("type")
+        
+        return structs, enums, traits
 
     def _find_imports(self, root_node: Any) -> list[Dict[str, Any]]:
         imports = []
@@ -292,7 +373,7 @@ def pre_scan_rust(files: list[Path], parser_wrapper) -> dict:
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(path.resolve()))
+                imports_map[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     return imports_map
