@@ -1214,6 +1214,10 @@ class TestWatcherIncrementalHandleModification:
         watcher.all_file_data = []
         watcher.imports_map = {}
         watcher.repo_path = tmp_path
+        # _handle_modification serialises graph updates; instances built via
+        # __new__ must supply the locks __init__ would have created.
+        watcher._update_lock = threading.RLock()
+        watcher._timers_lock = threading.Lock()
 
         mock_gb = MagicMock()
         mock_gb.parsers = {".py": None}
