@@ -41,6 +41,7 @@ nav:
     - Developer Onboarding: guides/onboarding-codebase.md
   - Reference:
     - CLI Reference: reference/cli.md
+    - HTTP API Reference: reference/api.md
     - MCP Tool Reference: reference/mcp.md
     - Configuration: reference/config.md
     - Troubleshooting: reference/troubleshooting.md

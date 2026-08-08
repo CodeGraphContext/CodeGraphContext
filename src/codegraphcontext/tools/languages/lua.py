@@ -1,4 +1,5 @@
 # src/codegraphcontext/tools/languages/lua.py
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -148,10 +149,15 @@ class LuaTreeSitterParser:
         return params
 
     def _calculate_complexity(self, node: Any) -> int:
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         count = 1
+        skipped = False
 
-        def traverse(current):
-            nonlocal count
+        def traverse(current, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if current.type in LUA_CONTROL_NODES:
                 count += 1
             elif current.type == "binary_expression":
@@ -160,9 +166,14 @@ class LuaTreeSitterParser:
                     count += 1
             for child in current.children:
                 if child.is_named:
-                    traverse(child)
+                    traverse(child, depth + 1)
 
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _get_docstring(self, node: Any) -> Optional[str]:
@@ -334,18 +345,30 @@ class LuaTreeSitterParser:
             value = ", ".join(self._get_node_text(value_node) for value_node in value_nodes) if value_nodes else None
 
             for child in variable_nodes:
-                variables.append(
-                    {
-                        "name": self._get_node_text(child),
-                        "line_number": child.start_point[0] + 1,
-                        "value": value,
-                        "type": declaration_type,
-                        "context": context,
-                        "class_context": None,
-                        "lang": self.language_name,
-                        "is_dependency": False,
-                    }
-                )
+                var_name = self._get_node_text(child)
+                bases = []
+                if value_nodes:
+                    value_text = self._get_node_text(value_nodes[0])
+                    if "setmetatable" in value_text:
+                        match = re.search(
+                            r"setmetatable\s*\(\s*\{[^}]*\}\s*,\s*([A-Za-z_][\w.]*)",
+                            value_text,
+                        )
+                        if match:
+                            bases.append(match.group(1))
+                var_data = {
+                    "name": var_name,
+                    "line_number": child.start_point[0] + 1,
+                    "value": value,
+                    "type": declaration_type,
+                    "context": context,
+                    "class_context": None,
+                    "lang": self.language_name,
+                    "is_dependency": False,
+                }
+                if bases:
+                    var_data["bases"] = bases
+                variables.append(var_data)
 
         return variables
 
@@ -384,9 +407,24 @@ class LuaTreeSitterParser:
         return args
 
 
+def _resolve_lua_module_path(requiring_file: Path, module_name: str) -> Optional[Path]:
+    """Resolve require('name') to a .lua file next to the requiring file."""
+    base = requiring_file.parent
+    candidates = (
+        base / f"{module_name}.lua",
+        base / module_name / "init.lua",
+        base / module_name.replace(".", "/") / "init.lua",
+        base / f"{module_name.replace('.', '/')}.lua",
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
 def pre_scan_lua(files: list[Path], parser_wrapper) -> dict:
-    """Scans Lua files to create a map of function names to their file paths."""
-    imports_map = {}
+    """Map Lua function names and require() aliases to defining file paths."""
+    imports_map: dict[str, list[str]] = {}
     if parser_wrapper is None:
         return imports_map
 
@@ -394,17 +432,31 @@ def pre_scan_lua(files: list[Path], parser_wrapper) -> dict:
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                tree = parser_wrapper.parser.parse(bytes(f.read(), "utf8"))
+            parsed = parser.parse(str(path))
+            resolved_path = path.resolve().as_posix()
 
-            for function in parser._find_functions(tree.root_node):
-                resolved_path = str(path.resolve())
+            for function in parsed.get("functions", []):
                 names = {function["name"]}
                 if function.get("full_name"):
                     names.add(function["full_name"])
-
                 for name in names:
                     imports_map.setdefault(name, []).append(resolved_path)
+
+            for imp in parsed.get("imports", []):
+                module_name = imp.get("name")
+                if not module_name:
+                    continue
+                target = _resolve_lua_module_path(path, module_name)
+                if not target:
+                    continue
+                target_path = str(target)
+                keys = {module_name, target.stem, Path(module_name).stem}
+                alias = imp.get("alias")
+                if alias:
+                    keys.add(alias)
+                for key in keys:
+                    if key:
+                        imports_map.setdefault(key, []).append(target_path)
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
 

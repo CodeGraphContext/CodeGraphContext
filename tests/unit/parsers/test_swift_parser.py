@@ -52,9 +52,10 @@ class GenericController {
 }
 """
     f = temp_test_dir / "sample.swift"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
 
     result = swift_parser.parse(f)
+    assert isinstance(result, dict)
 
     assert len(result["functions"]) >= 4
     assert any(item["name"] == "MetricTracker" for item in result["structs"])
@@ -90,9 +91,10 @@ enum Direction: String, Drawable {
 }
 """
     f = temp_test_dir / "inheritance_sample.swift"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
 
     result = swift_parser.parse(f)
+    assert isinstance(result, dict)
 
     classes_by_name = {item["name"]: item for item in result["classes"]}
     structs_by_name = {item["name"]: item for item in result["structs"]}

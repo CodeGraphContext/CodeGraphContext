@@ -68,14 +68,15 @@ This function (e.g., `pre_scan_typescript`) will quickly scan files to build an 
 2.  Uses a simplified query (e.g., for `class_declaration` and `function_declaration`) to quickly find definitions.
 3.  Returns a dictionary mapping symbol names to file paths.
 
-### Step 2.5: Integrate into `graph_builder.py`
+### Step 2.5: Integrate into the codebase
 
-1.  **`GraphBuilder.__init__`**:
+1.  **`GraphBuilder.__init__` (in `graph_builder.py`)**:
     *   Add `'.ts': TreeSitterParser('typescript')` to `self.parsers`.
-2.  **`TreeSitterParser.__init__`**:
+2.  **`TreeSitterParser.__init__` (in `tree_sitter_parser.py`)**:
     *   Add an `elif self.language_name == 'typescript':` block to initialize `self.language_specific_parser` with `TypescriptTreeSitterParser(self)`.
-3.  **`GraphBuilder._pre_scan_for_imports`**:
-    *   Add an `elif '.ts' in files_by_lang:` block to import `pre_scan_typescript` and call it.
+3.  **`pre_scan_for_imports` (in `src/codegraphcontext/tools/indexing/pre_scan.py`)**:
+    *   Import your language pre-scan module in `_register_prescans()`.
+    *   Register the file extension mapping (e.g., `".ts"`) to delegate to your `pre_scan_typescript` function.
 
 ## 3. Verification and Debugging using Neo4j
 

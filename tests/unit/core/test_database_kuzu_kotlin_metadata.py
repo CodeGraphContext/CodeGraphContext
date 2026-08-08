@@ -254,7 +254,7 @@ def test_class_function_containment_uses_owner_line_in_kuzu(tmp_path):
                 """,
                 class_name="Worker",
                 function_name="run",
-                path=str(file_path.resolve()),
+                path=file_path.resolve().as_posix(),
                 class_line=2,
             ).data()
             second_owner = session.run(
@@ -267,7 +267,7 @@ def test_class_function_containment_uses_owner_line_in_kuzu(tmp_path):
                 """,
                 class_name="Worker",
                 function_name="run",
-                path=str(file_path.resolve()),
+                path=file_path.resolve().as_posix(),
                 class_line=7,
             ).data()
 

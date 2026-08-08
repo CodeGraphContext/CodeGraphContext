@@ -199,11 +199,11 @@ def test_unwind_uid_injection_uses_fallback_for_missing_pk_fields():
     assert params["batch"][0]["uid"] != params["batch"][1]["uid"]
 
 
-def test_inheritance_queries_are_classified_for_fail_fast_guard():
+def test_inheritance_queries_bypass_fail_fast_guard():
     session = KuzuSessionWrapper(_FakeConn())
     q = "MATCH (a)-[:INHERITS]->(b) MERGE (a)-[:INHERITS]->(b)"
     assert session._classify_query_type(q) == "inheritance_resolution"
-    assert session._should_fail_fast(
+    assert not session._should_fail_fast(
         "inheritance_resolution",
         Exception("Binder exception: Create rel  bound by multiple node labels is not supported."),
     )

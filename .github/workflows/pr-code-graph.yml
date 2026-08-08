@@ -13,7 +13,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   analyze:
@@ -51,23 +51,27 @@ jobs:
           OWNER="${{ github.repository_owner }}"
           REPO="${{ github.event.repository.name }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
+          
+          # Run CGC indexing and export the graph
+          cgc index .
 
-          # Run the analysis script
-          bash scripts/pr-graph-analyze.sh \
-            "$OWNER" "$REPO" "$PR_NUMBER" \
-            "./pr-graph-output"
+          mkdir -p "./pr-graph-output"
+          # Export the bundle so it can be viewed in the PR reviewer
+          cgc bundle export "./pr-graph-output/pr-${PR_NUMBER}-graph.cgc" --repo .
+          echo '{"info": "Graph is dynamically computed in the browser via GitHub API, but here is the exported code graph bundle."}' > "./pr-graph-output/pr-${PR_NUMBER}-metadata.json"
 
       # ── 5. Upload the JSON as a build artifact ─────────────────────────
       - name: Upload PR Graph JSON
         uses: actions/upload-artifact@v4
         with:
           name: pr-code-graph-${{ github.event.pull_request.number }}
-          path: ./pr-graph-output/*.json
+          path: ./pr-graph-output/*
           retention-days: 30
 
       # ── 6. (Optional) Post a comment with the viewer link ──────────────
       - name: Comment PR with viewer link
         if: success()
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -82,7 +86,7 @@ jobs:
               `**${context.payload.pull_request.title}** (#${pr})`,
               '',
               '### 📊 Interactive Visualization',
-              `View the blast radius graph: **[PR Reviewer Dashboard](https://codegraphcontext.dev/pr-reviewer/${owner}/${repo}/pull/${pr})**`,
+              `View the blast radius graph: **[PR Reviewer Dashboard](https://cgc.codes/pr-reviewer/${owner}/${repo}/pull/${pr})**`,
               '',
               '### 📦 Artifacts',
               `The graph JSON has been uploaded as a build artifact: \`pr-code-graph-${pr}\``,

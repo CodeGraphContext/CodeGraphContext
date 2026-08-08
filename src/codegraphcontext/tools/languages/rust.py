@@ -114,13 +114,27 @@ class RustTreeSitterParser:
                 args.append(arg_info)
         return args
 
+    def _module_path_for_node(self, node: Any) -> Optional[str]:
+        parts: list[str] = []
+        curr = node
+        while curr:
+            if curr.type == "mod_item":
+                name_node = curr.child_by_field_name("name")
+                if name_node:
+                    parts.append(self._get_node_text(name_node))
+            curr = curr.parent
+        return "::".join(reversed(parts)) if parts else None
+
     def _find_functions(self, root_node: Any) -> list[Dict[str, Any]]:
         functions = []
-        # Query that just finds the function items
         query_str = "(function_item) @f"
-        
-        for func_node, _ in execute_query(self.language, query_str, root_node):
-            # Use child_by_field_name for reliable identification
+        seen_ids: set[int] = set()
+
+        for func_node, cap in execute_query(self.language, query_str, root_node):
+            if func_node.id in seen_ids:
+                continue
+            seen_ids.add(func_node.id)
+
             name_node = func_node.child_by_field_name("name")
             params_node = func_node.child_by_field_name("parameters")
 
@@ -135,18 +149,68 @@ class RustTreeSitterParser:
                         arg_str += f": {arg['type']}"
                     params.append(arg_str)
 
+                module_context = self._module_path_for_node(func_node)
                 func_data = {
                     "name": name,
                     "line_number": name_node.start_point[0] + 1,
                     "end_line": func_node.end_point[0] + 1,
-                    "params": params, # Renamed to params to match other languages
-                    "args": params,   # Keep args for compatibility
+                    "params": params,
+                    "args": params,
+                    "module_context": module_context,
+                    "is_extern": False,
+                    "lang": self.language_name,
+                    "is_dependency": False,
                 }
 
                 if self.index_source:
                     func_data["source"] = self._get_node_text(func_node)
                 
                 functions.append(func_data)
+
+        for node, _ in execute_query(self.language, "(foreign_mod_item) @fm", root_node):
+            extern_nodes: list[Any] = []
+
+            def collect_extern_functions(item_node: Any) -> None:
+                if item_node.type in ("function_item", "function_signature_item"):
+                    extern_nodes.append(item_node)
+                    return
+                for child in item_node.children:
+                    collect_extern_functions(child)
+
+            collect_extern_functions(node)
+            for child in extern_nodes:
+                if child.id in seen_ids:
+                    continue
+                seen_ids.add(child.id)
+                name_node = child.child_by_field_name("name")
+                if not name_node:
+                    for sub in child.children:
+                        if sub.type == "identifier":
+                            name_node = sub
+                            break
+                if not name_node:
+                    continue
+                name = self._get_node_text(name_node)
+                params_node = child.child_by_field_name("parameters")
+                raw_args = self._parse_function_args(params_node) if params_node else []
+                params = []
+                for arg in raw_args:
+                    arg_str = arg["name"]
+                    if arg["type"]:
+                        arg_str += f": {arg['type']}"
+                    params.append(arg_str)
+                functions.append({
+                    "name": name,
+                    "line_number": name_node.start_point[0] + 1,
+                    "end_line": child.end_point[0] + 1,
+                    "params": params,
+                    "args": params,
+                    "module_context": self._module_path_for_node(child),
+                    "is_extern": True,
+                    "lang": self.language_name,
+                    "is_dependency": False,
+                })
+
         return functions
 
     def _find_types(self, root_node: Any) -> Tuple[list, list, list]:
@@ -309,7 +373,7 @@ def pre_scan_rust(files: list[Path], parser_wrapper) -> dict:
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(path.resolve()))
+                imports_map[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     return imports_map

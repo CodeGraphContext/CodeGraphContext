@@ -73,6 +73,8 @@ class PythonTreeSitterParser:
         self.parser = generic_parser_wrapper.parser
 
     def _get_node_text(self, node) -> str:
+        if node is None or node.text is None:
+            return ""
         return node.text.decode('utf-8')
 
     def _get_parent_context(self, node, types=('function_definition', 'class_definition')):
@@ -85,21 +87,31 @@ class PythonTreeSitterParser:
         return None, None, None
 
     def _calculate_complexity(self, node):
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         complexity_nodes = {
             "if_statement", "for_statement", "while_statement", "except_clause",
             "with_statement", "boolean_operator", "list_comprehension", 
             "generator_expression", "case_clause"
         }
         count = 1
+        skipped = False
         
-        def traverse(n):
-            nonlocal count
+        def traverse(n, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if n.type in complexity_nodes:
                 count += 1
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
         
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _get_docstring(self, body_node):
@@ -122,7 +134,7 @@ class PythonTreeSitterParser:
         try:
             if is_notebook:
                 info_logger(f"Converting notebook {path} to temporary Python file.")
-                with open(path, 'r', encoding='utf-8') as f:
+                with open(path, 'r', encoding='utf-8', errors="ignore") as f:
                     notebook_node = nbformat.read(f, as_version=4)
                 
                 exporter = PythonExporter()
@@ -135,7 +147,7 @@ class PythonTreeSitterParser:
                 # The file to be parsed is now the temporary file
                 path = temp_py_file
 
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 source_code = f.read()
             
             tree = self.parser.parse(bytes(source_code, "utf8"))
@@ -145,7 +157,10 @@ class PythonTreeSitterParser:
             functions.extend(self._find_lambda_assignments(root_node, index_source))
             classes = self._find_classes(root_node)
             imports = self._find_imports(root_node)
-            function_calls = self._find_calls(root_node)
+            # Build local_names so _find_calls can distinguish local functions
+            # from method calls (e.g. list.append) when assigning nested call context.
+            local_names = {f["name"] for f in functions} | {c["name"] for c in classes}
+            function_calls = self._find_calls(root_node, local_names)
             self._attach_module_context(functions, function_calls, root_node, index_source)
             variables = self._find_variables(root_node)
 
@@ -173,8 +188,6 @@ class PythonTreeSitterParser:
             call for call in function_calls
             if not call.get("context") or call["context"][0] is None
         ]
-        if not module_level_calls:
-            return
 
         has_module_frame = any(
             func.get("name") == "<module>" and func.get("line_number") == 1
@@ -193,6 +206,11 @@ class PythonTreeSitterParser:
                 "decorators": [],
                 "lang": self.language_name,
                 "is_dependency": False,
+                # Not a function anyone wrote — it is the module-level frame
+                # that top-level calls get attributed to. Marked so counts and
+                # the dead-code report can exclude it instead of presenting it
+                # as a real, unused function.
+                "is_synthetic": True,
             }
             if index_source:
                 module_func["source"] = self._get_node_text(root_node)
@@ -261,8 +279,15 @@ class PythonTreeSitterParser:
                     decorators = [self._get_node_text(child) for child in func_node.children if child.type == 'decorator']
 
 
-                context, context_type, _ = self._get_parent_context(func_node)
-                class_context, _, _ = self._get_parent_context(func_node, types=('class_definition',))
+                # Keep the enclosing definition's line. It was discarded here,
+                # which left the nested-function CONTAINS write matching the
+                # outer function by name alone — so a file with two same-named
+                # functions (the same method on two classes, very common) got a
+                # false containment edge from each of them.
+                context, context_type, context_line = self._get_parent_context(func_node)
+                class_context, _, class_context_line = self._get_parent_context(
+                    func_node, types=('class_definition',)
+                )
 
                 args = []
                 if params_node:
@@ -278,9 +303,20 @@ class PythonTreeSitterParser:
                                 arg_text = self._get_node_text(name_node)
                         elif p.type == 'typed_parameter':
                             # Typed parameter: def foo(x: int)
-                            name_node = p.child_by_field_name('name')
-                            if name_node:
-                                arg_text = self._get_node_text(name_node)
+                            # `typed_parameter` has no `name` field in
+                            # tree-sitter-python — only `type`. Its children are
+                            # (<identifier|splat>, ':', type), so the parameter
+                            # is the first child. Looking up a `name` field here
+                            # returned None and silently dropped every annotated
+                            # parameter that had no default.
+                            for child in p.children:
+                                if child.type in (
+                                    'identifier',
+                                    'list_splat_pattern',
+                                    'dictionary_splat_pattern',
+                                ):
+                                    arg_text = self._get_node_text(child)
+                                    break
                         elif p.type == 'typed_default_parameter':
                             # Typed parameter with default: def foo(x: int = 5) or def foo(x: str = typer.Argument(...))
                             name_node = p.child_by_field_name('name')
@@ -301,7 +337,13 @@ class PythonTreeSitterParser:
                     "cyclomatic_complexity": self._calculate_complexity(func_node),
                     "context": context,
                     "context_type": context_type,
+                    # Disambiguates the enclosing definition when a file has two
+                    # functions/classes with the same name.
+                    "context_line": context_line if context_line is not None else -1,
                     "class_context": class_context,
+                    "class_context_line": (
+                        class_context_line if class_context_line is not None else -1
+                    ),
                     "decorators": [d for d in decorators if d],
                     "lang": self.language_name,
                     "is_dependency": False,
@@ -328,8 +370,16 @@ class PythonTreeSitterParser:
                 superclasses_node = class_node.child_by_field_name('superclasses')
                 
                 bases = []
+                metaclass = None
                 if superclasses_node:
-                    bases = [self._get_node_text(child) for child in superclasses_node.children if child.type in ('identifier', 'attribute')]
+                    for child in superclasses_node.children:
+                        if child.type == 'keyword_argument':
+                            kw_name = child.child_by_field_name('name')
+                            kw_value = child.child_by_field_name('value')
+                            if kw_name and kw_value and self._get_node_text(kw_name) == 'metaclass':
+                                metaclass = self._get_node_text(kw_value)
+                        elif child.type in ('identifier', 'attribute'):
+                            bases.append(self._get_node_text(child))
 
                 decorators = [self._get_node_text(child) for child in class_node.children if child.type == 'decorator']
 
@@ -345,6 +395,8 @@ class PythonTreeSitterParser:
                     "lang": self.language_name,
                     "is_dependency": False,
                 }
+                if metaclass:
+                    class_data["metaclass"] = metaclass
                 if self.index_source:
                     class_data["source"] = self._get_node_text(class_node)
                     class_data["docstring"] = self._get_docstring(body_node)
@@ -354,7 +406,7 @@ class PythonTreeSitterParser:
 
     def _find_imports(self, root_node):
         imports = []
-        seen_modules = set()
+        seen_modules = {}
         query_str = PY_QUERIES['imports']
         for node, capture_name in execute_query(self.language, query_str, root_node):
             if capture_name in ('import', 'from_import_stmt'):
@@ -369,10 +421,6 @@ class PythonTreeSitterParser:
                     else:
                         full_name = node_text.strip()
 
-                    if full_name in seen_modules:
-                        continue
-                    seen_modules.add(full_name)
-
                     import_data = {
                         "name": full_name,
                         "full_import_name": full_name,
@@ -382,7 +430,9 @@ class PythonTreeSitterParser:
                         "lang": self.language_name,
                         "is_dependency": False,
                     }
-                    imports.append(import_data)
+                    existing = seen_modules.get(full_name)
+                    if existing is None or import_data["line_number"] < existing["line_number"]:
+                        seen_modules[full_name] = import_data
                 # For 'import_from_statement'
                 elif capture_name == 'from_import_stmt':
                     module_name_node = node.child_by_field_name('module_name')
@@ -391,73 +441,119 @@ class PythonTreeSitterParser:
                     module_name = self._get_node_text(module_name_node)
                     
                     # Handle 'from ... import ...'
-                    import_list_node = node.child_by_field_name('name')
-                    if import_list_node:
-                        for child in import_list_node.children:
-                            imported_name = None
-                            alias = None
-                            if child.type == 'aliased_import':
-                                name_node = child.child_by_field_name('name')
-                                alias_node = child.child_by_field_name('alias')
-                                if name_node: imported_name = self._get_node_text(name_node)
-                                if alias_node: alias = self._get_node_text(alias_node)
-                            elif child.type == 'dotted_name' or child.type == 'identifier':
-                                imported_name = self._get_node_text(child)
-                            
-                            if imported_name:
-                                full_import_name = f"{module_name}.{imported_name}"
-                                if full_import_name in seen_modules:                                                                                                
-                                    continue                                                                                                                        
-                                seen_modules.add(full_import_name) 
-                                imports.append({
-                                    "name": imported_name,
-                                    "full_import_name": full_import_name,
-                                    "line_number": child.start_point[0] + 1,
-                                    "alias": alias,
-                                    "context": self._get_parent_context(child)[:2],
-                                    "lang": self.language_name,
-                                    "is_dependency": False,
-                                })
+                    # children_by_field_name returns ALL imported names;
+                    # child_by_field_name would only return the first one.
+                    for child in node.children_by_field_name('name'):
+                        imported_name = None
+                        alias = None
+                        if child.type == 'aliased_import':
+                            name_node = child.child_by_field_name('name')
+                            alias_node = child.child_by_field_name('alias')
+                            if name_node: imported_name = self._get_node_text(name_node)
+                            if alias_node: alias = self._get_node_text(alias_node)
+                        elif child.type == 'dotted_name' or child.type == 'identifier':
+                            imported_name = self._get_node_text(child)
+                        
+                        if imported_name:
+                            full_import_name = f"{module_name}.{imported_name}"
+                            import_data = {
+                                "name": imported_name,
+                                "full_import_name": full_import_name,
+                                "line_number": child.start_point[0] + 1,
+                                "alias": alias,
+                                "context": self._get_parent_context(child)[:2],
+                                "lang": self.language_name,
+                                "is_dependency": False,
+                            }
+                            existing = seen_modules.get(full_import_name)
+                            if existing is None or import_data["line_number"] < existing["line_number"]:
+                                seen_modules[full_import_name] = import_data
 
+        imports.extend(sorted(seen_modules.values(), key=lambda item: item["line_number"]))
         return imports
 
-    def _find_calls(self, root_node):
-        calls = []
-        
-        # First, find all direct function calls
-        query_str = PY_QUERIES['calls']
-        for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name == 'name':
-                call_node = node.parent if node.parent.type == 'call' else node.parent.parent
-                full_call_node = call_node.child_by_field_name('function')
-                
-                args = []
-                arguments_node = call_node.child_by_field_name('arguments')
-                if arguments_node:
-                    for arg in arguments_node.children:
-                        arg_text = self._get_node_text(arg)
-                        if arg_text and arg_text not in ('(', ')', ','):
-                            args.append(arg_text)
+    def _extract_call_name(self, function_node) -> str:
+        if function_node.type == "identifier":
+            return self._get_node_text(function_node)
+        if function_node.type == "attribute":
+            attr = function_node.child_by_field_name("attribute")
+            if attr:
+                return self._get_node_text(attr)
+        return self._get_node_text(function_node).split(".")[-1]
 
-                call_data = {
-                    "name": self._get_node_text(node),
-                    "full_name": self._get_node_text(full_call_node),
-                    "line_number": node.start_point[0] + 1,
-                    "args": args,
-                    "inferred_obj_type": None,
-                    "context": self._get_parent_context(node),
-                    "class_context": self._get_parent_context(node, types=('class_definition',))[:2],
-                    "lang": self.language_name,
-                    "is_dependency": False,
-                }
-                calls.append(call_data)
-        
-        # Second, find dictionary-based method references (indirect calls)
-        # This handles patterns like: tool_map = {"name": self.method, ...}
-        # followed by: handler = tool_map.get(name); handler()
+    def _call_args(self, call_node) -> list:
+        args = []
+        arguments_node = call_node.child_by_field_name("arguments")
+        if arguments_node:
+            for arg in arguments_node.children:
+                arg_text = self._get_node_text(arg)
+                if arg_text and arg_text not in ("(", ")", ","):
+                    args.append(arg_text)
+        return args
+
+    def _record_call(self, call_node, enclosing_caller, calls, local_names=None):
+        function_node = call_node.child_by_field_name("function")
+        if not function_node:
+            return None
+
+        called_name = self._extract_call_name(function_node)
+        if enclosing_caller:
+            # Only use the parent call name as context when it is a locally
+            # defined function/class.  Method calls like list.append() are not
+            # Function nodes in the graph, so using them as caller would
+            # create orphan CALLS edges and cause dead-code false positives.
+            if local_names and enclosing_caller in local_names:
+                context = (enclosing_caller, "nested_call", call_node.start_point[0] + 1)
+            else:
+                context = self._get_parent_context(call_node)
+        else:
+            context = self._get_parent_context(call_node)
+
+        calls.append(
+            {
+                "name": called_name,
+                "full_name": self._get_node_text(function_node),
+                "line_number": call_node.start_point[0] + 1,
+                "args": self._call_args(call_node),
+                "inferred_obj_type": None,
+                "context": context,
+                "class_context": self._get_parent_context(
+                    call_node, types=("class_definition",)
+                )[:2],
+                "lang": self.language_name,
+                "is_dependency": False,
+            }
+        )
+        return called_name
+
+    def _walk_call_tree(self, node, enclosing_caller, calls, local_names=None):
+        if node is None:
+            return
+        if node.type == "call":
+            function_node = node.child_by_field_name("function")
+            is_direct = function_node and function_node.type == "identifier"
+            called_name = self._record_call(node, enclosing_caller, calls, local_names)
+            if called_name:
+                arguments_node = node.child_by_field_name("arguments")
+                if arguments_node:
+                    # Only propagate called_name for direct calls (identifier);
+                    # attribute calls (obj.method()) are method invocations,
+                    # not local functions, so they shouldn't act as nested caller.
+                    next_enclosing = called_name if is_direct else enclosing_caller
+                    for child in arguments_node.children:
+                        self._walk_call_tree(child, next_enclosing, calls, local_names)
+            return
+        for child in node.children:
+            self._walk_call_tree(child, enclosing_caller, calls, local_names)
+
+    def _find_calls(self, root_node, local_names=None):
+        calls = []
+        self._walk_call_tree(root_node, None, calls, local_names)
+
+        # Dictionary-based method references (indirect calls)
         dict_method_calls = self._find_dict_method_references(root_node)
         calls.extend(dict_method_calls)
-        
+
         return calls
     
     def _find_dict_method_references(self, root_node):
@@ -591,17 +687,17 @@ def pre_scan_python(files: list[Path], parser_wrapper) -> dict:
         try:
             source_to_parse = ""
             if path.suffix == '.ipynb':
-                with open(path, 'r', encoding='utf-8') as f:
+                with open(path, 'r', encoding='utf-8', errors="ignore") as f:
                     notebook_node = nbformat.read(f, as_version=4)
                 exporter = PythonExporter()
                 python_code, _ = exporter.from_notebook_node(notebook_node)
                 with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py', encoding='utf-8') as tf:
                     tf.write(python_code)
                     temp_py_file = Path(tf.name)
-                with open(temp_py_file, "r", encoding="utf-8") as f:
+                with open(temp_py_file, "r", encoding="utf-8", errors="ignore") as f:
                     source_to_parse = f.read()
             else:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
                     source_to_parse = f.read()
 
             tree = parser_wrapper.parser.parse(bytes(source_to_parse, "utf8"))
@@ -610,7 +706,7 @@ def pre_scan_python(files: list[Path], parser_wrapper) -> dict:
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(path.resolve()))
+                imports_map[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
         finally:

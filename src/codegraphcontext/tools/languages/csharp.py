@@ -6,6 +6,21 @@ from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logge
 from codegraphcontext.utils.tree_sitter_manager import execute_query
 
 CSHARP_QUERIES = {
+    # Fields and locals share a shape: `variable_declaration` carries the type
+    # and holds one `variable_declarator` per name. There was no `variables`
+    # query at all and the key was hardcoded to [], so C# produced no Variable
+    # nodes — and `resolution/calls.py` lost the local-variable declarations it
+    # uses to infer a receiver's type, so `var s = new UserService(); s.Save();`
+    # could not resolve Save to UserService.Save.
+    "variables": """
+        (field_declaration
+            (variable_declaration) @decl
+        ) @field_node
+
+        (local_declaration_statement
+            (variable_declaration) @decl
+        ) @local_node
+    """,
     "functions": """
         (method_declaration
             name: (identifier) @name
@@ -123,6 +138,7 @@ class CSharpTreeSitterParser:
             parsed_enums = []
             parsed_records = []
             parsed_properties = []
+            parsed_variables = []
             parsed_imports = []
             parsed_calls = []
 
@@ -143,6 +159,8 @@ class CSharpTreeSitterParser:
                     parsed_records = self._parse_type_declarations(captures, source_code, path, "Record")
                 elif capture_name == "properties":
                     parsed_properties = self._parse_properties(captures, source_code, path, tree.root_node)
+                elif capture_name == "variables":
+                    parsed_variables = self._parse_variables(captures)
                 elif capture_name == "imports":
                     parsed_imports = self._parse_imports(captures, source_code)
                 elif capture_name == "calls":
@@ -157,7 +175,7 @@ class CSharpTreeSitterParser:
                 "enums": parsed_enums,
                 "records": parsed_records,
                 "properties": parsed_properties,
-                "variables": [],
+                "variables": parsed_variables,
                 "imports": parsed_imports,
                 "function_calls": parsed_calls,
                 "is_dependency": is_dependency,
@@ -306,6 +324,7 @@ class CSharpTreeSitterParser:
                             "end_line": end_line,
                             "path": str(path),
                             "lang": self.language_name,
+                            "is_partial": bool(re.search(r"\bpartial\b", source_text)),
                         }
                         
                         # Add bases if found
@@ -357,6 +376,70 @@ class CSharpTreeSitterParser:
                     continue
 
         return imports
+
+    def _parse_variables(self, captures: list) -> list:
+        """Fields and locals, from `variable_declaration` nodes.
+
+        Both shapes nest identically — `variable_declaration` carries the type
+        and holds one `variable_declarator` per declared name, so
+        `int a = 1, b = 2;` yields two rows sharing a type.
+        """
+        variables = []
+        seen = set()
+        for node, capture_name in captures:
+            if capture_name != "decl":
+                continue
+            type_node = node.child_by_field_name("type")
+            var_type = self._get_node_text(type_node) if type_node is not None else None
+
+            for declarator in node.children:
+                if declarator.type != "variable_declarator":
+                    continue
+                name_node = declarator.child_by_field_name("name")
+                if name_node is None:
+                    name_node = next(
+                        (c for c in declarator.children if c.type == "identifier"), None
+                    )
+                if name_node is None:
+                    continue
+
+                line_number = name_node.start_point[0] + 1
+                name = self._get_node_text(name_node)
+                if (name, line_number) in seen:
+                    continue
+                seen.add((name, line_number))
+
+                # tree-sitter-c-sharp has no `equals_value_clause`: the
+                # initialiser is a direct sibling following the `=` token.
+                value = None
+                seen_equals = False
+                for child in declarator.children:
+                    if child.type == "=":
+                        seen_equals = True
+                        continue
+                    if seen_equals and child.is_named:
+                        value = self._get_node_text(child)
+                        break
+
+                context, _ctx_type, _ctx_line = self._get_parent_context(
+                    declarator, types=("method_declaration", "function_declaration")
+                )
+                class_context, _c_type, _c_line = self._get_parent_context(
+                    declarator,
+                    types=("class_declaration", "struct_declaration", "record_declaration"),
+                )
+
+                variables.append({
+                    "name": name,
+                    "line_number": line_number,
+                    "value": value,
+                    "type": var_type,
+                    "context": context,
+                    "class_context": class_context,
+                    "lang": self.language_name,
+                    "is_dependency": False,
+                })
+        return variables
 
     def _get_parent_context(self, node: Any, types: Tuple[str, ...] = ('class_declaration', 'struct_declaration', 'function_declaration', 'method_declaration')):
         """Find parent context for C# constructs."""

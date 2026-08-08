@@ -366,7 +366,10 @@ export default function FlowchartSVG({
   /* ── Render ────────────────────────────────────────────────────────── */
 
   return (
+    <div style={{ position: "relative", width, height }}>
     <svg
+      id="flowchart-svg"
+      xmlns="http://www.w3.org/2000/svg"
       ref={svgRef}
       width={width}
       height={height}
@@ -624,38 +627,38 @@ export default function FlowchartSVG({
         })}
       </g>
 
-      {/* Orphan modules toggle (fixed position, not affected by pan/zoom) */}
-      {orphanIds.size > 0 && (
-        <g
-          transform={`translate(${width - 200}, 16)`}
-          onClick={() => setShowOrphans((v) => !v)}
-          style={{ cursor: "pointer" }}
-        >
-          <rect
-            width={180}
-            height={28}
-            rx={14}
-            fill={showOrphans ? (isDark ? "#1e1e2e" : "#e8e8f0") : (isDark ? "#111118" : "#f0f0f5")}
-            stroke={showOrphans ? "#f59e0b55" : (isDark ? "#ffffff18" : "#00000018")}
-            strokeWidth={1}
-          />
-          <text
-            x={90}
-            y={15}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fontSize={10}
-            fontWeight={700}
-            fontFamily="Inter,system-ui,sans-serif"
-            fill={showOrphans ? "#f59e0b" : (isDark ? "#666" : "#888")}
-            style={{ letterSpacing: "0.06em" }}
-          >
-            {showOrphans
-              ? `HIDE ${orphanIds.size} EXTERNAL`
-              : `SHOW ${orphanIds.size} EXTERNAL`}
-          </text>
-        </g>
-      )}
     </svg>
+
+    {/* Orphan modules toggle — HTML overlay */}
+    {orphanIds.size > 0 && (
+      <button
+        onClick={() => setShowOrphans((v) => !v)}
+        style={{
+          position: "absolute",
+          bottom: 16,
+          left: 16,
+          zIndex: 10,
+          padding: "6px 18px",
+          borderRadius: 9999,
+          border: `1px solid ${showOrphans ? "rgba(245,158,11,0.35)" : (isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)")}`,
+          background: showOrphans
+            ? (isDark ? "rgba(30,30,46,0.9)" : "rgba(232,232,240,0.9)")
+            : (isDark ? "rgba(17,17,24,0.9)" : "rgba(240,240,245,0.9)"),
+          color: showOrphans ? "#f59e0b" : (isDark ? "#666" : "#888"),
+          fontSize: 10,
+          fontWeight: 700,
+          fontFamily: "Inter,system-ui,sans-serif",
+          letterSpacing: "0.06em",
+          cursor: "pointer",
+          backdropFilter: "blur(8px)",
+          transition: "all 0.2s",
+        }}
+      >
+        {showOrphans
+          ? `HIDE ${orphanIds.size} EXTERNAL`
+          : `SHOW ${orphanIds.size} EXTERNAL`}
+      </button>
+    )}
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 [project]
 name = "codegraphcontext"
-version = "0.4.13"
+version = "0.5.7"
 description = "An MCP server that indexes local code into a graph database to provide context to AI assistants."
 authors = [{ name = "Shashank Shekhar Singh", email = "shashankshekharsingh1205@gmail.com" }]
 readme = "README.md"
@@ -8,6 +8,11 @@ license = { file = "LICENSE" }
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Development Status :: 3 - Alpha",
@@ -22,38 +27,114 @@ dependencies = [
     "rich>=13.7.0",
     "inquirerpy>=0.3.4",
     "python-dotenv>=1.0.0",
-    "tree-sitter>=0.21.0,<0.26.0; python_version != '3.13'",
-    "tree-sitter-language-pack>=0.6.0,<1.0.0; python_version != '3.13'",
-    "tree-sitter-c-sharp>=0.21.0; python_version != '3.13'",
+    "tree-sitter>=0.24.0,<0.26.0",
+    "tree-sitter-language-pack>=1.6,<2.0",
+    "tree-sitter-c-sharp>=0.21.0",
     "pyyaml",
     "nbformat",
     "nbconvert>=7.16.6",
     "pathspec>=0.12.1",
-    "falkordb>=0.1.0",
+    # ------------------------------------------------------------------
+    # Backend driver pins (see issue #1035)
+    #
+    # FalkorDB and its embedded sibling ``falkordblite`` co-evolve with
+    # ``redis-py``: the most recent ``falkordblite`` releases (>= 0.10) and
+    # ``falkordb`` releases (>= 1.6) require ``redis>=7.1`` / ``redis>=7.4``,
+    # but redis-py >= 6 breaks the Unix-socket path FalkorDB Lite uses
+    # (``UnixDomainSocketConnection`` lacks a ``host`` attribute, which the
+    # new maintenance-notifications handshake dereferences unconditionally).
+    #
+    # Until upstream resolves this we pin a known-good triple:
+    #   * redis-py 5.x           — last series that keeps UDS path working
+    #   * falkordblite < 0.10    — last series compatible with redis>=4.5
+    #   * falkordb < 1.6         — last series compatible with redis<7.1
+    #
+    # ``redis`` itself is now declared explicitly so a fresh resolver run
+    # (``uvx``, ``pipx install --force``, etc.) cannot silently pick up
+    # redis-py 6/7/8 again and reintroduce the bug.
+    # ------------------------------------------------------------------
+    "redis>=5,<6",
+    "falkordb>=1.0,<1.6",
+    "falkordblite>=0.7,<0.10; sys_platform != 'win32' and python_version >= '3.12'",
     "requests>=2.28.0",
     "protobuf>=3.20,<3.21",
-    "falkordblite>=0.1.0; sys_platform != 'win32' and python_version >= '3.12'",
-    "kuzu; sys_platform == 'win32' or (sys_platform != 'win32' and python_version >= '3.10')",
+    # ------------------------------------------------------------------
+    # KùzuDB was archived upstream on 2025-10-10; 0.11.3 is the final
+    # release and its wheel matrix stops at cp313 for macOS and Windows.
+    # Only Linux (manylinux x86_64 / aarch64) got cp314 wheels. Without a
+    # marker, `pip install codegraphcontext` on macOS/Windows + Python 3.14
+    # falls back to the kuzu sdist and tries a full C++/CMake source build,
+    # which fails and takes the whole install down with it.
+    #
+    # Keep kuzu where a wheel actually exists; elsewhere the backend is
+    # simply absent and `database_kuzu` reports its install hint at runtime.
+    # LadybugDB (the maintained Kùzu fork, see issue #852) publishes cp314
+    # wheels for all three platforms and remains the unconditional default.
+    # ------------------------------------------------------------------
+    "kuzu; python_version < '3.14' or sys_platform == 'linux'",
     "ladybug; sys_platform == 'win32' or (sys_platform != 'win32' and python_version >= '3.10')",
+    # Cap below 2.0: the low-level `mcp.server.Server` dropped its `list_tools`
+    # and `call_tool` decorators in 2.0.0, which api/mcp_sse.py registers its
+    # handlers with. With an unbounded pin, CI resolved 2.0.0 on release day and
+    # every job failed at import with
+    # "AttributeError: 'Server' object has no attribute 'list_tools'".
+    # Lift this once mcp_sse.py is ported to the 2.x server API.
+    "mcp>=1.0.0,<2",
     "fastapi>=0.100.0",
     "uvicorn>=0.22.0"
 ]
 
 [project.optional-dependencies]
 parsing = [
-    "tree-sitter>=0.21.0,<0.26.0; python_version != '3.13'",
-    "tree-sitter-language-pack>=0.6.0,<1.0.0; python_version != '3.13'",
-    "tree-sitter-c-sharp>=0.21.0; python_version != '3.13'",
+    "tree-sitter>=0.24.0,<0.26.0",
+    "tree-sitter-language-pack>=1.6,<2.0",
+    "tree-sitter-c-sharp>=0.21.0",
+]
+# Named backend extras let users (and CI) opt into a single, tested driver
+# triple instead of inheriting whatever the default install pulls. They
+# install the same ranges as the defaults today; the long-term plan
+# (tracked separately) is to make the defaults lean and require an extra.
+falkordb-embedded = [
+    "falkordblite>=0.7,<0.10; sys_platform != 'win32' and python_version >= '3.12'",
+    "falkordb>=1.0,<1.6",
+    "redis>=5,<6",
+]
+falkordb-remote = [
+    "falkordb>=1.0,<1.6",
+    "redis>=5,<6",
+]
+kuzu = [
+    # Same wheel-availability marker as the core dependency above: no
+    # cp314 wheels exist for macOS/Windows and the sdist cannot be built.
+    "kuzu; python_version < '3.14' or sys_platform == 'linux'",
+]
+ladybug = [
+    "ladybug; sys_platform == 'win32' or (sys_platform != 'win32' and python_version >= '3.10')",
+]
+neo4j = [
+    "neo4j>=5.15.0",
+]
+gcf = [
+    "gcf-python>=1.0.0",
 ]
 dev = [
     "pytest>=7.4.0",
     "black>=23.11.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-mock",
+    "ruff",
+]
+# Optional drivers for `cgc datasource` ingestion (MySQL/Aurora, Cassandra).
+# Redis ingestion uses the ``redis`` package already pinned in core deps.
+datasources = [
+    "pymysql",
+    "mysql-connector-python",
+    "cassandra-driver",
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/Shashankss1205/CodeGraphContext"
-"Bug Tracker" = "https://github.com/Shashankss1205/CodeGraphContext/issues"
+"Homepage" = "https://github.com/CodeGraphContext/CodeGraphContext"
+"Bug Tracker" = "https://github.com/CodeGraphContext/CodeGraphContext/issues"
 
 [project.scripts]
 cgc = "codegraphcontext.cli.main:app"
@@ -69,6 +150,13 @@ codegraphcontext = ["viz/dist/**/*"]
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["codegraphcontext*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -607,6 +607,8 @@ let nodeIdSequence = 1;
 let repoId = -1;
 let repoRootPrefix = ''; // common path prefix stripped before building folder hierarchy
 let indexOptions: { indexVariables?: boolean } = { indexVariables: true };
+const MAX_PARSEABLE_FILE_CHARS = 1_000_000;
+const MAX_PARSEABLE_MINIFIED_FILE_CHARS = 200_000;
 
 /**
  * Compute the longest common directory prefix of all queued file paths.
@@ -841,9 +843,12 @@ async function processNextBatch() {
 
     const isPathIgnored = f.path.split(/[\/\\]/).some(part => IGNORED_DIRS.has(part));
 
-    if (f.content.length > 200000 || isPathIgnored) {
-      if (f.content.length > 200000) {
-        console.warn(`[Diagnostic] Skipping very large file (${(f.content.length / 1024).toFixed(1)} KB): ${f.path}`);
+    const isLikelyMinified = /\.min\.[cm]?[jt]sx?$/.test(f.path) || /(^|[\/\\])(vendor|lib)[\/\\]/.test(f.path);
+    const maxFileChars = isLikelyMinified ? MAX_PARSEABLE_MINIFIED_FILE_CHARS : MAX_PARSEABLE_FILE_CHARS;
+
+    if (f.content.length > maxFileChars || isPathIgnored) {
+      if (f.content.length > maxFileChars) {
+        console.warn(`[Diagnostic] Skipping very large file (${(f.content.length / 1024).toFixed(1)} KB, limit ${(maxFileChars / 1024).toFixed(0)} KB): ${f.path}`);
       }
       continue;
     }

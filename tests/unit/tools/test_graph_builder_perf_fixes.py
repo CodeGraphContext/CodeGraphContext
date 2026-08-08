@@ -12,9 +12,12 @@ Covers Changes 2-11:
 """
 
 import inspect
+import sys
+import pytest
+import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, call, patch
+from typing import Dict, List, Optional
+from unittest.mock import MagicMock, patch
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +68,22 @@ class _FakeDriver:
         return self._session
 
 
-def _make_graph_builder(session: Optional[_RecordingSession] = None):
+class _FakeDBManager:
+    """Minimal stub that satisfies GraphWriter's backend detection and multi-graph driver lookup."""
+
+    def __init__(self, driver, backend: str = "neo4j"):
+        self._driver = driver
+        self._backend = backend
+
+    def get_driver(self, graph_name: str = None):
+        return self._driver
+
+    def get_backend_type(self) -> str:
+        return self._backend
+
+
+def _make_graph_builder(session: Optional[_RecordingSession] = None,
+                        backend: str = "neo4j"):
     """Return a GraphBuilder with a fake driver. Skips full __init__ setup."""
     from codegraphcontext.tools.graph_builder import GraphBuilder
     from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
@@ -73,8 +91,9 @@ def _make_graph_builder(session: Optional[_RecordingSession] = None):
     gb = GraphBuilder.__new__(GraphBuilder)
     if session is None:
         session = _RecordingSession()
-    gb.driver = _FakeDriver(session)
-    gb._writer = GraphWriter(gb.driver)
+    fake_driver = _FakeDriver(session)
+    gb.db_manager = _FakeDBManager(fake_driver, backend=backend)
+    gb._writer = GraphWriter(fake_driver, db_manager=gb.db_manager)
     gb.parsers = {}
     return gb, session
 
@@ -246,8 +265,12 @@ class TestCreateAllFunctionCallsV3:
         queries = [c["query"] for c in calls]
         assert any("UNWIND" in q for q in queries), "Expected UNWIND queries"
 
-    def test_uses_merge_for_calls_rel(self):
-        """CALLS relationships should use MERGE to prevent duplicates on re-index."""
+    def test_uses_create_for_calls_rel_on_neo4j(self):
+        """CALLS relationships are written with MERGE on Neo4j so the heuristic
+        confidence label can be (re)applied via SET without duplicating edges.
+        The relationship identity is the
+        (line_number, full_call_name, args_key) key; the confidence label and
+        other mutable metadata are attached afterwards with SET."""
         file_data = [{
             "path": "/repo/a.py",
             "functions": [{"name": "foo", "line_number": 1}],
@@ -263,11 +286,67 @@ class TestCreateAllFunctionCallsV3:
         }]
         calls = self._run(file_data)
         call_rels = [c["query"] for c in calls if "CALLS" in c["query"]]
+        assert call_rels, "Expected at least one CALLS write query"
         for q in call_rels:
-            assert "MERGE" in q, f"Expected MERGE in CALLS query, got: {q[:120]}"
+            assert "MERGE (caller)-[call:" in q, \
+                f"Expected MERGE in CALLS query on Neo4j, got: {q[:160]}"
+            assert "SET call.confidence_label = row.confidence_label" in q, \
+                f"Expected confidence_label written via SET, got: {q[:200]}"
+            assert "CREATE" not in q, \
+                f"Unexpected CREATE in CALLS query on Neo4j, got: {q[:160]}"
 
-    def test_calls_merge_identity_excludes_mutable_metadata(self):
-        """CALLS confidence/tier should update without becoming relationship identity."""
+    def test_uses_merge_for_calls_rel_on_kuzudb(self):
+        """CALLS relationships should keep MERGE on KuzuDB — its UNWIND fallback
+        path can re-execute rows individually, making CREATE unsafe there."""
+        file_data = [{
+            "path": "/repo/a.py",
+            "functions": [{"name": "foo", "line_number": 1}],
+            "classes": [],
+            "imports": [],
+            "function_calls": [{
+                "name": "foo",
+                "line_number": 5,
+                "full_name": "foo",
+                "args": [],
+                "context": ("bar", None, 4),
+            }],
+        }]
+        session = _RecordingSession()
+        gb, _ = _make_graph_builder(session, backend="kuzudb")
+        with patch("codegraphcontext.tools.indexing.resolution.calls.get_config_value",
+                   return_value="false"):
+            gb._create_all_function_calls(file_data, {})
+        call_rels = [c["query"] for c in session.calls if "CALLS" in c["query"]]
+        for q in call_rels:
+            assert "MERGE" in q, f"Expected MERGE in CALLS query on KuzuDB, got: {q[:120]}"
+
+    def test_uses_merge_for_calls_rel_on_falkordb(self):
+        """CALLS relationships should keep MERGE on FalkorDB."""
+        file_data = [{
+            "path": "/repo/a.py",
+            "functions": [{"name": "foo", "line_number": 1}],
+            "classes": [],
+            "imports": [],
+            "function_calls": [{
+                "name": "foo",
+                "line_number": 5,
+                "full_name": "foo",
+                "args": [],
+                "context": ("bar", None, 4),
+            }],
+        }]
+        session = _RecordingSession()
+        gb, _ = _make_graph_builder(session, backend="falkordb")
+        with patch("codegraphcontext.tools.indexing.resolution.calls.get_config_value",
+                   return_value="false"):
+            gb._create_all_function_calls(file_data, {})
+        call_rels = [c["query"] for c in session.calls if "CALLS" in c["query"]]
+        for q in call_rels:
+            assert "MERGE" in q, f"Expected MERGE in CALLS query on FalkorDB, got: {q[:120]}"
+
+    def test_calls_rel_identity_excludes_mutable_metadata(self):
+        """CALLS confidence/tier should be written via SET, not baked into the
+        relationship identity key — they must not appear before the SET clause."""
         file_data = [{
             "path": "/repo/a.py",
             "functions": [{"name": "foo", "line_number": 1}],
@@ -285,10 +364,12 @@ class TestCreateAllFunctionCallsV3:
         }]
         calls = self._run(file_data)
         call_write = next(c for c in calls if "CALLS" in c["query"])
-        merge_clause = call_write["query"].split("MERGE", 1)[1].split("SET", 1)[0]
+        # Split on whichever keyword was used (CREATE on Neo4j, MERGE on others)
+        keyword = "CREATE" if "CREATE" in call_write["query"] else "MERGE"
+        rel_clause = call_write["query"].split(keyword, 1)[1].split("SET", 1)[0]
 
-        assert "confidence" not in merge_clause
-        assert "resolution_tier" not in merge_clause
+        assert "confidence" not in rel_clause
+        assert "resolution_tier" not in rel_clause
         assert "SET call.confidence = row.confidence" in call_write["query"]
         assert "call.resolution_tier = row.resolution_tier" in call_write["query"]
 
@@ -315,6 +396,10 @@ class TestCreateAllFunctionCallsV3:
         calls = self._run(file_data)
         call_write = next(c for c in calls if "CALLS" in c["query"])
 
+        # The CALLS write matches the target line via a sentinel-guarded WHERE
+        # equality (`row.called_line_number <= 0 OR called.line_number =
+        # row.called_line_number`) so unresolved (<= 0) lines fall back to a
+        # name/path-only match, and applies the context hint the same way.
         assert "called.line_number = row.called_line_number" in call_write["query"]
         assert "called.context = row.called_context" in call_write["query"]
         assert call_write["kwargs"]["batch"][0]["called_line_number"] == 20
@@ -349,6 +434,35 @@ class TestCreateAllFunctionCallsV3:
         assert call_write["kwargs"]["batch"][0]["called_line_number"] == 0
         assert call_write["kwargs"]["batch"][0]["called_context"] == ""
 
+    def test_heuristic_call_rows_use_heuristic_label(self):
+        """Low-confidence fallback rows should be written as HEURISTIC_CALLS."""
+        from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+
+        session = _RecordingSession()
+        writer = GraphWriter(_FakeDriver(session))
+        writer.write_function_call_groups(
+            [
+                {
+                    "caller_name": "caller",
+                    "caller_file_path": "/repo/a.py",
+                    "caller_line_number": 1,
+                    "called_name": "callee",
+                    "called_file_path": "/repo/a.py",
+                    "called_line_number": 2,
+                    "called_context": "",
+                    "line_number": 5,
+                    "args": [],
+                    "full_call_name": "callee",
+                    "resolution_tier": 9,
+                    "confidence_label": "AMBIGUOUS",
+                },
+            ],
+        )
+
+        heuristic_query = next(c for c in session.calls if "HEURISTIC_CALLS" in c["query"])
+        assert "MERGE (caller)-[call:HEURISTIC_CALLS" in heuristic_query["query"]
+        assert heuristic_query["kwargs"]["batch"][0]["resolution_tier"] == 9
+
     def test_empty_file_data_writes_nothing(self):
         calls = self._run([])
         call_rels = [c for c in calls if "CALLS" in c.get("query", "")]
@@ -369,7 +483,7 @@ class TestCreateAllFunctionCallsV3:
         with patch("codegraphcontext.tools.indexing.resolution.calls.get_config_value",
                    return_value="false"):
             gb._create_all_function_calls(file_data, {}, external_lookup)
-        resolved_b = str(Path("/repo/b.py").resolve())
+        resolved_b = Path("/repo/b.py").resolve().as_posix()
         assert resolved_b in external_lookup
         assert "MyClass" in external_lookup[resolved_b]
 
@@ -392,6 +506,7 @@ class TestCreateAllFunctionCallsV3:
         call_queries = [c["query"] for c in calls if "CALLS" in c.get("query", "")]
         labels_found = any(
             ":Function" in q or ":Class" in q or ":File" in q
+            or ":`Function`" in q or ":`Class`" in q or ":`File`" in q
             for q in call_queries
         )
         assert labels_found, "Expected label-specific MATCH in CALLS queries"
@@ -507,7 +622,7 @@ class TestAddFileToGraph:
 
         import_call = next(
             c for c in session.calls
-            if "MERGE (f)-[r:IMPORTS]->(m)" in c["query"]
+            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)" in c["query"]
         )
         assert "m.alias" not in import_call["query"]
         assert import_call["kwargs"]["batch"] == [
@@ -521,16 +636,139 @@ class TestAddFileToGraph:
             }
         ]
 
+    def test_import_module_metadata_preserves_existing_node_values(self):
+        """Repeated imports of the same module should not overwrite node metadata."""
+        session = _RecordingSession(responses=[_FakeResult()])
+        gb, _ = _make_graph_builder(session)
+        file_data = {
+            "path": "/repo/generics.rs",
+            "lang": "rust",
+            "is_dependency": False,
+            "functions": [],
+            "classes": [],
+            "variables": [],
+            "imports": [
+                {
+                    "name": "Display",
+                    "full_import_name": "use std::fmt::{Debug, Display};",
+                    "line_number": 3,
+                    "alias": None,
+                }
+            ],
+            "function_calls": [],
+        }
+
+        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str="/repo")
+
+        import_call = next(
+            c
+            for c in session.calls
+            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)" in c["query"]
+        )
+        assert "m.lang = coalesce(m.lang, row.lang)" in import_call["query"]
+        assert "m.full_import_name = coalesce(m.full_import_name, row.full_import_name)" in import_call["query"]
+        assert "r.full_import_name = row.full_import_name" in import_call["query"]
+
+    def test_duplicate_import_metadata_uses_stable_canonical_order(self):
+        """Shared Rust module nodes should prefer stable, descriptive import metadata."""
+        session = _RecordingSession(responses=[_FakeResult()])
+        gb, _ = _make_graph_builder(session)
+        file_data = {
+            "path": "/repo/modules.rs",
+            "lang": "rust",
+            "is_dependency": False,
+            "functions": [],
+            "classes": [],
+            "variables": [],
+            "imports": [
+                {
+                    "name": "Rectangle",
+                    "full_import_name": "use super::shapes::{Circle, Rectangle};",
+                    "line_number": 37,
+                    "alias": None,
+                },
+                {
+                    "name": "*",
+                    "full_import_name": "pub use super::geometry::shapes::*;",
+                    "line_number": 98,
+                    "alias": None,
+                },
+                {
+                    "name": "Rectangle",
+                    "full_import_name": "pub use super::geometry::shapes::Rectangle;",
+                    "line_number": 77,
+                    "alias": None,
+                },
+                {
+                    "name": "*",
+                    "full_import_name": "use super::*;",
+                    "line_number": 104,
+                    "alias": None,
+                },
+            ],
+            "function_calls": [],
+        }
+
+        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str="/repo")
+
+        import_call = next(
+            c
+            for c in session.calls
+            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)" in c["query"]
+        )
+        batch = import_call["kwargs"]["batch"]
+        assert [row["full_import_name"] for row in batch] == [
+            "use super::*;",
+            "pub use super::geometry::shapes::*;",
+            "pub use super::geometry::shapes::Rectangle;",
+            "use super::shapes::{Circle, Rectangle};",
+        ]
+
 
 # ---------------------------------------------------------------------------
 # 4. delete_repository_from_graph (Changes 9a/9b/9c)
 # ---------------------------------------------------------------------------
 
+class _DeleteRepoSession(_RecordingSession):
+    """RecordingSession that intercepts label-discovery queries and
+    returns a fixed label list without consuming a slot in the responses
+    queue, so positional fixtures stay focused on deletion counts and
+    aren't disturbed by the label-discovery query in the implementation.
+
+    Supports both Neo4j (``CALL db.labels()``) and KuzuDB/LadybugDB
+    (``MATCH (n) RETURN DISTINCT label(n)``) discovery patterns."""
+
+    def __init__(self, labels, responses=None):
+        super().__init__(responses=responses)
+        self._labels = list(labels)
+
+    def run(self, query: str, **kwargs):
+        self.calls.append({"query": query, "kwargs": kwargs})
+        if "db.labels()" in query:
+            return _FakeResult([{"label": lbl} for lbl in self._labels])
+        if "RETURN DISTINCT label(n)" in query:
+            return _FakeResult([[lbl] for lbl in self._labels])
+        if self._call_idx < len(self._responses):
+            result = self._responses[self._call_idx]
+        else:
+            result = _FakeResult()
+        self._call_idx += 1
+        return result
+
+
 class TestDeleteRepositoryFromGraph:
     """Tests for delete_repository_from_graph (batched, rels-first, orphan purge)."""
 
-    def _make_repo_exists_session(self, extra_responses=None):
+    # Default set of labels returned by the mocked `CALL db.labels()` --
+    # covers the labels the existing assertions still expect to see in
+    # node-deletion queries (Function, Class, File) while including one
+    # previously-leaking label (Variable) so the test reflects the bug
+    # this PR is closing.
+    _DEFAULT_DB_LABELS = ["Class", "File", "Function", "Variable"]
+
+    def _make_repo_exists_session(self, extra_responses=None, db_labels=None):
         """Session that reports the repo exists (cnt=1), then zero-counts to stop loops."""
+        labels = db_labels if db_labels is not None else self._DEFAULT_DB_LABELS
         responses = [
             _FakeResult([{"cnt": 1}]),  # repo existence check
         ]
@@ -540,10 +778,14 @@ class TestDeleteRepositoryFromGraph:
         else:
             # Enough zeros to drain all the while-True loops
             responses.extend([_FakeResult([{"deleted": 0}])] * 20)
-        return _RecordingSession(responses=responses)
+        return _DeleteRepoSession(labels=labels, responses=responses)
 
     def test_returns_false_when_repo_not_found(self):
-        session = _RecordingSession(responses=[_FakeResult([{"cnt": 0}])])
+        # Provide two failure responses: one for normalized path, one for fallback
+        session = _RecordingSession(responses=[
+            _FakeResult([{"cnt": 0}]),  # normalized path (forward-slash)
+            _FakeResult([{"cnt": 0}]),  # fallback path (original)
+        ])
         gb, _ = _make_graph_builder(session)
         result = gb.delete_repository_from_graph("/nonexistent/repo")
         assert result is False
@@ -554,14 +796,30 @@ class TestDeleteRepositoryFromGraph:
         result = gb.delete_repository_from_graph("/my/repo")
         assert result is True
 
+    def test_purges_dangling_pathless_modules(self):
+        """Pathless Module nodes (C #includes) must be removed after repo delete."""
+        session = self._make_repo_exists_session()
+        gb, writer = _make_graph_builder(session)
+        gb.delete_repository_from_graph("/my/repo")
+
+        queries = [c["query"] for c in session.calls]
+        assert any(
+            "Module" in q and "IMPORTS|INCLUDES" in q and "DETACH DELETE" in q
+            for q in queries
+        ), "Expected dangling Module purge after repository deletion"
+
     def test_deletes_relationships_before_nodes(self):
-        """CALLS/INHERITS/IMPORTS deletion must appear before Function/Class/File node deletion."""
+        """CALLS/INHERITS/IMPORTS/INCLUDES deletion must appear before Function/Class/File node deletion."""
         session = self._make_repo_exists_session()
         gb, _ = _make_graph_builder(session)
         gb.delete_repository_from_graph("/my/repo")
 
         queries = [c["query"] for c in session.calls]
-        rel_idx = next((i for i, q in enumerate(queries) if "CALLS" in q or "INHERITS" in q or "IMPORTS" in q), None)
+        rel_idx = next(
+            (i for i, q in enumerate(queries)
+             if any(rt in q for rt in ("CALLS", "INHERITS", "IMPORTS", "INCLUDES"))),
+            None,
+        )
         node_idx = next((i for i, q in enumerate(queries) if any(f"MATCH (n:{lbl})" in q for lbl in ("Function", "Class", "File"))), None)
 
         assert rel_idx is not None, "No relationship deletion query found"
@@ -593,6 +851,110 @@ class TestDeleteRepositoryFromGraph:
 
         queries = [c["query"] for c in session.calls]
         assert any("Repository" in q and ("DELETE" in q or "DETACH DELETE" in q) for q in queries)
+
+    def test_purges_labels_discovered_dynamically(self):
+        """Should DETACH DELETE every label that `CALL db.labels()` reports,
+        not a hardcoded subset -- otherwise nodes from any newly-added
+        indexer label leak as orphans on `delete_repository`.
+
+        Regression test for: pre-fix, the function iterated a fixed tuple
+        of (Function, Class, Interface, ..., DbTable). When the indexer
+        learned a new label, every `delete_repository` call against that
+        repo would leave the new label's nodes behind. The fix uses
+        `CALL db.labels()` so the per-label cleanup loop is self-
+        maintaining.
+        """
+        # Mock db.labels() returning a label that doesn't exist in any
+        # hardcoded list anywhere in this codebase -- proves the loop
+        # responds to whatever the running Neo4j actually contains.
+        session = self._make_repo_exists_session(
+            db_labels=["Function", "Class", "File", "SomeFutureLabelTheIndexerMightAdd"]
+        )
+        gb, _ = _make_graph_builder(session)
+        gb.delete_repository_from_graph("/my/repo")
+
+        queries = [c["query"] for c in session.calls]
+        assert any(
+            "SomeFutureLabelTheIndexerMightAdd" in q and "DETACH DELETE" in q
+            for q in queries
+        ), (
+            "Expected a DETACH DELETE query targeting every label returned by "
+            "`CALL db.labels()`, including labels not in any hardcoded list."
+        )
+
+    def test_calls_db_labels_after_existence_check(self):
+        """Label discovery should happen exactly once, after the repo
+        existence check passes, before any per-label deletion loops."""
+        session = self._make_repo_exists_session()
+        gb, _ = _make_graph_builder(session)
+        gb.delete_repository_from_graph("/my/repo")
+
+        queries = [c["query"] for c in session.calls]
+        labels_call_idx = next(
+            (i for i, q in enumerate(queries) if "db.labels()" in q), None
+        )
+        existence_idx = next(
+            (i for i, q in enumerate(queries) if "MATCH (r:Repository {path: $path})" in q and "count(r)" in q),
+            None,
+        )
+        node_delete_idx = next(
+            (i for i, q in enumerate(queries) if "DETACH DELETE n" in q), None
+        )
+        assert labels_call_idx is not None, "Expected exactly one `CALL db.labels()` query"
+        assert existence_idx is not None, "Expected the repo existence check"
+        assert node_delete_idx is not None, "Expected at least one DETACH DELETE for nodes"
+        assert existence_idx < labels_call_idx < node_delete_idx, (
+            "db.labels() must come after existence check and before per-label deletion"
+        )
+
+    def test_finds_repo_with_unix_path(self):
+        """A Unix path supplied to delete_repository_from_graph should resolve
+        correctly and find the repository in the existence check."""
+        session = _DeleteRepoSession(
+            labels=self._DEFAULT_DB_LABELS,
+            responses=[
+                _FakeResult([{"cnt": 1}]),
+                *([_FakeResult([{"deleted": 0}])] * 20),
+            ],
+        )
+        gb, _ = _make_graph_builder(session)
+        result = gb.delete_repository_from_graph("/home/user/my-repo")
+        assert result is True
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific backslash path regression test")
+    def test_finds_repo_stored_with_backslash_path(self):
+        """Fallback should find a Repository stored with Windows backslash paths."""
+        session = _RecordingSession(responses=[
+            _FakeResult([{"cnt": 0}]),   # normalized (forward-slash) fails
+            _FakeResult([{"cnt": 1}]),   # fallback (original backslash) succeeds
+            *([_FakeResult([{"deleted": 0}])] * 20),  # drain loops
+        ])
+        gb, _ = _make_graph_builder(session)
+        result = gb.delete_repository_from_graph("C:\\Users\\test\\repo")
+        assert result is True
+
+    def test_deletion_queries_use_forward_slash_paths(self):
+        """All deletion queries must use forward-slash normalised paths so that
+        STARTS WITH scoping works correctly across platforms (issue #1080)."""
+        session = _DeleteRepoSession(
+            labels=self._DEFAULT_DB_LABELS,
+            responses=[
+                _FakeResult([{"cnt": 1}]),
+                *([_FakeResult([{"deleted": 0}])] * 20),
+            ],
+        )
+        gb, _ = _make_graph_builder(session)
+        gb.delete_repository_from_graph("/home/user/my-repo")
+
+        for c in session.calls:
+            if "STARTS WITH" in c["query"] or "DETACH DELETE" in c["query"]:
+                for key in ("prefix", "path"):
+                    val = c["kwargs"].get(key, "")
+                    if val:
+                        assert "\\" not in val, \
+                            f"Backslash in ${key} kwarg — path must be normalised: {val!r}"
+                        assert "/" in val, \
+                            f"Expected forward-slash path in ${key}, got: {val!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -749,6 +1111,10 @@ class TestWatcherIncrementalHandleModification:
         watcher.all_file_data = []
         watcher.imports_map = {}
         watcher.repo_path = Path("/fake")
+        # _handle_modification serialises graph updates; instances built via
+        # __new__ must supply the locks __init__ would have created.
+        watcher._update_lock = threading.RLock()
+        watcher._timers_lock = threading.Lock()
 
         mock_gb = MagicMock()
         mock_gb.parsers = {".py": None}
@@ -773,6 +1139,10 @@ class TestWatcherIncrementalHandleModification:
         watcher.all_file_data = []
         watcher.imports_map = {}
         watcher.repo_path = Path("/fake")
+        # _handle_modification serialises graph updates; instances built via
+        # __new__ must supply the locks __init__ would have created.
+        watcher._update_lock = threading.RLock()
+        watcher._timers_lock = threading.Lock()
 
         mock_gb = MagicMock()
         mock_gb.parsers = {".py": None}
@@ -797,6 +1167,10 @@ class TestWatcherIncrementalHandleModification:
         watcher.all_file_data = []
         watcher.imports_map = {}
         watcher.repo_path = Path("/fake")
+        # _handle_modification serialises graph updates; instances built via
+        # __new__ must supply the locks __init__ would have created.
+        watcher._update_lock = threading.RLock()
+        watcher._timers_lock = threading.Lock()
 
         mock_gb = MagicMock()
         mock_gb.parsers = {".py": None}
@@ -868,11 +1242,13 @@ class TestWriteOrmMappingsDatasourceName:
     def _make_writer(self):
         from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
         mock_driver = MagicMock()
-        mock_session = MagicMock()
-        mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
-        mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+        mock_session = MagicMock(spec=["run", "__enter__", "__exit__"])
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_driver.session.return_value = mock_session
         writer = GraphWriter.__new__(GraphWriter)
         writer.driver = mock_driver
+        writer._db_manager = None
         return writer, mock_session
 
     def test_on_match_set_present_in_write_orm_mappings(self):
