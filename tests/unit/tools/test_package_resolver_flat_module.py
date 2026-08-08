@@ -1,9 +1,5 @@
 """Regression tests for package_resolver — flat module bug (#1528)."""
-import sys
 from pathlib import Path
-
-# Ensure we test the source, not any installed version
-sys.path.insert(0, '/home/aloysjehwin/CodeGraphContext/src')
 
 import pytest
 from codegraphcontext.tools.package_resolver import get_local_package_path
