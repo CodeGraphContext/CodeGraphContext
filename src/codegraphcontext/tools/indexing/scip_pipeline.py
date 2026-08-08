@@ -191,6 +191,14 @@ async def run_scip_index_async(
             cgcignore_path=cgcignore_path,
             supported_extensions=set(parsers_keys),
         )
+        # Recompute total_files now that we know the full set (SCIP-covered +
+        # supplementary), so progress_percentage stays <= 100% throughout.
+        if job_id:
+            new_total = len(files_data) + sum(
+                1 for f in supplementary_files
+                if str(f.resolve()) not in scip_abs_paths
+            )
+            job_manager.update_job(job_id, total_files=new_total)
         minimal_nodes = 0
         for repo_file in supplementary_files:
             abs_str = str(repo_file.resolve())
