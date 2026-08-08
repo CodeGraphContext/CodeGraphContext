@@ -372,12 +372,64 @@ class JavascriptTreeSitterParser:
                     if name_node:
                         params.append(f"...{self._get_node_text(name_node)}")
                 elif child.type == 'object_pattern':
-                    # Destructured object: {a, b} or {a: renamed}
-                    params.append("{...}")
+                    # Destructured object: {a}, {a: renamed}, {a = 1}
+                    names = self._pattern_binding_names(child)
+                    params.append("{" + ", ".join(names) + "}" if names else "{...}")
                 elif child.type == 'array_pattern':
                     # Destructured array: [a, b]
-                    params.append("[...]")
+                    names = self._pattern_binding_names(child)
+                    params.append("[" + ", ".join(names) + "]" if names else "[...]")
         return params
+
+    def _pattern_binding_names(self, pattern_node):
+        """Local names a destructuring pattern binds, in source order.
+
+        Recorded rather than collapsed to a placeholder because the binding is
+        what later code refers to — `function Button({label})` is the dominant
+        React idiom, and `label` is the name that appears in the body. One
+        entry is still emitted per *parameter position* so arity, which call
+        resolution matches on, is unchanged.
+        """
+        names = []
+
+        def walk(node):
+            for child in node.named_children:
+                if child.type == 'shorthand_property_identifier_pattern':
+                    # { a }
+                    names.append(self._get_node_text(child))
+                elif child.type == 'pair_pattern':
+                    # { a: local } — the binding is the value, not the key
+                    value = child.child_by_field_name('value')
+                    if value is not None and value.type == 'identifier':
+                        names.append(self._get_node_text(value))
+                    elif value is not None:
+                        walk(value)  # nested destructuring
+                elif child.type == 'object_assignment_pattern':
+                    # { a = 1 }
+                    target = child.child_by_field_name('left') or (
+                        child.named_children[0] if child.named_children else None
+                    )
+                    if target is not None:
+                        if target.type in (
+                            'identifier', 'shorthand_property_identifier_pattern'
+                        ):
+                            names.append(self._get_node_text(target))
+                        else:
+                            walk(target)
+                elif child.type == 'identifier':
+                    # [ a, b ]
+                    names.append(self._get_node_text(child))
+                elif child.type in ('object_pattern', 'array_pattern'):
+                    walk(child)
+                elif child.type in ('rest_element', 'rest_pattern'):
+                    inner = next(
+                        (c for c in child.children if c.type == 'identifier'), None
+                    )
+                    if inner is not None:
+                        names.append(f"...{self._get_node_text(inner)}")
+
+        walk(pattern_node)
+        return names
 
 
     def _get_jsdoc_comment(self, func_node):
