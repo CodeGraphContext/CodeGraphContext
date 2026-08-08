@@ -15,6 +15,7 @@ Below is the standard directory structure under global and local scopes:
     global/
         .cgcignore              <-- Global ignore patterns
         db/
+            falkordb/           <-- Global-mode FalkorDB Lite storage (default on Unix)
             kuzudb/             <-- Global-mode KuzuDB storage directory
     contexts/
         ProjectA/
@@ -32,7 +33,7 @@ When executing a CLI command (e.g., `cgc index`) or starting an MCP session, CGC
 1. **Context Override Flag**: If `--context <name>` or `-c <name>` is provided, CGC routes all writes and queries to the specified named context.
 2. **Local Repository Scope**: If the current directory contains a `.codegraphcontext/` folder, CGC operates in per-repo mode.
 3. **Global Config Setting**: CGC reads the active mode (`global`, `per-repo`, or `named`) and default context name specified in `~/.codegraphcontext/config.yaml`.
-4. **Default Fallback**: Connects to the global database located at `~/.codegraphcontext/global/db/kuzudb/`.
+4. **Default Fallback**: On Linux/macOS with Python 3.12+, connects to FalkorDB Lite at `~/.codegraphcontext/global/db/falkordb/`; otherwise KuzuDB at `~/.codegraphcontext/global/db/kuzudb/`.
 
 ---
 
@@ -83,6 +84,8 @@ cgc index .
 
 Graphs are completely isolated, and commands run within a repository only inspect the local database.
 
+When you first index in per-repo mode, CGC auto-creates `.codegraphcontext/` and seeds a local `config.yaml` from your global `DEFAULT_DATABASE`. Project-local `.codegraphcontext/.env` and `.env` files are loaded **only in this mode** (unless you set `CGC_LOAD_PROJECT_ENV=1`). In global or named mode, global `~/.codegraphcontext/.env` wins so cloned repos cannot override your credentials.
+
 ---
 
 ### 3. Named Context Mode
@@ -118,7 +121,7 @@ cgc stats
 ### Create a Named Context
 Create a context and optionally specify its target database driver and storage path:
 ```bash
-cgc context create mobile-app --database kuzudb
+cgc context create mobile-app --database kuzudb   # Or use shorthand aliases: --db, -db, -d
 cgc context create mobile-app --db-path /mnt/fast/cgc
 ```
 

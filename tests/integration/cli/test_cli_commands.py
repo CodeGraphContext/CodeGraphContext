@@ -61,6 +61,7 @@ def _inventory_from_main_source() -> dict[str, set[str]]:
         "neo4j": set(),
         "config": set(),
         "bundle": set(),
+        "hook": set(),
         "registry": set(),
         "find": set(),
         "analyze": set(),
@@ -110,7 +111,7 @@ class _FakeDriver:
 
 
 class _FakeDBManager:
-    def get_driver(self):
+    def get_driver(self, graph_name: str = None):
         return _FakeDriver()
 
     def close_driver(self):
@@ -235,12 +236,16 @@ def kuzudb_env():
 def cli_test_stubs(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_main.config_manager, "CONFIG_DIR", tmp_path)
     monkeypatch.setattr(cli_main.config_manager, "CONFIG_FILE", tmp_path / "config.json")
+    # `delete`/`rm` are gated behind ALLOW_DB_DELETION; enable it so the
+    # canonical-command smoke matrix can exercise them without a real config.
+    monkeypatch.setattr(cli_main.config_manager, "is_db_deletion_allowed", lambda: True)
 
     monkeypatch.setattr(cli_main, "_load_credentials", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli_main, "configure_mcp_client", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli_main, "run_neo4j_setup_wizard", lambda *_args, **_kwargs: None)
 
     monkeypatch.setattr(cli_main, "index_helper", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_main, "update_helper", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli_main, "setup_scip_helper", lambda *_args, **_kwargs: None)
     
     import uvicorn
@@ -261,7 +266,8 @@ def cli_test_stubs(monkeypatch, tmp_path):
 
     fake_db = _FakeDBManager()
     monkeypatch.setattr(cli_main, "_initialize_services", lambda *_args, **_kwargs: (fake_db, _FakeGraphBuilder(), _FakeCodeFinder(), MagicMock()))
-    monkeypatch.setattr(cli_main.DatabaseManager, "test_connection", staticmethod(lambda *_args, **_kwargs: (True, None)))
+    from codegraphcontext.core.database import DatabaseManager
+    monkeypatch.setattr(DatabaseManager, "test_connection", staticmethod(lambda *_args, **_kwargs: (True, None)))
     monkeypatch.setattr(cli_main.typer, "confirm", lambda *_args, **_kwargs: True)
 
     class _FakeMCPServer:
@@ -304,6 +310,32 @@ def cli_test_stubs(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "codegraphcontext.core.cgc_bundle", bundle_module)
 
     monkeypatch.setattr(cli_main, "_write_datasource_graph", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        cli_main,
+        "install_hooks",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            repo_root=tmp_path, git_dir=tmp_path / ".git"
+        ),
+    )
+    monkeypatch.setattr(
+        cli_main,
+        "uninstall_hooks",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            repo_root=tmp_path, git_dir=tmp_path / ".git"
+        ),
+    )
+    monkeypatch.setattr(
+        cli_main,
+        "get_hook_status",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            repo_root=tmp_path,
+            git_dir=tmp_path / ".git",
+            installed_hooks=("post-commit",),
+            unmanaged_hooks=(),
+            has_merge_driver=True,
+            has_gitattributes_entry=True,
+        ),
+    )
 
     datasource_pkg = types.ModuleType("codegraphcontext.tools.datasources")
     monkeypatch.setitem(sys.modules, "codegraphcontext.tools.datasources", datasource_pkg)
@@ -349,14 +381,36 @@ def _matrix_command_set(entries: list[list[str]]) -> set[tuple[str, str]]:
     return covered
 
 
+@pytest.mark.parametrize(
+    ("args", "expected_sync_on_start"),
+    [
+        (["watch", "."], False),
+        (["watch", "--sync-on-start", "."], True),
+        (["w", "."], False),
+        (["w", "--sync-on-start", "."], True),
+    ],
+)
+def test_watch_sync_on_start_flag_is_explicit(monkeypatch, args, expected_sync_on_start):
+    calls = []
+    monkeypatch.setattr(cli_main, "_load_credentials", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_main, "watch_helper", lambda *call_args, **kwargs: calls.append((call_args, kwargs)))
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 0, result.output
+    assert calls
+    assert calls[0][1]["sync_on_start"] is expected_sync_on_start
+
+
 def test_cli_inventory_grouped_from_source():
     inventory = _inventory_from_main_source()
 
-    assert {"root", "mcp", "neo4j", "config", "bundle", "registry", "find", "analyze"}.issubset(set(inventory.keys()))
+    assert {"root", "mcp", "neo4j", "config", "bundle", "hook", "registry", "find", "analyze"}.issubset(set(inventory.keys()))
     assert inventory["mcp"] == {"setup", "start", "tools"}
     assert inventory["neo4j"] == {"setup"}
     assert inventory["config"] == {"show", "set", "reset", "db"}
-    assert inventory["bundle"] == {"export", "import", "load"}
+    assert inventory["bundle"] == {"export", "import", "load", "merge"}
+    assert inventory["hook"] == {"install", "uninstall", "status"}
     assert inventory["registry"] == {"list", "search", "download", "request"}
     assert inventory["find"] == {"name", "pattern", "type", "variable", "content", "decorator", "argument"}
     assert inventory["analyze"] == {
@@ -379,7 +433,7 @@ def test_cli_inventory_grouped_from_source():
         assert inventory["context"] == {"list", "create", "delete", "mode", "default"}
 
 
-def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
+def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs, tmp_path):
     bundle_file = str(cli_test_stubs["bundle_file"])
     bundle_export = str(cli_test_stubs["bundle_export"])
 
@@ -395,6 +449,9 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
         ["bundle", "export", bundle_export],
         ["bundle", "import", bundle_file],
         ["bundle", "load", bundle_file],
+        ["hook", "install"],
+        ["hook", "uninstall"],
+        ["hook", "status"],
         ["registry", "list"],
         ["registry", "search", "numpy"],
         ["registry", "download", "numpy"],
@@ -403,6 +460,7 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
         ["setup-scip"],
         ["api", "start"],
         ["index", "."],
+        ["update", "."],
         ["clean"],
         ["stats"],
         ["delete", "."],
@@ -451,9 +509,9 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
             [
                 ["context", "list"],
                 ["context", "create", "ci-context"],
-                ["context", "delete", "ci-context"],
-                ["context", "mode", "single"],
                 ["context", "default", "ci-context"],
+                ["context", "mode", "global"],
+                ["context", "delete", "ci-context"],
             ]
         )
     if "datasource" in source_inventory:
@@ -464,9 +522,25 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs):
                 ["datasource", "redis", "--host", "localhost"],
             ]
         )
+    if "prompt" in source_inventory:
+        # The prompt sub-app was added without matrix entries, so this test —
+        # which asserts every command in the source inventory is smoke-tested —
+        # has been failing on main. `add` and `remove` take a path argument.
+        prompt_file = tmp_path / "ci-prompt.md"
+        prompt_file.write_text("# ci prompt\n", encoding="utf-8")
+        command_matrix.extend(
+            [
+                ["prompt", "list"],
+                ["prompt", "add", str(prompt_file)],
+                ["prompt", "remove", str(prompt_file)],
+            ]
+        )
 
     expected_inventory = source_inventory
     expected_set = {(family, name) for family, names in expected_inventory.items() for name in names}
+    # `bundle merge` is a non-interactive git merge driver that takes file
+    # arguments; it is not exercised by this smoke matrix.
+    expected_set.discard(("bundle", "merge"))
     assert _matrix_command_set(command_matrix) == expected_set
 
     for args in command_matrix:
@@ -494,27 +568,26 @@ def test_config_show_with_empty_config_does_not_crash(monkeypatch, tmp_path):
     assert "Configuration Settings" in result.output
 
 
-def test_find_content_falkordb_known_limitation_message(monkeypatch):
-    class _FakeFalkorDBManager:
+def test_find_content_surfaces_query_errors(monkeypatch):
+    class _FakeDBManager:
         def close_driver(self):
             return None
 
     class _FailingFinder:
         def find_by_content(self, _query):
-            raise Exception("CALL db.index.fulltext.queryNodes is unsupported")
+            raise Exception("database connection lost")
 
     monkeypatch.setattr(cli_main, "_load_credentials", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         cli_main,
         "_initialize_services",
-        lambda *_args, **_kwargs: (_FakeFalkorDBManager(), _FakeGraphBuilder(), _FailingFinder()),
+        lambda *_args, **_kwargs: (_FakeDBManager(), _FakeGraphBuilder(), _FailingFinder()),
     )
 
     result = runner.invoke(app, ["--database", "falkordb", "find", "content", "foo"])
 
-    assert result.exit_code == 0
-    assert "Full-text search is not supported on FalkorDB" in result.output
-    assert "cgc find pattern" in result.output
+    assert result.exit_code != 0
+    assert "Full-text search is not supported on FalkorDB" not in result.output
 
 
 def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):
@@ -547,7 +620,7 @@ def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):
             return _FakeSession()
 
     class _FakeManager:
-        def get_driver(self):
+        def get_driver(self, graph_name=None):
             return _FakeDriver()
 
         def close_driver(self):
@@ -701,6 +774,8 @@ def test_load_credentials_displays_kuzudb_backend(monkeypatch, tmp_path):
 
 def test_load_credentials_normalizes_tilde_paths_from_mcp_json(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    if os.name == "nt":
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
 

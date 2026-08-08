@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import pytest
+
 from codegraphcontext.core.cgcignore import (
+    CGCIgnoreMatcher,
     build_ignore_spec,
     parse_cgcignore_lines,
     read_cgcignore_patterns,
@@ -62,7 +65,47 @@ def test_read_cgcignore_patterns_merges_defaults_with_user_patterns(tmp_path: Pa
 
     merged = read_cgcignore_patterns(cgcignore, ["*.png", "*.json"])
 
-    assert merged == ["*.txt", "*.log", "*.png", "*.json"]
+    # Defaults come first and user patterns last: matching is last-match-wins,
+    # so the trailing entries are the ones that win.
+    assert merged == ["*.png", "*.json", "*.txt", "*.log"]
+
+
+def test_user_negation_overrides_default_pattern(tmp_path: Path):
+    """A `!pattern` in .cgcignore must be able to re-include a default-ignored path."""
+    cgcignore = tmp_path / ".cgcignore"
+    cgcignore.write_text("!build/\n!*.svg\n", encoding="utf-8")
+
+    spec, _ = build_ignore_spec(tmp_path, ["build/", "dist/", "*.svg"])
+
+    assert not spec.match_file("build/foo.py")
+    assert not spec.match_file("assets/logo.svg")
+    # Defaults the user did not negate still apply.
+    assert spec.match_file("dist/bundle.js")
+
+
+@pytest.mark.parametrize(
+    "pattern,path,ignored",
+    [
+        # `**` spans whole segments, so it must not match inside one.
+        ("docs/**", "docstring.py", False),
+        ("docs/**", "docs_helper/x.py", False),
+        ("**/build", "rebuild/x.py", False),
+        ("**/build", "xbuild", False),
+        ("vendor/**/*.go", "vendorabc.go", False),
+        ("src/**/test", "src_foo_test", False),
+        # ...but it must still match across whole segments.
+        ("docs/**", "docs/a.py", True),
+        ("docs/**", "docs/deep/nested/a.py", True),
+        ("**/build", "build", True),
+        ("**/build", "a/b/build", True),
+        ("vendor/**/*.go", "vendor/x.go", True),
+        ("vendor/**/*.go", "vendor/a/b.go", True),
+        ("src/**/test", "src/test", True),
+        ("src/**/test", "src/a/test", True),
+    ],
+)
+def test_double_star_respects_path_segment_boundaries(pattern, path, ignored):
+    assert CGCIgnoreMatcher([pattern], Path("/repo")).match_file(path) is ignored
 
 
 def test_find_cgcignore_does_not_escape_non_git_root(tmp_path: Path):
@@ -176,3 +219,23 @@ def test_safe_walk_directory_pruning_and_error_handling(tmp_path: Path, monkeypa
     recovered_names = {f.name for f in files_with_error}
     assert "main.py" in recovered_names
 
+
+def test_directory_pattern_requires_segment_boundary():
+    """Regression: a directory pattern like ``out/`` must match the path
+    *segment* ``out`` only, not the substring inside ``layout/`` /
+    ``checkout/`` etc. ``match_file`` applies the compiled regex via
+    ``re.search``, so the anchor must require a segment boundary.
+    """
+    matcher = CGCIgnoreMatcher(["out/", "build/", "target/"], Path("/repo"))
+
+    # Genuine directory matches still work.
+    assert matcher.match_file("out/")
+    assert matcher.match_file("apps/out/x/")
+    assert matcher.match_file("dist/build/")
+
+    # Substring false-positives must NOT be ignored.
+    assert not matcher.match_file("layout/")
+    assert not matcher.match_file("checkout/")
+    assert not matcher.match_file("apps/web/src/components/layout/Header.tsx")
+    assert not matcher.match_file("rebuild/")
+    assert not matcher.match_file("retarget/")

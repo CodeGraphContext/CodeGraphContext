@@ -63,6 +63,19 @@ Cursor supports local MCP servers via direct process execution:
 
 ---
 
+### OpenCode
+
+OpenCode manages MCP in its own UI. Follow the vendor's guide at [OpenCode MCP servers](https://opencode.ai/docs/ko/mcp-servers/#_top) to register a stdio server.
+
+Use the following configuration details:
+- **Type**: `stdio`
+- **Command**: `cgc`
+- **Arguments**: `mcp start`
+
+*Note: Ensure your database credentials and configurations match what `cgc mcp setup` generated (usually in `~/.codegraphcontext/.env`).*
+
+---
+
 ### VS Code (via Continue extension)
 
 If you use VS Code with the [Continue.dev](https://continue.dev) plugin:

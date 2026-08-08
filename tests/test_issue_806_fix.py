@@ -481,7 +481,7 @@ print(f"RESULT:{result}")
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
-            cwd="/home/pc1/Desktop/CodeGraphContext",
+            cwd=str(Path(__file__).resolve().parent.parent),
         )
         output = result.stdout + result.stderr
         # Look for RESULT: in output

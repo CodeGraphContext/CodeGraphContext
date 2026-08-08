@@ -1,21 +1,39 @@
 # src/codegraphcontext/tools/languages/c.py
+import re
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
 
 C_QUERIES = {
+    # A pointer return type wraps the function declarator from the OUTSIDE:
+    # `char* f()` is
+    #     function_definition > pointer_declarator > function_declarator > identifier
+    # The second alternative below used to nest these the other way round, which
+    # matches nothing, so no function returning `T*` or `T**` was extracted —
+    # and because pre_scan_c shares this query they were invisible as call
+    # targets too.
     "functions": """
         (function_definition
             declarator: (function_declarator
                 declarator: (identifier) @name
             )
         ) @function_node
-        
+
         (function_definition
-            declarator: (function_declarator
-                declarator: (pointer_declarator
+            declarator: (pointer_declarator
+                declarator: (function_declarator
                     declarator: (identifier) @name
+                )
+            )
+        ) @function_node
+
+        (function_definition
+            declarator: (pointer_declarator
+                declarator: (pointer_declarator
+                    declarator: (function_declarator
+                        declarator: (identifier) @name
+                    )
                 )
             )
         ) @function_node
@@ -149,11 +167,13 @@ class CTreeSitterParser:
         root_node = tree.root_node
 
         functions = self._find_functions(root_node)
+        functions.extend(self._synthesize_define_handler_functions(source_code, path))
         classes = self._find_structs_unions_enums(root_node)
         imports = self._find_imports(root_node)
         function_calls = self._find_calls(root_node)
         variables = self._find_variables(root_node)
         macros = self._find_macros(root_node)
+        enum_members = self._find_enum_members(root_node, source_code, classes, macros)
 
         return {
             "path": str(path),
@@ -163,6 +183,7 @@ class CTreeSitterParser:
             "imports": imports,
             "function_calls": function_calls,
             "macros": macros,
+            "enum_members": enum_members,
             "is_dependency": is_dependency,
             "lang": self.language_name,
         }
@@ -195,21 +216,31 @@ class CTreeSitterParser:
 
     def _calculate_complexity(self, node: Any) -> int:
         """Calculate cyclomatic complexity for C functions."""
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         complexity_nodes = {
             "if_statement", "for_statement", "while_statement", "do_statement",
             "switch_statement", "case_statement", "conditional_expression",
             "logical_expression", "binary_expression", "goto_statement"
         }
         count = 1
+        skipped = False
         
-        def traverse(n):
-            nonlocal count
+        def traverse(n, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if n.type in complexity_nodes:
                 count += 1
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
         
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _get_docstring(self, node: Any) -> Optional[str]:
@@ -260,6 +291,39 @@ class CTreeSitterParser:
                 args.append(arg_info)
         return args
 
+    def _synthesize_define_handler_functions(
+        self, source_code: str, path: Path
+    ) -> List[Dict[str, Any]]:
+        """Synthesize functions emitted by DEFINE_HANDLER(name) macro invocations."""
+        if "DEFINE_HANDLER" not in source_code:
+            return []
+
+        synthesized: List[Dict[str, Any]] = []
+        seen: set = set()
+        invocation_re = re.compile(
+            r"^[ \t]*DEFINE_HANDLER\s*\(\s*(\w+)\s*\)\s*$", re.MULTILINE
+        )
+        for match in invocation_re.finditer(source_code):
+            token = match.group(1)
+            name = f"handle_{token}"
+            if name in seen:
+                continue
+            seen.add(name)
+            line_number = source_code[: match.start()].count("\n") + 1
+            synthesized.append({
+                "name": name,
+                "line_number": line_number,
+                "end_line": line_number,
+                "args": ["val"],
+                "cyclomatic_complexity": 1,
+                "context": None,
+                "class_context": None,
+                "lang": self.language_name,
+                "is_dependency": False,
+                "synthetic_macro": True,
+            })
+        return synthesized
+
     def _find_functions(self, root_node: Any) -> list[Dict[str, Any]]:
         functions = []
         query_str = C_QUERIES["functions"]
@@ -267,7 +331,11 @@ class CTreeSitterParser:
             capture_name = match[1]
             node = match[0]
             if capture_name == 'name':
-                func_node = node.parent.parent.parent
+                func_node = node
+                while func_node and func_node.type != "function_definition":
+                    func_node = func_node.parent
+                if not func_node:
+                    continue
                 name = self._get_node_text(node)
                 
                 # Find parameters
@@ -433,6 +501,117 @@ class CTreeSitterParser:
                 classes.append(enum_data)
 
         return classes
+
+    def _find_enum_members(
+        self,
+        root_node: Any,
+        source_code: str,
+        classes: List[Dict[str, Any]],
+        macros: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        members: List[Dict[str, Any]] = []
+        seen_names: set[str] = set()
+
+        for enum_cls in classes:
+            if enum_cls.get("type") != "enum":
+                continue
+            enum_name = enum_cls.get("name")
+            if not enum_name:
+                continue
+
+            for match in execute_query(
+                self.language,
+                """
+                (enum_specifier
+                    body: (enumerator_list
+                        (enumerator
+                            name: (identifier) @member
+                        )*
+                    )
+                )
+                """,
+                root_node,
+            ):
+                if match[1] != "member":
+                    continue
+                member_name = self._get_node_text(match[0])
+                if member_name in seen_names:
+                    continue
+                seen_names.add(member_name)
+                members.append({
+                    "name": member_name,
+                    "enum_name": enum_name,
+                    "enum_line_number": enum_cls.get("line_number"),
+                    "line_number": match[0].start_point[0] + 1,
+                    "lang": self.language_name,
+                    "is_dependency": False,
+                })
+
+        x_macro_members = self._find_xmacro_enum_members(source_code, classes, macros)
+        for member in x_macro_members:
+            if member["name"] in seen_names:
+                continue
+            seen_names.add(member["name"])
+            members.append(member)
+
+        return members
+
+    def _find_xmacro_enum_members(
+        self,
+        source_code: str,
+        classes: List[Dict[str, Any]],
+        macros: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        members: List[Dict[str, Any]] = []
+        x_def = re.search(
+            r"#define\s+X\s*\([^)]*\)\s+([^\n\\]+)",
+            source_code,
+        )
+        if not x_def:
+            return members
+
+        expansion = x_def.group(1).strip()
+        if "##name" not in expansion:
+            return members
+
+        prefix, suffix = expansion.split("##name", 1)
+        prefix = prefix.strip()
+        suffix = suffix.strip().rstrip(",")
+
+        list_macros = {
+            macro["name"]: macro.get("value") or macro.get("source", "")
+            for macro in macros
+        }
+        invocation_re = re.compile(r"X\s*\(\s*(\w+)\s*,")
+
+        for enum_cls in classes:
+            if enum_cls.get("type") != "enum":
+                continue
+            enum_name = enum_cls.get("name")
+            enum_line = enum_cls.get("line_number")
+            if not enum_name or not enum_line:
+                continue
+
+            enum_source = enum_cls.get("source") or ""
+            for list_name, list_body in list_macros.items():
+                if list_name not in enum_source and list_name not in source_code:
+                    continue
+                body_text = list_body or ""
+                for match in invocation_re.finditer(body_text):
+                    token = match.group(1)
+                    member_name = f"{prefix}{token}{suffix}".strip()
+                    if not member_name:
+                        continue
+                    members.append({
+                        "name": member_name,
+                        "enum_name": enum_name,
+                        "enum_line_number": enum_line,
+                        "line_number": enum_line,
+                        "lang": self.language_name,
+                        "is_dependency": False,
+                    })
+
+        return members
 
     def _find_imports(self, root_node: Any) -> list[Dict[str, Any]]:
         imports = []
@@ -600,15 +779,25 @@ def pre_scan_c(files: list[Path], parser_wrapper) -> dict:
                 declarator: (identifier) @name
             )
         )
-        
+
         (function_definition
-            declarator: (function_declarator
-                declarator: (pointer_declarator
+            declarator: (pointer_declarator
+                declarator: (function_declarator
                     declarator: (identifier) @name
                 )
             )
         )
-        
+
+        (function_definition
+            declarator: (pointer_declarator
+                declarator: (pointer_declarator
+                    declarator: (function_declarator
+                        declarator: (identifier) @name
+                    )
+                )
+            )
+        )
+
         (struct_specifier
             name: (type_identifier) @name
         )
@@ -640,7 +829,7 @@ def pre_scan_c(files: list[Path], parser_wrapper) -> dict:
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(path.resolve()))
+                imports_map[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     return imports_map

@@ -16,10 +16,38 @@ function localApiServer() {
         if (pathname.startsWith("/api/")) {
           // Exclude already proxied paths
           if (
-            pathname.startsWith("/api/github-zip") || 
+            pathname.startsWith("/api/github-zip") ||
             pathname.startsWith("/api/pypi")
           ) {
             return next();
+          }
+
+          if (pathname.startsWith("/api/gitlab-zip/")) {
+            try {
+              const modulePath = path.resolve(__dirname, "./api/gitlab-zip.ts");
+              const apiModule = await server.ssrLoadModule(modulePath);
+              const handler = apiModule.default || apiModule;
+              req.query = parsedUrl.query;
+              res.status = (code: number) => {
+                res.statusCode = code;
+                return res;
+              };
+              res.json = (data: any) => {
+                if (!res.headersSent) {
+                  res.setHeader("Content-Type", "application/json");
+                }
+                res.end(JSON.stringify(data));
+                return res;
+              };
+              await handler(req, res);
+            } catch (err: any) {
+              console.error("GitLab zip API error:", err);
+              if (!res.headersSent) {
+                res.statusCode = 500;
+                res.end(JSON.stringify({ error: "GitLab zip proxy failed", details: err.message }));
+              }
+            }
+            return;
           }
 
           const apiName = pathname.replace("/api/", "");

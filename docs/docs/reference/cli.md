@@ -1,164 +1,249 @@
 # CLI Command Reference
 
-The `cgc` command-line interface provides the entry point for indexing code, starting processes, executing queries, and administering graph databases.
+The `cgc` command-line interface is the entry point for indexing code, running graph queries, managing contexts, and administering database backends.
+
+Run `cgc --help` or `cgc help` for the live command tree on your installed version.
 
 ---
 
 ## Global Options
 
-These flags can be appended to any `cgc` command to override runtime behavior:
+These flags apply to most subcommands:
 
 | Option | Shorthand | Description |
 | :--- | :--- | :--- |
-| `--database` | `-db` | Temporarily overrides the default database backend for the execution (`falkordb`, `ladybugdb`, `neo4j`, or `kuzudb`). |
-| `--path` | `--db-path` | Temporarily overrides the storage directory path for local embedded engines (KuzuDB/LadybugDB). |
-| `--visual` | `-V` | Renders results using the interactive React graph visualization browser window. |
-| `--version` | `-v` | Display CLI package version and exit. (Root option only) |
-| `--help` | `-h` | Display CLI help prompt and exit. (Root option only) |
+| `--database` | `--db`, `-db` | Override the active backend for this invocation (`neo4j`, `falkordb`, `falkordb-remote`, `kuzudb`, `nornic`, `ladybugdb`). |
+| `--db-path` | | Override the on-disk storage directory for embedded engines. |
+| `--context` | `-c` | Target a named context workspace. |
+| `--visual` | `--viz`, `-V` | Open results in the interactive graph visualization UI. |
+| `--version` | `-v` | Print package version and exit. |
+| `--help` | `-h` | Show help and exit. |
+
+Use `cgc version` (or `cgc --version`) to print the installed release (currently **0.5.0**).
 
 ---
 
-## Command Suite
+## Core Index & Lifecycle
 
-### Core Index & Lifecycle Commands
+The `clean`, `delete`, and `rm` commands are disabled by default because they remove data. Before using them, enable `ALLOW_DB_DELETION` as described in [Destructive Operation Safety](config.md#destructive-operation-safety).
 
-#### `index`
-Scans and parses files to add or update symbols in the graph.
-- **Usage**: `cgc index [PATH] [OPTIONS]` (Or shortcut `cgc i`)
-- **Options**:
-  - `--dependency`: Registers the code in the target path as an external dependency library.
-  - `--force`: Discards hash cache and forces a full re-parse of all files.
-
-#### `clean`
-Purges orphaned nodes, links, and unreferenced schemas from the database.
-- **Usage**: `cgc clean`
-
-#### `stats`
-Displays statistics detailing active repository contents in the graph.
-- **Usage**: `cgc stats`
-
-#### `delete`
-Removes an indexed repository and all its code nodes from the graph.
-- **Usage**: `cgc delete <repo_path>` (Or shortcut `cgc rm`)
-
-#### `list`
-Lists all repositories currently indexed in the active database.
-- **Usage**: `cgc list` (Or shortcut `cgc ls`)
-
-#### `add-package`
-Downloads (if needed) and indexes a third-party package.
-- **Usage**: `cgc add-package <name> <language>`
-- **Parameters**:
-  - `name`: Package identifier (e.g., `requests`, `lodash`).
-  - `language`: Programming language syntax parser (e.g., `python`, `typescript`).
+| Command | Usage | Notes |
+| :--- | :--- | :--- |
+| **`index`** | `cgc index [PATH] [--force] [--summarize]` | Shortcut: `cgc i`. Incremental by default; `--force` rebuilds from scratch; `--summarize` displays a summary after indexing. |
+| **`clean`** | `cgc clean` | Purges orphaned nodes and dangling relationships. |
+| **`stats`** | `cgc stats` | Repository and node counts for the active context. |
+| **`delete`** | `cgc delete <repo_path>` | Shortcut: `cgc rm`. Removes one indexed repository. |
+| **`list`** | `cgc list` | Shortcut: `cgc ls`. Lists indexed repositories. |
+| **`add-package`** | `cgc add-package <name> <language>` | Indexes an installed third-party package as a dependency graph. |
 
 ---
 
-### Analysis & Search Commands
+## Search (`find`)
 
-#### `find`
-Locates code symbols or contents matching a query pattern.
-- **Usage**: `cgc find <subcommand> [args]`
-- **Subcommands**:
-  - `find content <text>`: Searches source file contents for matching text strings.
-  - `find decorator <name>`: Finds functions decorated with the target decorator (e.g., `@app.route`).
-  - `find argument <name>`: Finds functions declaring the specified parameter name.
-  - `find variable <name>`: Finds variable references.
+```bash
+cgc find <subcommand> [args] [options]
+```
 
-#### `analyze`
-Executes semantic graph queries to map relationships.
-- **Usage**: `cgc analyze <subcommand> [args]`
-- **Subcommands**:
-  - `analyze callers <function>`: Lists direct caller functions.
-  - `analyze calls <function>`: Lists direct functions called by the target.
-  - `analyze chain <source> <target>`: Traces the call path between two functions.
-  - `analyze overrides <class>`: Lists classes overriding target class methods.
-  - `analyze variable <name>`: Traces variable scopes and writes.
+| Subcommand | Description |
+| :--- | :--- |
+| `find name <symbol>` | Search by symbol name. Options: `--type function\|class\|file\|module`, `--fuzzy` / `--no-fuzzy`. |
+| `find pattern <regex>` | Regex search across indexed source. |
+| `find type <node_type>` | List nodes of a given label (e.g. `Function`, `Class`). |
+| `find content <text>` | Full-text / substring search in source and docstrings. Neo4j uses Lucene; embedded backends use portable substring matching. |
+| `find decorator <name>` | Functions with a given decorator. |
+| `find argument <name>` | Functions declaring a parameter name. |
+| `find variable <name>` | Variable references and assignments. |
+
+---
+
+## Analysis (`analyze`)
+
+```bash
+cgc analyze <subcommand> [args] [options]
+```
+
+| Subcommand | Description |
+| :--- | :--- |
+| `analyze callers <function>` | Direct callers of a function. |
+| `analyze calls <function>` | Direct callees of a function. |
+| `analyze chain <source> <target>` | Shortest call path between two symbols. |
+| `analyze deps <module>` | Module import dependencies. |
+| `analyze tree <class>` | Class inheritance tree. |
+| `analyze complexity <function>` | Cyclomatic complexity for one function. |
+| `analyze dead-code` | Unreferenced functions/files (with optional filters). |
+| `analyze overrides <function>` | Implementations of a function across classes. |
+| `analyze variable <name>` | Variable scope and modification sites. |
+| `analyze kotlin-call-audit` | Kotlin-specific call resolution audit. |
+
+---
+
+## Querying & Reports
 
 #### `query`
-Executes a raw read-only Cypher query against the active database.
-- **Usage**: `cgc query "<CYPHER_STATEMENT>"`
+Execute a read-only Cypher query.
+
+```bash
+cgc query "MATCH (f:Function) RETURN f.name LIMIT 10"
+cgc query "MATCH (n)-[r]->(m) RETURN n,r,m LIMIT 50" --visual
+```
+
+`cgc cypher` still works as a hidden alias but prints a deprecation warning—prefer `cgc query`.
 
 #### `report`
-Generates a `CGC_REPORT.md` file auditing codebase quality, god nodes, complex methods, and cross-module couplings.
-- **Usage**: `cgc report [OPTIONS]`
-- **Options**:
-  - `--include-java`: Appends Spring endpoints and bean metrics to the report.
+Generate `CGC_REPORT.md` with god-node, complexity, and coupling metrics.
+
+```bash
+cgc report [--java]
+```
 
 #### `visualize`
-Launches the FastAPI web server to serve the React force-directed graph UI.
-- **Usage**: `cgc visualize [OPTIONS]` (Or shortcut `cgc v`)
-- **Options**:
-  - `--repo <path>`: Filters the visualization to the specified repository.
-  - `--port <integer>`: Port to bind the server on (Default: 8000).
+Launch the React force-directed graph UI (shortcut: `cgc v`).
+
+```bash
+cgc visualize [--repo <path>] [--port 8000]
+```
 
 ---
 
-### Context Workspaces Group
+## Context Workspaces (`context`)
 
-#### `context`
-Manage logical database contexts and isolation levels.
-- **Usage**: `cgc context <subcommand> [args]`
-- **Subcommands**:
-  - `context list`: Lists all contexts and modes.
-  - `context mode <global|per-repo|named>`: Switches active context isolation mode.
-  - `context create <name>`: Creates a named context.
-  - `context delete <name>`: Deletes a named context from registry.
-  - `context default <name>`: Sets the default named context workspace.
+Manage isolation modes and named workspaces. See [Configuration Contexts](../guides/contexts.md).
 
----
-
-### External Datasources Group
-
-#### `datasource`
-Ingests database and cache schemas.
-- **Usage**: `cgc datasource <subcommand> [args]`
-- **Subcommands**:
-  - `datasource mysql`: Imports tables and columns from MySQL database.
-  - `datasource cassandra`: Imports tables and schemas from Cassandra cluster.
-  - `datasource redis`: Scans and registers Redis cache key schemas.
+```bash
+cgc context list
+cgc context mode <global|per-repo|named>
+cgc context create <name> [--database kuzudb] [--db-path /path]
+cgc context delete <name>
+cgc context default <name>
+```
 
 ---
 
-### Portable Bundles Group
+## Configuration (`config`)
 
-#### `bundle`
-Serializes and shares graphs as `.cgc` archive bundles.
-- **Usage**: `cgc bundle <subcommand> [args]`
-- **Subcommands**:
-  - `bundle export <output.cgc>`: Exports active graph to a portable bundle file. (Shortcut: `cgc export`)
-  - `bundle import <input.cgc>`: Imports a bundle file into the database.
-  - `bundle load <name>`: Downloads (if remote) and imports a registry bundle. (Shortcut: `cgc load`)
+```bash
+cgc config show
+cgc config set <KEY> <VALUE>
+cgc config db <backend>
+cgc config reset
+```
+
+Valid backends: `kuzudb`, `ladybugdb`, `falkordb`, `falkordb-remote`, `neo4j`, `nornic`. See [Configuration Reference](config.md).
+
+---
+
+## MCP & Neo4j Setup
+
+```bash
+cgc mcp setup          # Interactive IDE wizard (shortcut: cgc m)
+cgc mcp start          # Start stdio MCP server
+cgc mcp tools          # List registered MCP tools
+
+cgc neo4j setup        # Neo4j connection wizard (shortcut: cgc n)
+```
+
+---
+
+## Portable Bundles (`bundle`)
+
+```bash
+cgc bundle export <output.cgc> [--repo PATH] [--no-stats] [--context NAME]
+cgc bundle import <file.cgc> [--clear] [--yes|-y] [--context NAME]
+cgc bundle load <name> [--clear] [--yes|-y]
+
+# Shortcuts
+cgc export my-project.cgc --repo /path/to/project
+cgc load numpy
+```
+
+Use `--yes` / `-y` with `--clear` to skip the destructive-import confirmation (required in CI/non-interactive shells).
 
 #### `registry`
-Interacts with the remote CGC bundle server.
-- **Usage**: `cgc registry <subcommand> [args]`
-- **Subcommands**:
-  - `registry list`: Lists all packages in the registry.
-  - `registry search <query>`: Searches for packages.
-  - `registry download <name>`: Downloads a package bundle.
-  - `registry request <github_url>`: Submits a package generation request.
+Browse and download pre-indexed bundles.
+
+```bash
+cgc registry list [--verbose] [--unique]
+cgc registry search <query>
+cgc registry download <name> [--output DIR] [--load]
+cgc registry request <github_url>
+```
 
 ---
 
-### Real-Time Monitoring Group
+## Real-Time Watchers
 
-#### `watch`
-Starts a filesystem watcher to incrementally update the graph.
-- **Usage**: `cgc watch [PATH]` (Or shortcut `cgc w`)
+```bash
+cgc watch [PATH]          # Shortcut: cgc w
+cgc unwatch <PATH>
+cgc watching
+```
 
-#### `unwatch`
-Terminates monitoring on a specified directory path.
-- **Usage**: `cgc unwatch <PATH>`
-
-#### `watching`
-Lists all directories currently monitored by watchers.
-- **Usage**: `cgc watching`
+With `--sync-on-start`, watchers reconcile the graph with the filesystem (add missing files, remove deleted paths) before monitoring changes. This is off by default.
 
 ---
 
-### System Diagnostics
+## Git Hooks (`hook`)
 
-#### `doctor`
-Executes health checks on the CLI execution path, configuration files, write permissions, and database drivers.
-- **Usage**: `cgc doctor`
+Keep the graph in sync on commit:
+
+```bash
+cgc hook install [PATH] [--force]
+cgc hook uninstall [PATH]
+cgc hook status [PATH]
+```
+
+---
+
+## HTTP API Gateway (`api`)
+
+```bash
+cgc api start [--host 0.0.0.0] [--port 8000] [--reload]
+```
+
+Exposes REST endpoints under `/api/v1` and a liveness probe at `GET /health`. See [HTTP API Reference](api.md).
+
+---
+
+## External Datasources (`datasource`)
+
+```bash
+cgc datasource mysql
+cgc datasource cassandra
+cgc datasource redis
+```
+
+---
+
+## SCIP Setup
+
+```bash
+cgc setup-scip
+```
+
+Installs or verifies external SCIP indexers when `SCIP_INDEXER=true`. C/C++ require `compile_commands.json`; see the README SCIP section.
+
+---
+
+## System Diagnostics
+
+```bash
+cgc doctor
+```
+
+Checks configuration, database connectivity, Tree-sitter parsers, dependencies, and file permissions.
+
+---
+
+## Command Shortcuts
+
+| Shortcut | Full command |
+| :--- | :--- |
+| `cgc i` | `cgc index` |
+| `cgc ls` | `cgc list` |
+| `cgc rm` | `cgc delete` |
+| `cgc v` | `cgc visualize` |
+| `cgc w` | `cgc watch` |
+| `cgc m` | `cgc mcp` |
+| `cgc n` | `cgc neo4j` |
+| `cgc export` | `cgc bundle export` |
+| `cgc load` | `cgc bundle load` |

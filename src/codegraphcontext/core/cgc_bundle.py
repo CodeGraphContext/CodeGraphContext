@@ -20,6 +20,8 @@ Bundle Structure:
 """
 
 import json
+import os
+import re
 import zipfile
 import tempfile
 from pathlib import Path
@@ -49,19 +51,45 @@ class _BundleEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
+#: Cypher identifiers accepted from a bundle. Labels and relationship types
+#: cannot be passed as query parameters — they are interpolated into the query
+#: text — so a bundle is an untrusted source of executable Cypher unless every
+#: identifier is validated first. A bundle carrying the label
+#:     Evil) WITH n MATCH (v:Victim) DETACH DELETE v //
+#: previously produced, and executed:
+#:     CREATE (n:Evil) WITH n MATCH (v:Victim) DETACH DELETE v //) SET n = $props ...
+_CYPHER_IDENTIFIER_RE = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+class BundleValidationError(ValueError):
+    """Raised when a bundle contains content that is unsafe to import."""
+
+
+def _validate_cypher_identifier(value: Any, kind: str) -> str:
+    """Return *value* if it is a bare Cypher identifier, else raise."""
+    if not isinstance(value, str) or not _CYPHER_IDENTIFIER_RE.match(value):
+        raise BundleValidationError(
+            f"Refusing to import bundle: invalid {kind} {value!r}. "
+            f"{kind.capitalize()}s must match [A-Za-z_][A-Za-z0-9_]* — a value "
+            "outside that set can inject arbitrary Cypher."
+        )
+    return value
+
+
 class CGCBundle:
     """Handles creation and loading of .cgc bundle files."""
-    
+
     VERSION = "0.1.0"  # CGC bundle format version
     
     def __init__(self, db_manager):
         """
         Initialize the CGC Bundle handler.
-        
+
         Args:
             db_manager: DatabaseManager instance for graph queries
         """
         self.db_manager = db_manager
+        self._active_graph = None
     
     def _get_id_function(self) -> str:
         """
@@ -70,12 +98,25 @@ class CGCBundle:
         Returns:
             str: 'elementId' for Neo4j, 'id' for FalkorDB
         """
-        # Check if we're using Neo4j or FalkorDB
         backend = self.db_manager.get_backend_type()
         if backend == 'neo4j':
             return 'elementId'
-        else:  # FalkorDB or other backends
-            return 'id'
+        return 'id'
+
+    def _uses_pk_edge_matching(self) -> bool:
+        """Kùzu/Ladybug internal IDs are not comparable via id() in MATCH."""
+        return self.db_manager.get_backend_type() in {'kuzudb', 'ladybugdb'}
+
+    def _node_lookup_key(self, labels, properties: Dict) -> Optional[tuple]:
+        if not labels:
+            return None
+        if isinstance(labels, str):
+            labels = [labels]
+        primary_label = labels[0]
+        pk_field = self._PK_MAP.get(primary_label)
+        if pk_field and pk_field in properties:
+            return (primary_label, pk_field, properties[pk_field])
+        return None
 
     
     def export_to_bundle(
@@ -119,7 +160,12 @@ class CGCBundle:
                 # Step 3: Extract nodes
                 info_logger("Extracting nodes...")
                 node_count = self._extract_nodes(temp_path / "nodes.jsonl", repo_path)
-                
+                if node_count == 0:
+                    return False, (
+                        "No nodes to export. Index the repository first or verify "
+                        "that --repo exists in the graph."
+                    )
+
                 # Step 4: Extract edges
                 info_logger("Extracting edges...")
                 edge_count = self._extract_edges(temp_path / "edges.jsonl", repo_path)
@@ -138,7 +184,7 @@ class CGCBundle:
                     from importlib.metadata import version as get_version
                     py_version = get_version("codegraphcontext")
                 except Exception:
-                    py_version = "0.4.12"
+                    py_version = "0.5.1"
 
                 metadata["format_version"] = "1.0.0"
                 metadata["generator"] = f"PYv{py_version}"
@@ -191,8 +237,10 @@ class CGCBundle:
         self,
         bundle_path: Path,
         clear_existing: bool = False,
-        readonly: bool = False
+        readonly: bool = False,
+        graph_name: str = None
     ) -> Tuple[bool, str]:
+        self._active_graph = graph_name
         """
         Import a .cgc bundle into the current database.
         
@@ -217,9 +265,13 @@ class CGCBundle:
                 # Step 1: Extract ZIP (with Zip Slip protection)
                 info_logger("Extracting bundle...")
                 with zipfile.ZipFile(bundle_path, 'r') as zip_ref:
+                    extract_root = temp_path.resolve()
                     for entry in zip_ref.namelist():
                         resolved = (temp_path / entry).resolve()
-                        if not str(resolved).startswith(str(temp_path.resolve())):
+                        # Compare path components, not string prefixes: a bare
+                        # startswith also accepts a sibling directory whose name
+                        # merely extends the target's (/tmp/tmpabc vs /tmp/tmpabc2).
+                        if resolved != extract_root and extract_root not in resolved.parents:
                             return False, f"Zip Slip detected: entry '{entry}' escapes target directory"
                     zip_ref.extractall(temp_path)
                 
@@ -249,7 +301,10 @@ class CGCBundle:
                     existing_repo = self._check_existing_repository(repo_name, repo_path)
                     
                     if existing_repo:
-                        return False, f"Repository '{repo_name}' already exists in the database. Use clear_existing=True to replace it."
+                        return False, (
+                            f"Repository '{repo_name}' already exists in the database. "
+                            "Re-run with --clear (CLI) or clear_existing=True (MCP) to replace it."
+                        )
                 
                 
                 # Step 5: Create schema
@@ -288,12 +343,12 @@ class CGCBundle:
         }
         
         # Get repository information
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             if repo_path:
                 # Specific repository
                 result = session.run(
                     "MATCH (r:Repository {path: $path}) RETURN r",
-                    path=str(repo_path.resolve())
+                    path=repo_path.resolve().as_posix()
                 )
                 repo_node = result.single()
                 if repo_node:
@@ -317,8 +372,8 @@ class CGCBundle:
                     metadata["repo"] = repo.get('name', str(repo_path.name if repo_path else 'unknown'))
                     # Clean up absolute path prefix to keep it relative
                     meta_path = repo.get('path', '')
-                    if repo_path and meta_path.startswith(str(repo_path.resolve())):
-                        repo_str = str(repo_path.resolve())
+                    if repo_path and meta_path.startswith(repo_path.resolve().as_posix()):
+                        repo_str = repo_path.resolve().as_posix()
                         rel = meta_path[len(repo_str):].lstrip('/')
                         metadata["repo_path"] = "./" + rel if rel else "."
                     else:
@@ -343,12 +398,13 @@ class CGCBundle:
                     metadata["branch"] = branch
 
                 try:
+                    repo_str = repo_path.resolve().as_posix()
                     result = session.run("""
                         MATCH (f:File)
-                        WHERE f.path STARTS WITH $repo_path
+                        WHERE f.path = $repo_path OR f.path STARTS WITH $repo_prefix
                         RETURN f.language as language, count(*) as count
                         ORDER BY count DESC
-                    """, repo_path=str(repo_path.resolve()))
+                    """, repo_path=repo_str, repo_prefix=repo_str + "/")
                     languages = {record["language"]: record["count"] for record in result if record["language"]}
                     metadata["languages"] = list(languages.keys())
                 except Exception:
@@ -358,198 +414,297 @@ class CGCBundle:
     
     def _extract_schema(self) -> Dict[str, Any]:
         """Extract the graph schema (node labels, relationship types, constraints)."""
+        from codegraphcontext.tools.indexing.schema_contract import RELATIONSHIP_TYPES
+
         schema = {
             "node_labels": [],
             "relationship_types": [],
             "constraints": [],
             "indexes": []
         }
-        
-        with self.db_manager.get_driver().session() as session:
-            # Get node labels
+
+        backend = getattr(self.db_manager, "get_backend_type", lambda: "neo4j")()
+
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             try:
-                result = session.run("CALL db.labels()")
-                labels = []
-                for record in result:
-                    try:
-                        labels.append(record[0])
-                    except (KeyError, TypeError):
-                        if hasattr(record, 'values'):
-                            vals = list(record.values())
-                            if vals:
-                                labels.append(vals[0])
+                if backend in ("kuzudb", "ladybugdb"):
+                    result = session.run("MATCH (n) RETURN DISTINCT label(n) AS lbl")
+                    labels = sorted({record[0] for record in result if record[0] is not None})
+                elif backend == "neo4j":
+                    result = session.run("CALL db.labels()")
+                    labels = []
+                    for record in result:
+                        try:
+                            labels.append(record[0])
+                        except (KeyError, TypeError):
+                            if hasattr(record, "values"):
+                                vals = list(record.values())
+                                if vals:
+                                    labels.append(vals[0])
+                else:
+                    result = session.run("CALL db.labels()")
+                    labels = [record[0] for record in result if record[0] is not None]
                 schema["node_labels"] = labels
             except Exception:
                 schema["node_labels"] = []
-            
-            # Get relationship types
+
             try:
-                result = session.run("CALL db.relationshipTypes()")
-                rel_types = []
-                for record in result:
-                    try:
-                        rel_types.append(record[0])
-                    except (KeyError, TypeError):
-                        if hasattr(record, 'values'):
-                            vals = list(record.values())
-                            if vals:
-                                rel_types.append(vals[0])
-                schema["relationship_types"] = rel_types
+                if backend in ("kuzudb", "ladybugdb"):
+                    result = session.run("MATCH ()-[r]->() RETURN DISTINCT label(r) AS rel")
+                    rel_types = sorted({record[0] for record in result if record[0] is not None})
+                elif backend == "neo4j":
+                    result = session.run("CALL db.relationshipTypes()")
+                    rel_types = [record[0] for record in result if record[0] is not None]
+                else:
+                    result = session.run("CALL db.relationshipTypes()")
+                    rel_types = [record[0] for record in result if record[0] is not None]
+                schema["relationship_types"] = rel_types or sorted(RELATIONSHIP_TYPES)
             except Exception:
-                schema["relationship_types"] = []
-            
-            # Get constraints (Neo4j specific, may not work on all backends)
-            try:
-                result = session.run("SHOW CONSTRAINTS")
-                schema["constraints"] = [dict(record) for record in result]
-            except:
-                pass
-            
-            # Get indexes
-            try:
-                result = session.run("SHOW INDEXES")
-                schema["indexes"] = [dict(record) for record in result]
-            except:
-                pass
-        
+                schema["relationship_types"] = sorted(RELATIONSHIP_TYPES)
+
+            if backend == "neo4j":
+                try:
+                    result = session.run("SHOW CONSTRAINTS")
+                    schema["constraints"] = [dict(record) for record in result]
+                except Exception:
+                    pass
+                try:
+                    result = session.run("SHOW INDEXES")
+                    schema["indexes"] = [dict(record) for record in result]
+                except Exception:
+                    pass
+
         return schema
+
+    def _repo_scope_params(self, repo_path: Path) -> Dict[str, str]:
+        repo_str = repo_path.resolve().as_posix()
+        return {"repo_path": repo_str, "repo_prefix": repo_str + "/"}
+
+    def _run_session_query(self, session, query: str, params: Dict[str, str]):
+        try:
+            return session.run(query, **params)
+        except TypeError:
+            return session.run(query)
+
+    def _normalize_labels(self, labels) -> List[str]:
+        if labels is None:
+            return []
+        if isinstance(labels, str):
+            return [labels]
+        if isinstance(labels, list):
+            return labels
+        return list(labels)
+
+    def _node_to_dict(self, node) -> Dict[str, Any]:
+        try:
+            node_dict = dict(node)
+        except TypeError:
+            node_dict = {}
+            if hasattr(node, '_properties'):
+                node_dict = dict(node._properties)
+            elif hasattr(node, 'properties'):
+                node_dict = dict(node.properties)
+        node_dict.pop('_label', None)
+        for key, val in list(node_dict.items()):
+            if key != '_id' and val is None:
+                node_dict.pop(key)
+        return node_dict
+
+    def _node_identity(self, node, labels: List[str], node_dict: Dict[str, Any]) -> str:
+        if '_id' in node_dict:
+            return str(node_dict['_id'])
+        if hasattr(node, 'element_id'):
+            return str(node.element_id)
+        if hasattr(node, 'id'):
+            return str(node.id)
+        label = labels[0] if labels else ''
+        return f"{label}:{node_dict.get('name', '')}:{node_dict.get('path', '')}"
+
+    def _repo_node_queries(self) -> List[str]:
+        return [
+            """
+            MATCH (n)
+            WHERE n.path = $repo_path OR n.path STARTS WITH $repo_prefix
+            RETURN n, labels(n) as labels
+            """,
+            """
+            MATCH (f:File)-[:IMPORTS]->(n:Module)
+            WHERE f.path = $repo_path OR f.path STARTS WITH $repo_prefix
+            RETURN n, labels(n) as labels
+            """,
+            """
+            MATCH (c)-[:INHERITS|IMPLEMENTS]->(n:ExternalClass)
+            WHERE c.path = $repo_path OR c.path STARTS WITH $repo_prefix
+            RETURN n, labels(n) as labels
+            """,
+        ]
+
+    def _repo_edge_queries(self) -> List[str]:
+        return [
+            """
+            MATCH (n)-[r]->(m)
+            WHERE (n.path = $repo_path OR n.path STARTS WITH $repo_prefix)
+               OR (m.path = $repo_path OR m.path STARTS WITH $repo_prefix)
+            RETURN n, r, m, type(r) as rel_type
+            """,
+            """
+            MATCH (f:File)-[r:IMPORTS]->(m:Module)
+            WHERE f.path = $repo_path OR f.path STARTS WITH $repo_prefix
+            RETURN f as n, r, m, type(r) as rel_type
+            """,
+            """
+            MATCH (c)-[r:INHERITS|IMPLEMENTS]->(ec:ExternalClass)
+            WHERE c.path = $repo_path OR c.path STARTS WITH $repo_prefix
+            RETURN c as n, r, ec as m, type(r) as rel_type
+            """,
+        ]
     
     def _extract_nodes(self, output_file: Path, repo_path: Optional[Path]) -> int:
         """Extract all nodes to JSONL format."""
         count = 0
+        seen_nodes = set()
         
-        with self.db_manager.get_driver().session() as session:
-            # Build query based on repo_path
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             if repo_path:
-                query = """
-                    MATCH (n)
-                    WHERE n.path STARTS WITH $repo_path
-                    RETURN n, labels(n) as labels
-                """
-                params = {"repo_path": str(repo_path.resolve())}
+                queries = self._repo_node_queries()
+                params = self._repo_scope_params(repo_path)
             else:
-                query = "MATCH (n) RETURN n, labels(n) as labels"
+                queries = ["MATCH (n) RETURN n, labels(n) as labels"]
                 params = {}
             
-            # Run query with proper parameter handling for both Neo4j and FalkorDB
-            try:
-                result = session.run(query, **params)
-            except TypeError:
-                # FalkorDB might not support **params, try without
-                result = session.run(query)
-            
             with open(output_file, 'w') as f:
-                for record in result:
-                    node = record['n']
-                    labels = record['labels']
+                for query in queries:
+                    result = self._run_session_query(session, query, params)
+                    for record in result:
+                        node = record['n']
+                        labels = self._normalize_labels(record['labels'])
+                        node_dict = self._node_to_dict(node)
+                        node_key = self._node_identity(node, labels, node_dict)
+                        if node_key in seen_nodes:
+                            continue
+                        seen_nodes.add(node_key)
                     
-                    # Convert node to dict (handle both Neo4j and FalkorDB)
-                    try:
-                        node_dict = dict(node)
-                    except TypeError:
-                        # FalkorDB nodes might not be directly convertible
-                        node_dict = {}
-                        if hasattr(node, '_properties'):
-                            node_dict = dict(node._properties)
-                        elif hasattr(node, 'properties'):
-                            node_dict = dict(node.properties)
+                        # Clean up absolute path prefix to keep it relative
+                        if repo_path:
+                            repo_str = repo_path.resolve().as_posix()
+                            repo_prefix = repo_str + "/"
+                            for key, val in list(node_dict.items()):
+                                if not isinstance(val, str):
+                                    continue
+                                if val == repo_str:
+                                    node_dict[key] = "."
+                                elif val.startswith(repo_prefix):
+                                    rel = val[len(repo_prefix):].lstrip('/\\')
+                                    node_dict[key] = "./" + rel if rel else "."
                     
-                    # Clean up absolute path prefix to keep it relative
-                    if repo_path:
-                        repo_str = str(repo_path.resolve())
-                        for key, val in list(node_dict.items()):
-                            if isinstance(val, str) and val.startswith(repo_str):
-                                rel = val[len(repo_str):].lstrip('/')
-                                node_dict[key] = "./" + rel if rel else "."
+                        node_dict['_labels'] = labels
                     
-                    node_dict['_labels'] = labels
+                        if '_id' not in node_dict:
+                            if hasattr(node, 'element_id'):
+                                node_dict['_id'] = node.element_id
+                            elif hasattr(node, 'id'):
+                                node_dict['_id'] = str(node.id)
                     
-                    # Store internal ID for reference
-                    if hasattr(node, 'element_id'):
-                        node_dict['_id'] = node.element_id
-                    elif hasattr(node, 'id'):
-                        node_dict['_id'] = str(node.id)
-                    
-                    f.write(json.dumps(node_dict, cls=_BundleEncoder) + '\n')
-                    count += 1
+                        f.write(json.dumps(node_dict, cls=_BundleEncoder) + '\n')
+                        count += 1
         
         return count
     
     def _extract_edges(self, output_file: Path, repo_path: Optional[Path]) -> int:
         """Extract all relationships to JSONL format."""
         count = 0
+        seen_edges = set()
         
-        with self.db_manager.get_driver().session() as session:
-            # Build query based on repo_path
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             if repo_path:
-                query = """
-                    MATCH (n)-[r]->(m)
-                    WHERE (n.path STARTS WITH $repo_path)
-                       OR (m.path STARTS WITH $repo_path)
-                    RETURN n, r, m, type(r) as rel_type
-                """
-                params = {"repo_path": str(repo_path.resolve())}
+                queries = self._repo_edge_queries()
+                params = self._repo_scope_params(repo_path)
             else:
-                query = "MATCH (n)-[r]->(m) RETURN n, r, m, type(r) as rel_type"
+                queries = ["MATCH (n)-[r]->(m) RETURN n, r, m, type(r) as rel_type"]
                 params = {}
             
-            # Run query with proper parameter handling for both Neo4j and FalkorDB
-            try:
-                result = session.run(query, **params)
-            except TypeError:
-                # FalkorDB might not support **params, try without
-                result = session.run(query)
-            
             with open(output_file, 'w') as f:
-                for record in result:
-                    source = record['n']
-                    target = record['m']
-                    rel = record['r']
-                    rel_type = record['rel_type']
-                    
-                    # Get source and target IDs (handle both Neo4j and FalkorDB)
-                    if hasattr(source, 'element_id'):
-                        from_id = source.element_id
-                    elif hasattr(source, 'id'):
-                        from_id = str(source.id)
-                    else:
-                        from_id = str(id(source))  # Fallback
-                    
-                    if hasattr(target, 'element_id'):
-                        to_id = target.element_id
-                    elif hasattr(target, 'id'):
-                        to_id = str(target.id)
-                    else:
-                        to_id = str(id(target))  # Fallback
-                    
-                    # Get relationship properties
-                    try:
-                        rel_props = dict(rel)
-                    except TypeError:
-                        rel_props = {}
-                        if hasattr(rel, '_properties'):
-                            rel_props = dict(rel._properties)
-                        elif hasattr(rel, 'properties'):
-                            rel_props = dict(rel.properties)
-                    
-                    # Clean up absolute path prefix inside edge properties
-                    if repo_path:
-                        repo_str = str(repo_path.resolve())
+                for query in queries:
+                    result = self._run_session_query(session, query, params)
+                    for record in result:
+                        source = record['n']
+                        target = record['m']
+                        rel = record['r']
+                        rel_type = record['rel_type']
+
+                        # Get relationship properties
+                        try:
+                            rel_props = dict(rel)
+                        except TypeError:
+                            rel_props = {}
+                            if hasattr(rel, '_properties'):
+                                rel_props = dict(rel._properties)
+                            elif hasattr(rel, 'properties'):
+                                rel_props = dict(rel.properties)
+
+                        # Kùzu/Ladybug-style relationship records expose stable
+                        # endpoint IDs as properties. Prefer those over Python
+                        # wrapper object ids so exported edges can be re-linked to
+                        # the node rows in nodes.jsonl.
+                        from_id = rel_props.pop('_src', None)
+                        to_id = rel_props.pop('_dst', None)
+                        rel_props.pop('_label', None)
+                        rel_props.pop('_id', None)
                         for key, val in list(rel_props.items()):
-                            if isinstance(val, str) and val.startswith(repo_str):
-                                rel = val[len(repo_str):].lstrip('/')
-                                rel_props[key] = "./" + rel if rel else "."
-                    
-                    # Create edge representation
-                    edge_dict = {
-                        'from': from_id,
-                        'to': to_id,
-                        'type': rel_type,
-                        'properties': rel_props
-                    }
-                    
-                    f.write(json.dumps(edge_dict, cls=_BundleEncoder) + '\n')
-                    count += 1
+                            if val is None:
+                                rel_props.pop(key)
+
+                        # Get source and target IDs (handle Neo4j/FalkorDB fallback)
+                        if from_id is None:
+                            if hasattr(source, 'element_id'):
+                                from_id = source.element_id
+                            elif hasattr(source, 'id'):
+                                from_id = str(source.id)
+                            else:
+                                from_id = str(id(source))
+
+                        if to_id is None:
+                            if hasattr(target, 'element_id'):
+                                to_id = target.element_id
+                            elif hasattr(target, 'id'):
+                                to_id = str(target.id)
+                            else:
+                                to_id = str(id(target))
+
+                        # Clean up absolute path prefix inside edge properties
+                        if repo_path:
+                            repo_str = repo_path.resolve().as_posix()
+                            repo_prefix = repo_str + "/"
+                            for key, val in list(rel_props.items()):
+                                if not isinstance(val, str):
+                                    continue
+                                if val == repo_str:
+                                    rel_props[key] = "."
+                                elif val.startswith(repo_prefix):
+                                    rel = val[len(repo_prefix):].lstrip('/\\')
+                                    rel_props[key] = "./" + rel if rel else "."
+
+                        props_key = tuple(
+                            sorted(
+                                (k, json.dumps(v, sort_keys=True, default=str))
+                                for k, v in rel_props.items()
+                            )
+                        )
+                        edge_key = (str(from_id), str(rel_type), str(to_id), props_key)
+                        if edge_key in seen_edges:
+                            continue
+                        seen_edges.add(edge_key)
+                        
+                        # Create edge representation
+                        edge_dict = {
+                            'from': from_id,
+                            'to': to_id,
+                            'type': rel_type,
+                            'properties': rel_props
+                        }
+                        
+                        f.write(json.dumps(edge_dict, cls=_BundleEncoder) + '\n')
+                        count += 1
         
         return count
     
@@ -561,28 +716,47 @@ class CGCBundle:
             "generated_at": datetime.now().isoformat()
         }
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             # Count by node type
-            result = session.run("""
-                MATCH (n)
-                RETURN labels(n)[0] as label, count(*) as count
-                ORDER BY count DESC
-            """)
+            if repo_path:
+                repo_str = repo_path.resolve().as_posix()
+                result = session.run("""
+                    MATCH (n)
+                    WHERE n.path = $repo_path OR n.path STARTS WITH $repo_prefix
+                    RETURN labels(n)[0] as label, count(*) as count
+                    ORDER BY count DESC
+                """, repo_path=repo_str, repo_prefix=repo_str + "/")
+            else:
+                result = session.run("""
+                    MATCH (n)
+                    RETURN labels(n)[0] as label, count(*) as count
+                    ORDER BY count DESC
+                """)
             stats["nodes_by_type"] = {record["label"]: record["count"] for record in result if record["label"]}
             
             # Count by relationship type
-            result = session.run("""
-                MATCH ()-[r]->()
-                RETURN type(r) as type, count(*) as count
-                ORDER BY count DESC
-            """)
+            if repo_path:
+                result = session.run("""
+                    MATCH (n)-[r]->(m)
+                    WHERE (n.path = $repo_path OR n.path STARTS WITH $repo_prefix)
+                       OR (m.path = $repo_path OR m.path STARTS WITH $repo_prefix)
+                    RETURN type(r) as type, count(*) as count
+                    ORDER BY count DESC
+                """, repo_path=repo_str, repo_prefix=repo_str + "/")
+            else:
+                result = session.run("""
+                    MATCH ()-[r]->()
+                    RETURN type(r) as type, count(*) as count
+                    ORDER BY count DESC
+                """)
             stats["edges_by_type"] = {record["type"]: record["count"] for record in result}
             
             # File count
             if repo_path:
                 result = session.run(
-                    "MATCH (f:File) WHERE f.path STARTS WITH $repo_path RETURN count(f) as count",
-                    repo_path=str(repo_path.resolve())
+                    "MATCH (f:File) WHERE f.path = $repo_path OR f.path STARTS WITH $repo_prefix RETURN count(f) as count",
+                    repo_path=repo_str,
+                    repo_prefix=repo_str + "/",
                 )
             else:
                 result = session.run("MATCH (f:File) RETURN count(f) as count")
@@ -669,12 +843,50 @@ cgc import <bundle-file>.cgc
                     return False, "Invalid metadata: missing cgc_version"
         except json.JSONDecodeError as e:
             return False, f"Invalid metadata.json: {e}"
-        
+
+        # Reject unsafe identifiers up front. The import writes in batches with
+        # no transaction, so validating lazily would let a malicious label
+        # halfway through the file execute after earlier nodes were committed.
+        ok, message = self._validate_bundle_identifiers(bundle_dir)
+        if not ok:
+            return False, message
+
+        return True, "Valid bundle"
+
+    @staticmethod
+    def _validate_bundle_identifiers(bundle_dir: Path) -> Tuple[bool, str]:
+        """Check every node label and relationship type before importing anything."""
+        try:
+            with open(bundle_dir / "nodes.jsonl", 'r', encoding='utf-8') as f:
+                for line_no, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    labels = json.loads(line).get('_labels') or []
+                    if isinstance(labels, str):
+                        labels = [labels]
+                    for label in labels:
+                        _validate_cypher_identifier(label, "node label")
+
+            with open(bundle_dir / "edges.jsonl", 'r', encoding='utf-8') as f:
+                for line_no, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    _validate_cypher_identifier(
+                        json.loads(line).get('type'), "relationship type"
+                    )
+        except BundleValidationError as e:
+            error_logger(f"Bundle rejected: {e}")
+            return False, str(e)
+        except json.JSONDecodeError as e:
+            return False, f"Malformed JSON Lines in bundle: {e}"
+
         return True, "Valid bundle"
     
     def _check_existing_repository(self, repo_name: str, repo_path: Optional[str]) -> bool:
         """Check if a repository already exists in the database."""
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             # Try to find by name first
             result = session.run(
                 "MATCH (r:Repository {name: $name}) RETURN r LIMIT 1",
@@ -696,7 +908,7 @@ cgc import <bundle-file>.cgc
     
     def _delete_repository(self, repo_identifier: str):
         """Delete a specific repository and all its related nodes from the graph."""
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             # First, try to find the repository by name or path
             result = session.run("""
                 MATCH (r:Repository)
@@ -712,13 +924,23 @@ cgc import <bundle-file>.cgc
             
             repo_path = record['path']
             
+            repo_prefix = repo_path if repo_path.endswith("/") else f"{repo_path}/"
             # Delete all nodes that belong to this repository
-            # Files, Functions, Classes, Modules all have paths that start with repo_path
             session.run("""
                 MATCH (n)
-                WHERE n.path STARTS WITH $repo_path
+                WHERE n.path STARTS WITH $repo_prefix OR n.path = $repo_path
                 DETACH DELETE n
-            """, repo_path=repo_path)
+            """, repo_path=repo_path, repo_prefix=repo_prefix)
+
+            # Remove pathless import Module nodes left without references
+            while True:
+                result = session.run("""
+                    MATCH (m:Module) WHERE NOT ()-[:IMPORTS|INCLUDES]->(m)
+                    WITH m LIMIT 5000 DETACH DELETE m RETURN count(m) AS deleted
+                """)
+                record = result.single()
+                if not record or record["deleted"] == 0:
+                    break
             
             # Delete the repository node itself
             session.run("""
@@ -731,7 +953,7 @@ cgc import <bundle-file>.cgc
     
     def _clear_graph(self):
         """Clear all nodes and relationships from the graph in batches."""
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             while True:
                 result = session.run(
                     "MATCH (n) WITH n LIMIT 500 DETACH DELETE n RETURN count(n) as deleted"
@@ -759,7 +981,7 @@ cgc import <bundle-file>.cgc
         # Create a mapping from old IDs to new IDs
         id_mapping = {}
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             with open(nodes_file, 'r') as f:
                 for line in f:
                     node_data = json.loads(line)
@@ -791,6 +1013,16 @@ cgc import <bundle-file>.cgc
         
         return count
     
+    # Must stay in step with the node tables declared in
+    # database_embedded_kuzu.py. A label missing here falls through to the
+    # `CREATE (n:Label) SET n = $props` branch, which Kùzu rejects with
+    # "Create node n expects primary key <field> as input" — so an omission is
+    # not a slow path, it is a hard import failure for any bundle containing
+    # that label (#1322).
+    #
+    # Not yet covered: DbColumn PK(name, table_fqn) and RedisKeyPattern
+    # PK(pattern, datasource_name). Composite keys need a multi-key MERGE and a
+    # wider `_node_lookup_key` tuple; tracked separately.
     _PK_MAP = {
         'Repository': 'path', 'File': 'path', 'Directory': 'path',
         'Module': 'name',
@@ -798,7 +1030,9 @@ cgc import <bundle-file>.cgc
         'Trait': 'uid', 'Interface': 'uid', 'Macro': 'uid',
         'Struct': 'uid', 'Enum': 'uid', 'Union': 'uid',
         'Annotation': 'uid', 'Record': 'uid', 'Property': 'uid',
-        'Parameter': 'uid',
+        'Parameter': 'uid', 'EnumMember': 'uid', 'Mixin': 'uid',
+        'Extension': 'uid', 'Object': 'uid',
+        'DbTable': 'name', 'Datasource': 'name', 'ExternalClass': 'name',
     }
     _UID_PARTS = {
         'Function': ['name', 'path', 'line_number'],
@@ -814,6 +1048,10 @@ cgc import <bundle-file>.cgc
         'Record': ['name', 'path', 'line_number'],
         'Property': ['name', 'path', 'line_number'],
         'Parameter': ['name', 'path', 'function_line_number'],
+        'EnumMember': ['name', 'path', 'line_number'],
+        'Mixin': ['name', 'path', 'line_number'],
+        'Extension': ['name', 'path', 'line_number'],
+        'Object': ['name', 'path', 'line_number'],
     }
 
     def _import_node_batch(self, session, batch: List[Tuple], id_mapping: Dict) -> int:
@@ -826,6 +1064,7 @@ cgc import <bundle-file>.cgc
             
             if isinstance(labels, str):
                 labels = [labels]
+            labels = [_validate_cypher_identifier(l, "node label") for l in labels]
             label_str = ':'.join(labels)
             primary_label = labels[0]
 
@@ -848,7 +1087,12 @@ cgc import <bundle-file>.cgc
 
             record = result.single()
             if record and old_id:
-                id_mapping[old_id] = record['new_id']
+                if self._uses_pk_edge_matching():
+                    lookup = self._node_lookup_key(labels, properties)
+                    if lookup:
+                        id_mapping[old_id] = lookup
+                else:
+                    id_mapping[old_id] = record['new_id']
         
         return len(batch)
     
@@ -858,7 +1102,7 @@ cgc import <bundle-file>.cgc
         batch_size = 1000
         batch = []
         
-        with self.db_manager.get_driver().session() as session:
+        with self.db_manager.get_driver(self._active_graph).session() as session:
             with open(edges_file, 'r') as f:
                 for line in f:
                     edge_data = json.loads(line)
@@ -888,26 +1132,43 @@ cgc import <bundle-file>.cgc
                 old_from = (old_from.get('table', 0), old_from.get('offset', 0))
             if isinstance(old_to, dict):
                 old_to = (old_to.get('table', 0), old_to.get('offset', 0))
-            rel_type = edge.get('type')
+            rel_type = _validate_cypher_identifier(edge.get('type'), "relationship type")
             properties = edge.get('properties', {})
             
             # Map old IDs to new IDs
             new_from = id_mapping.get(old_from)
             new_to = id_mapping.get(old_to)
             
-            if not new_from or not new_to:
+            # `is None`, not falsy: FalkorDB's id() is 0-based, so the first
+            # node imported (the Repository) maps to 0. A truthiness test drops
+            # every edge touching it -- silently, while the caller still reports
+            # the full edge count. Neo4j elementIds (str) and Kuzu/Ladybug PK
+            # tuples are never falsy, so this only ever bit FalkorDB.
+            if new_from is None or new_to is None:
                 warning_logger(f"Skipping edge: node IDs not found in mapping")
                 continue
             
-            # Create relationship
-            query = f"""
-                MATCH (a), (b)
-                WHERE {id_function}(a) = $from_id AND {id_function}(b) = $to_id
-                CREATE (a)-[r:{rel_type}]->(b)
-                SET r = $props
-            """
-            
-            session.run(query, from_id=new_from, to_id=new_to, props=properties)
+            if self._uses_pk_edge_matching():
+                from_label, from_pk, from_val = new_from
+                to_label, to_pk, to_val = new_to
+                query = f"""
+                    MATCH (a:{from_label} {{{from_pk}: $from_val}}), (b:{to_label} {{{to_pk}: $to_val}})
+                    CREATE (a)-[r:{rel_type}]->(b)
+                    SET r = $props
+                """
+                session.run(
+                    query,
+                    from_val=from_val,
+                    to_val=to_val,
+                    props=properties,
+                )
+            else:
+                query = f"""
+                    MATCH (a), (b)
+                    WHERE {id_function}(a) = $from_id AND {id_function}(b) = $to_id
+                    CREATE (a)-[r:{rel_type}]->(b)
+                    SET r = $props
+                """
+                session.run(query, from_id=new_from, to_id=new_to, props=properties)
         
         return len(batch)
-

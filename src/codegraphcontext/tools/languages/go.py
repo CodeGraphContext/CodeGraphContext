@@ -34,17 +34,39 @@ GO_QUERIES = {
             )
         ) @interface_node
     """,
+    # `import_spec` is a direct child of `import_declaration` only for a
+    # single-line `import "fmt"`. A grouped block — which gofmt produces for
+    # any file with more than one import, i.e. nearly all of them — nests the
+    # specs inside an `import_spec_list`, so matching only the direct-child
+    # shape returned zero imports for those files.
     "imports": """
         (import_declaration
             (import_spec
                 path: (interpreted_string_literal) @path
             )
         ) @import
-        
+
+        (import_declaration
+            (import_spec_list
+                (import_spec
+                    path: (interpreted_string_literal) @path
+                )
+            )
+        ) @import
+
         (import_declaration
             (import_spec
                 name: (package_identifier) @alias
                 path: (interpreted_string_literal) @path
+            )
+        ) @import_alias
+
+        (import_declaration
+            (import_spec_list
+                (import_spec
+                    name: (package_identifier) @alias
+                    path: (interpreted_string_literal) @path
+                )
             )
         ) @import_alias
     """,
@@ -101,6 +123,7 @@ class GoTreeSitterParser:
         return None, None, None
 
     def _calculate_complexity(self, node):
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         """
         Compute a simple cyclomatic complexity score from the Go AST.
 
@@ -131,9 +154,13 @@ class GoTreeSitterParser:
         }
 
         count = 1
+        skipped = False
 
-        def traverse(n):
-            nonlocal count
+        def traverse(n, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if n.type in decision_node_types:
                 count += 1
                 # Still traverse children because nested constructs also contribute.
@@ -148,9 +175,14 @@ class GoTreeSitterParser:
                     count += 1
 
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
 
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _get_docstring(self, func_node):
@@ -167,7 +199,7 @@ class GoTreeSitterParser:
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict:
         """Parses a file and returns its structure in a standardized dictionary format."""
         self.index_source = index_source
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
             source_code = f.read()
 
         # Extract Go package declaration for package_name field on File nodes
@@ -275,6 +307,7 @@ class GoTreeSitterParser:
                     "end_line": func_node.end_point[0] + 1,
                     "args": args,
                     "class_context": class_context,
+                    "receiver_type": receiver_type,
                     "decorators": [],
                     "lang": self.language_name,
                     "is_dependency": False,
@@ -417,28 +450,67 @@ class GoTreeSitterParser:
         return structs
 
 
+    def _extract_interface_methods(self, interface_type_node: Any) -> tuple[list[str], list[str]]:
+        methods: list[str] = []
+        embedded: list[str] = []
+        if not interface_type_node:
+            return methods, embedded
+        for child in interface_type_node.children:
+            if child.type in ("method_elem", "method_spec"):
+                name_node = child.child_by_field_name("name")
+                if name_node:
+                    methods.append(self._get_node_text(name_node))
+            elif child.type == "type_elem":
+                for sub in child.children:
+                    if sub.type == "type_identifier":
+                        embedded.append(self._get_node_text(sub))
+        return methods, embedded
+
     def _find_interfaces(self, root_node):
         interfaces = []
         interface_query_str = GO_QUERIES['interfaces']
+        pending: Dict[int, Dict[str, Any]] = {}
         for node, capture_name in execute_query(self.language, interface_query_str, root_node):
-            if capture_name == 'name':
+            if capture_name == "interface_node":
+                pending[node.id] = {"interface_node": node, "name": None, "body": None}
+            elif capture_name == "name":
                 interface_node = self._find_type_declaration_for_name(node)
                 if interface_node:
-                    name = self._get_node_text(node)
-                    class_data = {
-                        "name": name,
-                        "line_number": interface_node.start_point[0] + 1,
-                        "end_line": interface_node.end_point[0] + 1,
-                        "bases": [],
-                        "decorators": [],
-                        "lang": self.language_name,
-                        "is_dependency": False,
-                    }
-                    if self.index_source:
-                        class_data["source"] = self._get_node_text(interface_node)
-                        class_data["docstring"] = self._get_docstring(interface_node)
-                        
-                    interfaces.append(class_data)
+                    entry = pending.setdefault(
+                        interface_node.id,
+                        {"interface_node": interface_node, "name": None, "body": None},
+                    )
+                    entry["name"] = self._get_node_text(node)
+            elif capture_name == "interface_body":
+                type_spec = node.parent
+                interface_node = type_spec.parent if type_spec else None
+                if interface_node:
+                    entry = pending.setdefault(
+                        interface_node.id,
+                        {"interface_node": interface_node, "name": None, "body": None},
+                    )
+                    entry["body"] = node
+
+        for entry in pending.values():
+            name = entry.get("name")
+            interface_node = entry.get("interface_node")
+            if not name or not interface_node:
+                continue
+            methods, embedded = self._extract_interface_methods(entry.get("body"))
+            class_data = {
+                "name": name,
+                "line_number": interface_node.start_point[0] + 1,
+                "end_line": interface_node.end_point[0] + 1,
+                "bases": embedded,
+                "methods": methods,
+                "decorators": [],
+                "lang": self.language_name,
+                "is_dependency": False,
+            }
+            if self.index_source:
+                class_data["source"] = self._get_node_text(interface_node)
+                class_data["docstring"] = self._get_docstring(interface_node)
+            interfaces.append(class_data)
         return interfaces
 
     def _find_type_declaration_for_name(self, name_node):
@@ -557,14 +629,14 @@ def pre_scan_go(files: list[Path], parser_wrapper) -> dict:
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 tree = parser_wrapper.parser.parse(bytes(f.read(), "utf8"))
 
             for capture, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(path.resolve()))
+                imports_map[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     

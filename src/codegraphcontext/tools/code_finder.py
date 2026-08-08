@@ -1,14 +1,47 @@
 # src/codegraphcontext/tools/code_finder.py
+from __future__ import annotations
 import logging
 from collections import Counter
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, TYPE_CHECKING
 from pathlib import Path
 
-from ..core.database import DatabaseManager
+if TYPE_CHECKING:
+    from ..core.database import DatabaseManager
 from ..utils.path_ignore import cypher_path_not_under_ignore_dirs
 
 logger = logging.getLogger(__name__)
+
+_MAX_TRAVERSAL_DEPTH = 20
+
+# Names that are entry points rather than dead code. Matched on the *whole*
+# name, lowercased. This used to be a substring test (`name CONTAINS 'main'`,
+# `toLower(name) CONTAINS 'entry'`), which silently excluded any function whose
+# name merely contained one of them — `domain_check`, `remainder`,
+# `maintain_index`, `entry_count` — so genuinely unused code was never
+# reported and there was no way to tell.
+_ENTRY_POINT_NAMES = (
+    "main",
+    "setup",
+    "run",
+    "application",
+    "entry",
+    "entrypoint",
+)
+_ENTRY_POINT_NAMES_CYPHER = "[" + ", ".join(f"'{n}'" for n in _ENTRY_POINT_NAMES) + "]"
+
+
+def _sanitize_depth(depth, default: int = 3) -> int:
+    """Coerce and clamp a traversal depth before interpolating it into Cypher.
+
+    The depth value ends up inside the query string (``[:CALLS*1..N]``), so it
+    must be a plain bounded integer to prevent Cypher injection.
+    """
+    try:
+        depth = int(depth)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(depth, _MAX_TRAVERSAL_DEPTH))
 
 
 def _levenshtein_distance(a: str, b: str) -> int:
@@ -32,10 +65,10 @@ def _normalize_identifier(s: str) -> str:
 
     Examples::
 
-        _normalize_identifier('myFunction')   -> 'myfunction'
-        _normalize_identifier('my_function')  -> 'myfunction'
-        _normalize_identifier('my function')  -> 'myfunction'
-        _normalize_identifier('MyFunc tion')  -> 'myfunction'
+        _normalize_identifier('myFunction')    -> 'myfunction'
+        _normalize_identifier('my_function')   -> 'myfunction'
+        _normalize_identifier('my function')   -> 'myfunction'
+        _normalize_identifier('MyFunc tion')   -> 'myfunction'
     """
     return s.lower().replace('_', '').replace(' ', '')
 
@@ -129,8 +162,13 @@ class CodeFinder:
 
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
-        self.driver = self.db_manager.get_driver()
         self._lacks_native_fulltext = getattr(db_manager, 'get_backend_type', lambda: 'neo4j')() != 'neo4j'
+        self._active_graph = None
+
+    @property
+    def driver(self):
+        """Returns driver for the active graph (set via graph_name params), or default."""
+        return self.db_manager.get_driver(self._active_graph)
 
     def audit_kotlin_call_ambiguity(
         self,
@@ -138,10 +176,10 @@ class CodeFinder:
         limit: int = 20,
     ) -> Dict[str, Any]:
         """Audit Kotlin function-to-function CALLS edges for multi-target callsites."""
-        repo_path = str(Path(repo_path).resolve()) if repo_path else None
+        repo_path = Path(repo_path).resolve().as_posix() if repo_path else None
         repo_filter = "AND a.path STARTS WITH $repo_path" if repo_path else ""
         query = f"""
-            MATCH (a:Function)-[r:CALLS]->(b:Function)
+            MATCH (a:Function)-[r:CALLS|HEURISTIC_CALLS]->(b:Function)
             WHERE a.path ENDS WITH '.kt'
               AND b.path ENDS WITH '.kt'
               {repo_filter}
@@ -219,8 +257,8 @@ class CodeFinder:
             rows = session.run(query, **params).data()
 
         # Two query forms:
-        #   q_raw  – lowercased original (e.g. "myFuncton" → "myfuncton")
-        #   q_norm – separator-stripped  (e.g. "my_functon" → "myfuncton")
+        #    q_raw  – lowercased original (e.g. "myFuncton" → "myfuncton")
+        #    q_norm – separator-stripped  (e.g. "my_functon" → "myfuncton")
         # Using the minimum of both distances avoids the space-inflation bug where
         # the handler's replace('_', ' ') turns "my_functon" into "my functon",
         # which compares poorly against camelCase stored names.
@@ -404,7 +442,8 @@ class CodeFinder:
             """, search_term=search_term)
             return result.data()
 
-    def find_related_code(self, user_query: str, fuzzy_search: bool, edit_distance: int, repo_path: Optional[str] = None) -> Dict[str, Any]:
+    def find_related_code(self, user_query: str, fuzzy_search: bool, edit_distance: int, repo_path: Optional[str] = None, graph_name: str = None) -> Dict[str, Any]:
+        self._active_graph = graph_name
         """Find code related to a query using multiple search strategies"""
         # For Lucene backends: split snake_case/underscore tokens so Lucene sees
         # individual words, then append the fuzzy modifier.
@@ -525,18 +564,16 @@ class CodeFinder:
             repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
             if path:
                 result = session.run(f"""
-                    MATCH (caller)-[call:CALLS]->(target:Function {{name: $function_name, path: $path}})
+                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name, path: $path}})
                     WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
                         COALESCE(caller.path, caller_file.path) as caller_file_path,
                         caller.line_number as caller_line_number,
-                        caller.docstring as caller_docstring,
-                        caller.is_dependency as caller_is_dependency,
                         call.line_number as call_line_number,
                         call.args as call_args,
-                        call.full_call_name as full_call_name,
+                        caller.is_dependency as caller_is_dependency,
                         target.path as target_file_path
                 ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
                     LIMIT 20
@@ -545,18 +582,16 @@ class CodeFinder:
                 results = result.data()
                 if not results:
                     result = session.run(f"""
-                        MATCH (caller)-[call:CALLS]->(target:Function {{name: $function_name}})
+                        MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name}})
                         WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
                         OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                         RETURN DISTINCT
                             caller.name as caller_function,
                             COALESCE(caller.path, caller_file.path) as caller_file_path,
                             caller.line_number as caller_line_number,
-                            caller.docstring as caller_docstring,
-                            caller.is_dependency as caller_is_dependency,
                             call.line_number as call_line_number,
                             call.args as call_args,
-                            call.full_call_name as full_call_name,
+                            caller.is_dependency as caller_is_dependency,
                             target.path as target_file_path
                     ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
                         LIMIT 20
@@ -564,18 +599,16 @@ class CodeFinder:
                     results = result.data()
             else:
                 result = session.run(f"""
-                    MATCH (caller:Function)-[call:CALLS]->(target:Function {{name: $function_name}})
+                    MATCH (caller:Function)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name}})
                     WHERE 1=1 {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
                         caller.path as caller_file_path,
                         caller.line_number as caller_line_number,
-                        caller.docstring as caller_docstring,
-                        caller.is_dependency as caller_is_dependency,
                         call.line_number as call_line_number,
                         call.args as call_args,
-                        call.full_call_name as full_call_name,
+                        caller.is_dependency as caller_is_dependency,
                         target.path as target_file_path
                 ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
                     LIMIT 20
@@ -592,7 +625,7 @@ class CodeFinder:
                 absolute_file_path = str(Path(path).resolve())
                 result = session.run(f"""
                     MATCH (caller:Function {{name: $function_name, path: $absolute_file_path}})
-                    MATCH (caller)-[call:CALLS]->(called:Function)
+                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(called:Function)
                     WHERE called.path STARTS WITH $repo_path OR $repo_path IS NULL
                     OPTIONAL MATCH (called_file:File)-[:CONTAINS]->(called)
                     RETURN DISTINCT
@@ -609,7 +642,7 @@ class CodeFinder:
                 """, function_name=function_name, absolute_file_path=absolute_file_path, repo_path=repo_path)
             else:
                 result = session.run(f"""
-                    MATCH (caller:Function {{name: $function_name}})-[call:CALLS]->(called:Function)
+                    MATCH (caller:Function {{name: $function_name}})-[call:CALLS|HEURISTIC_CALLS]->(called:Function)
                     WHERE called.path STARTS WITH $repo_path OR $repo_path IS NULL
                     OPTIONAL MATCH (called_file:File)-[:CONTAINS]->(called)
                     RETURN DISTINCT
@@ -637,7 +670,7 @@ class CodeFinder:
                 OPTIONAL MATCH (repo:Repository)-[:CONTAINS]->(file)
                 WITH file, repo, COLLECT({{
                     imported_module: module.name,
-                    import_alias: module.alias,
+                    import_alias: imp.alias,
                     full_import_name: module.full_import_name
                 }}) AS imports
                 RETURN
@@ -771,32 +804,37 @@ class CodeFinder:
             
             return result.data()
     
-    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None) -> Dict[str, Any]:
+    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None, graph_name: str = None) -> Dict[str, Any]:
+        self._active_graph = graph_name
         """Find potentially unused functions (not called by other functions in the project), optionally excluding those with specific decorators."""
         if exclude_decorated_with is None:
             exclude_decorated_with = []
 
         with self.driver.session() as session:
             repo_filter = "AND func.path STARTS WITH $repo_path" if repo_path else ""
-            decorator_filter = "AND ALL(decorator_name IN $exclude_decorated_with WHERE NOT decorator_name IN func.decorators)" if exclude_decorated_with else ""
+            decorator_filter = ""
+            if exclude_decorated_with:
+                any_conditions = " AND ".join(
+                    f"NOT ANY(d IN func.decorators WHERE d CONTAINS '{p.replace(chr(39), chr(39)+chr(39))}')"
+                    for p in exclude_decorated_with
+                )
+                decorator_filter = f"AND {any_conditions}"
             func_ignore = cypher_path_not_under_ignore_dirs("func.path")
             caller_ignore = cypher_path_not_under_ignore_dirs("caller.path")
             
             query = f"""
                 MATCH (func:Function)
                 WHERE func.is_dependency = false {repo_filter} {func_ignore}
-                  AND NOT func.name IN ['main', 'setup', 'run']
+                  AND NOT toLower(func.name) IN {_ENTRY_POINT_NAMES_CYPHER}
+                  AND func.name <> '<module>'
                   AND NOT (func.name STARTS WITH '__' AND func.name ENDS WITH '__')
                   AND NOT func.name STARTS WITH '_test'
                   AND NOT func.name STARTS WITH 'test_'
-                  AND NOT func.name CONTAINS 'main'
-                  AND NOT toLower(func.name) CONTAINS 'application'
-                  AND NOT toLower(func.name) CONTAINS 'entry'
-                  AND NOT toLower(func.name) CONTAINS 'entrypoint'
                   {decorator_filter}
                 WITH func
-                OPTIONAL MATCH (caller:Function)-[:CALLS]->(func)
-                WHERE caller.is_dependency = false {caller_ignore}
+                OPTIONAL MATCH (caller)-[:CALLS|HEURISTIC_CALLS]->(func)
+                WHERE (caller.is_dependency IS NULL OR caller.is_dependency = false)
+                  {caller_ignore}
                 WITH func, count(caller) as caller_count
                 WHERE caller_count = 0
                 OPTIONAL MATCH (file:File)-[:CONTAINS]->(func)
@@ -814,9 +852,7 @@ class CodeFinder:
             params = {}
             if repo_path:
                 params["repo_path"] = repo_path
-            if exclude_decorated_with:
-                params["exclude_decorated_with"] = exclude_decorated_with
-                
+
             result = session.run(query, **params)
             
             return {
@@ -826,8 +862,9 @@ class CodeFinder:
     
     def find_all_callers(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, depth: int = 3) -> List[Dict]:
         """Find all direct and indirect callers of a specific function, returning edges."""
+        depth = _sanitize_depth(depth)
         with self.driver.session() as session:
-            repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
+            repo_filter = "AND path_nodes[0].path STARTS WITH $repo_path" if repo_path else ""
             depth_str = f"1..{depth}" if depth > 1 else "1"
             
             # KùzuDB-optimized: matching on the path end node via nodes(p) indexing
@@ -835,7 +872,7 @@ class CodeFinder:
             # on the end node of variable-length paths.
             if path:
                 query = f"""
-                    MATCH p = (caller:Function)-[:CALLS*{depth_str}]->(target:Function)
+                    MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(target:Function)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE last_node.name = $function_name AND last_node.path = $path
@@ -845,12 +882,12 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
                 query = f"""
-                    MATCH p = (caller:Function)-[:CALLS*{depth_str}]->(target:Function)
+                    MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(target:Function)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE last_node.name = $function_name
@@ -860,20 +897,21 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, repo_path=repo_path)
             return result.data()
 
     def find_all_callees(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, depth: int = 3) -> List[Dict]:
         """Find all direct and indirect callees of a specific function, returning edges."""
+        depth = _sanitize_depth(depth)
         with self.driver.session() as session:
-            repo_filter = "AND callee.path STARTS WITH $repo_path" if repo_path else ""
+            repo_filter = "AND last_node.path STARTS WITH $repo_path" if repo_path else ""
             depth_str = f"1..{depth}" if depth > 1 else "1"
             
             if path:
                 query = f"""
-                    MATCH p = (caller:Function {{name: $function_name, path: $path}})-[:CALLS*{depth_str}]->(callee:Function)
+                    MATCH p = (caller:Function {{name: $function_name, path: $path}})-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(callee:Function)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE 1=1 {repo_filter}
@@ -882,12 +920,12 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
                 query = f"""
-                    MATCH p = (caller:Function {{name: $function_name}})-[:CALLS*{depth_str}]->(callee:Function)
+                    MATCH p = (caller:Function {{name: $function_name}})-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(callee:Function)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE 1=1 {repo_filter}
@@ -896,7 +934,7 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, repo_path=repo_path)
             return result.data()
@@ -914,7 +952,7 @@ class CodeFinder:
                 MATCH (start:Function {start_props}), (end_target:Function {end_props})
                 {repo_filter}
                 WITH start as start, end_target as end_target
-                MATCH path = (start)-[:CALLS*1..{max_depth}]->()
+                MATCH path = (start)-[:CALLS|HEURISTIC_CALLS*1..{max_depth}]->()
                 WITH path as path, end_target as end_target, nodes(path) as func_nodes, relationships(path) as call_rels
                 WITH path as path, func_nodes as func_nodes, call_rels as call_rels, end_target as end_target, func_nodes[size(func_nodes)-1] as path_end
                 WHERE path_end.name = end_target.name AND (end_target.path IS NULL OR path_end.path = end_target.path)
@@ -1175,7 +1213,8 @@ class CodeFinder:
                 "instances": instances,
             }
 
-    def analyze_code_relationships(self, query_type: str, target: str, context: Optional[str] = None, repo_path: Optional[str] = None, depth: Optional[int] = None) -> Dict[str, Any]:
+    def analyze_code_relationships(self, query_type: str, target: str, context: Optional[str] = None, repo_path: Optional[str] = None, depth: Optional[int] = None, graph_name: str = None) -> Dict[str, Any]:
+        self._active_graph = graph_name
         """Main method to analyze different types of code relationships with fixed return types"""
         query_type = query_type.lower().strip()
         
@@ -1185,10 +1224,31 @@ class CodeFinder:
         try:
             if query_type == "find_callers":
                 results = self.who_calls_function(target, context, repo_path=repo_path)
-                return {
-                    "query_type": "find_callers", "target": target, "context": context, "results": results,
+                # target_file_path is only constant when `context` pinned a single
+                # definition. Without it, who_calls_function matches
+                # Function {name: $function_name} across every file, so rows
+                # legitimately carry different targets — hoisting the first row's
+                # value and stripping the rest reported every caller as calling
+                # whichever definition happened to sort first.
+                #
+                # Hoist only when the rows agree; otherwise leave the field on each
+                # row so the ambiguity is visible to the caller.
+                target_paths = {r.get("target_file_path") for r in results}
+                target_file_path = target_paths.pop() if len(target_paths) == 1 else None
+                if target_file_path is not None:
+                    for r in results:
+                        r.pop("target_file_path", None)
+                envelope = {
+                    "query_type": "find_callers", "target": target, "context": context,
+                    "target_file_path": target_file_path, "results": results,
                     "summary": f"Found {len(results)} functions that call '{target}'"
                 }
+                if target_file_path is None and len(target_paths) > 1:
+                    envelope["note"] = (
+                        f"'{target}' is defined in {len(target_paths)} files; each result "
+                        "carries its own target_file_path. Pass `context` to disambiguate."
+                    )
+                return envelope
             
             elif query_type == "find_callees":
                 results = self.what_does_function_call(target, context, repo_path=repo_path)
@@ -1240,15 +1300,19 @@ class CodeFinder:
                 }
             
             elif query_type in ["dead_code", "unused", "unreachable"]:
-                results = self.find_dead_code(repo_path=repo_path)
+                # graph_name must be forwarded: find_dead_code defaults it to None and
+                # re-assigns the shared self._active_graph, so omitting it here
+                # silently redirected the query to the default graph.
+                results = self.find_dead_code(repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "dead_code", "results": results,
                     "summary": f"Found {len(results['potentially_unused_functions'])} potentially unused functions"
                 }
             
             elif query_type == "find_complexity":
-                limit = int(context) if context and context.isdigit() else 10
-                results = self.find_most_complex_functions(limit, repo_path=repo_path)
+                limit_val = context if context else target
+                limit = int(limit_val) if limit_val and str(limit_val).isdigit() else 10
+                results = self.find_most_complex_functions(limit, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "find_complexity", "limit": limit, "results": results,
                     "summary": f"Found the top {len(results)} most complex functions"
@@ -1271,8 +1335,7 @@ class CodeFinder:
             elif query_type in ["call_chain", "path", "chain"]:
                 if '->' in target:
                     start_func, end_func = target.split('->', 1)
-                    # max_depth can be passed as context, default to 5 if not provided or invalid
-                    max_depth = int(context) if context and context.isdigit() else 5
+                    max_depth = int(context) if context and str(context).isdigit() else 5
                     results = self.find_function_call_chain(start_func.strip(), end_func.strip(), max_depth, repo_path=repo_path)
                     return {
                         "query_type": "call_chain", "target": target, "results": results,
@@ -1315,7 +1378,8 @@ class CodeFinder:
                 "target": target
             }
 
-    def get_cyclomatic_complexity(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> Optional[Dict]:
+    def get_cyclomatic_complexity(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: str = None) -> Optional[Dict]:
+        self._active_graph = graph_name
         """Get the cyclomatic complexity of a function."""
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
@@ -1342,7 +1406,8 @@ class CodeFinder:
                 return result_data[0]
             return None
 
-    def find_most_complex_functions(self, limit: int = 10, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_most_complex_functions(self, limit: int = 10, repo_path: Optional[str] = None, graph_name: str = None) -> List[Dict]:
+        self._active_graph = graph_name
         """Find the most complex functions based on cyclomatic complexity."""
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
@@ -1374,7 +1439,8 @@ class CodeFinder:
             result = session.run(query, file_path=file_path, limit=limit, repo_path=repo_path)
             return result.data()
 
-    def list_indexed_repositories(self) -> List[Dict]:
+    def list_indexed_repositories(self, graph_name: str = None) -> List[Dict]:
+        self._active_graph = graph_name
         """List all indexed repositories."""
         with self.driver.session() as session:
             result = session.run("""

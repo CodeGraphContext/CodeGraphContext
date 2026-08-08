@@ -25,6 +25,12 @@ KuzuDB is an in-process property graph database management system. It requires z
 - **Cross-Platform**: Natively supports Windows, Linux, and macOS on Python 3.10+.
 - **Data Directory**: Graphs are saved inside the local `.codegraphcontext/` directory within the workspace.
 
+### Version Compatibility
+
+| Package | Declared bounds (`pyproject.toml`) | Versions |
+| :--- | :--- | :--- |
+| `kuzu` | Not declared | `0.10.0`, `0.11.0`, `0.11.1`, `0.11.2`, `0.11.3` |
+
 ### Setup
 Ensure the driver is installed:
 ```bash
@@ -60,9 +66,18 @@ FalkorDB is a low-latency, high-performance graph database. It supports two exec
 An embedded, in-memory graph engine that uses local shared memory drivers.
 - **Limitation**: Unix-only (Linux and macOS) and requires Python 3.12+.
 - **Speed**: Optimal traversal latency due to in-memory index layouts.
+- **Content search**: `cgc find content` uses portable substring matching on `source` and `docstring` fields (no Neo4j Lucene index required).
 
 ### FalkorDB Remote
 Connects to an external Redis-compatible FalkorDB server instance running in a Docker container or network host.
+
+### Version Compatibility
+
+| Package | Declared bounds (`pyproject.toml`) | Versions |
+| :--- | :--- | :--- |
+| `falkordblite` | `>=0.7, <0.10` | `0.7.0`, `0.8.0`, `0.9.0` |
+| `falkordb` | `>=1.0, <1.6` | `1.5.0` |
+| `redis` | `>=5, <6` | `5.3.1` |
 
 ### Setup
 Install the target drivers:
@@ -92,6 +107,12 @@ Neo4j is the enterprise standard for graph database clustering, management, and 
 - **Neo4j Browser**: Connect to `http://localhost:7474` to visualize and interact with your code graph using Neo4j's query visualizer.
 - **Scale**: Handles repositories containing millions of lines of code.
 
+### Version Compatibility
+
+| Package | Declared bounds (`pyproject.toml`) | Versions |
+| :--- | :--- | :--- |
+| `neo4j` | `>=5.15.0` | `6.2.0` |
+
 ### Setup
 Start a Neo4j server (e.g., using Docker):
 ```bash
@@ -105,13 +126,30 @@ Configure CGC to connect to Neo4j:
 ```bash
 cgc config db neo4j
 cgc config set NEO4J_URI bolt://localhost:7687
-cgc config set NEO4J_USER neo4j
+cgc config set NEO4J_USERNAME neo4j
 cgc config set NEO4J_PASSWORD password
 ```
 
+Or run the interactive wizard: `cgc neo4j setup`.
+
 ---
 
-## In-Memory vs. File-Backed Selection Logic
+## 5. Nornic DB
+
+Nornic is a Neo4j-compatible embedded graph driver. Configure it when you want Bolt/Cypher semantics without a standalone Neo4j server.
+
+```bash
+cgc config db nornic
+cgc config set NORNIC_URI bolt://localhost:7687
+cgc config set NORNIC_USERNAME nornic
+cgc config set NORNIC_PASSWORD <password>
+```
+
+Connection keys mirror the Neo4j section in [Configuration Reference](../reference/config.md).
+
+---
+
+## Backend Selection Logic
 
 When executing commands, CGC automatically resolves the active database connection using the following precedence:
 

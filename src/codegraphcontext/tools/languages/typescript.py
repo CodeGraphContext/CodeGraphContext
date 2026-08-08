@@ -124,51 +124,89 @@ class TypescriptTreeSitterParser:
         return None, None, None
 
     def _calculate_complexity(self, node):
+        from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         complexity_nodes = {
             "if_statement", "for_statement", "while_statement", "do_statement",
             "switch_statement", "case_statement", "conditional_expression",
             "logical_expression", "binary_expression", "catch_clause"
         }
         count = 1
-        def traverse(n):
-            nonlocal count
+        skipped = False
+        def traverse(n, depth=0):
+            nonlocal count, skipped
+            if depth > MAX_AST_DEPTH:
+                skipped = True
+                return
             if n.type in complexity_nodes:
                 count += 1
             for child in n.children:
-                traverse(child)
+                traverse(child, depth + 1)
         traverse(node)
+        if skipped:
+            warning_logger(
+                f"AST depth exceeded {MAX_AST_DEPTH} levels; "
+                "complexity count may be underestimated."
+            )
         return count
 
     def _get_docstring(self, body_node):
         return None
 
+    def _same_node(self, left, right) -> bool:
+        return (
+            left.start_byte == right.start_byte
+            and left.end_byte == right.end_byte
+            and left.type == right.type
+        )
+
+    def _collect_preceding_decorators(self, node) -> list:
+        """Collect decorator siblings immediately before a class or method node."""
+        parent = node.parent
+        if not parent:
+            return []
+        decorators = []
+        for child in parent.children:
+            if self._same_node(child, node):
+                return decorators
+            if child.type == "decorator":
+                decorators.append(self._get_node_text(child))
+            elif child.type in ("export", "default", "async", "comment"):
+                continue
+            else:
+                decorators = []
+        return []
+
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict:
         self.index_source = index_source
-        with open(path, "r", encoding="utf-8") as f:
-            source_code = f.read()
-        tree = self.parser.parse(bytes(source_code, "utf8"))
-        root_node = tree.root_node
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                source_code = f.read()
+            tree = self.parser.parse(bytes(source_code, "utf8"))
+            root_node = tree.root_node
 
-        functions = self._find_functions(root_node)
-        classes = self._find_classes(root_node)
-        interfaces = self._find_interfaces(root_node)
-        type_aliases = self._find_type_aliases(root_node)
-        imports = self._find_imports(root_node)
-        function_calls = self._find_calls(root_node)
-        variables = self._find_variables(root_node)
+            functions = self._find_functions(root_node)
+            classes = self._find_classes(root_node)
+            interfaces = self._find_interfaces(root_node)
+            type_aliases = self._find_type_aliases(root_node)
+            imports = self._find_imports(root_node)
+            function_calls = self._find_calls(root_node)
+            variables = self._find_variables(root_node)
 
-        return {
-            "path": str(path),
-            "functions": functions,
-            "classes": classes,
-            "interfaces": interfaces,
-            "type_aliases": type_aliases,
-            "variables": variables,
-            "imports": imports,
-            "function_calls": function_calls,
-            "is_dependency": is_dependency,
-            "lang": self.language_name,
-        }
+            return {
+                "path": str(path),
+                "functions": functions,
+                "classes": classes,
+                "interfaces": interfaces,
+                "type_aliases": type_aliases,
+                "variables": variables,
+                "imports": imports,
+                "function_calls": function_calls,
+                "is_dependency": is_dependency,
+                "lang": self.language_name,
+            }
+        except Exception as e:
+            error_logger(f"Failed to parse TypeScript file {path}: {e}")
+            return {"path": str(path), "error": str(e)}
 
 
     def _find_functions(self, root_node):
@@ -235,6 +273,7 @@ class TypescriptTreeSitterParser:
             context, context_type, _ = self._get_parent_context(func_node)
             class_context = context if context_type == 'class_declaration' else None
             docstring = None
+            decorators = self._collect_preceding_decorators(func_node)
             func_data = {
                 "name": name,
                 "line_number": func_node.start_point[0] + 1,
@@ -244,7 +283,7 @@ class TypescriptTreeSitterParser:
                 "context": context,
                 "context_type": context_type,
                 "class_context": class_context,
-                "decorators": [],
+                "decorators": decorators,
                 "lang": self.language_name,
                 "is_dependency": False,
             }
@@ -314,7 +353,7 @@ class TypescriptTreeSitterParser:
                     "end_line": class_node.end_point[0] + 1,
                     "bases": bases,
                     "context": None,
-                    "decorators": [],
+                    "decorators": self._collect_preceding_decorators(class_node),
                     "lang": self.language_name,
                     "is_dependency": False,
                 }
@@ -337,7 +376,6 @@ class TypescriptTreeSitterParser:
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": node.end_point[0] + 1,
-                    "end_line": node.end_point[0] + 1,
                 }
                 if self.index_source:
                     interface_data["source"] = self._get_node_text(node)
@@ -356,7 +394,6 @@ class TypescriptTreeSitterParser:
                 type_alias_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
-                    "end_line": node.end_point[0] + 1,
                     "end_line": node.end_point[0] + 1,
                 }
                 if self.index_source:
@@ -413,8 +450,38 @@ class TypescriptTreeSitterParser:
                                 'lang': self.language_name})
         return imports
 
-    def _find_calls(self, root_node):
+    def _find_dynamic_imports(self, root_node):
         calls = []
+        query_str = """
+            (call_expression
+                function: (import)
+                arguments: (arguments) @args
+            ) @dynamic_import
+        """
+        for node, capture_name in execute_query(self.language, query_str, root_node):
+            if capture_name != "dynamic_import":
+                continue
+            args_node = node.child_by_field_name("arguments")
+            import_arg = None
+            if args_node and args_node.named_child_count > 0:
+                import_arg = self._get_node_text(args_node.named_child(0))
+            context = self._get_parent_context(node)
+            calls.append({
+                "name": "import",
+                "full_name": self._get_node_text(node),
+                "line_number": node.start_point[0] + 1,
+                "args": [import_arg] if import_arg else [],
+                "inferred_obj_type": None,
+                "context": context,
+                "class_context": self._get_parent_context(node, types=('class_declaration', 'abstract_class_declaration')),
+                "lang": self.language_name,
+                "is_dependency": False,
+                "call_kind": "dynamic_import",
+            })
+        return calls
+
+    def _find_calls(self, root_node):
+        calls = self._find_dynamic_imports(root_node)
         query_str = TS_QUERIES['calls']
         for node, capture_name in execute_query(self.language, query_str, root_node):
             if capture_name == 'name':
@@ -422,7 +489,11 @@ class TypescriptTreeSitterParser:
                 call_node = node.parent
                 while call_node and call_node.type not in ('call_expression', 'new_expression') and call_node.type != 'program':
                     call_node = call_node.parent
-                
+                if call_node:
+                    func_node = call_node.child_by_field_name('function')
+                    if func_node and func_node.type == 'import':
+                        continue
+
                 name = self._get_node_text(node)
 
                 # Improved args extraction
@@ -514,7 +585,7 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
     
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 source_code = f.read()
                 tree = parser_wrapper.parser.parse(bytes(source_code, "utf8"))
             
@@ -563,7 +634,7 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
                         if name:
                             if name not in imports_map:
                                 imports_map[name] = []
-                            file_path_str = str(path.resolve())
+                            file_path_str = path.resolve().as_posix()
                             if file_path_str not in imports_map[name]:
                                 imports_map[name].append(file_path_str)
                                 

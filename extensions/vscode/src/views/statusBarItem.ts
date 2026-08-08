@@ -5,6 +5,18 @@ import { cgcEvents } from "../mcp/eventBus";
 type StatusState = "online" | "offline" | "indexing";
 
 /**
+ * Default priority for the CGC status bar item.
+ *
+ * VS Code renders Right-aligned items in descending priority order
+ * (higher number = further left / more prominent). Pinning this to
+ * a named constant avoids the "arbitrary priority" problem described
+ * in issue #1118 and makes it easy for contributors to see—and
+ * override via settings—exactly where CGC sits relative to other
+ * extensions.
+ */
+const DEFAULT_STATUS_BAR_PRIORITY = 1000;
+
+/**
  * Persistent status bar item showing CGC health.
  *
  *  Green  = indexed + MCP online
@@ -20,10 +32,23 @@ export class CgcStatusBarItem implements vscode.Disposable {
   private spinTimer?: NodeJS.Timeout;
 
   constructor(private readonly client: CgcMcpClient) {
-    this.item = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Right,
-      1000
+    // Read user-configured alignment and priority so the item's
+    // position is explicit and stable across VS Code versions and
+    // other extensions (fixes issue #1118).
+    const cfg = vscode.workspace.getConfiguration("cgc");
+
+    const alignmentSetting = cfg.get<string>("statusBarAlignment", "right");
+    const alignment =
+      alignmentSetting === "left"
+        ? vscode.StatusBarAlignment.Left
+        : vscode.StatusBarAlignment.Right;
+
+    const priority = cfg.get<number>(
+      "statusBarPriority",
+      DEFAULT_STATUS_BAR_PRIORITY
     );
+
+    this.item = vscode.window.createStatusBarItem(alignment, priority);
     this.item.command = "cgc.openDashboard";
     this.item.tooltip = "CodeGraphContext — click to open dashboard";
     this._subscribeEvents();

@@ -7,19 +7,62 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class RegistryUnavailableError(RuntimeError):
+    """Raised when the remote bundle registry cannot be reached."""
+
+
+import os
+import re
+
+#: Hugging Face dataset repos are `owner/name`; anything else (a slash-prefixed
+#: value, a scheme, a host) would let HF_REGISTRY_REPO steer the request to an
+#: arbitrary host — and therefore steer any credential attached to it.
+_HF_REPO_RE = re.compile(r"\A[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*\Z")
+
+DEFAULT_HF_REGISTRY_REPO = "codegraphcontext/registry"
+
+
 def _github_headers() -> dict:
-    """Return GitHub API headers, including auth token if available."""
-    import os
+    """Return GitHub API headers, including auth token if available.
+
+    Only ever attach this to api.github.com requests. The registry manifest
+    lives on huggingface.co and must not receive a GitHub credential.
+    """
     headers = {"Accept": "application/vnd.github.v3+json"}
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if token:
         headers["Authorization"] = f"token {token}"
     return headers
 
+
+def _huggingface_headers() -> dict:
+    """Headers for huggingface.co. Uses HF_TOKEN — never the GitHub token."""
+    headers = {"Accept": "application/json"}
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _resolve_hf_registry_repo() -> str:
+    """Return the configured HF dataset repo, rejecting anything not `owner/name`."""
+    hf_repo = os.environ.get("HF_REGISTRY_REPO") or DEFAULT_HF_REGISTRY_REPO
+    if not _HF_REPO_RE.match(hf_repo):
+        logger.warning(
+            "Ignoring invalid HF_REGISTRY_REPO %r (expected 'owner/name'); "
+            "falling back to %s",
+            hf_repo,
+            DEFAULT_HF_REGISTRY_REPO,
+        )
+        return DEFAULT_HF_REGISTRY_REPO
+    return hf_repo
+
+
 def _get_manifest_url() -> str:
-    import os
-    hf_repo = os.environ.get("HF_REGISTRY_REPO") or "codegraphcontext/registry"
-    return f"https://huggingface.co/datasets/{hf_repo}/raw/main/manifest.json"
+    return (
+        f"https://huggingface.co/datasets/{_resolve_hf_registry_repo()}"
+        "/raw/main/manifest.json"
+    )
 
 class BundleRegistry:
     """
@@ -35,21 +78,26 @@ class BundleRegistry:
         Preserves all versions - no deduplication.
         """
         all_bundles = []
-        
-        # 1. Fetch on-demand bundles from manifest
+        fetch_errors: list[str] = []
+
         try:
-            response = requests.get(_get_manifest_url(), headers=_github_headers(), timeout=10)
+            response = requests.get(_get_manifest_url(), headers=_huggingface_headers(), timeout=10)
             if response.status_code == 200:
                 manifest = response.json()
                 if manifest.get('bundles'):
                     for bundle in manifest['bundles']:
                         bundle['source'] = 'on-demand'
-                        # Ensure bundle has a full_name field (with version info)
                         if 'bundle_name' in bundle:
-                            # Extract full name without .cgc extension
                             bundle['full_name'] = bundle['bundle_name'].replace('.cgc', '')
                         all_bundles.append(bundle)
+            else:
+                fetch_errors.append(
+                    f"registry manifest returned HTTP {response.status_code}"
+                )
+        except requests.RequestException as e:
+            fetch_errors.append(f"network error: {e}")
         except Exception as e:
+            fetch_errors.append(str(e))
             logger.warning(f"Could not fetch on-demand bundles from manifest: {e}")
         # Normalize all bundles to have required fields
         for bundle in all_bundles:
@@ -67,6 +115,11 @@ class BundleRegistry:
             if 'full_name' not in bundle:
                 bundle['full_name'] = bundle.get('bundle_name', bundle.get('name', 'unknown')).replace('.cgc', '')
         
+        if not all_bundles and fetch_errors:
+            raise RegistryUnavailableError(
+                "Bundle registry is unreachable (internet connection required). "
+                + "; ".join(fetch_errors)
+            )
         return all_bundles
 
     @staticmethod
