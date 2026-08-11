@@ -1,5 +1,7 @@
 # 🏗️ CodeGraphContext (CGC)
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2FCodeGraphContext.svg)](https://mcptoplist.com/server/glama%2FCodeGraphContext)
+
 **Turn code repositories into a queryable graph for AI agents.**
 
 🌐 **Languages:**
