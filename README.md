@@ -261,6 +261,12 @@ Each language parser extracts functions, classes, methods, parameters, inheritan
 
 **Solidity notes:** `.sol` uses Tree-sitter via `tree-sitter-language-pack` (no SCIP). Supports Foundry remappings, modifier invocations, `using Lib for T`, and `emit` / custom-error `revert` as CALLS. See `docs/docs/contributing_languages.md` § Solidity.
 
+**Kotlin notes:** Annotations are recorded on functions and classes as `decorators`, retaining
+their arguments (`@Preview(showBackground = true)`). This makes `find_dead_code`'s
+`exclude_decorated_with` usable on Kotlin and Android codebases — for example excluding
+`Composable`, `Preview`, `Test`, `Inject` and `Provides`. Annotations on interfaces, objects,
+constructors, parameters and properties are not yet recorded.
+
 ---
 
 ## Database Options
