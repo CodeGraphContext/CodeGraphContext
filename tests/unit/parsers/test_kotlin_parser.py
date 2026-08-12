@@ -4191,3 +4191,72 @@ class TestKotlinDecorators:
         assert fn["decorators"] == [
             '@Deprecated( message = "old", replaceWith = ReplaceWith("newThing()") )'
         ]
+
+    def test_annotated_class_carries_decorators(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @HiltViewModel
+            class MyViewModel {
+                fun load() {
+                }
+            }
+            """,
+        )
+        cls = next(c for c in data["classes"] if c["name"] == "MyViewModel")
+        assert cls["decorators"] == ["@HiltViewModel"]
+
+    def test_plain_class_emits_empty_decorators_list(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            class Plain {
+            }
+            """,
+        )
+        cls = next(c for c in data["classes"] if c["name"] == "Plain")
+        assert "decorators" in cls
+        assert cls["decorators"] == []
+
+    def test_annotation_class_keyword_is_not_a_decorator(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            annotation class Fancy(val id: Int)
+            """,
+        )
+        cls = next(c for c in data["classes"] if c["name"] == "Fancy")
+        # `annotation` here is the class_modifier keyword, not an annotation.
+        # It parses to a node of type `annotation` nested under `class_modifier`,
+        # so only scanning *direct* children of `modifiers` excludes it.
+        assert cls["decorators"] == []
+
+    def test_interface_does_not_carry_decorators(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Dao
+            interface UserDao {
+                @Query("SELECT * FROM users")
+                fun all(): Int
+            }
+            """,
+        )
+        iface = next(c for c in data["interfaces"] if c["name"] == "UserDao")
+        # The Interface node table has no `decorators` column
+        # (database_embedded_kuzu.py:181, allow-list :827), and Kuzu drops
+        # unknown properties silently. Deferred to PR 1b.
+        assert "decorators" not in iface
+
+        # The interface's methods are function_declaration nodes and DO carry
+        # decorators -- which is what preserves the dead-code payoff for @Dao types.
+        fn = next(f for f in data["functions"] if f["name"] == "all")
+        assert fn["decorators"] == ['@Query("SELECT * FROM users")']

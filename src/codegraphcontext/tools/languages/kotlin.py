@@ -1422,6 +1422,12 @@ class KotlinTreeSitterParser:
                         "path": str(path),
                         "lang": self.language_name,
                     }
+                    # Only the Class node table declares a `decorators` column.
+                    # Interface and Object do not, and the Kuzu backend drops
+                    # unknown properties silently -- so gate on the category
+                    # rather than setting it on the shared class_data dict.
+                    if category == "classes":
+                        class_data["decorators"] = self._get_node_annotations(node)
                     if is_nested_class:
                         class_data["class_context"] = context_name
                         if context_line is not None:
