@@ -4268,20 +4268,33 @@ class TestKotlinDecorators:
         fixture = FIXTURES / "sample_project_kotlin" / "AndroidAnnotations.kt"
         data = parser.parse(fixture)
 
-        by_name = {f["name"]: f for f in data["functions"]}
-        assert by_name["Greeting"]["decorators"] == ["@Composable"]
-        assert by_name["GreetingPreview"]["decorators"] == [
+        greeting = next(f for f in data["functions"] if f["name"] == "Greeting")
+        assert greeting["decorators"] == ["@Composable"]
+
+        greeting_preview = next(
+            f for f in data["functions"] if f["name"] == "GreetingPreview"
+        )
+        assert greeting_preview["decorators"] == [
             "@Composable",
             '@Preview(showBackground = true, name = "Greeting preview")',
         ]
-        assert by_name["findAll"]["decorators"] == ['@Query("SELECT * FROM users")']
-        assert by_name["helped"]["decorators"] == []
 
-        classes = {c["name"]: c for c in data["classes"]}
-        assert classes["UserViewModel"]["decorators"] == ["@HiltViewModel"]
-        assert classes["UserEntity"]["decorators"] == ['@Entity(tableName = "users")']
-        assert classes["PlainHelper"]["decorators"] == []
+        find_all = next(f for f in data["functions"] if f["name"] == "findAll")
+        assert find_all["decorators"] == ['@Query("SELECT * FROM users")']
+
+        helped = next(f for f in data["functions"] if f["name"] == "helped")
+        assert helped["decorators"] == []
+
+        user_view_model = next(c for c in data["classes"] if c["name"] == "UserViewModel")
+        assert user_view_model["decorators"] == ["@HiltViewModel"]
+
+        user_entity = next(c for c in data["classes"] if c["name"] == "UserEntity")
+        assert user_entity["decorators"] == ['@Entity(tableName = "users")']
+
+        plain_helper = next(c for c in data["classes"] if c["name"] == "PlainHelper")
+        assert plain_helper["decorators"] == []
 
         # The stub `annotation class` declarations must not pick up their own
         # `annotation` keyword as a decorator.
-        assert classes["Composable"]["decorators"] == []
+        composable = next(c for c in data["classes"] if c["name"] == "Composable")
+        assert composable["decorators"] == []

@@ -5,7 +5,6 @@ package com.example.project.android
 annotation class Composable
 annotation class Preview(val showBackground: Boolean = false, val name: String = "")
 annotation class HiltViewModel
-annotation class Inject
 annotation class Entity(val tableName: String = "")
 annotation class Dao
 annotation class Query(val value: String)

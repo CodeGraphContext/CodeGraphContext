@@ -264,7 +264,7 @@ Each language parser extracts functions, classes, methods, parameters, inheritan
 **Kotlin notes:** Annotations are recorded on functions and classes as `decorators`, retaining
 their arguments (`@Preview(showBackground = true)`). This makes `find_dead_code`'s
 `exclude_decorated_with` usable on Kotlin and Android codebases — for example excluding
-`Composable`, `Preview`, `Test`, `Inject` and `Provides`. Annotations on interfaces, objects,
+`Composable`, `Preview`, `Test`, `HiltViewModel` and `Provides`. Annotations on interfaces, objects,
 constructors, parameters and properties are not yet recorded.
 
 ---
