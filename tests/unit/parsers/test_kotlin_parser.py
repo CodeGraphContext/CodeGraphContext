@@ -42,6 +42,9 @@ def _write_source(root: Path, relative_path: str, src: str) -> Path:
     return path
 
 
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "sample_projects"
+
+
 EVENT_PROCESSOR_SRC = """
 package com.example
 
@@ -4260,3 +4263,25 @@ class TestKotlinDecorators:
         # decorators -- which is what preserves the dead-code payoff for @Dao types.
         fn = next(f for f in data["functions"] if f["name"] == "all")
         assert fn["decorators"] == ['@Query("SELECT * FROM users")']
+
+    def test_android_fixture_annotations_are_extracted(self, parser):
+        fixture = FIXTURES / "sample_project_kotlin" / "AndroidAnnotations.kt"
+        data = parser.parse(fixture)
+
+        by_name = {f["name"]: f for f in data["functions"]}
+        assert by_name["Greeting"]["decorators"] == ["@Composable"]
+        assert by_name["GreetingPreview"]["decorators"] == [
+            "@Composable",
+            '@Preview(showBackground = true, name = "Greeting preview")',
+        ]
+        assert by_name["findAll"]["decorators"] == ['@Query("SELECT * FROM users")']
+        assert by_name["helped"]["decorators"] == []
+
+        classes = {c["name"]: c for c in data["classes"]}
+        assert classes["UserViewModel"]["decorators"] == ["@HiltViewModel"]
+        assert classes["UserEntity"]["decorators"] == ['@Entity(tableName = "users")']
+        assert classes["PlainHelper"]["decorators"] == []
+
+        # The stub `annotation class` declarations must not pick up their own
+        # `annotation` keyword as a decorator.
+        assert classes["Composable"]["decorators"] == []
