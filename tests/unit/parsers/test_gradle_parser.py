@@ -126,6 +126,10 @@ def test_single_root_module_with_no_includes_keeps_working(tmp_path: Path):
 
     assert len(data["modules"]) == 1
     module = data["modules"][0]
-    assert module["name"]  # non-empty; single module must still be indexable
+    # Pin today's actual value (the leaf directory name of the repo root,
+    # per the pre-existing gradle_path.parent.name convention) rather than
+    # a truthiness check, so a later change to the root-module fallback
+    # branch in _resolve_module_name would be caught here.
+    assert module["name"] == "repo"
     assert len(data["external_libs"]) == 1
     assert data["external_libs"][0]["src_name"] == module["name"]
