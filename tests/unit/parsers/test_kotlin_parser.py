@@ -4090,3 +4090,104 @@ class TestKotlinSemanticResolution:
         }
         assert calls_by_name["fromCall.applyEvent"]["inferred_obj_type"] is None
         assert calls_by_name["fromComparison.applyEvent"]["inferred_obj_type"] is None
+
+
+class TestKotlinDecorators:
+    """Annotation extraction into the `decorators` property (PR 1a)."""
+
+    def test_plain_function_emits_empty_decorators_list(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            fun plain(): Int {
+                return 1
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "plain")
+        # The key must be present and an empty list -- not missing, not None.
+        # find_dead_code filters with NOT ANY(d IN func.decorators ...), which
+        # evaluates NULL (not TRUE) against an unset property, silently dropping
+        # un-annotated functions from results.
+        assert "decorators" in fn
+        assert fn["decorators"] == []
+
+    def test_single_annotation_on_function(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            fun Greeting(name: String) {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "Greeting")
+        assert fn["decorators"] == ["@Composable"]
+
+    def test_multiple_annotations_preserve_source_order(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            @Preview(showBackground = true)
+            fun GreetingPreview() {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "GreetingPreview")
+        assert fn["decorators"] == ["@Composable", "@Preview(showBackground = true)"]
+
+    def test_annotation_arguments_are_retained_verbatim(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Query("SELECT * FROM users")
+            fun all() {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "all")
+        assert fn["decorators"] == ['@Query("SELECT * FROM users")']
+
+    def test_visibility_and_function_modifiers_do_not_leak(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            private inline suspend fun Greeting(name: String) {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "Greeting")
+        # `private` and `inline` are visibility_modifier / function_modifier
+        # siblings inside the same `modifiers` node. They belong to PR 1b.
+        assert fn["decorators"] == ["@Composable"]
+
+    def test_multiline_annotation_is_collapsed_to_one_line(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Deprecated(
+                message = "old",
+                replaceWith = ReplaceWith("newThing()")
+            )
+            fun multiLine() {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "multiLine")
+        assert fn["decorators"] == [
+            '@Deprecated( message = "old", replaceWith = ReplaceWith("newThing()") )'
+        ]
