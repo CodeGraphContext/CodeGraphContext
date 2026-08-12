@@ -43,9 +43,18 @@ def _parse_settings_includes(repo_root: Path) -> Dict[str, str]:
     module directory (relative to repo_root, POSIX-separated, e.g.
     "feature/symptoms") -> canonical Gradle path (e.g. ":feature:symptoms").
 
-    Known limitation: only single-line include statements are recognised
-    (parenthesized or bare Groovy form, single or comma-separated
-    multi-arg). Include lists spanning multiple lines are not parsed.
+    Statements may be parenthesized or bare Groovy form, single or
+    comma-separated multi-arg, and may span multiple lines (including with
+    a trailing comma) — `_INCLUDE_STATEMENT_PATTERN`'s `\\s*` matches
+    newlines.
+
+    Include tokens are normalized to colon-separated form (":" +
+    segments joined with ":") regardless of whether the raw token itself
+    used "/" or ":" as a separator, so this map's values always agree with
+    the equally-normalized inter-module dependency targets built in
+    `GradleParser.parse` — two different code paths that must construct the
+    same canonical string can't be trusted to coincide just because they
+    happen to for colon-only input.
     """
     includes: Dict[str, str] = {}
     for fname in ("settings.gradle.kts", "settings.gradle"):
@@ -62,7 +71,7 @@ def _parse_settings_includes(repo_root: Path) -> Dict[str, str]:
                 if not token.startswith(":"):
                     continue
                 rel_dir = token[1:].replace(":", "/")
-                includes[rel_dir] = token
+                includes[rel_dir] = ":" + token[1:].replace("/", ":")
     return includes
 
 
