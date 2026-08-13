@@ -1017,9 +1017,28 @@ class GraphWriter:
             external_batch = [r for r in inheritance_batch if r.get("resolved_parent_file_path") == "__external__"]
 
             labels = ("Class", "Trait", "Interface", "Struct", "Enum", "Union", "Record", "Mixin", "Extension", "Module", "Object", "Variable")
+
+            def _label_is_populated(label: str) -> bool:
+                # An empty node table can never match, so skip the pair entirely.
+                # If the existence probe itself fails for any reason, fall back to
+                # treating the label as populated -- we must never *skip* a pair
+                # that could have produced a real edge.
+                cypher_label = _cypher_label(label, backend)
+                try:
+                    result = session.run(f"MATCH (n:{cypher_label}) RETURN n LIMIT 1")
+                    return result.single() is not None
+                except Exception:
+                    return True
+
+            populated_labels = {label for label in labels if _label_is_populated(label)}
+
             for child_label in labels:
+                if child_label not in populated_labels:
+                    continue
                 child_cypher = _cypher_label(child_label, backend)
                 for parent_label in labels:
+                    if parent_label not in populated_labels:
+                        continue
                     parent_cypher = _cypher_label(parent_label, backend)
                     try:
                         session.run(
@@ -1038,6 +1057,8 @@ class GraphWriter:
                         raise e
 
             for child_label in labels:
+                if child_label not in populated_labels:
+                    continue
                 child_cypher = _cypher_label(child_label, backend)
                 try:
                     session.run(
