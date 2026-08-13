@@ -151,6 +151,16 @@ class CGCIgnoreMatcher:
             if is_root_anchored:
                 pat = pat[1:]
 
+            # Under gitignore semantics a slash anywhere except the trailing
+            # position anchors the pattern to the ignore root: `src/generated`
+            # matches <root>/src/generated only, never vendor/src/generated.
+            # Only a *leading* slash used to anchor here, so any multi-segment
+            # pattern matched at every depth and silently over-ignored.
+            # `build/` keeps matching at any depth -- its slash was already
+            # stripped as is_dir_only, so no internal slash remains.
+            if '/' in pat:
+                is_root_anchored = True
+
             # `**` spans whole path segments, never part of one. Joining the
             # translated pieces with a bare `.*` lets the wildcard match inside a
             # segment, so `docs/**` would swallow `docstring.py` and `**/build`
