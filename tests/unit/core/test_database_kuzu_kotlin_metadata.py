@@ -883,3 +883,166 @@ def test_interface_object_visibility_modifiers_migrate_onto_pre_existing_kuzu_db
         assert {"visibility", "modifiers"} <= object_columns
     finally:
         manager.close_driver()
+
+
+def test_write_binds_links_creates_kuzu_edge_between_interface_and_class(tmp_path):
+    """Hilt's @Binds is the only link between an interface and its impl class.
+
+    write_binds_links MATCHes existing nodes rather than creating them, so
+    this test creates the Interface and Class first -- otherwise the MERGE
+    would silently match nothing and the test would pass vacuously.
+    """
+    manager = _fresh_kuzu_manager(tmp_path / "binds-db")
+    try:
+        driver = manager.get_driver()
+        with driver.session() as session:
+            session.run(
+                """
+                MERGE (i:Interface {uid: $uid})
+                SET i.name = $name, i.path = $path, i.line_number = $line_number
+                """,
+                uid="iface-1",
+                name="UserRepository",
+                path="/repo/UserRepository.kt",
+                line_number=3,
+            )
+            session.run(
+                """
+                MERGE (c:Class {uid: $uid})
+                SET c.name = $name, c.path = $path, c.line_number = $line_number
+                """,
+                uid="class-1",
+                name="UserRepositoryImpl",
+                path="/repo/UserRepositoryImpl.kt",
+                line_number=5,
+            )
+
+        writer = GraphWriter(driver)
+        writer.write_binds_links(
+            [
+                {
+                    "source_name": "UserRepository",
+                    "source_path": "/repo/UserRepository.kt",
+                    "target_name": "UserRepositoryImpl",
+                    "target_path": "/repo/UserRepositoryImpl.kt",
+                    "line_number": 12,
+                    "provider": "Binds",
+                    "confidence_label": "EXTRACTED",
+                }
+            ]
+        )
+
+        with driver.session() as session:
+            rows = session.run(
+                """
+                MATCH (:Interface {name: $source_name, path: $source_path})
+                      -[r:BINDS]->
+                      (:Class {name: $target_name, path: $target_path})
+                RETURN r.line_number AS line_number, r.provider AS provider
+                """,
+                source_name="UserRepository",
+                source_path="/repo/UserRepository.kt",
+                target_name="UserRepositoryImpl",
+                target_path="/repo/UserRepositoryImpl.kt",
+            ).data()
+            total = session.run(
+                "MATCH ()-[r:BINDS]->() RETURN count(r) AS n"
+            ).single()
+
+        assert rows == [{"line_number": 12, "provider": "Binds"}]
+        assert total is not None and total["n"] == 1
+    finally:
+        manager.close_driver()
+
+
+def test_write_binds_links_does_not_create_spurious_edge_from_same_named_node(tmp_path):
+    """A same-named node under a different label must not pick up an edge.
+
+    Kotlin does not qualify `name` by enclosing scope (kotlin.py:1394-1436),
+    so a top-level `interface Foo` and an unrelated nested `class Foo` can
+    legitimately share name+path. write_binds_links tries every declared
+    (source_label, target_label) pair since the row carries no label -- it
+    must stop at the first pair that actually matches real endpoints, or the
+    coincidentally same-named Class would also match and produce a second,
+    spurious BINDS edge for the same row.
+    """
+    manager = _fresh_kuzu_manager(tmp_path / "binds-same-name-db")
+    try:
+        driver = manager.get_driver()
+        with driver.session() as session:
+            session.run(
+                """
+                MERGE (i:Interface {uid: $uid})
+                SET i.name = $name, i.path = $path, i.line_number = $line_number
+                """,
+                uid="iface-foo",
+                name="Foo",
+                path="/a.kt",
+                line_number=1,
+            )
+            # An unrelated Class that happens to share name+path with the
+            # Interface above -- e.g. a nested `class Foo` in the same file.
+            session.run(
+                """
+                MERGE (c:Class {uid: $uid})
+                SET c.name = $name, c.path = $path, c.line_number = $line_number
+                """,
+                uid="class-foo",
+                name="Foo",
+                path="/a.kt",
+                line_number=20,
+            )
+            session.run(
+                """
+                MERGE (c:Class {uid: $uid})
+                SET c.name = $name, c.path = $path, c.line_number = $line_number
+                """,
+                uid="class-fooimpl",
+                name="FooImpl",
+                path="/a.kt",
+                line_number=30,
+            )
+
+        writer = GraphWriter(driver)
+        writer.write_binds_links(
+            [
+                {
+                    "source_name": "Foo",
+                    "source_path": "/a.kt",
+                    "target_name": "FooImpl",
+                    "target_path": "/a.kt",
+                    "line_number": 5,
+                    "provider": "Binds",
+                    "confidence_label": "EXTRACTED",
+                }
+            ]
+        )
+
+        with driver.session() as session:
+            total = session.run(
+                "MATCH ()-[r:BINDS]->() RETURN count(r) AS n"
+            ).single()
+            from_interface = session.run(
+                """
+                MATCH (:Interface {name: $name, path: $path})-[r:BINDS]->(:Class {name: $target})
+                RETURN count(r) AS n
+                """,
+                name="Foo",
+                path="/a.kt",
+                target="FooImpl",
+            ).single()
+            from_class = session.run(
+                """
+                MATCH (:Class {name: $name, path: $path})-[r:BINDS]->(:Class {name: $target})
+                RETURN count(r) AS n
+                """,
+                name="Foo",
+                path="/a.kt",
+                target="FooImpl",
+            ).single()
+
+        assert total is not None and total["n"] == 1
+        assert from_interface is not None and from_interface["n"] == 1
+        assert from_class is not None and from_class["n"] == 0
+    finally:
+        manager.close_driver()
