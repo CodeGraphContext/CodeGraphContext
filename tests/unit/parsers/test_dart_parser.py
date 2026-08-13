@@ -42,6 +42,7 @@ void topLevel() {
     path.write_text(source, encoding="utf-8")
 
     result = dart_parser.parse(path)
+    assert isinstance(result, dict)
 
     calls = result["function_calls"]
     assert [call["name"] for call in calls] == ["print", "callMe", "print", "where", "toList"]

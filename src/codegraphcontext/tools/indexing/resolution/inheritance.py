@@ -19,6 +19,9 @@ def resolve_inheritance_link(
     if base_class_str == "object":
         return None
 
+    if not base_class_str:
+        return None
+
     # Unwrap JS/TS mixins like Swimmable(Flyable(Person)) -> Person
     m = re.search(r'([A-Za-z0-9_.]+)(?:\s*\))*$', base_class_str)
     if m:
@@ -89,8 +92,9 @@ def build_inheritance_and_csharp_files(
                 local_class_names.add(item["name"])
 
         local_imports = {
-            imp.get("alias") or imp["name"].split(".")[-1]: imp["name"]
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: imp.get("name")
             for imp in file_data.get("imports", [])
+            if imp.get("name")
         }
 
         for key in ["classes", "structs", "traits", "interfaces", "mixins", "enums", "extensions", "variables"]:
@@ -320,6 +324,8 @@ def _resolve_decorator_path(
         return caller_path
     if decorator_name in local_imports:
         imported = local_imports[decorator_name]
+        if not isinstance(imported, str) or not imported:
+            return caller_path
         lookup = imported.split(".")[-1]
         paths = imports_map.get(lookup, imports_map.get(imported, []))
         if len(paths) == 1:
@@ -346,8 +352,15 @@ def build_decorated_by_links(
             for item in file_data.get(key, [])
             if item.get("name")
         }
+        # Parsed imports carry `name` / `full_import_name`; there is no `source`
+        # key, so this mapped every imported symbol to None and made
+        # _resolve_decorator_path bail out to the caller's own file before it
+        # could consult imports_map. Mirrors the working construction in
+        # build_inheritance_links above.
         local_imports = {
-            imp.get("alias") or imp.get("name"): imp.get("source")
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: (
+                imp.get("full_import_name") or imp.get("name")
+            )
             for imp in file_data.get("imports", [])
             if imp.get("name") or imp.get("alias")
         }
@@ -402,8 +415,15 @@ def build_metaclass_links(
             continue
         caller_file_path = str(Path(file_data["path"]).resolve().as_posix())
         local_class_names = {c["name"] for c in file_data.get("classes", [])}
+        # Parsed imports carry `name` / `full_import_name`; there is no `source`
+        # key, so this mapped every imported symbol to None and made
+        # _resolve_decorator_path bail out to the caller's own file before it
+        # could consult imports_map. Mirrors the working construction in
+        # build_inheritance_links above.
         local_imports = {
-            imp.get("alias") or imp.get("name"): imp.get("source")
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: (
+                imp.get("full_import_name") or imp.get("name")
+            )
             for imp in file_data.get("imports", [])
             if imp.get("name") or imp.get("alias")
         }
@@ -493,6 +513,8 @@ def build_embeds_links(
             if not struct_name:
                 continue
             for base in struct.get("bases") or []:
+                if not base:
+                    continue
                 base_name = base.split(".")[-1]
                 if base_name not in struct_names:
                     continue

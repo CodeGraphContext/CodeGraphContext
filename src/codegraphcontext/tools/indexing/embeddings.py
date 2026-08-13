@@ -260,6 +260,14 @@ class EmbeddingPipeline:
                 batch_num += 1
                 continue
 
+            if len(vectors) != len(batch):
+                warning_logger(
+                    f"[EMBED] Batch {batch_num + 1}/{n_batches} length mismatch: "
+                    f"got {len(vectors)} vectors for {len(batch)} inputs; skipping batch"
+                )
+                batch_num += 1
+                continue
+
             write_rows = [
                 {
                     "path": path,

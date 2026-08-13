@@ -123,8 +123,15 @@ LANGUAGE_ALIASES = {
     ".el": "elisp",
     "emacs-lisp": "elisp",
     "emacs_lisp": "elisp",
+    "solidity": "solidity",
+    "sol": "solidity",
+    ".sol": "solidity",
     "html": "html",
     "css": "css",
+    "svelte": "svelte",
+    ".svelte": "svelte",
+    "vue": "vue",
+    ".vue": "vue",
 }
 
 # Canonical names that differ from tree-sitter-language-pack names
@@ -312,18 +319,38 @@ def create_parser(lang: str) -> Parser:
     return get_tree_sitter_manager().create_parser(lang)
 
 
+# Serialises query construction and execution across threads.
+#
+# `cgc index` runs parsers on a thread pool, and building a `Query` / running a
+# `QueryCursor` concurrently on different languages crashes the native
+# extension — a hard `Fatal Python error: Segmentation fault`, not a Python
+# exception, so nothing above can catch or retry it (#1370). Reported
+# tracebacks show three threads inside this function at once, on three
+# different grammars.
+#
+# The lock is process-wide rather than per-language on purpose: the reports
+# involve *different* languages crashing together, so a per-language lock would
+# not have prevented them. Parsing itself (`parser.parse`) stays parallel; only
+# the query step is serialised, and it is a small fraction of per-file work.
+_QUERY_LOCK = threading.Lock()
+
+
 def execute_query(language: Language, query_string: str, node):
     """
     Execute a tree-sitter query and return captures in backward-compatible format.
-    
+
     This function provides compatibility with the old tree-sitter 0.20.x API where
     you could call query.captures(node). The new 0.22+ API uses QueryCursor.
-    
+
+    Thread-safe: query construction and execution are serialised (see
+    `_QUERY_LOCK`), because doing them concurrently segfaults the native
+    extension.
+
     Args:
         language: Tree-sitter Language object
         query_string: Query string in tree-sitter query syntax
         node: Tree-sitter Node to query
-        
+
     Returns:
         List of (node, capture_name) tuples, compatible with old API
     """
@@ -331,7 +358,14 @@ def execute_query(language: Language, query_string: str, node):
         from tree_sitter import Query
     except ImportError as e:
         raise _missing_tree_sitter_error(e) from e
-    
+
+    with _QUERY_LOCK:
+        return _execute_query_locked(Query, language, query_string, node)
+
+
+def _execute_query_locked(Query, language: Language, query_string: str, node):
+    """Body of `execute_query`; callers must hold `_QUERY_LOCK`."""
+
     # 1. Create the Query object
     try:
         # New API (0.22+)

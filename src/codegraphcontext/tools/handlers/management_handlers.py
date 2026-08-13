@@ -10,9 +10,10 @@ from ..graph_builder import GraphBuilder
 
 def list_indexed_repositories(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """Tool to list indexed repositories."""
+    graph_name = args.get("graph_name")
     try:
         debug_log("Listing indexed repositories.")
-        results = code_finder.list_indexed_repositories()
+        results = code_finder.list_indexed_repositories(graph_name=graph_name)
         return {
             "success": True,
             "repositories": results
@@ -38,9 +39,10 @@ def delete_repository(graph_builder: GraphBuilder, **args) -> Dict[str, Any]:
     if not repo_path:
         return {"error": "Repository path is required (repo_path)."}
     repo_path = str(repo_path).strip()
+    graph_name = args.get("graph_name")
     try:
         debug_log(f"Deleting repository: {repo_path}")
-        if graph_builder.delete_repository_from_graph(repo_path):
+        if graph_builder.delete_repository_from_graph(repo_path, graph_name=graph_name):
             return {
                 "success": True,
                 "message": f"Repository '{repo_path}' deleted successfully."
@@ -136,7 +138,8 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     
     bundle_name = args.get("bundle_name")
     clear_existing = args.get("clear_existing", False)
-    
+    graph_name = args.get("graph_name")
+
     if not bundle_name:
         return {"error": "bundle_name is required"}
     
@@ -215,7 +218,8 @@ def load_bundle(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         bundle = CGCBundle(code_finder.db_manager)
         success, message = bundle.import_from_bundle(
             bundle_path=bundle_path,
-            clear_existing=clear_existing
+            clear_existing=clear_existing,
+            graph_name=graph_name
         )
         
         if success:
@@ -327,11 +331,12 @@ def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     from pathlib import Path
     
     repo_path = args.get("repo_path")
-    
+    graph_name = args.get("graph_name")
+
     try:
         debug_log(f"Getting stats for: {repo_path or 'all repositories'}")
-        
-        with code_finder.db_manager.get_driver().session() as session:
+
+        with code_finder.db_manager.get_driver(graph_name).session() as session:
             if repo_path:
                 # Stats for specific repository
                 repo_path_obj = Path(repo_path).resolve().as_posix()
@@ -349,15 +354,15 @@ def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
                     }
                 
                 # 1. Files
-                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(f) as c"
+                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(DISTINCT f) as c"
                 file_count = session.run(file_query, path=repo_path_obj).single()["c"]
                 
                 # 2. Functions
-                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(func) as c"
+                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(DISTINCT func) as c"
                 func_count = session.run(func_query, path=repo_path_obj).single()["c"]
                 
                 # 3. Classes
-                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(cls:Class) RETURN count(cls) as c"
+                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(cls:Class) RETURN count(DISTINCT cls) as c"
                 class_count = session.run(class_query, path=repo_path_obj).single()["c"]
                 
                 # 4. Modules (imported)
@@ -404,3 +409,24 @@ def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     except Exception as e:
         debug_log(f"Error getting stats: {str(e)}")
         return {"error": f"Failed to get stats: {str(e)}"}
+
+
+def list_graphs(db_manager, **args) -> Dict[str, Any]:
+    """Tool to list all available graphs in the FalkorDB instance."""
+    try:
+        if hasattr(db_manager, 'list_graphs'):
+            graphs = db_manager.list_graphs()
+            return {
+                "success": True,
+                "graphs": graphs,
+                "total": len(graphs)
+            }
+        else:
+            return {
+                "success": True,
+                "graphs": [],
+                "message": "list_graphs is not supported by this database backend"
+            }
+    except Exception as e:
+        debug_log(f"Error listing graphs: {str(e)}")
+        return {"error": f"Failed to list graphs: {str(e)}"}

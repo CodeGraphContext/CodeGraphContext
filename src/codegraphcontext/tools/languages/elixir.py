@@ -475,7 +475,7 @@ def pre_scan_elixir(files: list[Path], parser_wrapper) -> dict:
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 source = f.read()
             tree = parser_wrapper.parser.parse(bytes(source, "utf8"))
             _pre_scan_recursive(tree.root_node, path, imports_map)
@@ -500,7 +500,7 @@ def _pre_scan_recursive(node, path: Path, imports_map: dict):
                                     name = ac.text.decode('utf-8')
                                     if name not in imports_map:
                                         imports_map[name] = []
-                                    imports_map[name].append(str(path.resolve()))
+                                    imports_map[name].append(path.resolve().as_posix())
                 elif keyword in FUNCTION_KEYWORDS:
                     # Get function name
                     for sib in node.children:
@@ -512,7 +512,7 @@ def _pre_scan_recursive(node, path: Path, imports_map: dict):
                                         name = target.text.decode('utf-8')
                                         if name not in imports_map:
                                             imports_map[name] = []
-                                        imports_map[name].append(str(path.resolve()))
+                                        imports_map[name].append(path.resolve().as_posix())
                 break
 
     for child in node.children:

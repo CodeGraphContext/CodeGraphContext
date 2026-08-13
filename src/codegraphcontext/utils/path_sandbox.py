@@ -61,11 +61,12 @@ def sanitize_bundle_filename(filename: str, default: str = "bundle.cgc") -> str:
     name = Path(filename).name
     if not name or name in (".", ".."):
         return default
-    if not re.fullmatch(r"[\w.\-]+\.cgc", name, flags=re.IGNORECASE):
-        if not name.endswith(".cgc"):
-            sanitized = re.sub(r'[^\w.\-]+', '_', name)
-            name = f"{sanitized}.cgc"
-    return name
+    # Always sanitize the stem so that unsafe characters cannot bypass the
+    # check by simply appending a .cgc extension.
+    stem = name[:-4] if name.lower().endswith(".cgc") else name
+    sanitized_stem = re.sub(r"[^\w.\-]+", "_", stem)
+    # Re-attach the extension whether it was present or not.
+    return f"{sanitized_stem}.cgc"
 
 
 def is_safe_download_url(url: str) -> bool:

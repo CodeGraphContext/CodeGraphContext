@@ -1,16 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-06-11T13:10:02Z",
+  "exported_at": "2026-07-25T16:55:17Z",
   "format_version": "1.0.0",
   "repo": "sample_project_c",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "c74cd26c",
+  "commit": "8bd1a8f7",
   "branch": "main",
-  "generator": "PYv0.5.0",
+  "generator": "PYv0.5.1",
   "name": "sample_project_c.cgc",
   "graph_metrics": {
-    "total_nodes": 105,
-    "total_edges": 124
+    "total_nodes": 111,
+    "total_edges": 129
   }
 }

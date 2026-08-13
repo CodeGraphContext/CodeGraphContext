@@ -1,3 +1,11 @@
+# src/codegraphcontext/tool_definitions.py
+
+# Common optional property for multi-graph support
+_GRAPH_NAME_PROP = {
+    "type": "string",
+    "description": "Optional: Name of the FalkorDB graph to query. Each indexed repository can have its own graph. Use 'list_graphs' to see available graphs. Defaults to the server's configured graph name."
+}
+
 TOOLS = {
     "add_code_to_graph": {
         "name": "add_code_to_graph",
@@ -13,7 +21,8 @@ TOOLS = {
                     "type": "boolean",
                     "description": "Whether this code is a dependency.",
                     "default": False
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["repo_path"]
         }
@@ -66,7 +75,8 @@ TOOLS = {
                 "repo_path": {
                     "type": "string",
                     "description": "Optional: Path to the repository to restrict the search to."
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["query"]
         }
@@ -100,16 +110,21 @@ TOOLS = {
                 },
                 "target": {
                     "type": "string",
-                    "description": "The function, class, or module to analyze."
+                    "description": "The primary target for the query (e.g., function name, class name, or 'start_func->end_func' for call chains)."
                 },
                 "context": {
                     "type": "string",
-                    "description": "Optional file path for precise results."
+                    "description": "Additional context parameter: acts as a file path for precise scoping or a numeric string (e.g., depth/limit) depending on the query type."
+                },
+                "depth": {
+                    "type": "integer",
+                    "description": "Optional traversal depth for transitive caller and callee queries (1-20)."
                 },
                 "repo_path": {
                     "type": "string",
                     "description": "Optional repository path."
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["query_type", "target"]
         }
@@ -139,7 +154,13 @@ TOOLS = {
                 "cypher_query": {
                     "type": "string",
                     "description": "The Cypher query to execute"
-                }
+                },
+                "params": {
+                    "type": "object",
+                    "description": "Optional named parameters passed to the Cypher query.",
+                    "default": {}
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["cypher_query"]
         }
@@ -161,7 +182,8 @@ TOOLS = {
                 "is_dependency": {
                     "type": "boolean",
                     "default": True
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["package_name", "language"]
         }
@@ -180,7 +202,8 @@ TOOLS = {
                 },
                 "repo_path": {
                     "type": "string"
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             }
         }
     },
@@ -192,7 +215,9 @@ TOOLS = {
             "type": "object",
             "properties": {
                 "function_name": {"type": "string"},
-                "repo_path": {"type": "string"}
+                "path": {"type": "string", "description": "Optional file path to disambiguate the function."},
+                "repo_path": {"type": "string"},
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["function_name"]
         }
@@ -205,7 +230,8 @@ TOOLS = {
             "type": "object",
             "properties": {
                 "limit": {"type": "integer", "default": 10},
-                "repo_path": {"type": "string"}
+                "repo_path": {"type": "string"},
+                "graph_name": _GRAPH_NAME_PROP
             }
         }
     },
@@ -215,20 +241,29 @@ TOOLS = {
         "description": "List all indexed repositories.",
         "inputSchema": {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "graph_name": _GRAPH_NAME_PROP
+            }
         }
     },
 
     "delete_repository": {
         "name": "delete_repository",
-        "description": "Delete a repository from the graph.",
+        "description": (
+            "DESTRUCTIVE AND IRREVERSIBLE. Permanently deletes a repository and "
+            "every node and relationship belonging to it from the graph. There is "
+            "no undo, and recovering the data requires a full re-index, which can "
+            "take a long time on a large repository. Only call this when the user "
+            "has explicitly asked for that repository to be removed."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "repo_path": {
                     "type": "string",
                     "description": "The path of the repository to delete."
-                }
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["repo_path"]
         }
@@ -240,7 +275,8 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "cypher_query": {"type": "string"}
+                "cypher_query": {"type": "string"},
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["cypher_query"]
         }
@@ -269,12 +305,30 @@ TOOLS = {
 
     "load_bundle": {
         "name": "load_bundle",
-        "description": "Load a pre-indexed bundle.",
+        "description": (
+            "Load a pre-indexed graph bundle (.cgc) into the database. Note that "
+            "clear_existing=True is DESTRUCTIVE AND IRREVERSIBLE — see its "
+            "description before setting it."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "bundle_name": {"type": "string"},
-                "clear_existing": {"type": "boolean", "default": False}
+                "bundle_name": {
+                    "type": "string",
+                    "description": "Name of the bundle to load from the registry, or a path to a local .cgc file."
+                },
+                "clear_existing": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "DESTRUCTIVE AND IRREVERSIBLE. When true, the existing "
+                        "repository data is deleted from the graph before the bundle "
+                        "is imported — this discards previously indexed content, not "
+                        "just a previous copy of this bundle. Leave false unless the "
+                        "user has explicitly asked to replace what is already indexed."
+                    )
+                },
+                "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["bundle_name"]
         }
@@ -298,7 +352,8 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "repo_path": {"type": "string"}
+                "repo_path": {"type": "string"},
+                "graph_name": _GRAPH_NAME_PROP
             }
         }
     },
@@ -328,6 +383,15 @@ TOOLS = {
         }
     },
 
+    "list_graphs": {
+        "name": "list_graphs",
+        "description": "List all available graphs in the FalkorDB instance. Each graph typically corresponds to an indexed repository. Use the graph names with the 'graph_name' parameter in other tools.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+
     "generate_report": {
         "name": "generate_report",
         "description": "Generate codegraph report.",
@@ -351,7 +415,8 @@ TOOLS = {
             "properties": {
                 "http_method": {"type": "string"},
                 "path_pattern": {"type": "string"},
-                "repo_path": {"type": "string"}
+                "repo_path": {"type": "string"},
+                "graph_name": _GRAPH_NAME_PROP
             }
         }
     },
@@ -366,7 +431,8 @@ TOOLS = {
                     "type": "string",
                     "enum": ["CONTROLLER", "REST_CONTROLLER", "SERVICE", "REPOSITORY", "COMPONENT", "CONFIGURATION"]
                 },
-                "repo_path": {"type": "string"}
+                "repo_path": {"type": "string"},
+                "graph_name": _GRAPH_NAME_PROP
             }
         }
     },
@@ -382,7 +448,102 @@ TOOLS = {
                     "enum": ["mysql", "cassandra", "redis"]
                 },
                 "name": {"type": "string"},
-                "include_columns": {"type": "boolean"}
+                "include_columns": {"type": "boolean"},
+                "graph_name": _GRAPH_NAME_PROP
+            }
+        }
+    },
+
+    "simulate_metrics": {
+        "name": "simulate_metrics",
+        "description": "Calculate repository architectural metrics (coupling, cohesion, circular dependencies, complexity, and maintainability).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Path to the repository (defaults to current workspace)."
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional: Specific CGC context to use."
+                }
+            }
+        }
+    },
+
+    "simulate_architectural_change": {
+        "name": "simulate_architectural_change",
+        "description": "Simulate architectural modifications (service decomposition, adding/removing dependencies, deleting nodes) and compare metrics against the baseline.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Path to the repository (defaults to current workspace)."
+                },
+                "changes": {
+                    "type": "array",
+                    "description": "List of simulation mutation steps.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": ["decompose", "remove_dependency", "add_dependency", "remove_node"]
+                            },
+                            "mapping": {
+                                "type": "object",
+                                "description": "For decompose: mapping of node_id/path to service name."
+                            },
+                            "source": {
+                                "type": "string",
+                                "description": "For dependencies: source node id or name."
+                            },
+                            "target": {
+                                "type": "string",
+                                "description": "For dependencies: target node id or name."
+                            },
+                            "rel_type": {
+                                "type": "string",
+                                "description": "Optional: relationship type (e.g. CALLS, IMPORTS)."
+                            },
+                            "node_id": {
+                                "type": "string",
+                                "description": "For remove_node: node id, path, or name to delete."
+                            }
+                        },
+                        "required": ["type"]
+                    }
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional: Specific CGC context to use."
+                }
+            },
+            "required": ["changes"]
+        }
+    },
+
+    "analyze_architectural_evolution": {
+        "name": "analyze_architectural_evolution",
+        "description": "Analyze repository growth trend and identify Technical Debt Hotspots (combining code complexity and Git commit churn).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Path to the repository (defaults to current workspace)."
+                },
+                "commits": {
+                    "type": "integer",
+                    "description": "Number of commits to analyze (default: 50).",
+                    "default": 50
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional: Specific CGC context to use."
+                }
             }
         }
     },

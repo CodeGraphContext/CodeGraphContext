@@ -6,6 +6,7 @@ interface GlassCardProps {
   className?: string;
   glowColor?: "purple" | "cyan" | "green" | "none"; // Kept for prop compatibility, but no actual glow used
   hoverable?: boolean;
+  onClick?: () => void;
 }
 
 const GlassCard = ({
@@ -13,9 +14,11 @@ const GlassCard = ({
   className,
   glowColor = "none",
   hoverable = true,
+  onClick,
 }: GlassCardProps) => {
   return (
     <div
+      onClick={onClick}
       className={cn(
         "bg-black border border-white/10 rounded-3xl transition-all duration-300",
         hoverable ? "hover:border-purple-500/40 hover:bg-purple-500/5" : "",

@@ -203,7 +203,12 @@ const HeroSection = () => {
         return (
           <div className="space-y-4 w-full relative z-10">
             <div className="flex flex-col gap-3">
+              <label htmlFor="hero-repo-url" className="sr-only">
+                Repository URL to index
+              </label>
               <Input
+                id="hero-repo-url"
+                name="repoUrl"
                 type="url"
                 placeholder="https://github.com/owner/repo"
                 value={repoUrl}
@@ -374,13 +379,13 @@ const HeroSection = () => {
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto items-center justify-center mb-24">
-          <MagneticButton 
+          <Button
             className="bg-purple-600 hover:bg-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.4)] text-white hover:opacity-90 transition-all duration-300 cursor-pointer w-full sm:w-[320px] h-14 flex items-center justify-center font-bold text-sm tracking-wide rounded-full uppercase border-0"
             onClick={handleCopy}
           >
             {copied ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}
             pip install codegraphcontext
-          </MagneticButton>
+          </Button>
 
           <Button asChild className="bg-cyan-400 hover:bg-cyan-300 text-black shadow-[0_0_20px_rgba(34,211,238,0.4)] border-0 transition-colors w-full sm:w-auto h-14 rounded-full font-bold uppercase tracking-widest text-xs px-8">
             <a href="https://github.com/CodeGraphContext/CodeGraphContext" target="_blank" rel="noopener noreferrer">

@@ -1,16 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-06-11T13:11:43Z",
+  "exported_at": "2026-08-08T18:01:27Z",
   "format_version": "1.0.0",
   "repo": "sample_project_javascript",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "c74cd26c",
-  "branch": "main",
-  "generator": "PYv0.5.0",
+  "commit": "c22c98b8",
+  "branch": "fix/js-destructured-params",
+  "generator": "PYv0.5.6",
   "name": "sample_project_javascript.cgc",
   "graph_metrics": {
-    "total_nodes": 236,
-    "total_edges": 308
+    "total_nodes": 239,
+    "total_edges": 309
   }
 }
