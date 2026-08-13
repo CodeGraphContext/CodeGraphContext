@@ -5,6 +5,8 @@ import pytest
 
 pytest.importorskip("kuzu")
 
+import kuzu
+
 from codegraphcontext.core.database_kuzu import KuzuDBManager
 from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
@@ -628,3 +630,256 @@ def test_write_inheritance_links_resolves_cross_label_hierarchy_with_empty_label
         manager.close_driver()
 
 
+def test_modifier_columns_persist_in_kuzu(tmp_path):
+    """The 1b columns must survive the writer's property allow-list."""
+    manager = _fresh_kuzu_manager(tmp_path / "modifiers-db")
+    try:
+        driver = manager.get_driver()
+        file_data = {
+            "path": "/repo/Mods.kt",
+            "lang": "kotlin",
+            "is_dependency": False,
+            "functions": [
+                {
+                    "name": "onCreate",
+                    "path": "/repo/Mods.kt",
+                    "line_number": 3,
+                    "end_line": 4,
+                    "decorators": [],
+                    "args": [],
+                    "visibility": "public",
+                    "modifiers": ["override"],
+                }
+            ],
+            "classes": [
+                {
+                    "name": "State",
+                    "path": "/repo/Mods.kt",
+                    "line_number": 8,
+                    "end_line": 9,
+                    "decorators": [],
+                    "visibility": "internal",
+                    "modifiers": ["sealed"],
+                }
+            ],
+            "interfaces": [
+                {
+                    "name": "UserDao",
+                    "path": "/repo/Mods.kt",
+                    "line_number": 12,
+                    "end_line": 13,
+                    "decorators": ["@Dao"],
+                }
+            ],
+            "objects": [
+                {
+                    "name": "AppModule",
+                    "path": "/repo/Mods.kt",
+                    "line_number": 16,
+                    "end_line": 17,
+                    "decorators": ["@Module"],
+                }
+            ],
+        }
+        GraphWriter(driver).add_file_to_graph(
+            file_data, "repo", {}, repo_path_str="/repo"
+        )
+
+        with driver.session() as session:
+            fn = session.run(
+                "MATCH (f:Function {name: $n}) RETURN f.visibility AS v, f.modifiers AS m",
+                n="onCreate",
+            ).single()
+            cls = session.run(
+                "MATCH (c:Class {name: $n}) RETURN c.visibility AS v, c.modifiers AS m",
+                n="State",
+            ).single()
+            iface = session.run(
+                "MATCH (i:Interface {name: $n}) RETURN i.decorators AS d", n="UserDao"
+            ).single()
+            obj = session.run(
+                "MATCH (o:Object {name: $n}) RETURN o.decorators AS d", n="AppModule"
+            ).single()
+
+        assert fn is not None and fn["v"] == "public" and fn["m"] == ["override"]
+        assert cls is not None and cls["v"] == "internal" and cls["m"] == ["sealed"]
+        assert iface is not None and iface["d"] == ["@Dao"]
+        assert obj is not None and obj["d"] == ["@Module"]
+    finally:
+        manager.close_driver()
+
+
+def test_visibility_modifiers_decorators_migrate_onto_pre_existing_kuzu_db(tmp_path):
+    """visibility/modifiers/decorators must reach a database that already
+    existed before those columns were added to the node-table declaration.
+
+    _initialize_schema's CREATE NODE TABLE only helps a brand-new database --
+    on a pre-existing one it raises "already exists" and that exception is
+    swallowed (see _initialize_schema below), so a column that ships only in
+    the CREATE NODE TABLE string never reaches an already-indexed repo. It
+    must also have an entry in simple_migrations, which runs ALTER TABLE ...
+    ADD against existing tables. This test builds Function/Class/Interface/
+    Object tables by hand, without the new columns, then opens that same
+    database through KuzuDBManager (which runs _initialize_schema and the
+    migrations) and checks the columns actually landed.
+    """
+    db_path = tmp_path / "pre-existing-metadata-db"
+
+    db = kuzu.Database(str(db_path))
+    conn = kuzu.Connection(db)
+    conn.execute(
+        "CREATE NODE TABLE Function(uid STRING, name STRING, path STRING, "
+        "line_number INT64, PRIMARY KEY (uid))"
+    )
+    conn.execute(
+        "CREATE NODE TABLE Class(uid STRING, name STRING, path STRING, "
+        "line_number INT64, PRIMARY KEY (uid))"
+    )
+    conn.execute(
+        "CREATE NODE TABLE Interface(uid STRING, name STRING, path STRING, "
+        "line_number INT64, PRIMARY KEY (uid))"
+    )
+    conn.execute(
+        "CREATE NODE TABLE Object(uid STRING, name STRING, path STRING, "
+        "line_number INT64, PRIMARY KEY (uid))"
+    )
+    conn.close()
+    db.close()
+
+    manager = _fresh_kuzu_manager(db_path)
+    try:
+        driver = manager.get_driver()
+        with driver.session() as session:
+            function_columns = {
+                row["name"]
+                for row in session.run("CALL TABLE_INFO('Function') RETURN *").data()
+            }
+            class_columns = {
+                row["name"]
+                for row in session.run("CALL TABLE_INFO('Class') RETURN *").data()
+            }
+            interface_columns = {
+                row["name"]
+                for row in session.run("CALL TABLE_INFO('Interface') RETURN *").data()
+            }
+            object_columns = {
+                row["name"]
+                for row in session.run("CALL TABLE_INFO('Object') RETURN *").data()
+            }
+
+        assert {"visibility", "modifiers"} <= function_columns
+        assert {"visibility", "modifiers"} <= class_columns
+        assert "decorators" in interface_columns
+        assert "decorators" in object_columns
+    finally:
+        manager.close_driver()
+
+
+def test_interface_object_visibility_modifiers_persist_in_kuzu(tmp_path):
+    """The Kotlin parser sets visibility/modifiers on interfaces and objects
+    too (e.g. `internal interface Repo`, `private object Holder`), not just
+    on classes and functions. The Interface/Object node tables and the
+    SCHEMA_MAP allow-list must carry those two columns through, or the
+    allow-list `continue` silently drops them on Kuzu while schemaless
+    backends (Neo4j, FalkorDB) keep them -- a backend-parity divergence.
+    """
+    manager = _fresh_kuzu_manager(tmp_path / "interface-object-modifiers-db")
+    try:
+        driver = manager.get_driver()
+        file_data = {
+            "path": "/repo/Mods.kt",
+            "lang": "kotlin",
+            "is_dependency": False,
+            "interfaces": [
+                {
+                    "name": "Repo",
+                    "path": "/repo/Mods.kt",
+                    "line_number": 12,
+                    "end_line": 13,
+                    "decorators": [],
+                    "visibility": "internal",
+                    "modifiers": ["sealed"],
+                }
+            ],
+            "objects": [
+                {
+                    "name": "Holder",
+                    "path": "/repo/Mods.kt",
+                    "line_number": 16,
+                    "end_line": 17,
+                    "decorators": [],
+                    "visibility": "private",
+                    "modifiers": [],
+                }
+            ],
+        }
+        GraphWriter(driver).add_file_to_graph(
+            file_data, "repo", {}, repo_path_str="/repo"
+        )
+
+        with driver.session() as session:
+            iface = session.run(
+                "MATCH (i:Interface {name: $n}) RETURN i.visibility AS v, i.modifiers AS m",
+                n="Repo",
+            ).single()
+            obj = session.run(
+                "MATCH (o:Object {name: $n}) RETURN o.visibility AS v, o.modifiers AS m",
+                n="Holder",
+            ).single()
+
+        assert iface is not None
+        assert iface["v"] == "internal"
+        assert iface["m"] == ["sealed"]
+
+        assert obj is not None
+        assert obj["v"] == "private"
+        assert obj["m"] is not None
+    finally:
+        manager.close_driver()
+
+
+def test_interface_object_visibility_modifiers_migrate_onto_pre_existing_kuzu_db(tmp_path):
+    """visibility/modifiers on Interface/Object must reach a database that
+    already existed before those columns were added to the node-table
+    declaration. _initialize_schema's CREATE NODE TABLE only helps a
+    brand-new database -- on a pre-existing one it raises "already exists"
+    and that exception is swallowed, so a column that ships only in the
+    CREATE NODE TABLE string never reaches an already-indexed repo. It must
+    also have an entry in simple_migrations, which runs ALTER TABLE ... ADD
+    against existing tables. This test builds Interface/Object tables by
+    hand, without the new columns, then opens that same database through
+    KuzuDBManager (which runs _initialize_schema and the migrations) and
+    checks the columns actually landed.
+    """
+    db_path = tmp_path / "pre-existing-interface-object-modifiers-db"
+
+    db = kuzu.Database(str(db_path))
+    conn = kuzu.Connection(db)
+    conn.execute(
+        "CREATE NODE TABLE Interface(uid STRING, name STRING, path STRING, "
+        "line_number INT64, decorators STRING[], PRIMARY KEY (uid))"
+    )
+    conn.execute(
+        "CREATE NODE TABLE Object(uid STRING, name STRING, path STRING, "
+        "line_number INT64, decorators STRING[], PRIMARY KEY (uid))"
+    )
+    conn.close()
+    db.close()
+
+    manager = _fresh_kuzu_manager(db_path)
+    try:
+        driver = manager.get_driver()
+        with driver.session() as session:
+            interface_columns = {
+                row["name"]
+                for row in session.run("CALL TABLE_INFO('Interface') RETURN *").data()
+            }
+            object_columns = {
+                row["name"]
+                for row in session.run("CALL TABLE_INFO('Object') RETURN *").data()
+            }
+
+        assert {"visibility", "modifiers"} <= interface_columns
+        assert {"visibility", "modifiers"} <= object_columns
+    finally:
+        manager.close_driver()

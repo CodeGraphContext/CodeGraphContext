@@ -4110,9 +4110,10 @@ class TestKotlinDecorators:
             """,
         )
         fn = next(f for f in data["functions"] if f["name"] == "plain")
-        # The key must be present and an empty list -- not missing, not None --
-        # so consumers can rely on it rather than testing for it. This matches
-        # the ten extractors that already populate `decorators`.
+        # The key must be present and an empty list -- not missing, not None.
+        # find_dead_code filters with NOT ANY(d IN func.decorators ...), which
+        # evaluates NULL (not TRUE) against an unset property, silently dropping
+        # un-annotated functions from results.
         assert "decorators" in fn
         assert fn["decorators"] == []
 
@@ -4239,7 +4240,7 @@ class TestKotlinDecorators:
         # so only scanning *direct* children of `modifiers` excludes it.
         assert cls["decorators"] == []
 
-    def test_interface_does_not_carry_decorators(self, parser):
+    def test_interface_carries_decorators(self, parser):
         data = _write_and_parse(
             parser,
             """
@@ -4253,10 +4254,9 @@ class TestKotlinDecorators:
             """,
         )
         iface = next(c for c in data["interfaces"] if c["name"] == "UserDao")
-        # The Interface node table has no `decorators` column
-        # (database_embedded_kuzu.py:181, allow-list :827), and Kuzu drops
-        # unknown properties silently. Deferred to PR 1b.
-        assert "decorators" not in iface
+        # The Interface node table acquired a `decorators` column in Task 1.
+        # Task 2 removed the category gate, so interfaces now carry decorators.
+        assert iface["decorators"] == ["@Dao"]
 
         # The interface's methods are function_declaration nodes and DO carry
         # decorators -- which is what preserves the dead-code payoff for @Dao types.
@@ -4297,3 +4297,86 @@ class TestKotlinDecorators:
         # `annotation` keyword as a decorator.
         composable = next(c for c in data["classes"] if c["name"] == "Composable")
         assert composable["decorators"] == []
+
+    def test_visibility_defaults_to_public(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            fun plain() {
+            }
+            """)
+        fn = next(f for f in data["functions"] if f["name"] == "plain")
+        # Kotlin's default is public; emit it explicitly so queries need no
+        # null handling.
+        assert fn["visibility"] == "public"
+        assert fn["modifiers"] == []
+
+    def test_explicit_visibility_and_function_modifiers(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            private suspend inline fun work() {
+            }
+            """)
+        fn = next(f for f in data["functions"] if f["name"] == "work")
+        assert fn["visibility"] == "private"
+        assert fn["modifiers"] == ["suspend", "inline"]
+
+    def test_override_is_captured_as_a_modifier(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            class VM : Base() {
+                override fun onCreate() {
+                }
+            }
+            """)
+        fn = next(f for f in data["functions"] if f["name"] == "onCreate")
+        # `override` is a member_modifier. G2 treats these as live.
+        assert "override" in fn["modifiers"]
+
+    def test_class_kind_modifiers(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            sealed class A
+            data class B(val x: Int)
+            internal value class C(val v: Int)
+            """)
+        by = {c["name"]: c for c in data["classes"]}
+        assert by["A"]["modifiers"] == ["sealed"]
+        assert by["B"]["modifiers"] == ["data"]
+        assert by["C"]["modifiers"] == ["value"]
+        assert by["C"]["visibility"] == "internal"
+
+    def test_enum_is_recorded_even_though_it_is_not_a_modifier_node(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            enum class Color { RED, GREEN }
+            """)
+        cls = next(c for c in data["classes"] if c["name"] == "Color")
+        # `enum class` produces NO modifiers node -- `enum` is a direct keyword
+        # child of class_declaration, like `interface`. Derived separately so
+        # that `modifiers` is the single place to ask what kind of class this is.
+        assert cls["modifiers"] == ["enum"]
+
+    def test_interface_and_object_now_carry_decorators(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            @Dao
+            interface UserDao {
+                fun all(): Int
+            }
+
+            @Module
+            object AppModule {
+                fun provide(): Int = 1
+            }
+            """)
+        iface = next(c for c in data["interfaces"] if c["name"] == "UserDao")
+        obj = next(c for c in data["objects"] if c["name"] == "AppModule")
+        # 1a gated these out because the columns did not exist. Task 1 added them.
+        assert iface["decorators"] == ["@Dao"]
+        assert obj["decorators"] == ["@Module"]
