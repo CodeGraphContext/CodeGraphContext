@@ -1,310 +1,208 @@
+/* Enhanced ComparisonTable component – UI improvements */
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
-import { useInView } from "framer-motion";
-import { useRef } from "react";
+import { Badge } from "@/components/ui/badge";
+import GlassCard from "./GlassCard";
+import MagneticButton from "./MagneticButton";
 
+// User‑friendly feature labels and updated data
 const tableData = [
   {
-    feature: "Code Completion",
+    feature: "Smart Code Completion",
     copilot: { text: "Strong", status: "good" },
     cursor: { text: "Strong", status: "good" },
     cgc: { text: "Strong", status: "good" },
+    highlight: false,
   },
   {
-    feature: "Refactoring Suggestions",
-    copilot: { text: "Limited to context length", status: "warning" },
-    cursor: { text: "Limited to context length", status: "warning" },
-    cgc: { text: "Via dependency tracing", status: "good" },
-  },
-  {
-    feature: "Codebase Understanding",
-    copilot: { text: "Limited", status: "bad" },
-    cursor: { text: "Partial (local context)", status: "warning" },
-    cgc: { text: "Deep graph-based", status: "good" },
-  },
-  {
-    feature: "Call Graph & Imports",
+    // Call Graph & Imports → Dependency Tracking
+    feature: "Dependency Tracking",
     copilot: { text: "No", status: "bad" },
     cursor: { text: "No", status: "bad" },
-    cgc: { text: "Direct + Multi-hops", status: "good" },
+    cgc: { text: "Direct + Multi‑hops", status: "good" },
+    highlight: true,
   },
   {
-    feature: "Cross-File Tracing",
+    // Context‑Aware Refactoring (keep name)
+    feature: "Context‑Aware Refactoring",
+    copilot: { text: "Limited", status: "warning" },
+    cursor: { text: "Limited", status: "warning" },
+    cgc: { text: "Via dependency tracing", status: "good" },
+    highlight: false,
+  },
+  {
+    feature: "Deep Codebase Understanding",
+    copilot: { text: "Limited", status: "bad" },
+    cursor: { text: "Partial", status: "warning" },
+    cgc: { text: "Graph‑based analysis", status: "good" },
+    highlight: false,
+  },
+  {
+    // Cross‑File Tracing → Cross‑Repository Navigation
+    feature: "Cross‑Repository Navigation",
     copilot: { text: "Very low", status: "bad" },
     cursor: { text: "Some", status: "warning" },
-    cgc: { text: "Complete code", status: "good" },
+    cgc: { text: "Complete code view", status: "good" },
+    highlight: false,
   },
   {
-    feature: "LLM Explainability",
+    // LLM Explainability → AI Explanation Quality
+    feature: "AI Explanation Quality",
     copilot: { text: "Low", status: "bad" },
-    cursor: { text: "Hallucinate", status: "warning" },
-    cgc: { text: "Extremely good", status: "good" },
+    cursor: { text: "Hallucinated", status: "warning" },
+    cgc: { text: "Extremely accurate", status: "good" },
+    highlight: true,
   },
   {
-    feature: "Performance on Large Codebases",
+    feature: "Scalable Performance",
     copilot: { text: "Slows with size", status: "bad" },
     cursor: { text: "Slows with size", status: "bad" },
-    cgc: { text: "Scales with graph DB", status: "good" },
-  },
-  {
-    feature: "Extensible to Multiple Languages",
-    copilot: { text: "Strong", status: "good" },
-    cursor: { text: "Strong", status: "good" },
-    cgc: { text: "Work-in-progress", status: "warning" },
-  },
-  {
-    feature: "Set-up Time for new code",
-    copilot: { text: "Low", status: "good" },
-    cursor: { text: "Slows with size", status: "bad" },
-    cgc: { text: "Slows with size", status: "bad" },
+    cgc: { text: "Graph DB scaling", status: "good" },
+    highlight: false,
   },
 ];
 
-const StatusBadge = ({ status, text }: { status: string; text: string }) => {
-  const getStatusStyles = () => {
+const StatusBadge = ({ status, text, isCGC }: { status: string; text: string; isCGC?: boolean }) => {
+  const getStyles = () => {
+    if (isCGC) {
+      // For CodeGraphContext, it's always the purple pill
+      return "bg-[#1e1138] text-cyan-400 border border-purple-500/30 w-full hover:bg-[#251545] transition-colors";
+    }
     switch (status) {
       case "good":
-        return "bg-emerald-100 text-emerald-700 border border-emerald-300 shadow-sm dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40 dark:shadow-lg dark:shadow-emerald-500/10";
+        return "bg-[#042025] text-teal-400 border-none";
       case "warning":
-        return "bg-amber-100 text-amber-700 border border-amber-300 shadow-sm dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/40 dark:shadow-lg dark:shadow-amber-500/10";
+        return "bg-[#291c06] text-amber-500 border-none";
       case "bad":
-        return "bg-red-100 text-red-700 border border-red-300 shadow-sm dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/40 dark:shadow-lg dark:shadow-red-500/10";
+        return "bg-[#141414] text-gray-500 border-none";
       default:
-        return "bg-gray-200 text-gray-700 border border-gray-300 dark:bg-secondary/50 dark:text-muted-foreground";
+        return "bg-black text-gray-500 border-white/10";
     }
   };
-
   const getIcon = () => {
     switch (status) {
       case "good":
         return "✓";
       case "warning":
-        return "⚠";
+        return "▲";
       case "bad":
         return "✕";
       default:
         return "";
     }
   };
-
   return (
-    <motion.div
-      whileHover={{ scale: 1.05 }}
-      whileTap={{ scale: 0.95 }}
-      transition={{ type: "spring", stiffness: 400, damping: 17 }}
+    <Badge
+      className={`${getStyles()} font-bold uppercase tracking-widest text-[0.65rem] px-3 py-2 rounded-full min-w-[100px] text-center justify-center flex items-center shadow-none`}
     >
-      <Badge
-        className={`
-          ${getStatusStyles()}
-          border-2 font-medium text-[0.55rem] sm:text-[0.65rem] px-2 sm:px-3 py-1 
-          backdrop-blur-sm relative overflow-hidden
-          transition-all duration-300 hover:shadow-xl
-        `}
-      >
-        <motion.div
-          className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent"
-          initial={{ x: "-100%" }}
-          whileHover={{ x: "100%" }}
-          transition={{ duration: 0.6 }}
-        />
-        <span className="mr-1 sm:mr-2 font-bold">{getIcon()}</span>
-        <span className="relative z-10">{text}</span>
-      </Badge>
-    </motion.div>
+      <span className="mr-1.5 font-black text-[0.55rem]">{getIcon()}</span>
+      <span>{text}</span>
+    </Badge>
   );
 };
-
-const AnimatedCard = ({
-  children,
-  delay = 0,
-}: {
-  children: React.ReactNode;
-  delay?: number;
-}) => {
-  const ref = useRef(null);
-  const isInView = useInView(ref, { once: true, margin: "-50px" });
-
-  return (
-    <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 50 }}
-      animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 50 }}
-      transition={{ duration: 0.6, delay, ease: "easeOut" }}
-    >
-      {children}
-    </motion.div>
-  );
-};
-
-const FloatingBackground = () => (
-  <div className="absolute inset-0 overflow-hidden pointer-events-none">
-    <motion.div
-      className="absolute -top-40 -right-40 w-80 h-80 bg-primary/5 rounded-full blur-3xl"
-      animate={{ x: [0, 30, 0], y: [0, -40, 0] }}
-      transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
-    />
-    <motion.div
-      className="absolute -bottom-40 -left-40 w-80 h-80 bg-accent/5 rounded-full blur-3xl"
-      animate={{ x: [0, -30, 0], y: [0, 40, 0] }}
-      transition={{ duration: 25, repeat: Infinity, ease: "easeInOut", delay: 2 }}
-    />
-  </div>
-);
 
 export default function ComparisonTable() {
-  const containerRef = useRef(null);
-  const isInView = useInView(containerRef, { once: true, margin: "-100px" });
-
   return (
-    <section
-      ref={containerRef}
-      className="relative min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-secondary/5 overflow-hidden"
-      style={{ maxWidth: "100vw", overflow: "hidden", padding: "2rem 1rem" }}
-      data-aos="zoom-in"
-    >
-      <FloatingBackground />
-
+    <section className="relative min-h-screen flex items-center justify-center bg-black py-24 px-4 overflow-hidden">
       <div className="container mx-auto max-w-7xl relative z-10">
-        <AnimatedCard delay={0.1}>
-          <div className="text-center mb-16">
-            <motion.h2
-              className="text-2xl sm:text-4xl md:text-5xl font-bold mb-6 pb-4 bg-gradient-to-r from-primary via-primary/90 to-accent bg-clip-text text-transparent"
-              initial={{ opacity: 0, y: 30 }}
-              animate={isInView ? { opacity: 1, y: 0 } : {}}
-              transition={{ duration: 0.8, delay: 0.2 }}
-            >
-              Why CodeGraphContext?
-            </motion.h2>
-            <motion.p
-              className="text-lg text-muted-foreground max-w-3xl mx-auto leading-relaxed"
-              initial={{ opacity: 0, y: 20 }}
-              animate={isInView ? { opacity: 1, y: 0 } : {}}
-              transition={{ duration: 0.8, delay: 0.4 }}
-            >
-              Experience the next generation of AI-powered code understanding
-              with graph-based intelligence
-            </motion.p>
-          </div>
-        </AnimatedCard>
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-12"
+        >
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black mb-6 uppercase tracking-tight text-white">
+            Why CodeGraphContext?
+          </h2>
+          <p className="text-sm font-mono text-gray-500 uppercase tracking-widest max-w-3xl mx-auto mb-4">
+            Experience the next generation of AI‑powered code understanding with graph‑based intelligence.
+          </p>
+        </motion.div>
 
-        <AnimatedCard delay={0.3}>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={isInView ? { opacity: 1, scale: 1 } : {}}
-            transition={{ duration: 0.8, delay: 0.5 }}
-          >
-            {/* Scrollable table wrapper */}
-            <div className="overflow-x-auto rounded-3xl">
-              <table className="w-full min-w-[600px] md:min-w-full table-auto">
-                <thead>
-                  <tr className="border-b border-border/20 bg-gradient-to-r from-secondary/10 via-secondary/5 to-secondary/10">
-                    <th className="sticky top-[75px] z-20 bg-background/80 backdrop-blur-md p-2 sm:p-4 text-left font-bold text-foreground text-[0.65rem] sm:text-sm">
-                      <motion.span
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={isInView ? { opacity: 1, x: 0 } : {}}
-                        transition={{ duration: 0.6, delay: 0.7 }}
-                      >
-                        Feature
-                      </motion.span>
-                    </th>
-                    <th className="sticky top-[75px] z-20 bg-background/80 backdrop-blur-md p-2 sm:p-4 text-center font-bold text-foreground text-[0.65rem] sm:text-sm min-w-[120px]">
-                      <motion.span
-                        initial={{ opacity: 0, y: -20 }}
-                        animate={isInView ? { opacity: 1, y: 0 } : {}}
-                        transition={{ duration: 0.6, delay: 0.8 }}
-                      >
-                        GitHub Copilot
-                      </motion.span>
-                    </th>
-                    <th className="sticky top-[75px] z-20 bg-background/80 backdrop-blur-md p-2 sm:p-4 text-center font-bold text-foreground text-[0.65rem] sm:text-sm min-w-[120px]">
-                      <motion.span
-                        initial={{ opacity: 0, y: -20 }}
-                        animate={isInView ? { opacity: 1, y: 0 } : {}}
-                        transition={{ duration: 0.6, delay: 0.9 }}
-                      >
-                        Cursor
-                      </motion.span>
-                    </th>
-                    <th className="sticky top-[75px] z-20 bg-background/80 backdrop-blur-md p-2 sm:p-4 text-center font-bold text-foreground text-[0.65rem] sm:text-sm min-w-[120px]">
-                      <motion.span
-                        initial={{ opacity: 0, y: -20 }}
-                        animate={isInView ? { opacity: 1, y: 0 } : {}}
-                        transition={{ duration: 0.6, delay: 1.0 }}
-                      >
-                        CodeGraphContext
-                      </motion.span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableData.map((row, index) => (
+        {/* Desktop table */}
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+          className="hidden md:block w-full"
+        >
+          <div className="bg-[#050505] border border-white/10 rounded-2xl overflow-hidden shadow-2xl mx-auto w-full max-w-[1000px]">
+            <table className="w-full table-auto border-collapse">
+              <thead className="bg-[#0a0a0a] border-b border-white/10">
+                <tr>
+                  <th className="px-6 py-5 text-left text-sm font-bold text-gray-300 w-1/3">Feature</th>
+                  <th className="px-4 py-5 text-center w-1/6">
+                    <div className="w-5 h-5 mx-auto rounded-full bg-[#2a3862] text-[10px] font-bold flex items-center justify-center text-blue-300">C</div>
+                  </th>
+                  <th className="px-4 py-5 text-center w-1/6">
+                    <div className="w-5 h-5 mx-auto rounded-full bg-[#1b3d2f] text-[10px] font-bold flex items-center justify-center text-green-300">R</div>
+                  </th>
+                  <th className="px-6 py-5 text-center w-1/3">
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="font-bold text-white text-sm">CodeGraphContext</span>
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                 {tableData.map((row, idx) => (
                     <motion.tr
                       key={row.feature}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={isInView ? { opacity: 1, x: 0 } : {}}
-                      transition={{
-                        duration: 0.6,
-                        delay: 0.7 + index * 0.1,
-                      }}
-                      className={`
-                        border-b border-border/10 transition-all duration-300 
-                        hover:bg-primary/5 group relative overflow-hidden
-                        ${index % 2 === 0 ? "bg-background/30" : "bg-secondary/3"}
-                      `}
+                      initial={{ opacity: 0, y: 10 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: true }}
+                      transition={{ duration: 0.3, delay: idx * 0.05 }}
+                      className={`border-b border-white/5 hover:bg-white/[0.02] transition-colors`}
                     >
-                      <td className="p-2 sm:p-4 text-foreground font-semibold text-[0.6rem] sm:text-sm text-left relative z-10">
-                        {row.feature}
-                        <motion.div
-                          className="absolute left-0 top-0 w-1 h-0 bg-gradient-to-b from-primary to-accent group-hover:h-full transition-all duration-500"
-                          initial={{ height: 0 }}
-                          whileHover={{ height: "100%" }}
-                        />
+                      <td className="px-6 py-4 text-sm font-semibold text-gray-200">{row.feature}</td>
+                      <td className="px-4 py-4 text-center">
+                        <StatusBadge status={row.copilot.status} text={row.copilot.text} />
                       </td>
-                      <td className="p-2 sm:p-4 text-center">
-                        <div className="flex justify-center">
-                          <StatusBadge status={row.copilot.status} text={row.copilot.text} />
-                        </div>
+                      <td className="px-4 py-4 text-center">
+                        <StatusBadge status={row.cursor.status} text={row.cursor.text} />
                       </td>
-                      <td className="p-2 sm:p-4 text-center">
-                        <div className="flex justify-center">
-                          <StatusBadge status={row.cursor.status} text={row.cursor.text} />
-                        </div>
-                      </td>
-                      <td className="p-2 sm:p-4 text-center relative">
-                        <div className="flex justify-center">
-                          <StatusBadge status={row.cgc.status} text={row.cgc.text} />
+                      <td className="px-6 py-4 text-center">
+                        <div className={`p-0.5 rounded-full ${row.highlight ? "bg-gradient-to-r from-purple-500/50 to-indigo-500/50" : ""}`}>
+                           <StatusBadge status={row.cgc.status} text={row.cgc.text} isCGC={true} />
                         </div>
                       </td>
                     </motion.tr>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </motion.div>
-        </AnimatedCard>
+              </tbody>
+            </table>
+          </div>
+        </motion.div>
 
-        <AnimatedCard delay={0.9}>
-          <motion.div
-            className="text-center mt-12"
-            initial={{ opacity: 0, y: 30 }}
-            animate={isInView ? { opacity: 1, y: 0 } : {}}
-            transition={{ duration: 0.8, delay: 1.5 }}
-          >
-            <motion.p
-              className="text-base text-muted-foreground mb-6"
-              initial={{ opacity: 0 }}
-              animate={isInView ? { opacity: 1 } : {}}
-              transition={{ duration: 0.8, delay: 1.7 }}
-            >
-              Experience the power of graph-based code understanding
-            </motion.p>
-          </motion.div>
-        </AnimatedCard>
+        {/* Mobile stacked cards */}
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+          className="md:hidden space-y-4"
+        >
+          {tableData.map((row) => (
+            <GlassCard key={row.feature} hoverable={false} className="p-4 bg-black border-white/20">
+              <h3 className="text-sm font-medium text-gray-200 mb-2">{row.feature}</h3>
+              <div className="grid grid-cols-2 gap-2 items-center">
+                <span className="text-xs text-gray-400">Copilot</span>
+                <StatusBadge status={row.copilot.status} text={row.copilot.text} />
+                <span className="text-xs text-gray-400">Cursor</span>
+                <StatusBadge status={row.cursor.status} text={row.cursor.text} />
+                <span className="text-xs text-gray-400">CodeGraphContext</span>
+                <div className="bg-gradient-to-r from-purple-600/30 to-indigo-600/30 p-1 rounded">
+                  <StatusBadge status={row.cgc.status} text={row.cgc.text} />
+                </div>
+              </div>
+            </GlassCard>
+          ))}
+        </motion.div>
+
       </div>
     </section>
   );
 }
-

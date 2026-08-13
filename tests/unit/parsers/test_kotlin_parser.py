@@ -28,7 +28,9 @@ def _write_and_parse(parser, src: str, suffix: str = ".kt") -> dict:
         f.write(src)
         tmp = f.name
     try:
-        return parser.parse(Path(tmp))
+        result = parser.parse(Path(tmp))
+        assert isinstance(result, dict)
+        return result
     finally:
         os.unlink(tmp)
 
@@ -38,6 +40,9 @@ def _write_source(root: Path, relative_path: str, src: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(src, encoding="utf-8")
     return path
+
+
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "sample_projects"
 
 
 EVENT_PROCESSOR_SRC = """
@@ -645,7 +650,7 @@ class TestKotlinFunctionCallResolution:
         assert any(
             edge["caller_name"] == "run"
             and edge["called_name"] == "top"
-            and edge["called_file_path"] == str(Path(data["path"]).resolve())
+            and edge["called_file_path"] == Path(data["path"]).resolve().as_posix()
             for edge in fn_to_fn
         )
 
@@ -1530,7 +1535,7 @@ fun make() = A.Inner()
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "submitEvents"
         assert resolved["called_name"] == "applyEvent"
-        assert resolved["called_file_path"] == progress_data["path"]
+        assert resolved["called_file_path"] == Path(progress_data["path"]).as_posix()
 
     def test_kotlin_call_arguments_are_parsed(self, parser):
         caller_data = _write_and_parse(parser, OVERLOAD_CALLER_SRC)
@@ -1573,7 +1578,7 @@ fun make() = A.Inner()
             e for e in fn_to_fn
             if e["full_call_name"] == "service.target"
         )
-        assert edge["called_file_path"] == service_data["path"]
+        assert edge["called_file_path"] == Path(service_data["path"]).as_posix()
         assert edge["called_context"] == "OverloadedService"
         assert edge["called_line_number"] == two_arg_target["line_number"]
 
@@ -1598,7 +1603,7 @@ fun make() = A.Inner()
             e for e in fn_to_fn
             if e["full_call_name"] == "cache.get"
         )
-        assert edge["called_file_path"] == service_data["path"]
+        assert edge["called_file_path"] == Path(service_data["path"]).as_posix()
         assert edge["called_context"] == "AmbiguousCache"
         assert edge["called_line_number"] == iterable_get["line_number"]
 
@@ -1900,7 +1905,7 @@ fun make() = A.Inner()
             e for e in fn_to_fn
             if e["full_call_name"] == "service.target"
         )
-        assert edge["called_file_path"] == service_data["path"]
+        assert edge["called_file_path"] == Path(service_data["path"]).as_posix()
         assert edge["called_context"] == "LambdaOverloadService"
         assert edge["called_line_number"] == lambda_target["line_number"]
 
@@ -2077,7 +2082,7 @@ fun make() = A.Inner()
         resolved = _resolve_with_progress_service(calls[0], caller_data, progress_data)
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "run"
-        assert resolved["called_file_path"] == progress_data["path"]
+        assert resolved["called_file_path"] == Path(progress_data["path"]).as_posix()
 
     def test_body_property_receiver_resolves_cross_file(self, parser):
         caller_data = _write_and_parse(parser, RECEIVER_PATTERNS_SRC)
@@ -2093,7 +2098,7 @@ fun make() = A.Inner()
         resolved = _resolve_with_progress_service(calls[0], caller_data, progress_data)
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "run"
-        assert resolved["called_file_path"] == progress_data["path"]
+        assert resolved["called_file_path"] == Path(progress_data["path"]).as_posix()
 
     def test_class_property_receiver_survives_local_shadow_in_other_method(self, parser, tmp_path):
         source_path = _write_source(
@@ -2442,7 +2447,7 @@ fun make() = A.Inner()
             resolved = _resolve_with_progress_service(calls[0], caller_data, progress_data)
             assert resolved["type"] == "function"
             assert resolved["caller_name"] == "run"
-            assert resolved["called_file_path"] == progress_data["path"]
+            assert resolved["called_file_path"] == Path(progress_data["path"]).as_posix()
 
 
 class TestKotlinSemanticResolution:
@@ -2471,7 +2476,7 @@ class TestKotlinSemanticResolution:
         resolved = _resolve_with_progress_service(calls[0], caller_data, progress_data)
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "run"
-        assert resolved["called_file_path"] == progress_data["path"]
+        assert resolved["called_file_path"] == Path(progress_data["path"]).as_posix()
 
     def test_imported_top_level_function_resolves_cross_file(self, parser, tmp_path):
         helper_path = _write_source(
@@ -2528,7 +2533,7 @@ class TestKotlinSemanticResolution:
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "run"
         assert resolved["called_name"] == "topLevelHelper"
-        assert resolved["called_file_path"] == str(helper_path)
+        assert resolved["called_file_path"] == helper_path.as_posix()
 
     def test_object_and_companion_calls_resolve_cross_file(self, parser, tmp_path):
         service_path = _write_source(
@@ -2596,7 +2601,7 @@ class TestKotlinSemanticResolution:
         )
         assert find_user is not None
         assert find_user["type"] == "function"
-        assert find_user["called_file_path"] == str(service_path)
+        assert find_user["called_file_path"] == service_path.as_posix()
 
         info = resolve_function_call(
             calls_by_name["info"],
@@ -2608,7 +2613,7 @@ class TestKotlinSemanticResolution:
         )
         assert info is not None
         assert info["type"] == "function"
-        assert info["called_file_path"] == str(logger_path)
+        assert info["called_file_path"] == logger_path.as_posix()
 
     def test_imported_extension_function_resolves_cross_file(self, parser, tmp_path):
         event_path = _write_source(
@@ -2681,7 +2686,7 @@ class TestKotlinSemanticResolution:
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "run"
         assert resolved["called_name"] == "enrich"
-        assert resolved["called_file_path"] == str(extension_path)
+        assert resolved["called_file_path"] == extension_path.as_posix()
 
     def test_same_package_top_level_function_resolves_without_import(self, parser, tmp_path):
         helper_path = _write_source(
@@ -2731,7 +2736,7 @@ class TestKotlinSemanticResolution:
         assert resolved is not None
         assert resolved["type"] == "function"
         assert resolved["called_name"] == "samePackageHelper"
-        assert resolved["called_file_path"] == str(helper_path)
+        assert resolved["called_file_path"] == helper_path.as_posix()
 
     def test_same_package_extension_function_resolves_without_import(self, parser, tmp_path):
         event_path = _write_source(
@@ -2794,7 +2799,7 @@ class TestKotlinSemanticResolution:
         assert resolved is not None
         assert resolved["type"] == "function"
         assert resolved["called_name"] == "decorate"
-        assert resolved["called_file_path"] == str(extension_path)
+        assert resolved["called_file_path"] == extension_path.as_posix()
 
     def test_import_aliases_resolve_top_level_and_extension_functions(self, parser, tmp_path):
         event_path = _write_source(
@@ -2872,7 +2877,7 @@ class TestKotlinSemanticResolution:
         assert helper_resolved is not None
         assert helper_resolved["type"] == "function"
         assert helper_resolved["called_name"] == "aliasedHelper"
-        assert helper_resolved["called_file_path"] == str(helper_path)
+        assert helper_resolved["called_file_path"] == helper_path.as_posix()
 
         extension_call = next(
             c for c in caller_data["function_calls"] if c["full_name"] == "event.addContext"
@@ -2888,7 +2893,7 @@ class TestKotlinSemanticResolution:
         assert extension_resolved is not None
         assert extension_resolved["type"] == "function"
         assert extension_resolved["called_name"] == "enrich"
-        assert extension_resolved["called_file_path"] == str(extension_path)
+        assert extension_resolved["called_file_path"] == extension_path.as_posix()
 
     def test_this_and_super_calls_resolve_to_current_and_base_files(self, parser, tmp_path):
         base_path = _write_source(
@@ -2947,7 +2952,7 @@ class TestKotlinSemanticResolution:
         assert this_resolved is not None
         assert this_resolved["type"] == "function"
         assert this_resolved["called_name"] == "applyEventLocally"
-        assert this_resolved["called_file_path"] == str(derived_path)
+        assert this_resolved["called_file_path"] == derived_path.as_posix()
 
         super_resolved = resolve_function_call(
             calls["super.applyEvent"],
@@ -2961,7 +2966,7 @@ class TestKotlinSemanticResolution:
         assert super_resolved is not None
         assert super_resolved["type"] == "function"
         assert super_resolved["called_name"] == "applyEvent"
-        assert super_resolved["called_file_path"] == str(base_path)
+        assert super_resolved["called_file_path"] == base_path.as_posix()
 
     def test_class_constructor_delegation_resolves_to_base_class(self, parser, tmp_path):
         base_path = _write_source(
@@ -3004,7 +3009,7 @@ class TestKotlinSemanticResolution:
         assert resolved["type"] == "function"
         assert resolved["caller_name"] == "DerivedService"
         assert resolved["called_name"] == "BaseService"
-        assert resolved["called_file_path"] == str(base_path)
+        assert resolved["called_file_path"] == base_path.as_posix()
 
     def test_cross_file_chained_return_and_property_receivers_resolve(self, parser, tmp_path):
         progress_path = _write_source(
@@ -3104,7 +3109,7 @@ class TestKotlinSemanticResolution:
             assert resolved is not None
             assert resolved["type"] == "function"
             assert resolved["called_name"] == "applyEvent"
-            assert resolved["called_file_path"] == str(progress_path)
+            assert resolved["called_file_path"] == progress_path.as_posix()
 
         fn_to_fn, *_ = build_function_call_groups(
             [progress_data, provider_data, caller_data],
@@ -3114,8 +3119,8 @@ class TestKotlinSemanticResolution:
             (edge["full_call_name"], edge["called_file_path"])
             for edge in fn_to_fn
         }
-        assert ("provider.service().applyEvent", str(progress_path)) in resolved_edges
-        assert ("provider.progressService.applyEvent", str(progress_path)) in resolved_edges
+        assert ("provider.service().applyEvent", progress_path.as_posix()) in resolved_edges
+        assert ("provider.progressService.applyEvent", progress_path.as_posix()) in resolved_edges
 
     def test_wildcard_imports_resolve_top_level_and_extension_functions(self, parser, tmp_path):
         event_path = _write_source(
@@ -3198,7 +3203,7 @@ class TestKotlinSemanticResolution:
             skip_external=False,
         )
         assert helper_resolved is not None
-        assert helper_resolved["called_file_path"] == str(helper_path)
+        assert helper_resolved["called_file_path"] == helper_path.as_posix()
 
         extension_call = next(
             c for c in caller_data["function_calls"] if c["full_name"] == "event.wildcardEnrich"
@@ -3212,7 +3217,7 @@ class TestKotlinSemanticResolution:
             skip_external=False,
         )
         assert extension_resolved is not None
-        assert extension_resolved["called_file_path"] == str(helper_path)
+        assert extension_resolved["called_file_path"] == helper_path.as_posix()
 
     def test_imported_typealias_receiver_resolves_to_target_type(self, parser, tmp_path):
         progress_path = _write_source(
@@ -3279,7 +3284,7 @@ class TestKotlinSemanticResolution:
         assert any(
             edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
             for edge in fn_to_fn
         )
 
@@ -3342,7 +3347,7 @@ class TestKotlinSemanticResolution:
             for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         }
         assert resolved_lines == {6, 7, 8, 9, 10, 11}
 
@@ -3402,7 +3407,7 @@ class TestKotlinSemanticResolution:
             edge for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         ]
         assert len(resolved_refs) == 2
 
@@ -3461,7 +3466,7 @@ class TestKotlinSemanticResolution:
             for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         }
         assert resolved_lines == {6, 7}
 
@@ -3544,7 +3549,7 @@ class TestKotlinSemanticResolution:
             for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         }
         assert resolved_lines == {6, 8}
 
@@ -3641,9 +3646,9 @@ class TestKotlinSemanticResolution:
         )
 
         assert explicit_resolved is not None
-        assert explicit_resolved["called_file_path"] == str(explicit_path)
+        assert explicit_resolved["called_file_path"] == explicit_path.as_posix()
         assert same_package_resolved is not None
-        assert same_package_resolved["called_file_path"] == str(same_package_path)
+        assert same_package_resolved["called_file_path"] == same_package_path.as_posix()
 
     def test_if_and_when_smart_casts_infer_receiver_types(self, parser, tmp_path):
         progress_path = _write_source(
@@ -3702,7 +3707,7 @@ class TestKotlinSemanticResolution:
             edge for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         ]
         assert len(resolved_edges) == 2
 
@@ -3796,13 +3801,13 @@ class TestKotlinSemanticResolution:
         assert any(
             edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(base_path)
+            and edge["called_file_path"] == base_path.as_posix()
             for edge in fn_to_fn
         )
         assert not any(
             edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(child_path)
+            and edge["called_file_path"] == child_path.as_posix()
             for edge in fn_to_fn
         )
 
@@ -3863,7 +3868,7 @@ class TestKotlinSemanticResolution:
         assert any(
             edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(interface_path)
+            and edge["called_file_path"] == interface_path.as_posix()
             for edge in fn_to_fn
         )
 
@@ -3920,7 +3925,7 @@ class TestKotlinSemanticResolution:
             for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         }
         assert resolved_lines == {6, 7}
 
@@ -4008,7 +4013,7 @@ class TestKotlinSemanticResolution:
             for edge in fn_to_fn
             if edge["caller_name"] == "run"
             and edge["called_name"] == "applyEvent"
-            and edge["called_file_path"] == str(progress_path)
+            and edge["called_file_path"] == progress_path.as_posix()
         }
         assert resolved_lines == {13, 14, 15, 16}
 
@@ -4088,3 +4093,207 @@ class TestKotlinSemanticResolution:
         }
         assert calls_by_name["fromCall.applyEvent"]["inferred_obj_type"] is None
         assert calls_by_name["fromComparison.applyEvent"]["inferred_obj_type"] is None
+
+
+class TestKotlinDecorators:
+    """Annotation extraction into the `decorators` property (PR 1a)."""
+
+    def test_plain_function_emits_empty_decorators_list(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            fun plain(): Int {
+                return 1
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "plain")
+        # The key must be present and an empty list -- not missing, not None --
+        # so consumers can rely on it rather than testing for it. This matches
+        # the ten extractors that already populate `decorators`.
+        assert "decorators" in fn
+        assert fn["decorators"] == []
+
+    def test_single_annotation_on_function(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            fun Greeting(name: String) {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "Greeting")
+        assert fn["decorators"] == ["@Composable"]
+
+    def test_multiple_annotations_preserve_source_order(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            @Preview(showBackground = true)
+            fun GreetingPreview() {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "GreetingPreview")
+        assert fn["decorators"] == ["@Composable", "@Preview(showBackground = true)"]
+
+    def test_annotation_arguments_are_retained_verbatim(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Query("SELECT * FROM users")
+            fun all() {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "all")
+        assert fn["decorators"] == ['@Query("SELECT * FROM users")']
+
+    def test_visibility_and_function_modifiers_do_not_leak(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            private inline suspend fun Greeting(name: String) {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "Greeting")
+        # `private` and `inline` are visibility_modifier / function_modifier
+        # siblings inside the same `modifiers` node. They belong to PR 1b.
+        assert fn["decorators"] == ["@Composable"]
+
+    def test_multiline_annotation_is_collapsed_to_one_line(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Deprecated(
+                message = "old",
+                replaceWith = ReplaceWith("newThing()")
+            )
+            fun multiLine() {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "multiLine")
+        assert fn["decorators"] == [
+            '@Deprecated( message = "old", replaceWith = ReplaceWith("newThing()") )'
+        ]
+
+    def test_annotated_class_carries_decorators(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @HiltViewModel
+            class MyViewModel {
+                fun load() {
+                }
+            }
+            """,
+        )
+        cls = next(c for c in data["classes"] if c["name"] == "MyViewModel")
+        assert cls["decorators"] == ["@HiltViewModel"]
+
+    def test_plain_class_emits_empty_decorators_list(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            class Plain {
+            }
+            """,
+        )
+        cls = next(c for c in data["classes"] if c["name"] == "Plain")
+        assert "decorators" in cls
+        assert cls["decorators"] == []
+
+    def test_annotation_class_keyword_is_not_a_decorator(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            annotation class Fancy(val id: Int)
+            """,
+        )
+        cls = next(c for c in data["classes"] if c["name"] == "Fancy")
+        # `annotation` here is the class_modifier keyword, not an annotation.
+        # It parses to a node of type `annotation` nested under `class_modifier`,
+        # so only scanning *direct* children of `modifiers` excludes it.
+        assert cls["decorators"] == []
+
+    def test_interface_does_not_carry_decorators(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Dao
+            interface UserDao {
+                @Query("SELECT * FROM users")
+                fun all(): Int
+            }
+            """,
+        )
+        iface = next(c for c in data["interfaces"] if c["name"] == "UserDao")
+        # The Interface node table has no `decorators` column
+        # (database_embedded_kuzu.py:181, allow-list :827), and Kuzu drops
+        # unknown properties silently. Deferred to PR 1b.
+        assert "decorators" not in iface
+
+        # The interface's methods are function_declaration nodes and DO carry
+        # decorators -- which is what preserves the dead-code payoff for @Dao types.
+        fn = next(f for f in data["functions"] if f["name"] == "all")
+        assert fn["decorators"] == ['@Query("SELECT * FROM users")']
+
+    def test_android_fixture_annotations_are_extracted(self, parser):
+        fixture = FIXTURES / "sample_project_kotlin" / "AndroidAnnotations.kt"
+        data = parser.parse(fixture)
+
+        greeting = next(f for f in data["functions"] if f["name"] == "Greeting")
+        assert greeting["decorators"] == ["@Composable"]
+
+        greeting_preview = next(
+            f for f in data["functions"] if f["name"] == "GreetingPreview"
+        )
+        assert greeting_preview["decorators"] == [
+            "@Composable",
+            '@Preview(showBackground = true, name = "Greeting preview")',
+        ]
+
+        find_all = next(f for f in data["functions"] if f["name"] == "findAll")
+        assert find_all["decorators"] == ['@Query("SELECT * FROM users")']
+
+        helped = next(f for f in data["functions"] if f["name"] == "helped")
+        assert helped["decorators"] == []
+
+        user_view_model = next(c for c in data["classes"] if c["name"] == "UserViewModel")
+        assert user_view_model["decorators"] == ["@HiltViewModel"]
+
+        user_entity = next(c for c in data["classes"] if c["name"] == "UserEntity")
+        assert user_entity["decorators"] == ['@Entity(tableName = "users")']
+
+        plain_helper = next(c for c in data["classes"] if c["name"] == "PlainHelper")
+        assert plain_helper["decorators"] == []
+
+        # The stub `annotation class` declarations must not pick up their own
+        # `annotation` keyword as a decorator.
+        composable = next(c for c in data["classes"] if c["name"] == "Composable")
+        assert composable["decorators"] == []

@@ -80,6 +80,48 @@ export async function unzipFiles(zipBuffer: ArrayBuffer) {
   return files;
 }
 
+export async function fetchGitlabRepoFiles(url: string, onProgress?: (msg: string) => void) {
+  const match = url.match(/gitlab\.com\/([^?#]+)/i);
+  if (!match) throw new Error("Invalid GitLab URL");
+  const path = match[1].replace(/\.git$/, "").replace(/\/-\/.*$/, "").replace(/\/$/, "");
+  const parts = path.split("/").filter(Boolean);
+  if (parts.length < 2) throw new Error("Invalid GitLab project path");
+  const projectPath = encodeURIComponent(parts.join("/"));
+
+  let branch = "main";
+  const projectRes = await fetch(`https://gitlab.com/api/v4/projects/${projectPath}`);
+  if (projectRes.ok) {
+    const projectData = await projectRes.json();
+    if (projectData?.default_branch) branch = projectData.default_branch;
+  }
+
+  const treeRes = await fetch(
+    `https://gitlab.com/api/v4/projects/${projectPath}/repository/tree?recursive=true&per_page=100&ref=${encodeURIComponent(branch)}`
+  );
+  if (!treeRes.ok) throw new Error("Could not fetch GitLab repository tree.");
+  const treeData = await treeRes.json();
+  const filePaths = (Array.isArray(treeData) ? treeData : [])
+    .filter((t: { type: string }) => t.type === "blob")
+    .map((t: { path: string }) => t.path)
+    .filter((p: string) => p.match(/\.(js|ts|jsx|tsx|py|c|h|cpp|hpp|cc|cs|go|rs|rb|php|swift|kt|kts|dart)$/) && !p.includes("node_modules") && !p.includes(".git"));
+
+  if (onProgress) onProgress(`Found ${filePaths.length} files...`);
+
+  const files: { path: string; content: string }[] = [];
+  for (let i = 0; i < Math.min(filePaths.length, 150); i += 10) {
+    const batch = filePaths.slice(i, i + 10);
+    await Promise.all(batch.map(async (filePath: string) => {
+      try {
+        const r = await fetch(`https://gitlab.com/${parts.join("/")}/-/raw/${branch}/${filePath}`);
+        if (r.ok) files.push({ path: filePath, content: await r.text() });
+      } catch {
+        // skip failed files
+      }
+    }));
+  }
+  return files;
+}
+
 export async function fetchGithubRepoFiles(url: string, onProgress?: (msg: string) => void) {
   const match = url.match(/github\.com\/([^/]+)\/([^/]+)/);
   if (!match) throw new Error("Invalid GitHub URL");

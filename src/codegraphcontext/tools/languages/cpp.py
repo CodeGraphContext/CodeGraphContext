@@ -6,6 +6,13 @@ from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logge
 from codegraphcontext.utils.tree_sitter_manager import execute_query
 
 CPP_QUERIES = {
+    # A pointer or reference return type wraps the function declarator from the
+    # OUTSIDE: `char* f()` is
+    #     function_definition > pointer_declarator > function_declarator > identifier
+    # not function_declarator > pointer_declarator. Matching only the unwrapped
+    # shape meant no function returning `T*`, `T&` or `T**` was ever extracted —
+    # accessors, factories and `operator[]` are pervasive in C++, and because
+    # pre_scan_cpp shares this query they were invisible as call targets too.
     "functions": """
         (function_definition
             declarator: (function_declarator
@@ -14,6 +21,44 @@ CPP_QUERIES = {
                     (field_identifier) @name
                     (qualified_identifier) @qualified_name
                 ]
+            )
+        ) @function_node
+
+        (function_definition
+            declarator: (pointer_declarator
+                declarator: (function_declarator
+                    declarator: [
+                        (identifier) @name
+                        (field_identifier) @name
+                        (qualified_identifier) @qualified_name
+                    ]
+                )
+            )
+        ) @function_node
+
+        (function_definition
+            declarator: (pointer_declarator
+                declarator: (pointer_declarator
+                    declarator: (function_declarator
+                        declarator: [
+                            (identifier) @name
+                            (field_identifier) @name
+                            (qualified_identifier) @qualified_name
+                        ]
+                    )
+                )
+            )
+        ) @function_node
+
+        (function_definition
+            declarator: (reference_declarator
+                (function_declarator
+                    declarator: [
+                        (identifier) @name
+                        (field_identifier) @name
+                        (qualified_identifier) @qualified_name
+                    ]
+                )
             )
         ) @function_node
     """,
@@ -582,11 +627,23 @@ class CppTreeSitterParser:
                 context_name, context_type, context_line = self._get_parent_context(node)
                 class_context, _, _ = self._get_parent_context(node, types=("class_specifier",))
 
+                args: list[str] = []
+                call_expr = node
+                while call_expr and call_expr.type != "call_expression":
+                    call_expr = call_expr.parent
+                if call_expr:
+                    arguments_node = call_expr.child_by_field_name("arguments")
+                    if arguments_node:
+                        for child in arguments_node.children:
+                            if child.type in ("(", ")", ","):
+                                continue
+                            args.append(self._get_node_text(child))
+
                 call_data = {
                     "name": func_name,
                     "full_name": raw_text,
                     "line_number": node.start_point[0] + 1,
-                    "args": [],
+                    "args": args,
                     "inferred_obj_type": inferred_obj_type,
                     "context": (context_name, context_type, context_line),
                     "class_context": class_context,
@@ -639,6 +696,23 @@ def pre_scan_cpp(files: list[Path], parser_wrapper) -> dict:
         (type_definition declarator: (type_identifier) @name)
         (function_definition declarator: (function_declarator declarator: (identifier) @name))
         (function_definition declarator: (function_declarator declarator: (qualified_identifier) @qualified_name))
+
+        ; A pointer/reference return type wraps the function declarator from the
+        ; outside, so these forms need their own alternatives — without them a
+        ; `T* f()` was not registered here either, and so was unresolvable as a
+        ; call target even once it became a node.
+        (function_definition declarator: (pointer_declarator
+            declarator: (function_declarator declarator: (identifier) @name)))
+        (function_definition declarator: (pointer_declarator
+            declarator: (function_declarator declarator: (qualified_identifier) @qualified_name)))
+        (function_definition declarator: (pointer_declarator declarator: (pointer_declarator
+            declarator: (function_declarator declarator: (identifier) @name))))
+        (function_definition declarator: (pointer_declarator declarator: (pointer_declarator
+            declarator: (function_declarator declarator: (qualified_identifier) @qualified_name))))
+        (function_definition declarator: (reference_declarator
+            (function_declarator declarator: (identifier) @name)))
+        (function_definition declarator: (reference_declarator
+            (function_declarator declarator: (qualified_identifier) @qualified_name)))
     """
 
 
@@ -650,7 +724,7 @@ def pre_scan_cpp(files: list[Path], parser_wrapper) -> dict:
                 tree = parser_wrapper.parser.parse(source_bytes)
 
             for node, capture_name in execute_query(parser_wrapper.language, query_str, tree.root_node):
-                resolved_path = str(path.resolve())
+                resolved_path = path.resolve().as_posix()
                 if capture_name == "name":
                     name = node.text.decode("utf-8")
                     paths = imports_map.setdefault(name, [])

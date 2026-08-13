@@ -14,7 +14,9 @@ from dataclasses import asdict
 
 from typing import Any, Dict, Coroutine, Optional, List, Set
 
-from .prompts import LLM_SYSTEM_PROMPT
+from .utils.gcf_encoder import encode_response
+
+from .prompts import LLM_SYSTEM_PROMPT, build_system_prompt
 from .core import get_database_manager
 from .core.jobs import JobManager, JobStatus
 from .core.watcher import CodeWatcher
@@ -46,6 +48,14 @@ DEFAULT_EDIT_DISTANCE = 2
 DEFAULT_FUZZY_SEARCH = False
 
 WORKSPACE_PREFIX = "/workspace/"
+
+
+def _teardown_db_manager(db_manager) -> None:
+    """Release DB resources; stop FalkorDB Lite worker when switching contexts."""
+    if getattr(db_manager, "get_backend_type", lambda: "")() == "falkordb":
+        db_manager.close_driver(teardown=True)
+    else:
+        db_manager.close_driver()
 
 
 def _is_path_key(key: str) -> bool:
@@ -83,38 +93,89 @@ def _strip_workspace_prefix(obj):
 _CHARS_PER_TOKEN = 4
 
 
-def _apply_response_token_limit(tool_name: str, text: str) -> str:
-    """Truncate *text* to the configured token budget and append a notice.
+def _effective_char_limit(max_tokens: int, max_chars_direct: int) -> int:
+    """Return the effective character budget from both config knobs.
 
-    Reads ``MAX_TOOL_RESPONSE_TOKENS`` from the CGC config at call time so
-    that live config changes are respected without a server restart.
-    Returns *text* unchanged when the limit is 0 (unlimited) or not set.
+    Picks the stricter (smallest) non-zero value.  Returns 0 when both
+    are zero, meaning no limit is active.
+    """
+    candidates = [c for c in (max_tokens * _CHARS_PER_TOKEN, max_chars_direct) if c > 0]
+    return min(candidates) if candidates else 0
+
+
+def _limit_source_label(max_tokens: int, max_chars_direct: int, effective: int) -> str:
+    """Human-readable description of which config key produced *effective*."""
+    token_chars = max_tokens * _CHARS_PER_TOKEN
+    both_active = token_chars > 0 and max_chars_direct > 0
+    if both_active:
+        winner = "MAX_TOOL_RESPONSE_TOKENS" if token_chars <= max_chars_direct else "MAX_PROMPT_CHARS"
+        return f"{winner} ({effective} chars)"
+    if token_chars > 0:
+        return f"MAX_TOOL_RESPONSE_TOKENS ({max_tokens} tokens → {effective} chars)"
+    return f"MAX_PROMPT_CHARS ({effective} chars)"
+
+
+def _apply_response_token_limit(tool_name: str, text: str) -> str:
+    """Truncate *text* to the configured budget and append a visible notice.
+
+    Reads two independent config knobs at call time so live changes are
+    respected without a server restart:
+
+    * ``MAX_TOOL_RESPONSE_TOKENS`` — token-based cap (4 chars/token)
+    * ``MAX_PROMPT_CHARS``         — direct character cap
+
+    The stricter non-zero value wins.  When both are 0 the text is returned
+    unchanged.  A structured warning is printed to stdout whenever truncation
+    fires so operators can trace oversized payloads.
     """
     from .cli.config_manager import get_config_value
 
-    raw = get_config_value("MAX_TOOL_RESPONSE_TOKENS") or "0"
+    raw_tokens = get_config_value("MAX_TOOL_RESPONSE_TOKENS") or "0"
     try:
-        max_tokens = int(raw)
+        max_tokens = int(raw_tokens)
     except ValueError:
         max_tokens = 0
 
-    if max_tokens <= 0:
-        return text  # unlimited
+    raw_chars = get_config_value("MAX_PROMPT_CHARS") or "0"
+    try:
+        max_chars_direct = int(raw_chars)
+    except ValueError:
+        max_chars_direct = 0
 
-    max_chars = max_tokens * _CHARS_PER_TOKEN
-    if len(text) <= max_chars:
+    max_chars = _effective_char_limit(max_tokens, max_chars_direct)
+    if max_chars <= 0 or len(text) <= max_chars:
         return text
 
+    label = _limit_source_label(max_tokens, max_chars_direct, max_chars)
     notice = (
-        f"\n\n[CGC] Response truncated: output exceeded the MAX_TOOL_RESPONSE_TOKENS "
-        f"limit of {max_tokens} tokens (tool: {tool_name}). "
-        "Increase MAX_TOOL_RESPONSE_TOKENS or narrow your query for full results."
+        f"[CGC] Response truncated: output exceeded {label} "
+        f"for tool '{tool_name}'. "
+        "Increase the limit or narrow your query for full results."
     )
-    # Reserve space for the notice inside the budget
-    budget = max_chars - len(notice)
-    if budget < 0:
-        budget = 0
-    return text[:budget] + notice
+
+    print(
+        f"[CGC WARNING] Truncation fired | tool={tool_name} | "
+        f"original_chars={len(text)} | truncated_chars={max_chars} | "
+        f"limit={label}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    budget = max(0, max_chars - 200)
+    try:
+        payload = json.loads(text)
+        preview = json.dumps(payload, indent=2)
+        if len(preview) <= budget:
+            return preview
+        return json.dumps(
+            {"truncated": True, "preview": preview[:budget], "notice": notice},
+            indent=2,
+        )
+    except json.JSONDecodeError:
+        return json.dumps(
+            {"truncated": True, "preview": text[:budget], "notice": notice},
+            indent=2,
+        )
 
 
 class MCPServer:
@@ -147,7 +208,7 @@ class MCPServer:
             ctx = resolve_context(cwd=self.cwd)
             self.resolved_context = ctx
 
-            if ctx.database:
+            if ctx.database and not os.environ.get('CGC_RUNTIME_DB_TYPE'):
                 os.environ['CGC_RUNTIME_DB_TYPE'] = ctx.database
 
             self.db_manager = get_database_manager(db_path=ctx.db_path)
@@ -304,7 +365,7 @@ class MCPServer:
     def check_job_status_tool(self, **args) -> Dict[str, Any]:
         return management_handlers.check_job_status(self.job_manager, **args)
     
-    def list_jobs_tool(self) -> Dict[str, Any]:
+    def list_jobs_tool(self, **args: Any) -> Dict[str, Any]:
         return management_handlers.list_jobs(self.job_manager)
 
     def list_watched_paths_tool(self, **args) -> Dict[str, Any]:
@@ -349,10 +410,21 @@ class MCPServer:
     def get_repository_stats_tool(self, **args) -> Dict[str, Any]:
         return management_handlers.get_repository_stats(self.code_finder, **args)
 
+    def list_graphs_tool(self, **args) -> Dict[str, Any]:
+        return management_handlers.list_graphs(self.db_manager, **args)
+
     def generate_report_tool(self, **args) -> Dict[str, Any]:
         from .tools.report_generator import generate_report
+
         output_path_raw = args.get("output_path")
         output_path = Path(output_path_raw) if output_path_raw else self.cwd / "CGC_REPORT.md"
+
+        from .utils.path_sandbox import is_path_allowed
+
+        output_path = output_path.resolve()
+        if not is_path_allowed(output_path):
+            return {"error": "Invalid output_path: path is outside allowed roots"}
+
         try:
             report = generate_report(
                 self.db_manager,
@@ -361,7 +433,7 @@ class MCPServer:
                 god_node_limit=int(args.get("god_node_limit", 15)),
                 complexity_limit=int(args.get("complexity_limit", 15)),
                 cross_module_limit=int(args.get("cross_module_limit", 20)),
-            )
+                )
             return {"status": "ok", "output_path": str(output_path), "report": report}
         except Exception as exc:
             return {"error": str(exc)}
@@ -375,9 +447,79 @@ class MCPServer:
     def find_datasource_nodes_tool(self, **args) -> Dict[str, Any]:
         return analysis_handlers.find_datasource_nodes(self.code_finder, **args)
 
+    def simulate_metrics_tool(self, **args) -> Dict[str, Any]:
+        from .core.simulator import CodeGraphTwin
+        repo_path = args.get("repo_path") or args.get("path") or str(self.cwd)
+        try:
+            twin = CodeGraphTwin(repo_path).load_from_db(self.db_manager)
+            return {"status": "ok", "metrics": twin.get_metrics_summary()}
+        except Exception as e:
+            return {"error": f"Failed to calculate simulation metrics: {e}"}
+
+    def simulate_architectural_change_tool(self, **args) -> Dict[str, Any]:
+        from .core.simulator import CodeGraphTwin
+        repo_path = args.get("repo_path") or args.get("path") or str(self.cwd)
+        changes = args.get("changes", [])
+        try:
+            baseline = CodeGraphTwin(repo_path).load_from_db(self.db_manager)
+            simulated = CodeGraphTwin(repo_path).load_from_db(self.db_manager)
+            
+            for step in changes:
+                stype = step.get("type")
+                if stype == "decompose":
+                    simulated.decompose_service(step.get("mapping", {}))
+                elif stype == "remove_dependency":
+                    simulated.remove_dependency(step.get("source"), step.get("target"), step.get("rel_type"))
+                elif stype == "add_dependency":
+                    simulated.add_dependency(step.get("source"), step.get("target"), step.get("rel_type"))
+                elif stype == "remove_node":
+                    simulated.remove_node(step.get("node_id"))
+                    
+            diff = baseline.compare_scenarios(simulated)
+            return {
+                "status": "ok",
+                "baseline_metrics": baseline.get_metrics_summary(),
+                "simulated_metrics": simulated.get_metrics_summary(),
+                "comparison": diff
+            }
+        except Exception as e:
+            return {"error": f"Failed to simulate architectural change: {e}"}
+
+    def analyze_architectural_evolution_tool(self, **args) -> Dict[str, Any]:
+        from .core.simulator import EvolutionTimeline
+        repo_path = args.get("repo_path") or args.get("path") or str(self.cwd)
+        commits = int(args.get("commits", 50))
+        try:
+            hotspots = EvolutionTimeline.analyze_hotspots(self.db_manager, repo_path, num_commits=commits)
+            growth = EvolutionTimeline.get_growth_trend(repo_path, num_commits=min(15, commits))
+            formatted_hotspots = []
+            for hs in hotspots:
+                formatted_hotspots.append({
+                    "relative_path": hs["relative_path"],
+                    "churn": hs["churn"],
+                    "complexity": hs["complexity"],
+                    "hotspot_score": hs["hotspot_score"]
+                })
+            return {
+                "status": "ok",
+                "hotspots": formatted_hotspots,
+                "growth_trend": growth
+            }
+        except Exception as e:
+            return {"error": f"Failed to analyze architectural evolution: {e}"}
+
     def discover_codegraph_contexts_tool(self, **args) -> Dict[str, Any]:
-        scan_path = Path(args.get("path", str(self.cwd))).resolve()
-        max_depth = int(args.get("max_depth", 1))
+        from .utils.path_sandbox import is_path_allowed, clamp_discovery_depth
+
+        scan_path = Path(args.get("path") or args.get("repo_path") or str(self.cwd)).resolve()
+        if not is_path_allowed(scan_path):
+            return {
+                "error": (
+                    f"Path '{scan_path}' is outside allowed roots. "
+                    "Set CGC_ALLOWED_ROOTS to scan additional directories."
+                )
+            }
+        max_depth = clamp_discovery_depth(args.get("max_depth", 1))
         try:
             children = discover_child_contexts(scan_path, max_depth=max_depth)
             if not children:
@@ -394,6 +536,27 @@ class MCPServer:
         except Exception as e:
             return {"error": f"Discovery failed: {e}"}
 
+    def _stop_current_watcher(self) -> bool:
+        """Stop the active code watcher (if any). Returns whether it was running."""
+        was_running = False
+        try:
+            watcher = getattr(self, "code_watcher", None)
+            if watcher is not None:
+                was_running = watcher.observer.is_alive()
+                watcher.stop()
+        except Exception as exc:
+            warning_logger(f"Failed to stop old code watcher during context switch: {exc}")
+        return was_running
+
+    def _start_watcher_if(self, should_start: bool) -> None:
+        """Start the (new) code watcher when the previous one was running."""
+        if not should_start:
+            return
+        try:
+            self.code_watcher.start()
+        except Exception as exc:
+            warning_logger(f"Failed to start new code watcher after context switch: {exc}")
+
     def switch_context_tool(self, **args) -> Dict[str, Any]:
         raw_path = args.get("context_path", "")
         should_save = args.get("save", True)
@@ -404,10 +567,11 @@ class MCPServer:
         # --- Special case: switch back to the global context ---
         if raw_path == "global":
             try:
+                watcher_was_running = self._stop_current_watcher()
                 try:
-                    self.db_manager.close_driver()
-                except Exception:
-                    pass
+                    _teardown_db_manager(self.db_manager)
+                except Exception as exc:
+                    warning_logger(f"Failed to tear down old DB manager during context switch: {exc}")
 
                 # Resolve global DB path directly — do NOT use resolve_context()
                 # because that checks CWD for local .codegraphcontext/ and may
@@ -431,6 +595,7 @@ class MCPServer:
                 self.graph_builder = GraphBuilder(self.db_manager, self.job_manager, self.loop)
                 self.code_finder = CodeFinder(self.db_manager)
                 self.code_watcher = CodeWatcher(self.graph_builder, self.job_manager)
+                self._start_watcher_if(watcher_was_running)
                 self._context_note_pending = False
 
                 return {
@@ -443,7 +608,11 @@ class MCPServer:
                 return {"error": f"Failed to switch to global context: {e}"}
 
         # --- Normal path-based switch ---
+        from .utils.path_sandbox import is_path_allowed
+
         target = Path(raw_path).resolve()
+        if not is_path_allowed(target):
+            return {"error": f"Context path '{target}' is outside allowed roots."}
         # Accept either the repo dir or the .codegraphcontext dir directly
         if target.name == ".codegraphcontext":
             cgc_dir = target
@@ -467,11 +636,12 @@ class MCPServer:
         new_db_path = str(cgc_dir / "db" / local_db)
 
         try:
+            watcher_was_running = self._stop_current_watcher()
             # Tear down old connection
             try:
-                self.db_manager.close_driver()
-            except Exception:
-                pass
+                _teardown_db_manager(self.db_manager)
+            except Exception as exc:
+                warning_logger(f"Failed to tear down old DB manager during context switch: {exc}")
 
             os.environ['CGC_RUNTIME_DB_TYPE'] = local_db
             new_manager = get_database_manager(db_path=new_db_path)
@@ -491,6 +661,7 @@ class MCPServer:
             self.graph_builder = GraphBuilder(self.db_manager, self.job_manager, self.loop)
             self.code_finder = CodeFinder(self.db_manager)
             self.code_watcher = CodeWatcher(self.graph_builder, self.job_manager)
+            self._start_watcher_if(watcher_was_running)
 
             if should_save:
                 save_workspace_mapping(self.cwd, cgc_dir)
@@ -513,7 +684,19 @@ class MCPServer:
         Routes a tool call from the AI assistant to the appropriate handler function. 
         """
         if tool_name in self.disabled_tools:
-            return {"error": f"Unknown tool: {tool_name}"}
+            return {"error": f"Tool '{tool_name}' is disabled in mcp.json (disabledTools)."}
+
+        # Normalize path/repo_path aliasing: tool schemas declare `repo_path`
+        # while several handlers read `path` (and vice versa). Skip the
+        # repo_path -> path direction for tools where the two keys carry
+        # different meanings (path = file path, repo_path = repo filter).
+        if isinstance(args, dict):
+            args = dict(args)
+            path_means_file = tool_name in ("calculate_cyclomatic_complexity",)
+            if "repo_path" in args and "path" not in args and not path_means_file:
+                args["path"] = args["repo_path"]
+            elif "path" in args and "repo_path" not in args:
+                args["repo_path"] = args["path"]
 
         tool_map: Dict[str, Coroutine] = {
             "add_package_to_graph": self.add_package_to_graph_tool,
@@ -535,12 +718,16 @@ class MCPServer:
             "load_bundle": self.load_bundle_tool,
             "search_registry_bundles": self.search_registry_bundles_tool,
             "get_repository_stats": self.get_repository_stats_tool,
+            "list_graphs": self.list_graphs_tool,
             "discover_codegraph_contexts": self.discover_codegraph_contexts_tool,
             "switch_context": self.switch_context_tool,
             "generate_report": self.generate_report_tool,
             "find_java_spring_endpoints": self.find_java_spring_endpoints_tool,
             "find_java_spring_beans": self.find_java_spring_beans_tool,
             "find_datasource_nodes": self.find_datasource_nodes_tool,
+            "simulate_metrics": self.simulate_metrics_tool,
+            "simulate_architectural_change": self.simulate_architectural_change_tool,
+            "analyze_architectural_evolution": self.analyze_architectural_evolution_tool,
         }
         handler = tool_map.get(tool_name)
         if handler:
@@ -573,8 +760,22 @@ class MCPServer:
         self.code_watcher.start()
         
         loop = asyncio.get_event_loop()
+        try:
+            await self._run_loop(loop)
+        finally:
+            # Release watcher/DB resources even when stdin reaches EOF or the
+            # loop exits unexpectedly.
+            try:
+                self.shutdown()
+            except Exception as exc:
+                warning_logger(f"Error during server shutdown: {exc}")
+
+    async def _run_loop(self, loop):
+        request_count = 0
         while True:
             try:
+                if request_count and request_count % 50 == 0:
+                    self.job_manager.cleanup_old_jobs(max_age_hours=24)
                 # Read a request from the standard input.
                 line = await loop.run_in_executor(None, sys.stdin.readline)
                 if not line:
@@ -585,19 +786,26 @@ class MCPServer:
                 method = request.get('method')
                 params = request.get('params', {})
                 request_id = request.get('id')
+                request_count += 1
                 
                 response = {}
                 # Route the request based on the JSON-RPC method.
                 if method == 'initialize':
+                    # Build system prompt with custom prompts if any
+                    system_prompt = build_system_prompt()
+                    
                     response = {
                         "jsonrpc": "2.0", "id": request_id,
                         "result": {
                             "protocolVersion": "2025-03-26",
                             "serverInfo": {
-                                "name": "CodeGraphContext", "version": self._get_version(),
-                                "systemPrompt": LLM_SYSTEM_PROMPT
+                                "name": "CodeGraphContext",
+                                "version": self._get_version(),
+                                "systemPrompt": system_prompt,
+                                "instructionsAvailable": True,
                             },
                             "capabilities": {"tools": {"listTools": True}},
+                            "instructions": LLM_SYSTEM_PROMPT,
                         }
                     }
                 elif method == 'tools/list':
@@ -619,7 +827,7 @@ class MCPServer:
                             "error": {"code": -32000, "message": "Tool execution error", "data": result}
                         }
                     else:
-                        response_text = json.dumps(result, indent=2)
+                        response_text = encode_response(result)
                         response_text = _apply_response_token_limit(tool_name, response_text)
                         response = {
                             "jsonrpc": "2.0", "id": request_id,
@@ -648,7 +856,10 @@ class MCPServer:
 
                 error_response = {
                     "jsonrpc": "2.0", "id": request_id,
-                    "error": {"code": -32603, "message": f"Internal error: {str(e)}", "data": traceback.format_exc()}
+                    "error": {
+                        "code": -32603,
+                        "message": f"Internal error: {str(e)}",
+                    },
                 }
                 print(json.dumps(error_response), flush=True)
 
@@ -656,4 +867,4 @@ class MCPServer:
         """Gracefully shuts down the server and its components."""
         debug_logger("Shutting down server...")
         self.code_watcher.stop()
-        self.db_manager.close_driver()
+        _teardown_db_manager(self.db_manager)

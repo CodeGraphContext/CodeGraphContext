@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+
+import { Analytics } from "@vercel/analytics/react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -10,25 +11,14 @@ import NotFound from "./pages/NotFound";
 import Explore from "./pages/Explore";
 import Privacy from "./pages/Privacy";
 import PRReviewerPage from "./pages/PRReviewerPage";
-import MoveToTop from "./components/MoveToTop";
+import ScrollButtons from "@/components/ScrollButtons";
 import Navbar from "./components/Navbar";
-
-// ✅ Import AOS library and CSS
-import AOS from "aos";
-import "aos/dist/aos.css";
+import MoveToTop from "./components/MoveToTop";
+// Removed AOS for instant loading
 
 const queryClient = new QueryClient();
 
 const App: React.FC = () => {
-  // ✅ Initialize AOS once on mount
-  useEffect(() => {
-    AOS.init({
-      duration: 800, // Animation duration (ms)
-      easing: "ease-in-out", // Smooth transition
-      once: true, // Run animation only once
-      mirror: false, // Do not animate when scrolling back up
-    });
-  }, []);
 
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -40,9 +30,11 @@ const App: React.FC = () => {
           disableTransitionOnChange
         >
           <TooltipProvider>
+            <Analytics />
             <Toaster />
             <Sonner />
             <Navbar />
+            <MoveToTop />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/pre-indexed" element={<Index />} />
@@ -51,12 +43,11 @@ const App: React.FC = () => {
               <Route path="/pr-reviewer" element={<PRReviewerPage />} />
               <Route path="/pr-reviewer/:owner/:repo/pull/:prNumber" element={<PRReviewerPage />} />
               <Route path="/github/:owner/:repo" element={<Explore />} />
+              <Route path="/gitlab/*" element={<Explore />} />
               <Route path="/:owner/:repo" element={<Explore />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
-            {/* Move to Top button */}
-            <MoveToTop />
           </TooltipProvider>
         </ThemeProvider>
       </QueryClientProvider>

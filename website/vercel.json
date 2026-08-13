@@ -22,6 +22,10 @@
       "destination": "https://codeload.github.com/:owner/:repo/legacy.zip/:branch"
     },
     {
+      "source": "/api/gitlab-zip/:project/:branch",
+      "destination": "/api/gitlab-zip?project=:project&branch=:branch"
+    },
+    {
       "source": "/api/pypi/:path*",
       "destination": "/api/pypi"
     },

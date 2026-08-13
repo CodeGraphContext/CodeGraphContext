@@ -3,6 +3,7 @@ import { CgcService } from "../mcp/service";
 
 export class CallGraphPanel {
   private panel?: vscode.WebviewPanel;
+  private disposables: Array<{ dispose(): void }> = [];
 
   constructor(private readonly service: CgcService) {}
 
@@ -13,24 +14,36 @@ export class CallGraphPanel {
         retainContextWhenHidden: true,
         localResourceRoots: [context.extensionUri]
       });
-      this.panel.onDidDispose(() => {
-        this.panel = undefined;
-      });
-      this.panel.webview.onDidReceiveMessage(async (msg: Record<string, unknown>) => {
-        if (msg.type === "open-location" && msg.path) {
-          const uri = vscode.Uri.file(msg.path as string);
-          const doc = await vscode.workspace.openTextDocument(uri);
-          const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
-          if (msg.line) {
-            const pos = new vscode.Position(Math.max(0, (msg.line as number) - 1), 0);
-            editor.selection = new vscode.Selection(pos, pos);
-            editor.revealRange(new vscode.Range(pos, pos));
+
+      // Collect all panel-scoped disposables so they are released when the
+      // webview panel is disposed (either by the user closing it or by us).
+      const panelDisposables: vscode.Disposable[] = [];
+
+      panelDisposables.push(
+        this.panel.onDidDispose(() => {
+          for (const d of panelDisposables) d.dispose();
+          this.panel = undefined;
+        }),
+
+        this.panel.webview.onDidReceiveMessage(async (msg: Record<string, unknown>) => {
+          if (msg.type === "open-location" && msg.path) {
+            const uri = vscode.Uri.file(msg.path as string);
+            const doc = await vscode.workspace.openTextDocument(uri);
+            const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+            if (msg.line) {
+              const pos = new vscode.Position(Math.max(0, (msg.line as number) - 1), 0);
+              editor.selection = new vscode.Selection(pos, pos);
+              editor.revealRange(new vscode.Range(pos, pos));
+            }
           }
-        }
-        if (msg.type === "fetch-graph" && msg.symbol) {
-          await this._refreshData(msg.symbol as string, (msg.depth as number) ?? 1);
-        }
-      });
+          if (msg.type === "fetch-graph" && msg.symbol) {
+            await this._refreshData(msg.symbol as string, (msg.depth as number) ?? 1);
+          }
+        })
+      );
+
+      // Track panel-level disposables on the instance so dispose() can reach them.
+      this.disposables.push(...panelDisposables.map(d => ({ dispose: () => d.dispose() })));
     }
 
     this.panel.webview.html = this.renderHtml();
@@ -119,6 +132,13 @@ export class CallGraphPanel {
     if (this.panel) {
       this._refreshData(symbol, 1);
     }
+  }
+
+  /** Release all listeners and close the panel. */
+  public dispose(): void {
+    for (const d of this.disposables) d.dispose();
+    this.disposables = [];
+    this.panel?.dispose();
   }
 
   private renderHtml(): string {

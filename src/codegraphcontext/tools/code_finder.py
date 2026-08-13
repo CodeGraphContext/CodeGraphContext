@@ -1,14 +1,48 @@
 # src/codegraphcontext/tools/code_finder.py
+from __future__ import annotations
 import logging
 from collections import Counter
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, TYPE_CHECKING
 from pathlib import Path
 
-from ..core.database import DatabaseManager
+if TYPE_CHECKING:
+    from ..core.database import DatabaseManager
 from ..utils.path_ignore import cypher_path_not_under_ignore_dirs
+from ..utils.tool_limits import get_tool_result_limit
 
 logger = logging.getLogger(__name__)
+
+_MAX_TRAVERSAL_DEPTH = 20
+
+# Names that are entry points rather than dead code. Matched on the *whole*
+# name, lowercased. This used to be a substring test (`name CONTAINS 'main'`,
+# `toLower(name) CONTAINS 'entry'`), which silently excluded any function whose
+# name merely contained one of them — `domain_check`, `remainder`,
+# `maintain_index`, `entry_count` — so genuinely unused code was never
+# reported and there was no way to tell.
+_ENTRY_POINT_NAMES = (
+    "main",
+    "setup",
+    "run",
+    "application",
+    "entry",
+    "entrypoint",
+)
+_ENTRY_POINT_NAMES_CYPHER = "[" + ", ".join(f"'{n}'" for n in _ENTRY_POINT_NAMES) + "]"
+
+
+def _sanitize_depth(depth, default: int = 3) -> int:
+    """Coerce and clamp a traversal depth before interpolating it into Cypher.
+
+    The depth value ends up inside the query string (``[:CALLS*1..N]``), so it
+    must be a plain bounded integer to prevent Cypher injection.
+    """
+    try:
+        depth = int(depth)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(depth, _MAX_TRAVERSAL_DEPTH))
 
 
 def _levenshtein_distance(a: str, b: str) -> int:
@@ -32,10 +66,10 @@ def _normalize_identifier(s: str) -> str:
 
     Examples::
 
-        _normalize_identifier('myFunction')   -> 'myfunction'
-        _normalize_identifier('my_function')  -> 'myfunction'
-        _normalize_identifier('my function')  -> 'myfunction'
-        _normalize_identifier('MyFunc tion')  -> 'myfunction'
+        _normalize_identifier('myFunction')    -> 'myfunction'
+        _normalize_identifier('my_function')   -> 'myfunction'
+        _normalize_identifier('my function')   -> 'myfunction'
+        _normalize_identifier('MyFunc tion')   -> 'myfunction'
     """
     return s.lower().replace('_', '').replace(' ', '')
 
@@ -129,8 +163,13 @@ class CodeFinder:
 
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
-        self.driver = self.db_manager.get_driver()
         self._lacks_native_fulltext = getattr(db_manager, 'get_backend_type', lambda: 'neo4j')() != 'neo4j'
+        self._active_graph = None
+
+    @property
+    def driver(self):
+        """Returns driver for the active graph (set via graph_name params), or default."""
+        return self.db_manager.get_driver(self._active_graph)
 
     def audit_kotlin_call_ambiguity(
         self,
@@ -138,10 +177,10 @@ class CodeFinder:
         limit: int = 20,
     ) -> Dict[str, Any]:
         """Audit Kotlin function-to-function CALLS edges for multi-target callsites."""
-        repo_path = str(Path(repo_path).resolve()) if repo_path else None
+        repo_path = Path(repo_path).resolve().as_posix() if repo_path else None
         repo_filter = "AND a.path STARTS WITH $repo_path" if repo_path else ""
         query = f"""
-            MATCH (a:Function)-[r:CALLS]->(b:Function)
+            MATCH (a:Function)-[r:CALLS|HEURISTIC_CALLS]->(b:Function)
             WHERE a.path ENDS WITH '.kt'
               AND b.path ENDS WITH '.kt'
               {repo_filter}
@@ -219,8 +258,8 @@ class CodeFinder:
             rows = session.run(query, **params).data()
 
         # Two query forms:
-        #   q_raw  – lowercased original (e.g. "myFuncton" → "myfuncton")
-        #   q_norm – separator-stripped  (e.g. "my_functon" → "myfuncton")
+        #    q_raw  – lowercased original (e.g. "myFuncton" → "myfuncton")
+        #    q_norm – separator-stripped  (e.g. "my_functon" → "myfuncton")
         # Using the minimum of both distances avoids the space-inflation bug where
         # the handler's replace('_', ' ') turns "my_functon" into "my functon",
         # which compares poorly against camelCase stored names.
@@ -404,7 +443,8 @@ class CodeFinder:
             """, search_term=search_term)
             return result.data()
 
-    def find_related_code(self, user_query: str, fuzzy_search: bool, edit_distance: int, repo_path: Optional[str] = None) -> Dict[str, Any]:
+    def find_related_code(self, user_query: str, fuzzy_search: bool, edit_distance: int, repo_path: Optional[str] = None, graph_name: str = None) -> Dict[str, Any]:
+        self._active_graph = graph_name
         """Find code related to a query using multiple search strategies"""
         # For Lucene backends: split snake_case/underscore tokens so Lucene sees
         # individual words, then append the fuzzy modifier.
@@ -467,20 +507,25 @@ class CodeFinder:
         
         return results
     
-    def find_functions_by_argument(self, argument_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_functions_by_argument(self, argument_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find functions that take a specific argument name."""
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
+            limit_clause = "LIMIT $limit" if limit is not None else ""
+            params = {"argument_name": argument_name, "repo_path": repo_path}
+            if limit is not None:
+                params["limit"] = limit
             if path:
+                params["path"] = path
                 query = f"""
                     MATCH (f:Function)-[:HAS_PARAMETER]->(p:Parameter)
                     WHERE p.name = $argument_name AND f.path = $path {repo_filter}
                     RETURN f.name AS function_name, f.path AS path, f.line_number AS line_number,
                            f.docstring AS docstring, f.is_dependency AS is_dependency
                     ORDER BY f.is_dependency ASC, f.path, f.line_number
-                    LIMIT 20
+                    {limit_clause}
                 """
-                result = session.run(query, argument_name=argument_name, path=path, repo_path=repo_path)
+                result = session.run(query, **params)
             else:
                 query = f"""
                     MATCH (f:Function)-[:HAS_PARAMETER]->(p:Parameter)
@@ -488,25 +533,30 @@ class CodeFinder:
                     RETURN f.name AS function_name, f.path AS path, f.line_number AS line_number,
                            f.docstring AS docstring, f.is_dependency AS is_dependency
                     ORDER BY f.is_dependency ASC, f.path, f.line_number
-                    LIMIT 20
+                    {limit_clause}
                 """
-                result = session.run(query, argument_name=argument_name, repo_path=repo_path)
+                result = session.run(query, **params)
             return result.data()
 
-    def find_functions_by_decorator(self, decorator_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_functions_by_decorator(self, decorator_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find functions that have a specific decorator applied to them."""
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
+            limit_clause = "LIMIT $limit" if limit is not None else ""
+            params = {"decorator_name": decorator_name, "repo_path": repo_path}
+            if limit is not None:
+                params["limit"] = limit
             if path:
+                params["path"] = path
                 query = f"""
                     MATCH (f:Function)
                     WHERE f.path = $path AND $decorator_name IN f.decorators {repo_filter}
                     RETURN f.name AS function_name, f.path AS path, f.line_number AS line_number,
                            f.docstring AS docstring, f.is_dependency AS is_dependency, f.decorators AS decorators
                     ORDER BY f.is_dependency ASC, f.path, f.line_number
-                    LIMIT 20
+                    {limit_clause}
                 """
-                result = session.run(query, decorator_name=decorator_name, path=path, repo_path=repo_path)
+                result = session.run(query, **params)
             else:
                 query = f"""
                     MATCH (f:Function)
@@ -514,85 +564,90 @@ class CodeFinder:
                     RETURN f.name AS function_name, f.path AS path, f.line_number AS line_number,
                            f.docstring AS docstring, f.is_dependency AS is_dependency, f.decorators AS decorators
                     ORDER BY f.is_dependency ASC, f.path, f.line_number
-                    LIMIT 20
+                    {limit_clause}
                 """
-                result = session.run(query, decorator_name=decorator_name, repo_path=repo_path)
+                result = session.run(query, **params)
             return result.data()
     
-    def who_calls_function(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
+    def who_calls_function(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find what functions call a specific function using CALLS relationships with improved matching"""
         with self.driver.session() as session:
             repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
+            limit_clause = "LIMIT $limit" if limit is not None else ""
+            params = {"function_name": function_name, "repo_path": repo_path}
+            if limit is not None:
+                params["limit"] = limit
             if path:
+                params["path"] = path
                 result = session.run(f"""
-                    MATCH (caller)-[call:CALLS]->(target:Function {{name: $function_name, path: $path}})
+                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name, path: $path}})
                     WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
                         COALESCE(caller.path, caller_file.path) as caller_file_path,
                         caller.line_number as caller_line_number,
-                        caller.docstring as caller_docstring,
-                        caller.is_dependency as caller_is_dependency,
                         call.line_number as call_line_number,
                         call.args as call_args,
-                        call.full_call_name as full_call_name,
+                        caller.is_dependency as caller_is_dependency,
                         target.path as target_file_path
                 ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
-                    LIMIT 20
-                """, function_name=function_name, path=path, repo_path=repo_path)
+                    {limit_clause}
+                """, **params)
                 
                 results = result.data()
                 if not results:
+                    params_no_path = {k: v for k, v in params.items() if k != "path"}
                     result = session.run(f"""
-                        MATCH (caller)-[call:CALLS]->(target:Function {{name: $function_name}})
+                        MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name}})
                         WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
                         OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                         RETURN DISTINCT
                             caller.name as caller_function,
                             COALESCE(caller.path, caller_file.path) as caller_file_path,
                             caller.line_number as caller_line_number,
-                            caller.docstring as caller_docstring,
-                            caller.is_dependency as caller_is_dependency,
                             call.line_number as call_line_number,
                             call.args as call_args,
-                            call.full_call_name as full_call_name,
+                            caller.is_dependency as caller_is_dependency,
                             target.path as target_file_path
                     ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
-                        LIMIT 20
-                    """, function_name=function_name, repo_path=repo_path)
+                        {limit_clause}
+                    """, **params_no_path)
                     results = result.data()
             else:
                 result = session.run(f"""
-                    MATCH (caller:Function)-[call:CALLS]->(target:Function {{name: $function_name}})
+                    MATCH (caller:Function)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name}})
                     WHERE 1=1 {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
                         caller.path as caller_file_path,
                         caller.line_number as caller_line_number,
-                        caller.docstring as caller_docstring,
-                        caller.is_dependency as caller_is_dependency,
                         call.line_number as call_line_number,
                         call.args as call_args,
-                        call.full_call_name as full_call_name,
+                        caller.is_dependency as caller_is_dependency,
                         target.path as target_file_path
                 ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
-                    LIMIT 20
-                """, function_name=function_name, repo_path=repo_path)
+                    {limit_clause}
+                """, **params)
                 results = result.data()
             
             return results
     
-    def what_does_function_call(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
+    def what_does_function_call(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find what functions a specific function calls using CALLS relationships"""
         with self.driver.session() as session:
+            limit_clause = "LIMIT $limit" if limit is not None else ""
+            params = {"function_name": function_name, "repo_path": repo_path}
+            if limit is not None:
+                params["limit"] = limit
             if path:
                 # Convert path to absolute path
                 absolute_file_path = str(Path(path).resolve())
+                params["absolute_file_path"] = absolute_file_path
                 result = session.run(f"""
                     MATCH (caller:Function {{name: $function_name, path: $absolute_file_path}})
-                    MATCH (caller)-[call:CALLS]->(called:Function)
+                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(called:Function)
                     WHERE called.path STARTS WITH $repo_path OR $repo_path IS NULL
                     OPTIONAL MATCH (called_file:File)-[:CONTAINS]->(called)
                     RETURN DISTINCT
@@ -605,11 +660,11 @@ class CodeFinder:
                         call.args as call_args,
                         call.full_call_name as full_call_name
                     ORDER BY called_is_dependency ASC, called_function
-                    LIMIT 20
-                """, function_name=function_name, absolute_file_path=absolute_file_path, repo_path=repo_path)
+                    {limit_clause}
+                """, **params)
             else:
                 result = session.run(f"""
-                    MATCH (caller:Function {{name: $function_name}})-[call:CALLS]->(called:Function)
+                    MATCH (caller:Function {{name: $function_name}})-[call:CALLS|HEURISTIC_CALLS]->(called:Function)
                     WHERE called.path STARTS WITH $repo_path OR $repo_path IS NULL
                     OPTIONAL MATCH (called_file:File)-[:CONTAINS]->(called)
                     RETURN DISTINCT
@@ -622,22 +677,26 @@ class CodeFinder:
                         call.args as call_args,
                         call.full_call_name as full_call_name
                     ORDER BY called_is_dependency ASC, called_function
-                    LIMIT 20
-                """, function_name=function_name, repo_path=repo_path)
+                    {limit_clause}
+                """, **params)
             
             return result.data()
     
-    def who_imports_module(self, module_name: str, repo_path: Optional[str] = None) -> List[Dict]:
+    def who_imports_module(self, module_name: str, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find what files import a specific module using IMPORTS relationships"""
         with self.driver.session() as session:
             repo_filter = "AND file.path STARTS WITH $repo_path" if repo_path else ""
+            limit_clause = "LIMIT $limit" if limit is not None else ""
+            params = {"module_name": module_name, "repo_path": repo_path}
+            if limit is not None:
+                params["limit"] = limit
             result = session.run(f"""
                 MATCH (file:File)-[imp:IMPORTS]->(module:Module)
                 WHERE (module.name = $module_name OR module.full_import_name CONTAINS $module_name) {repo_filter}
                 OPTIONAL MATCH (repo:Repository)-[:CONTAINS]->(file)
                 WITH file, repo, COLLECT({{
                     imported_module: module.name,
-                    import_alias: module.alias,
+                    import_alias: imp.alias,
                     full_import_name: module.full_import_name
                 }}) AS imports
                 RETURN
@@ -648,15 +707,19 @@ class CodeFinder:
                     repo.name AS repository_name,
                     imports
                 ORDER BY file_is_dependency ASC, path
-                LIMIT 20
-            """, module_name=module_name, repo_path=repo_path)
+                {limit_clause}
+            """, **params)
             
             return result.data()
     
-    def who_modifies_variable(self, variable_name: str, repo_path: Optional[str] = None) -> List[Dict]:
+    def who_modifies_variable(self, variable_name: str, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find what functions contain or modify a specific variable"""
         with self.driver.session() as session:
             repo_filter = "AND container.path STARTS WITH $repo_path" if repo_path else ""
+            limit_clause = "LIMIT $limit" if limit is not None else ""
+            params = {"variable_name": variable_name, "repo_path": repo_path}
+            if limit is not None:
+                params["limit"] = limit
             result = session.run(f"""
                 MATCH (var:Variable {{name: $variable_name}})
                 MATCH (container)-[:CONTAINS]->(var)
@@ -680,8 +743,8 @@ class CodeFinder:
                     var.context as variable_context,
                     COALESCE(container.is_dependency, file.is_dependency, false) as is_dependency
                 ORDER BY is_dependency ASC, path, variable_line_number
-                LIMIT 20
-            """, variable_name=variable_name, repo_path=repo_path)
+                {limit_clause}
+            """, **params)
             
             return result.data()
     
@@ -748,10 +811,14 @@ class CodeFinder:
                 "methods": methods_result.data()
             }
     
-    def find_function_overrides(self, function_name: str, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_function_overrides(self, function_name: str, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find all implementations of a function across different classes"""
         with self.driver.session() as session:
             repo_filter = "AND class.path STARTS WITH $repo_path" if repo_path else ""
+            limit_clause = "LIMIT $limit" if limit is not None else ""
+            params = {"function_name": function_name, "repo_path": repo_path}
+            if limit is not None:
+                params["limit"] = limit
             result = session.run(f"""
                 MATCH (class:Class)-[:CONTAINS]->(func:Function {{name: $function_name}})
                 WHERE 1=1 {repo_filter}
@@ -766,37 +833,42 @@ class CodeFinder:
                     func.is_dependency as is_dependency,
                     file.name as file_name
                 ORDER BY is_dependency ASC, class_name
-                LIMIT 20
-            """, function_name=function_name, repo_path=repo_path)
+                {limit_clause}
+            """, **params)
             
             return result.data()
     
-    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None) -> Dict[str, Any]:
+    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None, graph_name: str = None) -> Dict[str, Any]:
+        self._active_graph = graph_name
         """Find potentially unused functions (not called by other functions in the project), optionally excluding those with specific decorators."""
         if exclude_decorated_with is None:
             exclude_decorated_with = []
 
         with self.driver.session() as session:
             repo_filter = "AND func.path STARTS WITH $repo_path" if repo_path else ""
-            decorator_filter = "AND ALL(decorator_name IN $exclude_decorated_with WHERE NOT decorator_name IN func.decorators)" if exclude_decorated_with else ""
+            decorator_filter = ""
+            if exclude_decorated_with:
+                any_conditions = " AND ".join(
+                    f"NOT ANY(d IN func.decorators WHERE d CONTAINS '{p.replace(chr(39), chr(39)+chr(39))}')"
+                    for p in exclude_decorated_with
+                )
+                decorator_filter = f"AND {any_conditions}"
             func_ignore = cypher_path_not_under_ignore_dirs("func.path")
             caller_ignore = cypher_path_not_under_ignore_dirs("caller.path")
             
             query = f"""
                 MATCH (func:Function)
                 WHERE func.is_dependency = false {repo_filter} {func_ignore}
-                  AND NOT func.name IN ['main', 'setup', 'run']
+                  AND NOT toLower(func.name) IN {_ENTRY_POINT_NAMES_CYPHER}
+                  AND func.name <> '<module>'
                   AND NOT (func.name STARTS WITH '__' AND func.name ENDS WITH '__')
                   AND NOT func.name STARTS WITH '_test'
                   AND NOT func.name STARTS WITH 'test_'
-                  AND NOT func.name CONTAINS 'main'
-                  AND NOT toLower(func.name) CONTAINS 'application'
-                  AND NOT toLower(func.name) CONTAINS 'entry'
-                  AND NOT toLower(func.name) CONTAINS 'entrypoint'
                   {decorator_filter}
                 WITH func
-                OPTIONAL MATCH (caller:Function)-[:CALLS]->(func)
-                WHERE caller.is_dependency = false {caller_ignore}
+                OPTIONAL MATCH (caller)-[:CALLS|HEURISTIC_CALLS]->(func)
+                WHERE (caller.is_dependency IS NULL OR caller.is_dependency = false)
+                  {caller_ignore}
                 WITH func, count(caller) as caller_count
                 WHERE caller_count = 0
                 OPTIONAL MATCH (file:File)-[:CONTAINS]->(func)
@@ -814,9 +886,7 @@ class CodeFinder:
             params = {}
             if repo_path:
                 params["repo_path"] = repo_path
-            if exclude_decorated_with:
-                params["exclude_decorated_with"] = exclude_decorated_with
-                
+
             result = session.run(query, **params)
             
             return {
@@ -826,8 +896,9 @@ class CodeFinder:
     
     def find_all_callers(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, depth: int = 3) -> List[Dict]:
         """Find all direct and indirect callers of a specific function, returning edges."""
+        depth = _sanitize_depth(depth)
         with self.driver.session() as session:
-            repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
+            repo_filter = "AND path_nodes[0].path STARTS WITH $repo_path" if repo_path else ""
             depth_str = f"1..{depth}" if depth > 1 else "1"
             
             # KùzuDB-optimized: matching on the path end node via nodes(p) indexing
@@ -835,7 +906,7 @@ class CodeFinder:
             # on the end node of variable-length paths.
             if path:
                 query = f"""
-                    MATCH p = (caller:Function)-[:CALLS*{depth_str}]->(target:Function)
+                    MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(target:Function)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE last_node.name = $function_name AND last_node.path = $path
@@ -845,12 +916,12 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
                 query = f"""
-                    MATCH p = (caller:Function)-[:CALLS*{depth_str}]->(target:Function)
+                    MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(target:Function)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE last_node.name = $function_name
@@ -860,20 +931,21 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, repo_path=repo_path)
             return result.data()
 
     def find_all_callees(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, depth: int = 3) -> List[Dict]:
         """Find all direct and indirect callees of a specific function, returning edges."""
+        depth = _sanitize_depth(depth)
         with self.driver.session() as session:
-            repo_filter = "AND callee.path STARTS WITH $repo_path" if repo_path else ""
+            repo_filter = "AND last_node.path STARTS WITH $repo_path" if repo_path else ""
             depth_str = f"1..{depth}" if depth > 1 else "1"
             
             if path:
                 query = f"""
-                    MATCH p = (caller:Function {{name: $function_name, path: $path}})-[:CALLS*{depth_str}]->(callee:Function)
+                    MATCH p = (caller:Function {{name: $function_name, path: $path}})-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(callee:Function)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE 1=1 {repo_filter}
@@ -882,12 +954,12 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
                 query = f"""
-                    MATCH p = (caller:Function {{name: $function_name}})-[:CALLS*{depth_str}]->(callee:Function)
+                    MATCH p = (caller:Function {{name: $function_name}})-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(callee:Function)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE 1=1 {repo_filter}
@@ -896,12 +968,12 @@ class CodeFinder:
                     RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
                                     e.name as callee_name, e.path as callee_path, 
                                     r.line_number as line
-                    LIMIT 100
+                    LIMIT 500
                 """
                 result = session.run(query, function_name=function_name, repo_path=repo_path)
             return result.data()
 
-    def find_function_call_chain(self, start_function: str, end_function: str, max_depth: int = 5, start_file: Optional[str] = None, end_file: Optional[str] = None, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_function_call_chain(self, start_function: str, end_function: str, max_depth: int = 5, start_file: Optional[str] = None, end_file: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find call chains between two functions"""
         with self.driver.session() as session:
             # Build match clauses based on whether files are specified
@@ -910,17 +982,18 @@ class CodeFinder:
 
             # KùzuDB-compatible: Use anonymous end node and filter
             repo_filter = "WHERE 1=1 AND (start.path IS NULL OR start.path STARTS WITH $repo_path) AND (end_target.path IS NULL OR end_target.path STARTS WITH $repo_path)" if repo_path else ""
+            limit_clause = "LIMIT $limit" if limit is not None else ""
             query = f"""
                 MATCH (start:Function {start_props}), (end_target:Function {end_props})
                 {repo_filter}
                 WITH start as start, end_target as end_target
-                MATCH path = (start)-[:CALLS*1..{max_depth}]->()
+                MATCH path = (start)-[:CALLS|HEURISTIC_CALLS*1..{max_depth}]->()
                 WITH path as path, end_target as end_target, nodes(path) as func_nodes, relationships(path) as call_rels
                 WITH path as path, func_nodes as func_nodes, call_rels as call_rels, end_target as end_target, func_nodes[size(func_nodes)-1] as path_end
                 WHERE path_end.name = end_target.name AND (end_target.path IS NULL OR path_end.path = end_target.path)
                 RETURN func_nodes as function_nodes, call_rels as call_nodes, size(call_rels) as chain_length
                 ORDER BY chain_length ASC
-                LIMIT 20
+                {limit_clause}
             """
             
             # Prepare parameters
@@ -931,6 +1004,8 @@ class CodeFinder:
                 "end_file": end_file,
                 "repo_path": repo_path
             }
+            if limit is not None:
+                params["limit"] = limit
             
             result = session.run(query, **params)
 
@@ -1175,7 +1250,8 @@ class CodeFinder:
                 "instances": instances,
             }
 
-    def analyze_code_relationships(self, query_type: str, target: str, context: Optional[str] = None, repo_path: Optional[str] = None, depth: Optional[int] = None) -> Dict[str, Any]:
+    def analyze_code_relationships(self, query_type: str, target: str, context: Optional[str] = None, repo_path: Optional[str] = None, depth: Optional[int] = None, graph_name: str = None) -> Dict[str, Any]:
+        self._active_graph = graph_name
         """Main method to analyze different types of code relationships with fixed return types"""
         query_type = query_type.lower().strip()
         
@@ -1184,45 +1260,106 @@ class CodeFinder:
         
         try:
             if query_type == "find_callers":
-                results = self.who_calls_function(target, context, repo_path=repo_path)
-                return {
-                    "query_type": "find_callers", "target": target, "context": context, "results": results,
-                    "summary": f"Found {len(results)} functions that call '{target}'"
+                req_limit = get_tool_result_limit("find_callers")
+                raw_results = self.who_calls_function(target, context, repo_path=repo_path, limit=req_limit + 1 if req_limit is not None else None)
+                truncated = bool(req_limit and len(raw_results) > req_limit)
+                results = raw_results[:req_limit] if truncated else raw_results
+
+                target_paths = {r.get("target_file_path") for r in results}
+                target_file_path = target_paths.pop() if len(target_paths) == 1 else None
+                if target_file_path is not None:
+                    for r in results:
+                        r.pop("target_file_path", None)
+
+                summary = f"Found {len(results)} functions that call '{target}'"
+                if truncated:
+                    summary += " (truncated — more exist)"
+
+                envelope = {
+                    "query_type": "find_callers", "target": target, "context": context,
+                    "target_file_path": target_file_path, "results": results,
+                    "summary": summary, "truncated": truncated, "result_limit": req_limit
                 }
+                if target_file_path is None and len(target_paths) > 1:
+                    envelope["note"] = (
+                        f"'{target}' is defined in {len(target_paths)} files; each result "
+                        "carries its own target_file_path. Pass `context` to disambiguate."
+                    )
+                return envelope
             
             elif query_type == "find_callees":
-                results = self.what_does_function_call(target, context, repo_path=repo_path)
+                req_limit = get_tool_result_limit("find_callees")
+                raw_results = self.what_does_function_call(target, context, repo_path=repo_path, limit=req_limit + 1 if req_limit is not None else None)
+                truncated = bool(req_limit and len(raw_results) > req_limit)
+                results = raw_results[:req_limit] if truncated else raw_results
+
+                summary = f"Function '{target}' calls {len(results)} other functions"
+                if truncated:
+                    summary += " (truncated — more exist)"
+
                 return {
                     "query_type": "find_callees", "target": target, "context": context, "results": results,
-                    "summary": f"Function '{target}' calls {len(results)} other functions"
+                    "summary": summary, "truncated": truncated, "result_limit": req_limit
                 }
                 
             elif query_type == "find_importers":
-                results = self.who_imports_module(target, repo_path=repo_path)
+                req_limit = get_tool_result_limit("find_importers")
+                raw_results = self.who_imports_module(target, repo_path=repo_path, limit=req_limit + 1 if req_limit is not None else None)
+                truncated = bool(req_limit and len(raw_results) > req_limit)
+                results = raw_results[:req_limit] if truncated else raw_results
+
+                summary = f"Found {len(results)} files that import '{target}'"
+                if truncated:
+                    summary += " (truncated — more exist)"
+
                 return {
                     "query_type": "find_importers", "target": target, "results": results,
-                    "summary": f"Found {len(results)} files that import '{target}'"
+                    "summary": summary, "truncated": truncated, "result_limit": req_limit
                 }
                 
             elif query_type == "find_functions_by_argument":
-                results = self.find_functions_by_argument(target, context, repo_path=repo_path)
+                req_limit = get_tool_result_limit("find_functions_by_argument")
+                raw_results = self.find_functions_by_argument(target, context, repo_path=repo_path, limit=req_limit + 1 if req_limit is not None else None)
+                truncated = bool(req_limit and len(raw_results) > req_limit)
+                results = raw_results[:req_limit] if truncated else raw_results
+
+                summary = f"Found {len(results)} functions that take '{target}' as an argument"
+                if truncated:
+                    summary += " (truncated — more exist)"
+
                 return {
                     "query_type": "find_functions_by_argument", "target": target, "context": context, "results": results,
-                    "summary": f"Found {len(results)} functions that take '{target}' as an argument"
+                    "summary": summary, "truncated": truncated, "result_limit": req_limit
                 }
             
             elif query_type == "find_functions_by_decorator":
-                results = self.find_functions_by_decorator(target, context, repo_path=repo_path)
+                req_limit = get_tool_result_limit("find_functions_by_decorator")
+                raw_results = self.find_functions_by_decorator(target, context, repo_path=repo_path, limit=req_limit + 1 if req_limit is not None else None)
+                truncated = bool(req_limit and len(raw_results) > req_limit)
+                results = raw_results[:req_limit] if truncated else raw_results
+
+                summary = f"Found {len(results)} functions decorated with '{target}'"
+                if truncated:
+                    summary += " (truncated — more exist)"
+
                 return {
                     "query_type": "find_functions_by_decorator", "target": target, "context": context, "results": results,
-                    "summary": f"Found {len(results)} functions decorated with '{target}'"
+                    "summary": summary, "truncated": truncated, "result_limit": req_limit
                 }
                 
             elif query_type in ["who_modifies", "modifies", "mutations", "changes", "variable_usage"]:
-                results = self.who_modifies_variable(target, repo_path=repo_path)
+                req_limit = get_tool_result_limit("who_modifies")
+                raw_results = self.who_modifies_variable(target, repo_path=repo_path, limit=req_limit + 1 if req_limit is not None else None)
+                truncated = bool(req_limit and len(raw_results) > req_limit)
+                results = raw_results[:req_limit] if truncated else raw_results
+
+                summary = f"Found {len(results)} containers that hold variable '{target}'"
+                if truncated:
+                    summary += " (truncated — more exist)"
+
                 return {
                     "query_type": "who_modifies", "target": target, "results": results,
-                    "summary": f"Found {len(results)} containers that hold variable '{target}'"
+                    "summary": summary, "truncated": truncated, "result_limit": req_limit
                 }
             
             elif query_type in ["class_hierarchy", "inheritance", "extends"]:
@@ -1233,22 +1370,34 @@ class CodeFinder:
                 }
             
             elif query_type in ["overrides", "implementations", "polymorphism"]:
-                results = self.find_function_overrides(target, repo_path=repo_path)
+                req_limit = get_tool_result_limit("overrides")
+                raw_results = self.find_function_overrides(target, repo_path=repo_path, limit=req_limit + 1 if req_limit is not None else None)
+                truncated = bool(req_limit and len(raw_results) > req_limit)
+                results = raw_results[:req_limit] if truncated else raw_results
+
+                summary = f"Found {len(results)} implementations of function '{target}'"
+                if truncated:
+                    summary += " (truncated — more exist)"
+
                 return {
                     "query_type": "overrides", "target": target, "results": results,
-                    "summary": f"Found {len(results)} implementations of function '{target}'"
+                    "summary": summary, "truncated": truncated, "result_limit": req_limit
                 }
             
             elif query_type in ["dead_code", "unused", "unreachable"]:
-                results = self.find_dead_code(repo_path=repo_path)
+                # graph_name must be forwarded: find_dead_code defaults it to None and
+                # re-assigns the shared self._active_graph, so omitting it here
+                # silently redirected the query to the default graph.
+                results = self.find_dead_code(repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "dead_code", "results": results,
                     "summary": f"Found {len(results['potentially_unused_functions'])} potentially unused functions"
                 }
             
             elif query_type == "find_complexity":
-                limit = int(context) if context and context.isdigit() else 10
-                results = self.find_most_complex_functions(limit, repo_path=repo_path)
+                limit_val = context if context else target
+                limit = int(limit_val) if limit_val and str(limit_val).isdigit() else 10
+                results = self.find_most_complex_functions(limit, repo_path=repo_path, graph_name=graph_name)
                 return {
                     "query_type": "find_complexity", "limit": limit, "results": results,
                     "summary": f"Found the top {len(results)} most complex functions"
@@ -1271,12 +1420,19 @@ class CodeFinder:
             elif query_type in ["call_chain", "path", "chain"]:
                 if '->' in target:
                     start_func, end_func = target.split('->', 1)
-                    # max_depth can be passed as context, default to 5 if not provided or invalid
-                    max_depth = int(context) if context and context.isdigit() else 5
-                    results = self.find_function_call_chain(start_func.strip(), end_func.strip(), max_depth, repo_path=repo_path)
+                    max_depth = int(context) if context and str(context).isdigit() else 5
+                    req_limit = get_tool_result_limit("call_chain")
+                    raw_results = self.find_function_call_chain(start_func.strip(), end_func.strip(), max_depth, repo_path=repo_path, limit=req_limit + 1 if req_limit is not None else None)
+                    truncated = bool(req_limit and len(raw_results) > req_limit)
+                    results = raw_results[:req_limit] if truncated else raw_results
+
+                    summary = f"Found {len(results)} call chains from '{start_func.strip()}' to '{end_func.strip()}' (max depth: {max_depth})"
+                    if truncated:
+                        summary += " (truncated — more exist)"
+
                     return {
                         "query_type": "call_chain", "target": target, "results": results,
-                        "summary": f"Found {len(results)} call chains from '{start_func.strip()}' to '{end_func.strip()}' (max depth: {max_depth})"
+                        "summary": summary, "truncated": truncated, "result_limit": req_limit
                     }
                 else:
                     return {
@@ -1315,7 +1471,8 @@ class CodeFinder:
                 "target": target
             }
 
-    def get_cyclomatic_complexity(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> Optional[Dict]:
+    def get_cyclomatic_complexity(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: str = None) -> Optional[Dict]:
+        self._active_graph = graph_name
         """Get the cyclomatic complexity of a function."""
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
@@ -1342,7 +1499,8 @@ class CodeFinder:
                 return result_data[0]
             return None
 
-    def find_most_complex_functions(self, limit: int = 10, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_most_complex_functions(self, limit: int = 10, repo_path: Optional[str] = None, graph_name: str = None) -> List[Dict]:
+        self._active_graph = graph_name
         """Find the most complex functions based on cyclomatic complexity."""
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
@@ -1374,7 +1532,8 @@ class CodeFinder:
             result = session.run(query, file_path=file_path, limit=limit, repo_path=repo_path)
             return result.data()
 
-    def list_indexed_repositories(self) -> List[Dict]:
+    def list_indexed_repositories(self, graph_name: str = None) -> List[Dict]:
+        self._active_graph = graph_name
         """List all indexed repositories."""
         with self.driver.session() as session:
             result = session.run("""

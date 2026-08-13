@@ -1,5 +1,6 @@
 import ForceGraph2D from "react-force-graph-2d";
 import ForceGraph3D from "react-force-graph-3d";
+import RepositorySummary from "./RepositorySummary";
 import * as THREE from "three";
 import { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
@@ -10,14 +11,17 @@ import {
   ChevronRight, ChevronDown, Folder, FolderOpen,
   PanelLeftClose, PanelLeftOpen,
   Layers, Check, X, Code2, Sun, Moon, ChevronUp, Route,
-  Download, UploadCloud, Menu, MessageSquare, Copy
+  Download, UploadCloud, Menu, MessageSquare, Copy, Loader2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
 import FlowchartSVG from "./FlowchartSVG";
 import { packageCgcBundle, downloadBlob, publishCgcBundle } from "../lib/cgc-exporter";
+import { exportSvg } from "../lib/svg-exporter";
+import { packageInteractiveExport } from "../lib/html-exporter";
 import { toast } from "sonner";
 import { getOrCreateSessionId } from "../lib/utils";
+import { generateNodeSummary, type NodeSummary, loadLLMConfig, saveLLMConfig, type LLMConfig, executeClientAIQuery } from "../lib/summary-engine";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -277,7 +281,7 @@ function TreeItem({
       <div>
         <button
           onClick={() => setOpen(o => !o)}
-          className="w-full flex items-center gap-1 py-[3px] px-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors group"
+          className="w-full flex items-center gap-1 py-[3px] px-2 rounded-lg text-gray-400 hover:text-white hover:bg-purple-500/10 transition-colors group"
           style={{ paddingLeft: `${indent + 8}px` }}
         >
           {open
@@ -326,8 +330,8 @@ function TreeItem({
     <button
       onClick={() => onFileClick(node.path)}
       className={`w-full flex items-center gap-2 py-[3px] px-2 rounded-lg text-[13px] transition-all group ${isSelected
-        ? 'bg-blue-500/20 text-blue-200 border border-blue-500/20'
-        : 'text-gray-400 hover:text-gray-200 hover:bg-white/5 border border-transparent'
+        ? 'bg-purple-500/20 text-purple-200 border border-purple-500/20'
+        : 'text-gray-400 hover:text-gray-200 hover:bg-purple-500/10 border border-transparent'
         }`}
       style={{ paddingLeft: `${indent + 20}px` }}
     >
@@ -349,6 +353,12 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function getNodeDisplayName(node: any): string {
+  const fallback = node?.name ?? node?.label ?? node?.uid ?? node?.node_type ?? node?.type ?? node?.id ?? 'Unknown';
+  const displayName = String(fallback).trim();
+  return displayName || 'Unknown';
+}
+
 function getGraphAwareNodeScale(totalNodes: number): number {
   const safeNodeCount = Math.max(totalNodes, 1);
   // High node count = smaller nodes to prevent overlap and visual clutter
@@ -356,17 +366,54 @@ function getGraphAwareNodeScale(totalNodes: number): number {
   return clamp(2.5 / (1 + Math.log10(safeNodeCount) * 0.95), 0.45, 2.5);
 }
 
-export default function CodeGraphViewer({ data, onClose }: { data: any, onClose: () => void }) {
+export default function CodeGraphViewer({ data: rawData, onClose }: { data: any, onClose: () => void }) {
   const { theme, setTheme } = useTheme();
   const isDark = theme !== 'light';
   const pal = isDark ? PALETTE.dark : PALETTE.light;
+
+  const data = useMemo(() => ({
+    ...rawData,
+    nodes: (rawData?.nodes || []).map((node: any) => ({
+      ...node,
+      name: getNodeDisplayName(node),
+    })),
+    links: rawData?.links || [],
+    files: rawData?.files || [],
+  }), [rawData]);
 
   const fgRef = useRef<any>();
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [hoverNode, setHoverNode] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('cgc_recent_searches');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const addRecentSearch = (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    setRecentSearches(prev => {
+      const updated = [trimmed, ...prev.filter(q => q !== trimmed)].slice(0, 8);
+      localStorage.setItem('cgc_recent_searches', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [focusSet, setFocusSet] = useState<{ nodes: Set<number>, links: Set<any> } | null>(null);
+  const [simulationReady, setSimulationReady] = useState(false);
+
+  // AI query exploration states
+  const [isAIMode, setIsAIMode] = useState(false);
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResponse, setAiResponse] = useState<any | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Publish and Export parameters
   const { owner, repo } = useParams();
@@ -391,8 +438,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const [ownerPart, repoPart] = repoName.includes('/') ? repoName.split('/') : [owner || repoName, repo || ''];
   const cleanOwner = String(ownerPart).trim();
   const cleanRepo = String(repoPart).trim();
-  const designedRepoName = cleanOwner && cleanRepo 
-    ? `${cleanOwner}__${cleanRepo}__${branchName}__${cleanCommit}` 
+  const designedRepoName = cleanOwner && cleanRepo
+    ? `${cleanOwner}__${cleanRepo}__${branchName}__${cleanCommit}`
     : repoName;
 
   const userId = getOrCreateSessionId();
@@ -431,13 +478,56 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       } else {
         filename = `${repoName}.cgc`;
       }
-      
+
       const blob = await packageCgcBundle(repoName, data.nodes, data.links, data.metadata?.version || "1.0.0", data.metadata);
       downloadBlob(blob, filename);
       toast.success("CGC bundle exported successfully!");
     } catch (err: any) {
       console.error(err);
       toast.error("Failed to export bundle: " + err.message);
+    }
+  };
+
+  const handleSvgExport = async () => {
+    try {
+      if (graphMode === 'mermaid') {
+        const svgEl = document.getElementById('flowchart-svg');
+        if (svgEl) {
+          const svgString = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n` + svgEl.outerHTML;
+          const blob = new Blob([svgString], { type: 'image/svg+xml' });
+          downloadBlob(blob, 'flowchart-export.svg');
+          toast.success("Flowchart SVG exported successfully!");
+          return;
+        }
+      }
+
+      await exportSvg(filteredData, nodeColors, edgeColors, isDark);
+      toast.success("SVG exported successfully!");
+    } catch (err: any) {
+      toast.error("Failed to export SVG: " + err.message);
+    }
+  };
+
+  const handleHtmlExport = async () => {
+    try {
+      let filename = "interactive-graph.zip";
+      if (data.metadata?.repo) {
+        filename = `${data.metadata.repo.replace(/\//g, '_')}_interactive.zip`;
+      }
+
+      const exportMode = graphMode === 'mermaid' ? 'mermaid' : 'classic';
+      const blob = await packageInteractiveExport(
+        filteredData.nodes,
+        filteredData.links,
+        data.metadata || {},
+        nodeColors,
+        edgeColors,
+        exportMode
+      );
+      downloadBlob(blob, filename);
+      toast.success("Interactive HTML exported successfully!");
+    } catch (err: any) {
+      toast.error("Failed to export Interactive HTML: " + err.message);
     }
   };
 
@@ -466,7 +556,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       toast.error("Invalid repository name. Expected 'owner/repo' format.");
       return;
     }
-    
+
     // Check if this repository and commit/branch is already pre-indexed in the manifest
     const commitSha = data.metadata?.commit || "";
     if (commitSha) {
@@ -477,20 +567,20 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
         if (manifestRes.ok) {
           const manifestData = await manifestRes.json();
           const bundles = manifestData.bundles || [];
-          
+
           const match = bundles.find((b: any) => {
             const sameRepo = b.repo && b.repo.toLowerCase() === publishRepo.toLowerCase();
-            
+
             // The commit SHA can be stored in either b.commit or b.version (e.g. Hugging Face manifest)
             const targetCommit = (b.commit || b.version || "").toLowerCase();
             const currentCommit = commitSha.toLowerCase();
-            
+
             const sameCommit = targetCommit && (
               currentCommit === targetCommit ||
               currentCommit.startsWith(targetCommit) ||
               targetCommit.startsWith(currentCommit)
             );
-            
+
             return sameRepo && sameCommit;
           });
 
@@ -522,8 +612,12 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const [codeContent, setCodeContent] = useState<string | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
   const [codePanelWidth, setCodePanelWidth] = useState(420);
-  const [codePanelTab, setCodePanelTab] = useState<'code' | 'entities'>('code');
+  const [codePanelTab, setCodePanelTab] = useState<'code' | 'entities' | 'architecture'>('code');
   const [highlightLine, setHighlightLine] = useState<number | null>(null);
+  const [selectedNode, setSelectedNode] = useState<any | null>(null);
+  const [nodeSummary, setNodeSummary] = useState<NodeSummary | null>(null);
+  const [llmConfig, setLlmConfig] = useState<LLMConfig>(loadLLMConfig());
+  const [showLlmSettings, setShowLlmSettings] = useState<boolean>(false);
   const isCodeResizing = useRef(false);
   const codeResizeStartX = useRef(0);
   const codeResizeStartW = useRef(420);
@@ -549,6 +643,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
   const [graphMode, setGraphMode] = useState<VisualizationMode>('classic');
   const [showModeMenu, setShowModeMenu] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   // Sidebar resize / collapse
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_W);
@@ -579,6 +675,9 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     const handler = (e: MouseEvent) => {
       if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) {
         setShowModeMenu(false);
+      }
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -640,6 +739,10 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     let max = 0;
     for (const v of dm.values()) { if (v > max) max = v; }
     return { degreeMap: dm, maxDegree: max };
+  }, [filteredData]);
+
+  useEffect(() => {
+    setSimulationReady(false);
   }, [filteredData]);
 
   const nodeCanvasObject = useCallback((node: any, ctx: any, globalScale: number) => {
@@ -742,16 +845,44 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       }
 
       default: {
+        const degree = degreeMap.get(node.id) || 0;
+        const baseSize = Math.max(3, Math.min(2 + Math.sqrt(degree) * 1.5, 15)) * nodeSize * graphAwareNodeScale;
+
+        // Glow for selected/highlighted
         if (isHovered || (selectedFile && node.file === selectedFile && node.type === 'File')) {
+          const glowGradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, baseSize * 4);
+          glowGradient.addColorStop(0, getRGBA(baseColor, 0.4));
+          glowGradient.addColorStop(1, 'transparent');
           ctx.beginPath();
-          ctx.arc(node.x, node.y, radius * (isHovered ? 2.5 : 2.0), 0, 2 * Math.PI, false);
-          ctx.fillStyle = getRGBA(baseColor, isHovered ? (isFocused ? 0.3 : 0.1) : 0.1);
+          ctx.arc(node.x, node.y, baseSize * 4, 0, 2 * Math.PI, false);
+          ctx.fillStyle = glowGradient;
+          ctx.fill();
+        } else if (isFocused && !isMassive) {
+          const glowGradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, baseSize * 2.5);
+          glowGradient.addColorStop(0, getRGBA(baseColor, 0.15));
+          glowGradient.addColorStop(1, 'transparent');
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, baseSize * 2.5, 0, 2 * Math.PI, false);
+          ctx.fillStyle = glowGradient;
           ctx.fill();
         }
+
+        // Main circle
         ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-        ctx.fillStyle = isFocused ? baseColor : getRGBA(baseColor, opacity);
+        ctx.arc(node.x, node.y, baseSize, 0, 2 * Math.PI, false);
+        ctx.fillStyle = isFocused ? getRGBA(baseColor, 0.8) : getRGBA(baseColor, 0.15);
         ctx.fill();
+
+        // Border
+        if (isHovered || (selectedFile && node.file === selectedFile && node.type === 'File')) {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2.5 / globalScale;
+          ctx.stroke();
+        } else if (isFocused) {
+          ctx.strokeStyle = baseColor;
+          ctx.lineWidth = 1.5 / globalScale;
+          ctx.stroke();
+        }
         break;
       }
     }
@@ -1100,6 +1231,11 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
 
     setHighlightLine(targetLine || null);
 
+    // Clear selectedNode if we manually clicked a file from tree
+    if (!targetLine) {
+      setSelectedNode(null);
+    }
+
     if (path !== selectedFile) {
       setSelectedFile(path);
       loadFileCode(path);
@@ -1149,11 +1285,27 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       }
       return;
     }
+
+    setSelectedNode(node);
+    if (node.type !== 'File' && node.type !== 'Directory') {
+      setCodePanelTab('architecture');
+    }
+
     const filePath = node.file || node.properties?.path || node.properties?.file;
     if (!filePath) return;
     const lineNum = node.line_number ?? node.properties?.line_number;
-    onFileClick(filePath, lineNum ? Number(lineNum) : undefined);
+
+    // Pass lineNum to preserve selectedNode
+    onFileClick(filePath, lineNum ? Number(lineNum) : -1);
   };
+
+  useEffect(() => {
+    if (selectedNode) {
+      setNodeSummary(generateNodeSummary(selectedNode, data.nodes, data.links));
+    } else {
+      setNodeSummary(null);
+    }
+  }, [selectedNode, data.links]);
 
   useEffect(() => {
     if (highlightLine && codeContent && codePanelTab === 'code') {
@@ -1264,6 +1416,107 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
     }
   }, [pathSource, pathTarget, filteredData, graphMode]);
 
+  const highlightAIQueryResultNodes = useCallback((responseObj = aiResponse) => {
+    if (!responseObj || !responseObj.nodes) return;
+
+    const returnedNodeIds = new Set(responseObj.nodes.map((n: any) => n.id));
+    const pathNodes = new Set<any>();
+    const pathLinks = new Set<any>();
+
+    // Add all nodes from filteredData that are in returnedNodeIds
+    filteredData.nodes.forEach((node: any) => {
+      if (returnedNodeIds.has(node.id)) {
+        pathNodes.add(node.id);
+      }
+    });
+
+    // Add all links from filteredData that connect two nodes in the focus set
+    filteredData.links.forEach((link: any) => {
+      const u = typeof link.source === 'object' ? link.source.id : link.source;
+      const v = typeof link.target === 'object' ? link.target.id : link.target;
+      if (returnedNodeIds.has(u) && returnedNodeIds.has(v)) {
+        pathLinks.add(link);
+      }
+    });
+
+    setFocusSet({ nodes: pathNodes, links: pathLinks });
+
+    // Center and zoom on focused nodes
+    if (pathNodes.size > 0 && fgRef.current) {
+      let totalX = 0;
+      let totalY = 0;
+      let count = 0;
+      filteredData.nodes.forEach((node: any) => {
+        if (pathNodes.has(node.id) && Number.isFinite(node.x) && Number.isFinite(node.y)) {
+          totalX += node.x;
+          totalY += node.y;
+          count++;
+        }
+      });
+      if (count > 0) {
+        const avgX = totalX / count;
+        const avgY = totalY / count;
+        fgRef.current.centerAt(avgX, avgY, 800);
+        fgRef.current.zoom(2.0, 800);
+      }
+    }
+  }, [aiResponse, filteredData]);
+
+  const handleAIQuerySubmit = useCallback(async () => {
+    if (!aiQuery.trim()) return;
+    setAiLoading(true);
+    setAiError(null);
+    setAiResponse(null);
+
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const backend = searchParams.get("backend");
+
+      if (backend) {
+        const backendUrl = backend || window.location.origin;
+        const url = `${backendUrl.replace(/[\\/]+$/, "")}/api/ai_query`;
+        
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            query: aiQuery,
+            repo_path: data.metadata?.path || null,
+          }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || `Server error (${response.status})`);
+        }
+
+        const resData = await response.json();
+        if (resData.success) {
+          setAiResponse(resData);
+          highlightAIQueryResultNodes(resData);
+        } else {
+          setAiError(resData.error || "An error occurred during AI analysis.");
+        }
+      } else {
+        const resData = await executeClientAIQuery(aiQuery, data.nodes, data.links, llmConfig);
+        if (resData.success) {
+          setAiResponse(resData);
+          highlightAIQueryResultNodes(resData);
+        } else {
+          setAiError(resData.error || "An error occurred during AI analysis.");
+        }
+      }
+    } catch (err: any) {
+      console.error("AI Query Error:", err);
+      setAiError(err.message);
+      toast.error("AI Query Failed: " + err.message);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [aiQuery, data, highlightAIQueryResultNodes, llmConfig]);
+
   const getLinkColor = useCallback((link: any) => {
     const isFocused = focusSet ? focusSet.links.has(link) : true;
     const baseColor = edgeColors[link.type] || '#ffffff';
@@ -1318,7 +1571,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                 <Button
                   onClick={() => window.location.href = "/"}
                   variant="ghost"
-                  className={`w-full justify-start mb-4 rounded-xl transition-colors text-sm ${isDark ? 'text-gray-400 hover:text-white hover:bg-white/5 border border-white/5' : 'text-gray-600 hover:text-black hover:bg-black/5 border border-black/10'}`}
+                  className={`w-full justify-start mb-4 rounded-xl transition-colors text-sm ${isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10 border border-white/5' : 'text-gray-600 hover:text-black hover:bg-black/5 border border-black/10'}`}
                 >
                   <X className="w-4 h-4 mr-2 text-red-400" />
                   Exit to Homepage
@@ -1326,17 +1579,38 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
 
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-bold flex items-center gap-2 tracking-tight uppercase" style={{ color: pal.text }}>
-                    <FileCode className="w-4 h-4 text-blue-400" />
-                    Project Tree
+                    {isAIMode ? (
+                      <>
+                        <MessageSquare className="w-4 h-4 text-purple-400 animate-pulse" />
+                        AI Explorer
+                      </>
+                    ) : (
+                      <>
+                        <FileCode className="w-4 h-4 text-purple-400" />
+                        Project Tree
+                      </>
+                    )}
                   </h2>
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => {
-                        setIsPathMode(!isPathMode);
+                        setIsAIMode(!isAIMode);
+                        setIsPathMode(false);
                         setShowConfig(false);
                       }}
+                      title="AI Knowledge Explorer"
+                      className={`p-1.5 rounded-lg transition-colors ${isAIMode ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-white hover:bg-purple-500/10'}`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsPathMode(!isPathMode);
+                        setShowConfig(false);
+                        setIsAIMode(false);
+                      }}
                       title="Path Finder"
-                      className={`p-1.5 rounded-lg transition-colors ${isPathMode ? 'bg-indigo-500/20 text-indigo-400' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                      className={`p-1.5 rounded-lg transition-colors ${isPathMode ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-white hover:bg-purple-500/10'}`}
                     >
                       <Route className="w-4 h-4" />
                     </button>
@@ -1344,37 +1618,223 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                       onClick={() => {
                         setShowConfig(!showConfig);
                         setIsPathMode(false);
+                        setIsAIMode(false);
                       }}
                       title="Graph Settings"
-                      className={`p-1.5 rounded-lg transition-colors ${showConfig ? 'bg-blue-500/20 text-blue-400' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                      className={`p-1.5 rounded-lg transition-colors ${showConfig ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-white hover:bg-purple-500/10'}`}
                     >
                       <Settings2 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => setCollapsed(true)}
                       title="Collapse sidebar"
-                      className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-white/5 transition-colors"
+                      className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-purple-500/10 transition-colors"
                     >
                       <PanelLeftClose className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
-                <div className="relative mb-2">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-                  <input
-                    type="text"
-                    placeholder="Filter files..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`w-full rounded-lg py-1.5 pl-9 pr-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-all ${isDark ? 'bg-white/5 border border-white/8 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
-                  />
-                </div>
+                {!isAIMode && (
+                  <div className="relative mb-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+                    <input
+                      type="text"
+                      placeholder="Filter files..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          addRecentSearch(searchQuery);
+                        }
+                      }}
+                      className={`w-full rounded-lg py-1.5 pl-9 pr-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all ${isDark ? 'bg-white/5 border border-white/8 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
+                    />
+                  </div>
+                )}
+                {!isAIMode && recentSearches.length > 0 && !isPathMode && !showConfig && (
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {recentSearches.map((q, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setSearchQuery(q);
+                          addRecentSearch(q);
+                        }}
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${isDark ? 'bg-white/5 border-white/10 text-gray-400 hover:text-white hover:bg-white/10' : 'bg-black/5 border-black/10 text-gray-600 hover:text-black hover:bg-black/10'}`}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Tree / Config / Path Mode */}
               <div className="flex-1 overflow-y-auto px-2 py-1 custom-scrollbar">
-                {isPathMode ? (
+                {isAIMode ? (
+                  <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2 m-0">
+                        <MessageSquare className="w-3 h-3 text-purple-400 animate-pulse" /> AI Knowledge Explorer
+                      </h3>
+                      {!new URLSearchParams(window.location.search).get("backend") && (
+                        <button 
+                          onClick={() => setShowLlmSettings(!showLlmSettings)}
+                          title="BYOK Settings"
+                          className="text-gray-500 hover:text-white"
+                        >
+                          <Settings2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                    
+                    {!new URLSearchParams(window.location.search).get("backend") && (llmConfig.provider === 'none' || showLlmSettings) ? (
+                      <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg space-y-3">
+                        <div className="text-[11px] text-purple-200 leading-relaxed">
+                          <strong>Client-Side Engine:</strong> Configure your API key to run queries locally in your browser.
+                        </div>
+                        <select
+                          value={llmConfig.provider}
+                          onChange={e => setLlmConfig({...llmConfig, provider: e.target.value as any})}
+                          className={`w-full p-2 text-xs rounded border ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
+                        >
+                          <option value="none">Select Provider</option>
+                          <option value="gemini">Google Gemini</option>
+                          <option value="mistral">Mistral AI</option>
+                        </select>
+                        <input
+                          type="password"
+                          placeholder="API Key"
+                          value={llmConfig.apiKey}
+                          onChange={e => setLlmConfig({...llmConfig, apiKey: e.target.value})}
+                          className={`w-full p-2 text-xs rounded border ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
+                        />
+                        <Button 
+                          size="sm" 
+                          className="w-full text-xs" 
+                          onClick={() => {
+                            saveLLMConfig(llmConfig);
+                            setShowLlmSettings(false);
+                            toast.success("LLM Config Saved");
+                          }}
+                        >
+                          Save Config
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-[11px] text-gray-400 leading-relaxed flex items-center justify-between">
+                          <span>Ask natural language questions about your repository's code graph.</span>
+                          {!new URLSearchParams(window.location.search).get("backend") && (
+                            <span className="text-[9px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded ml-2 whitespace-nowrap">Browser BYOK</span>
+                          )}
+                          {new URLSearchParams(window.location.search).get("backend") && (
+                            <span className="text-[9px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded ml-2 whitespace-nowrap">Neo4j Engine</span>
+                          )}
+                        </p>
+
+                    <div className="space-y-2 mt-2">
+                      <textarea
+                        placeholder="e.g., Which modules depend on AuthenticationService?"
+                        value={aiQuery}
+                        onChange={(e) => setAiQuery(e.target.value)}
+                        className={`w-full rounded-lg p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all min-h-[80px] resize-none ${isDark ? 'bg-white/5 border border-white/10 text-white placeholder:text-gray-600' : 'bg-black/5 border border-black/10 text-gray-900 placeholder:text-gray-400'}`}
+                      />
+                      <Button
+                        size="sm"
+                        className="w-full text-xs bg-purple-500 hover:bg-purple-600 text-white flex items-center justify-center gap-2 py-2"
+                        disabled={aiLoading || !aiQuery.trim()}
+                        onClick={handleAIQuerySubmit}
+                      >
+                        {aiLoading ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Analyzing Code Graph...
+                          </>
+                        ) : (
+                          "Ask Assistant"
+                        )}
+                      </Button>
+                    </div>
+
+                    {/* Quick templates */}
+                    <div className="space-y-1.5 pt-2">
+                      <label className="text-[9px] text-gray-500 uppercase font-black tracking-wider block mb-1">Example Queries</label>
+                      <div className="space-y-1">
+                        {[
+                          "Which modules depend on AuthenticationService?",
+                          "Show all database-related components.",
+                          "What files would be affected if I modify UserController?",
+                          "Which classes have the highest dependency count?",
+                          "Show shortest path between API Gateway and Database Layer.",
+                          "Explain the repository architecture."
+                        ].map((q, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => setAiQuery(q)}
+                            className={`w-full text-left text-[10.5px] p-2 rounded-lg transition-colors border text-gray-400 hover:text-white ${isDark ? 'bg-white/5 border-white/5 hover:border-purple-500/30 hover:bg-purple-500/10' : 'bg-black/5 border-black/10 hover:border-purple-500/30 hover:bg-purple-500/5'}`}
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {aiError && (
+                      <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg mt-2 font-mono uppercase tracking-wide leading-normal">
+                        {aiError}
+                      </div>
+                    )}
+
+                    {aiResponse && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-4 pt-4 border-t border-white/10"
+                      >
+                        {aiResponse.translation_explanation && (
+                          <div className="p-2.5 rounded-lg bg-purple-500/5 border border-purple-500/10 text-[11px] text-purple-300 font-mono">
+                            <div className="font-bold text-[9px] uppercase tracking-wider text-purple-400 mb-1">Generated Cypher Query</div>
+                            <pre className="overflow-x-auto whitespace-pre-wrap select-all p-2 bg-black/40 rounded border border-white/5 text-[9.5px] max-h-[120px] custom-scrollbar">
+                              {aiResponse.cypher_query}
+                            </pre>
+                            <div className="mt-1.5 text-[9.5px] text-gray-500 leading-normal">{aiResponse.translation_explanation}</div>
+                          </div>
+                        )}
+
+                        <div className="space-y-2">
+                          <div className="font-bold text-[9px] uppercase tracking-wider text-gray-400 block mb-1">AI Explanation</div>
+                          <div className="whitespace-pre-wrap leading-relaxed text-[11.5px] text-gray-300 select-text p-3 rounded-lg bg-white/5 border border-white/10 font-sans max-h-[300px] overflow-y-auto custom-scrollbar">
+                            {aiResponse.explanation}
+                          </div>
+                        </div>
+
+                        {aiResponse.nodes && aiResponse.nodes.length > 0 && (
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="w-full text-xs"
+                              onClick={() => setFocusSet(null)}
+                            >
+                              Clear Highlights
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="w-full text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30"
+                              onClick={() => highlightAIQueryResultNodes(aiResponse)}
+                            >
+                              Refocus Nodes ({aiResponse.nodes.length})
+                            </Button>
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                    </>
+                    )}
+                  </motion.div>
+                ) : isPathMode ? (
                   <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
                     <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                       <Route className="w-3 h-3" /> Path Traversal
@@ -1419,7 +1879,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                       </Button>
                       <Button
                         size="sm"
-                        className="w-full text-xs bg-indigo-500 hover:bg-indigo-600 text-white"
+                        className="w-full text-xs bg-purple-500 hover:bg-purple-600 text-white"
                         disabled={!pathSource || !pathTarget}
                         onClick={calculatePath}
                       >
@@ -1448,7 +1908,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                         <input
                           type="range" min="0.05" max="3.0" step="0.05" value={lineWidth}
                           onChange={(e) => setLineWidth(parseFloat(e.target.value))}
-                          className="w-full accent-blue-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                          className="w-full accent-purple-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
                         />
                       </div>
 
@@ -1458,7 +1918,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                             <div className="flex items-center gap-3">
                               <button
                                 onClick={() => toggleNodeType(type)}
-                                className={`p-1 rounded transition-colors ${visibleNodeTypes.has(type) ? 'text-blue-400 bg-blue-500/10' : 'text-gray-600'}`}
+                                className={`p-1 rounded transition-colors ${visibleNodeTypes.has(type) ? 'text-purple-400 bg-purple-500/10' : 'text-gray-600'}`}
                               >
                                 {visibleNodeTypes.has(type) ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                               </button>
@@ -1525,7 +1985,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
             className="absolute right-0 top-0 h-full w-1 cursor-col-resize z-[80] group flex items-center justify-center"
             title="Drag to resize"
           >
-            <div className="w-0.5 h-full bg-white/5 group-hover:bg-blue-500/50 transition-colors duration-150" />
+            <div className="w-0.5 h-full bg-white/5 group-hover:bg-purple-500/50 transition-colors duration-150" />
           </div>
         )}
       </div>
@@ -1535,7 +1995,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
         <button
           onClick={() => setCollapsed(false)}
           title="Expand sidebar"
-          className={`absolute left-0 top-1/2 -translate-y-1/2 z-[80] transition-all rounded-r-xl p-2 shadow-2xl ${isDark ? 'bg-[#0d0d0d] border border-white/10 hover:border-blue-500/40 hover:bg-white/5 text-gray-400 hover:text-white' : 'bg-white border border-black/10 hover:border-blue-500/40 hover:bg-black/5 text-gray-500 hover:text-black'}`}
+          className={`absolute left-0 top-1/2 -translate-y-1/2 z-[80] transition-all rounded-r-xl p-2 shadow-2xl ${isDark ? 'bg-[#0d0d0d] border border-white/10 hover:border-purple-500/40 hover:bg-purple-500/10 text-gray-400 hover:text-white' : 'bg-white border border-black/10 hover:border-purple-500/40 hover:bg-black/5 text-gray-500 hover:text-black'}`}
         >
           <PanelLeftOpen className="w-4 h-4" />
         </button>
@@ -1549,7 +2009,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
           {/* Theme Toggle (Always Visible) */}
           <button
             onClick={() => setTheme(isDark ? 'light' : 'dark')}
-            className={`flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-white/10 border-white/10 text-yellow-300' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
+            className={`flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-purple-500/20 border-white/10 text-yellow-300' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -1557,15 +2017,69 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
 
           {/* Desktop Top Right Badges */}
           <div className="hidden md:flex items-center gap-3">
-            {/* Export Button */}
-            <button
-              onClick={handleExport}
-              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
-              title="Download code graph as a .cgc file"
-            >
-              <Download className="w-3.5 h-3.5 text-blue-400" />
-              Export
-            </button>
+            {/* Export Menu Dropdown */}
+            <div ref={exportMenuRef} className="relative">
+              <button
+                onClick={() => setShowExportMenu(v => !v)}
+                className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+                title="Export graph data and visualizations"
+              >
+                <Download className="w-3.5 h-3.5 text-purple-400" />
+                Export
+                <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} />
+              </button>
+              <AnimatePresence>
+                {showExportMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                    transition={{ duration: 0.15 }}
+                    className={`absolute right-0 top-full mt-2 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden min-w-[200px] py-1.5 z-[100] flex flex-col ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
+                  >
+                    {/* Export HTML Button */}
+                    <button
+                      onClick={() => { handleHtmlExport(); setShowExportMenu(false); }}
+                      className={`flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-purple-500/10 text-white' : 'hover:bg-black/5 text-gray-800'}`}
+                      title="Download interactive HTML graph"
+                    >
+                      <Download className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-bold">Interactive HTML</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Self-contained browser view</span>
+                      </div>
+                    </button>
+
+                    {/* Export SVG Button */}
+                    <button
+                      onClick={() => { handleSvgExport(); setShowExportMenu(false); }}
+                      disabled={!simulationReady}
+                      className={`flex items-center gap-3 px-4 py-2.5 transition-all text-left w-full ${!simulationReady ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isDark ? 'hover:bg-purple-500/10 text-white' : 'hover:bg-black/5 text-gray-800'}`}
+                      title={simulationReady ? "Download SVG snapshot" : "Waiting for simulation to stabilize..."}
+                    >
+                      <Download className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-bold">Vector SVG</span>
+                        <span className="text-[10px] text-gray-500 font-normal">High-res 2D snapshot</span>
+                      </div>
+                    </button>
+
+                    {/* Export CGC Button */}
+                    <button
+                      onClick={() => { handleExport(); setShowExportMenu(false); }}
+                      className={`flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-purple-500/10 text-white' : 'hover:bg-black/5 text-gray-800'}`}
+                      title="Download code graph as a .cgc file"
+                    >
+                      <Download className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-bold">CGC Bundle</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Raw graph context bundle</span>
+                      </div>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
             {/* Publish Button */}
             <button
@@ -1574,7 +2088,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                 setPublishVersion(data.metadata?.version || "1.0.0");
                 setShowPublishModal(true);
               }}
-              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
               title="Publish this graph to the public registry"
             >
               <UploadCloud className="w-3.5 h-3.5 text-green-400" />
@@ -1584,7 +2098,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
             {/* ChatGPT Tunnel Button */}
             <button
               onClick={handleConnectChatGPT}
-              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
               title="Open the CGC ChatGPT GPT. Keep this cgc.codes tab focused (not behind ChatGPT) so the signaling tunnel stays online."
             >
               <div className="w-2 h-2 rounded-full bg-amber-500/80 shadow-[0_0_6px_#f59e0b]" title="Tunnel status is not shown here — keep this tab active while using ChatGPT" />
@@ -1596,7 +2110,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
             <div ref={modeMenuRef} className="relative">
               <button
                 onClick={() => setShowModeMenu(v => !v)}
-                className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+                className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl cursor-pointer ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
               >
                 <Layers className="w-3.5 h-3.5 text-purple-400" />
                 {VISUALIZATION_MODES.find(m => m.id === graphMode)?.name}
@@ -1616,8 +2130,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                         key={mode.id}
                         onClick={() => { setGraphMode(mode.id); setShowModeMenu(false); }}
                         className={`w-full flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer ${graphMode === mode.id
-                            ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
-                            : (isDark ? 'text-gray-400 hover:text-white hover:bg-white/5' : 'text-gray-500 hover:text-black hover:bg-black/5')
+                          ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
+                          : (isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10' : 'text-gray-500 hover:text-black hover:bg-black/5')
                           }`}
                       >
                         <div
@@ -1629,7 +2143,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                           <div className="text-[10px] text-gray-500">{mode.description}</div>
                         </div>
                         {graphMode === mode.id && (
-                          <Check className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                          <Check className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
                         )}
                       </button>
                     ))}
@@ -1642,20 +2156,20 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
               href="https://github.com/CodeGraphContext/CodeGraphContext"
               target="_blank"
               rel="noopener noreferrer"
-              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 hover:bg-white/10 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
+              className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full transition-all backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 hover:bg-purple-500/20 text-white border-white/10' : 'bg-white/80 hover:bg-white text-gray-800 border-black/10'}`}
             >
               <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
               Star on GitHub
             </a>
             <div className={`text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-full backdrop-blur-md shadow-2xl ${isDark ? 'bg-black/40 text-gray-400 border-white/10' : 'bg-white/80 text-gray-500 border-black/10'}`}>
-              Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 transition-colors">shashankss1205</a>
+              Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 transition-colors">shashankss1205</a>
             </div>
           </div>
 
           {/* Mobile Hamburger Menu Toggle */}
           <button
             onClick={() => setShowMobileMenu(prev => !prev)}
-            className={`md:hidden flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-white/10 border-white/10 text-white' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
+            className={`md:hidden flex items-center justify-center w-9 h-9 rounded-full border backdrop-blur-md shadow-2xl transition-all ${isDark ? 'bg-black/40 hover:bg-purple-500/20 border-white/10 text-white' : 'bg-white/80 hover:bg-white border-black/10 text-gray-700'}`}
             title="Toggle Menu"
           >
             {showMobileMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
@@ -1671,12 +2185,31 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                 transition={{ duration: 0.15 }}
                 className={`absolute right-0 top-full mt-2 backdrop-blur-2xl border rounded-2xl shadow-2xl overflow-hidden min-w-[200px] p-3 z-[100] flex flex-col gap-2.5 ${isDark ? 'bg-black/90 border-white/10' : 'bg-white/95 border-black/10'}`}
               >
+                {/* Mobile Export HTML */}
+                <button
+                  onClick={() => { handleHtmlExport(); setShowMobileMenu(false); }}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                >
+                  <Download className="w-3.5 h-3.5 text-green-400" />
+                  Export HTML
+                </button>
+
+                {/* Mobile Export SVG */}
+                <button
+                  onClick={() => { handleSvgExport(); setShowMobileMenu(false); }}
+                  disabled={!simulationReady}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all text-left w-full ${!simulationReady ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                >
+                  <Download className="w-3.5 h-3.5 text-purple-400" />
+                  Export SVG
+                </button>
+
                 {/* Mobile Export */}
                 <button
                   onClick={() => { handleExport(); setShowMobileMenu(false); }}
-                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
                 >
-                  <Download className="w-3.5 h-3.5 text-blue-400" />
+                  <Download className="w-3.5 h-3.5 text-purple-400" />
                   Export CGC
                 </button>
 
@@ -1688,7 +2221,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                     setShowPublishModal(true);
                     setShowMobileMenu(false);
                   }}
-                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all cursor-pointer text-left w-full ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
                 >
                   <UploadCloud className="w-3.5 h-3.5 text-green-400" />
                   Publish Graph
@@ -1700,7 +2233,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                     handleConnectChatGPT();
                     setShowMobileMenu(false);
                   }}
-                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all text-left w-full ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all text-left w-full ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-800'}`}
                 >
                   <div className="w-2 h-2 rounded-full bg-amber-500/80 shadow-[0_0_6px_#f59e0b]" />
                   <MessageSquare className="w-3.5 h-3.5 text-purple-400" />
@@ -1715,8 +2248,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                     key={mode.id}
                     onClick={() => { setGraphMode(mode.id); setShowMobileMenu(false); }}
                     className={`flex items-center gap-3 px-3 py-1.5 rounded-lg transition-all text-left cursor-pointer ${graphMode === mode.id
-                        ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
-                        : (isDark ? 'text-gray-400 hover:text-white hover:bg-white/5' : 'text-gray-500 hover:text-black hover:bg-black/5')
+                      ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
+                      : (isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10' : 'text-gray-500 hover:text-black hover:bg-black/5')
                       }`}
                   >
                     <div
@@ -1733,7 +2266,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                   href="https://github.com/CodeGraphContext/CodeGraphContext"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all ${isDark ? 'hover:bg-white/5 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-850'}`}
+                  className={`flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold px-4 py-2 border rounded-xl transition-all ${isDark ? 'hover:bg-purple-500/10 border-white/5 text-white' : 'hover:bg-black/5 border-black/5 text-gray-850'}`}
                   onClick={() => setShowMobileMenu(false)}
                 >
                   <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
@@ -1742,7 +2275,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
 
                 {/* Mobile Made By */}
                 <div className="text-[9px] uppercase tracking-widest text-center mt-1 text-gray-500 py-1 border-t border-white/5">
-                  Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 font-bold transition-colors">shashankss1205</a>
+                  Made by <a href="https://github.com/shashankss1205" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 font-bold transition-colors">shashankss1205</a>
                 </div>
               </motion.div>
             )}
@@ -1752,9 +2285,9 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
         {/* Zoom Controls */}
         <div className="absolute top-6 left-6 z-[60] flex flex-col gap-4">
           <div className={`flex flex-col border backdrop-blur-xl rounded-2xl overflow-hidden shadow-2xl ${isDark ? 'bg-black/60 border-white/10' : 'bg-white/80 border-black/10'}`}>
-            <button onClick={() => handleZoom(1.4)} className={`p-3 transition-colors ${isDark ? 'hover:bg-white/10 text-gray-300 border-b border-white/5' : 'hover:bg-black/5 text-gray-600 border-b border-black/5'}`}><ZoomIn className="w-5 h-5" /></button>
-            <button onClick={() => fgRef.current?.zoomToFit(600, 100)} className={`p-3 transition-colors ${isDark ? 'hover:bg-white/10 text-gray-300 border-b border-white/5' : 'hover:bg-black/5 text-gray-600 border-b border-black/5'}`}><Maximize className="w-5 h-5" /></button>
-            <button onClick={() => handleZoom(0.7)} className={`p-3 transition-colors ${isDark ? 'hover:bg-white/10 text-gray-300' : 'hover:bg-black/5 text-gray-600'}`}><ZoomOut className="w-5 h-5" /></button>
+            <button onClick={() => handleZoom(1.4)} className={`p-3 transition-colors ${isDark ? 'hover:bg-purple-500/20 text-gray-300 border-b border-white/5' : 'hover:bg-black/5 text-gray-600 border-b border-black/5'}`}><ZoomIn className="w-5 h-5" /></button>
+            <button onClick={() => fgRef.current?.zoomToFit(600, 100)} className={`p-3 transition-colors ${isDark ? 'hover:bg-purple-500/20 text-gray-300 border-b border-white/5' : 'hover:bg-black/5 text-gray-600 border-b border-black/5'}`}><Maximize className="w-5 h-5" /></button>
+            <button onClick={() => handleZoom(0.7)} className={`p-3 transition-colors ${isDark ? 'hover:bg-purple-500/20 text-gray-300' : 'hover:bg-black/5 text-gray-600'}`}><ZoomOut className="w-5 h-5" /></button>
           </div>
 
           <AnimatePresence>
@@ -1772,8 +2305,13 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
           </AnimatePresence>
         </div>
 
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[50] w-full flex justify-center px-4">
+          <RepositorySummary graphData={data} isIndexed={true} />
+        </div>
+
         {graphMode === 'city3d' ? (
           <>
+
             <ForceGraph3D
               ref={fgRef}
               graphData={city3dData}
@@ -1850,6 +2388,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
         ) : (
           <ForceGraph2D
             ref={fgRef}
+            onEngineStop={() => setSimulationReady(true)}
             graphData={filteredData}
             width={dimensions.width - effectiveSidebarW - effectiveCodePanelW}
             height={dimensions.height}
@@ -1876,10 +2415,16 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
             linkDirectionalParticleSpeed={0.005}
             nodeCanvasObject={nodeCanvasObject}
             nodePointerAreaPaint={(node: any, color: string, ctx: any, globalScale: number) => {
-              const radius = (node.val || 1) * 0.8 * nodeSize * graphAwareNodeScale;
-              const hitSize = graphMode === 'icon'
-                ? Math.max(14 / globalScale, (node.val || 1) * 2)
-                : radius * 1.5;
+              let hitSize = 0;
+              if (graphMode === 'icon') {
+                hitSize = Math.max(14 / globalScale, (node.val || 1) * 2);
+              } else if (graphMode === 'classic' || graphMode === 'curvy') {
+                const degree = degreeMap.get(node.id as any) || 0;
+                hitSize = Math.max(3, Math.min(2 + Math.sqrt(degree) * 1.5, 15)) * nodeSize * graphAwareNodeScale * 1.5;
+              } else {
+                hitSize = (node.val || 1) * 0.8 * nodeSize * graphAwareNodeScale * 1.5;
+              }
+
               ctx.fillStyle = color;
               ctx.beginPath();
               ctx.arc(node.x, node.y, hitSize, 0, 2 * Math.PI, false);
@@ -1905,7 +2450,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
               className={`pointer-events-auto backdrop-blur-3xl border rounded-2xl shadow-2xl ${isDark ? 'bg-black/50 border-white/10' : 'bg-white/80 border-black/10'}`}
             >
               <div
-                className={`flex items-center justify-between px-5 pt-4 ${legendCollapsed ? 'pb-4' : 'pb-2'} cursor-pointer transition-colors rounded-t-2xl ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}
+                className={`flex items-center justify-between px-5 pt-4 ${legendCollapsed ? 'pb-4' : 'pb-2'} cursor-pointer transition-colors rounded-t-2xl ${isDark ? 'hover:bg-purple-500/10' : 'hover:bg-black/5'}`}
                 onClick={() => setLegendCollapsed(v => !v)}
               >
                 <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 flex items-center gap-2">
@@ -1913,7 +2458,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                 </p>
                 <div className="flex items-center gap-2">
                   <span
-                    className="text-blue-400/50 text-[10px] font-bold uppercase tracking-widest cursor-pointer"
+                    className="text-purple-400/50 text-[10px] font-bold uppercase tracking-widest cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowConfig(true);
@@ -1949,7 +2494,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
 
       {/* ── CODE VIEWER PANEL ── */}
       <AnimatePresence>
-        {selectedFile && (
+        {(selectedFile || selectedNode) && (
           <>
             {dimensions.width < 768 && (
               <div
@@ -1972,7 +2517,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                   onMouseDown={onCodeDragStart}
                   className="absolute left-0 top-0 h-full w-1 cursor-col-resize z-[80] group flex items-center justify-center"
                 >
-                  <div className="w-0.5 h-full bg-white/5 group-hover:bg-blue-500/50 transition-colors duration-150" />
+                  <div className="w-0.5 h-full bg-white/5 group-hover:bg-purple-500/50 transition-colors duration-150" />
                 </div>
               )}
 
@@ -1980,14 +2525,14 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                 {/* header */}
                 <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${pal.border}` }}>
                   <div className="flex items-center gap-2 min-w-0">
-                    <Code2 className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                    <Code2 className="w-4 h-4 text-purple-400 flex-shrink-0" />
                     <span className="text-[13px] font-bold truncate" style={{ color: pal.text }}>
-                      {selectedFile.split('/').pop()}
+                      {selectedNode ? selectedNode.name : (selectedFile ? selectedFile.split('/').pop() : 'Details')}
                     </span>
                   </div>
                   <button
-                    onClick={() => onFileClick(null)}
-                    className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${isDark ? 'text-gray-500 hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-black hover:bg-black/10'}`}
+                    onClick={() => { onFileClick(null); setSelectedNode(null); }}
+                    className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${isDark ? 'text-gray-500 hover:text-white hover:bg-purple-500/20' : 'text-gray-400 hover:text-black hover:bg-black/10'}`}
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -1995,19 +2540,25 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
 
                 {/* path breadcrumb + tabs */}
                 <div className="flex items-center gap-0 px-4 py-0 text-[10px] font-mono flex-shrink-0" style={{ borderBottom: `1px solid ${pal.border}` }}>
-                  <span className="text-gray-500 truncate flex-1 py-1.5">{selectedFile}</span>
+                  <span className="text-gray-500 truncate flex-1 py-1.5">{selectedFile || (selectedNode && selectedNode.type)}</span>
                   <div className="flex ml-2 flex-shrink-0">
                     <button
                       onClick={() => setCodePanelTab('code')}
-                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'code' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'code' ? 'text-purple-400 border-b-2 border-purple-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
                     >
                       Code
                     </button>
                     <button
                       onClick={() => setCodePanelTab('entities')}
-                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'entities' ? 'text-blue-400 border-b-2 border-blue-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'entities' ? 'text-purple-400 border-b-2 border-purple-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
                     >
                       Entities
+                    </button>
+                    <button
+                      onClick={() => setCodePanelTab('architecture')}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'architecture' ? 'text-purple-400 border-b-2 border-purple-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
+                    >
+                      Architecture
                     </button>
                   </div>
                 </div>
@@ -2037,6 +2588,39 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                         <p>{codeError || 'No source available'}</p>
                       </div>
                     )
+                  ) : codePanelTab === 'architecture' ? (
+                    <div className="p-4 space-y-4">
+                      {!selectedNode ? (
+                        <div className="flex items-center justify-center h-40 text-gray-500 text-xs">
+                          Select a specific class, function, or module in the graph to view its architecture details.
+                        </div>
+                      ) : nodeSummary ? (
+                        <>
+                          <div className={`p-4 rounded-xl ${isDark ? 'bg-black/20 border border-white/5' : 'bg-gray-50 border border-black/5'}`}>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest mb-2 text-purple-400">Component Role</h3>
+                            <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{nodeSummary.description}</p>
+                          </div>
+
+                          <div className={`p-4 rounded-xl ${isDark ? 'bg-black/20 border border-white/5' : 'bg-gray-50 border border-black/5'}`}>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest mb-2 text-blue-400">Architecture Position</h3>
+                            <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{nodeSummary.architecturePosition}</p>
+                          </div>
+
+                          <div className={`p-4 rounded-xl ${isDark ? 'bg-black/20 border border-white/5' : 'bg-gray-50 border border-black/5'}`}>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest mb-2 text-amber-400">Dependency Impact</h3>
+                            <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{nodeSummary.dependencyImpact}</p>
+                            <div className={`flex gap-6 mt-3 pt-3 border-t ${isDark ? 'border-white/10' : 'border-black/5'}`}>
+                              <div><span className="text-[10px] uppercase font-bold tracking-wider text-gray-500 block mb-1">Incoming</span><span className={`font-mono text-sm ${isDark ? 'text-white' : 'text-black'}`}>{nodeSummary.incomingCount}</span></div>
+                              <div><span className="text-[10px] uppercase font-bold tracking-wider text-gray-500 block mb-1">Outgoing</span><span className={`font-mono text-sm ${isDark ? 'text-white' : 'text-black'}`}>{nodeSummary.outgoingCount}</span></div>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-center h-40 text-gray-500 text-xs">
+                          Loading architecture...
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div className="p-4">
                       <div className="space-y-1">
@@ -2047,7 +2631,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                               <div
                                 key={n.id}
                                 onClick={() => { if (lineNum && codeContent) { setHighlightLine(Number(lineNum)); setCodePanelTab('code'); } }}
-                                className={`flex items-center gap-2 py-1.5 px-2 rounded-lg ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${lineNum && codeContent ? 'cursor-pointer' : ''}`}
+                                className={`flex items-center gap-2 py-1.5 px-2 rounded-lg ${isDark ? 'hover:bg-purple-500/10' : 'hover:bg-black/5'} ${lineNum && codeContent ? 'cursor-pointer' : ''}`}
                               >
                                 {graphMode === 'icon' ? (
                                   <span className="text-[14px] flex-shrink-0">{EMOJI_MAP[n.type] || '❓'}</span>
@@ -2069,7 +2653,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                               {n.decorators?.length > 0 && (
                                 <div className="flex flex-wrap gap-1 mt-1 px-2">
                                   {n.decorators.map((d: string, i: number) => (
-                                    <span key={i} className="text-[8px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">@{d.replace(/^@/, '')}</span>
+                                    <span key={i} className="text-[8px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-400 font-mono">@{d.replace(/^@/, '')}</span>
                                   ))}
                                 </div>
                               )}
@@ -2114,14 +2698,13 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${
-                isDark 
-                  ? "bg-zinc-950/80 border-zinc-800 text-white" 
+              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${isDark
+                  ? "bg-zinc-950/80 border-zinc-800 text-white"
                   : "bg-white/90 border-zinc-200 text-zinc-900"
-              }`}
+                }`}
             >
               {/* Subtle top glow bar */}
-              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
+              <div className="absolute top-0 left-0 right-0 h-1 bg-white" />
 
               <div className="flex justify-between items-start mb-6">
                 <div>
@@ -2133,9 +2716,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                 <button
                   disabled={isPublishing}
                   onClick={() => setShowPublishModal(false)}
-                  className={`p-1.5 rounded-full transition-colors ${
-                    isDark ? "hover:bg-white/10 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
-                  }`}
+                  className={`p-1.5 rounded-full transition-colors ${isDark ? "hover:bg-purple-500/20 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
+                    }`}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -2153,11 +2735,10 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                     value={publishRepo}
                     onChange={(e) => setPublishRepo(e.target.value)}
                     placeholder="e.g. owner/repository"
-                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${
-                      isDark 
-                        ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700" 
+                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all ${isDark
+                        ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700"
                         : "bg-zinc-50 border-zinc-200 text-zinc-950 placeholder-zinc-400 focus:border-zinc-300"
-                    }`}
+                      }`}
                   />
                 </div>
 
@@ -2172,11 +2753,10 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                     value={publishVersion}
                     onChange={(e) => setPublishVersion(e.target.value)}
                     placeholder="e.g. 1.0.0"
-                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${
-                      isDark 
-                        ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700" 
+                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all ${isDark
+                        ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700"
                         : "bg-zinc-50 border-zinc-200 text-zinc-950 placeholder-zinc-400 focus:border-zinc-300"
-                    }`}
+                      }`}
                   />
                 </div>
 
@@ -2193,7 +2773,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                   <Button
                     type="submit"
                     disabled={isPublishing}
-                    className="w-full rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-indigo-500/20"
+                    className="w-full rounded-xl bg-purple-600 text-white hover:bg-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]"
                   >
                     {isPublishing ? (
                       <span className="flex items-center justify-center gap-2">
@@ -2229,14 +2809,13 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${
-                isDark 
-                  ? "bg-zinc-950/80 border-zinc-800 text-white" 
+              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${isDark
+                  ? "bg-zinc-950/80 border-zinc-800 text-white"
                   : "bg-white/90 border-zinc-200 text-zinc-900"
-              }`}
+                }`}
             >
               {/* Subtle top glow bar */}
-              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 via-pink-500 to-amber-500" />
+              <div className="absolute top-0 left-0 right-0 h-1 bg-white" />
 
               <div className="flex justify-between items-start mb-6">
                 <div>
@@ -2250,9 +2829,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                 </div>
                 <button
                   onClick={() => setShowChatGPTModal(false)}
-                  className={`p-1.5 rounded-full transition-colors ${
-                    isDark ? "hover:bg-white/10 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
-                  }`}
+                  className={`p-1.5 rounded-full transition-colors ${isDark ? "hover:bg-purple-500/20 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
+                    }`}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -2263,18 +2841,16 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                   <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-400 block">
                     Connection Prompt (Auto-copied on Launch)
                   </label>
-                  <div className={`relative p-3 rounded-xl border font-mono text-xs flex justify-between items-center ${
-                    isDark ? "bg-zinc-900/60 border-zinc-800 text-zinc-300" : "bg-zinc-50 border-zinc-200 text-zinc-700"
-                  }`}>
+                  <div className={`relative p-3 rounded-xl border font-mono text-xs flex justify-between items-center ${isDark ? "bg-zinc-900/60 border-zinc-800 text-zinc-300" : "bg-zinc-50 border-zinc-200 text-zinc-700"
+                    }`}>
                     <span className="select-all break-all pr-8">{chatgptPreFillPrompt}</span>
                     <button
                       onClick={() => {
                         navigator.clipboard.writeText(chatgptPreFillPrompt);
                         toast.success("Prompt copied to clipboard!", { icon: "📋" });
                       }}
-                      className={`absolute right-2 p-1.5 rounded-lg transition-colors ${
-                        isDark ? "hover:bg-white/5 text-zinc-400 hover:text-white" : "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-900"
-                      }`}
+                      className={`absolute right-2 p-1.5 rounded-lg transition-colors ${isDark ? "hover:bg-purple-500/10 text-zinc-400 hover:text-white" : "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-900"
+                        }`}
                       title="Copy prompt to clipboard"
                     >
                       <Copy className="w-3.5 h-3.5" />
@@ -2282,9 +2858,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                   </div>
                 </div>
 
-                <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
-                  isDark ? "bg-amber-950/20 border-amber-900/40 text-amber-300" : "bg-amber-50 border-amber-200/60 text-amber-800"
-                }`}>
+                <div className={`p-3 rounded-xl border text-xs leading-relaxed ${isDark ? "bg-amber-950/20 border-amber-900/40 text-amber-300" : "bg-amber-50 border-amber-200/60 text-amber-800"
+                  }`}>
                   <p className="font-semibold mb-1">💡 Important Instruction:</p>
                   <p>When the ChatGPT window loads, click on the chat box, press <kbd className="px-1 py-0.5 rounded border border-current font-sans text-[10px]">Ctrl+V</kbd> (or <kbd className="px-1 py-0.5 rounded border border-current font-sans text-[10px]">Cmd+V</kbd>) to paste the copied prompt, and hit enter!</p>
                 </div>
@@ -2301,7 +2876,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                   <Button
                     type="button"
                     onClick={handleCopyAndLaunchChatGPT}
-                    className="w-full rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700 shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2"
+                    className="w-full rounded-xl bg-purple-600 text-white hover:bg-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)] flex items-center justify-center gap-2"
                   >
                     Copy & Open ChatGPT
                   </Button>
@@ -2316,8 +2891,8 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
       <AlertDialog open={showWarningAlert} onOpenChange={setShowWarningAlert}>
         <AlertDialogContent className="bg-zinc-950 border border-zinc-800 text-zinc-100 max-w-md rounded-3xl shadow-2xl p-6 relative overflow-hidden backdrop-blur-2xl">
           {/* Subtle top glow bar */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500" />
-          
+          <div className="absolute top-0 left-0 right-0 h-1 bg-white" />
+
           <AlertDialogHeader>
             <AlertDialogTitle className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
               <span className="text-amber-500">⚡</span> Pre-indexed Bundle Exists
@@ -2337,7 +2912,7 @@ export default function CodeGraphViewer({ data, onClose }: { data: any, onClose:
                 setShowWarningAlert(false);
                 await executePublishFlow();
               }}
-              className="w-full sm:w-auto rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold shadow-lg shadow-orange-500/20"
+              className="w-full sm:w-auto rounded-xl bg-purple-600 text-white hover:bg-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)] font-semibold"
             >
               Force Publish
             </AlertDialogAction>

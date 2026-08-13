@@ -45,7 +45,9 @@ def _write_and_parse(parser, src: str, suffix: str = ".java") -> dict:
         f.write(src)
         tmp = f.name
     try:
-        return parser.parse(Path(tmp))
+        result = parser.parse(Path(tmp))
+        assert isinstance(result, dict)
+        return result
     finally:
         os.unlink(tmp)
 
@@ -265,7 +267,7 @@ class TestJavaCrossFileResolution:
         )
 
         assert resolved is not None, "resolve_function_call returned None"
-        assert resolved["called_file_path"] == service_path, (
+        assert resolved["called_file_path"] == Path(service_path).as_posix(), (
             f"Expected cross-file path {service_path!r}, "
             f"got {resolved['called_file_path']!r}. "
             "DI CALLS edge would be self-referential (issue #823 not fixed)."

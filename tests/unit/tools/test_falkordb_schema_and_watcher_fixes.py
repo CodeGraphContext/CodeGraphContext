@@ -130,8 +130,12 @@ class TestUpdateFileInGraphGenericFiles:
         session = _RecordingSession()
         driver = _FakeDriver(session)
 
+        class _FakeDBManager:
+            def get_driver(self, graph_name=None):
+                return driver
+
         gb = GraphBuilder.__new__(GraphBuilder)
-        gb.driver = driver
+        gb.db_manager = _FakeDBManager()
         gb._writer = GraphWriter(driver)
         gb.parsers = {}
         gb.generic_extensions = {".md", ".yml", ".yaml", ".json", ".toml", ".cfg", ".txt"}
@@ -213,7 +217,7 @@ class TestUpdateFileInGraphGenericFiles:
 
         mock_add_full.assert_not_called()
         mock_add_minimal.assert_not_called()
-        assert result == {"deleted": True, "path": str(gone.resolve())}
+        assert result == {"deleted": True, "path": gone.resolve().as_posix()}
 
     @staticmethod
     def _generic_extensions_sample():
