@@ -31,6 +31,37 @@ _ENTRY_POINT_NAMES = (
 )
 _ENTRY_POINT_NAMES_CYPHER = "[" + ", ".join(f"'{n}'" for n in _ENTRY_POINT_NAMES) + "]"
 
+# Framework-invoked entry points for JVM/Android. These are never called by
+# another function in the project -- the framework, the manifest, or an
+# annotation processor invokes them -- so an uncalled one is not dead code.
+# Scoped to kotlin/java so other languages keep the original global list.
+_ANDROID_ENTRY_POINT_NAMES = (
+    "oncreate", "onstart", "onresume", "onpause", "onstop", "ondestroy",
+    "oncreateview", "onviewcreated", "ondestroyview", "onattach", "ondetach",
+    "onbind", "onunbind", "onrebind", "onstartcommand", "onreceive",
+    "onhandlework", "dowork", "onsaveinstancestate", "onrestoreinstancestate",
+    "onactivityresult", "onrequestpermissionsresult", "onnewintent",
+    "onconfigurationchanged", "onlowmemory", "ontrimmemory",
+    "onbindviewholder", "oncreateviewholder", "getitemcount",
+)
+_ANDROID_ENTRY_POINT_NAMES_CYPHER = "[" + ", ".join(
+    f"'{n}'" for n in _ANDROID_ENTRY_POINT_NAMES
+) + "]"
+_JVM_LANGS_CYPHER = "['kotlin', 'java']"
+
+# Annotations whose presence means "something other than project code calls
+# this": the Compose runtime, a test runner, the Hilt container, an annotation
+# processor, or tooling. Pass as exclude_decorated_with when analysing an
+# Android codebase. Matching is by substring (see find_dead_code), so bare
+# names match annotations carrying arguments.
+ANDROID_DECORATOR_PRESET = (
+    "Composable", "Preview",
+    "Test", "Before", "After", "BeforeEach", "AfterEach", "ParameterizedTest",
+    "Inject", "Provides", "Binds", "HiltViewModel", "AndroidEntryPoint",
+    "Dao", "Query", "Insert", "Update", "Delete", "Transaction", "TypeConverter",
+    "JvmStatic", "Keep", "Serializable",
+)
+
 
 def _sanitize_depth(depth, default: int = 3) -> int:
     """Coerce and clamp a traversal depth before interpolating it into Cypher.
@@ -860,6 +891,14 @@ class CodeFinder:
                 MATCH (func:Function)
                 WHERE func.is_dependency = false {repo_filter} {func_ignore}
                   AND NOT toLower(func.name) IN {_ENTRY_POINT_NAMES_CYPHER}
+                  AND NOT (
+                        func.lang IN {_JVM_LANGS_CYPHER}
+                        AND toLower(func.name) IN {_ANDROID_ENTRY_POINT_NAMES_CYPHER}
+                      )
+                  AND NOT (
+                        func.modifiers IS NOT NULL
+                        AND 'override' IN func.modifiers
+                      )
                   AND func.name <> '<module>'
                   AND NOT (func.name STARTS WITH '__' AND func.name ENDS WITH '__')
                   AND NOT func.name STARTS WITH '_test'
