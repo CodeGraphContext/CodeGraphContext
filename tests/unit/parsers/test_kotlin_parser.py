@@ -688,6 +688,21 @@ class B {
         assert runs == [(5, "Worker", 4), (10, "Worker", 9)]
         assert "class_context_line" not in top
 
+    def test_single_line_object_with_function_is_parsed(self, parser):
+        data = _write_and_parse(parser, "object A { fun x() = 1 }")
+
+        parsed_object = next(obj for obj in data["objects"] if obj["name"] == "A")
+        parsed_function = next(fn for fn in data["functions"] if fn["name"] == "x")
+
+        assert parsed_object["node_type"] == "object_declaration"
+        assert parsed_function["class_context"] == "A"
+        assert parsed_function["class_context_line"] == 1
+
+    def test_anonymous_single_line_object_is_not_indexed_as_named_object(self, parser):
+        data = _write_and_parse(parser, "val a = object { fun x() = 1 }")
+
+        assert data["objects"] == []
+
     def test_nested_constructor_call_resolves_nearest_same_named_class(self, parser):
         data = _write_and_parse(
             parser,

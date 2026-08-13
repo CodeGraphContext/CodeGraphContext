@@ -18,6 +18,11 @@ KOTLIN_QUERIES = {
             (class_declaration (type_identifier) @name)
             (object_declaration (type_identifier) @name)
             (companion_object (type_identifier)? @name)
+            (infix_expression
+                (object_literal)
+                (simple_identifier)
+                (lambda_literal)
+            )
         ] @class
     """,
     "imports": """
@@ -149,6 +154,9 @@ class KotlinTreeSitterParser:
     def _get_parent_context(self, node: Any) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
+            inline_object_name = self._get_inline_object_name(curr)
+            if inline_object_name:
+                return inline_object_name, "object_declaration", curr.start_point[0] + 1
             if curr.type in ("function_declaration",):
                 name_node = None
                 for child in curr.children:
@@ -204,6 +212,22 @@ class KotlinTreeSitterParser:
             curr = curr.parent
         return None, None, None
 
+    def _get_inline_object_name(self, node: Any) -> Optional[str]:
+        """Return the name from Kotlin's misparsed single-line object shape."""
+        if node.type != "infix_expression":
+            return None
+
+        children = node.named_children
+        if [child.type for child in children] != [
+            "object_literal",
+            "simple_identifier",
+            "lambda_literal",
+        ]:
+            return None
+        if self._get_node_text(children[0]) != "object":
+            return None
+        return self._get_node_text(children[1])
+
     def _get_node_text(self, node: Any) -> str:
         if not node: return ""
         return node.text.decode("utf-8")
@@ -235,6 +259,9 @@ class KotlinTreeSitterParser:
     def _get_enclosing_class_context(self, node: Any) -> Tuple[Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
+            inline_object_name = self._get_inline_object_name(curr)
+            if inline_object_name:
+                return inline_object_name, curr.start_point[0] + 1
             if curr.type in ("class_declaration", "interface_declaration", "object_declaration"):
                 for child in curr.children:
                     if child.type in ("simple_identifier", "type_identifier"):
@@ -1346,13 +1373,14 @@ class KotlinTreeSitterParser:
 
         for node, capture_name in captures:
             if capture_name == "class":
+                inline_object_name = self._get_inline_object_name(node)
                 node_id = (node.start_byte, node.end_byte, node.type)
                 if node_id in seen_nodes:
                     continue
                 seen_nodes.add(node_id)
                 
                 try:
-                    if node.type in ("object_declaration", "companion_object"):
+                    if inline_object_name or node.type in ("object_declaration", "companion_object"):
                         category = "objects"
                         label = "Object"
                     else:
@@ -1368,14 +1396,15 @@ class KotlinTreeSitterParser:
                     end_line = node.end_point[0] + 1
                     
                     # Find name child (type_identifier or simple_identifier)
-                    class_name = "Anonymous"
+                    class_name = inline_object_name or "Anonymous"
                     if node.type == "companion_object":
                         class_name = "Companion" # Default name
                     
-                    for child in node.children:
-                        if child.type in ("type_identifier", "simple_identifier"):
-                            class_name = self._get_node_text(child)
-                            break
+                    if not inline_object_name:
+                        for child in node.children:
+                            if child.type in ("type_identifier", "simple_identifier"):
+                                class_name = self._get_node_text(child)
+                                break
                             
                     source_text = self._get_node_text(node)
                     context_name, context_type, context_line = self._get_parent_context(node)
@@ -1415,7 +1444,7 @@ class KotlinTreeSitterParser:
 
                     class_data = {
                         "name": class_name,
-                        "node_type": node.type,
+                        "node_type": "object_declaration" if inline_object_name else node.type,
                         "line_number": start_line,
                         "end_line": end_line,
                         "bases": bases,
