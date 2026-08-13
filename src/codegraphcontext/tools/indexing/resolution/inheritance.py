@@ -533,6 +533,180 @@ def build_embeds_links(
     return embeds_batch
 
 
+def _resolve_type_name(
+    type_name: str,
+    caller_file_path: str,
+    local_names: set,
+    local_imports: dict,
+    imports_map: dict,
+) -> Tuple[str, str]:
+    """Resolve a bare Kotlin type name to a file path plus a confidence
+    label, reusing _resolve_decorator_path's resolution order (local
+    names -> local imports -> unique global import). Confidence is
+    EXTRACTED when that resolution actually found something (either a
+    same-file declaration or a real import target), INFERRED when it
+    fell all the way back to guessing the caller's own file."""
+    resolved_path = _resolve_decorator_path(
+        type_name, caller_file_path, local_names, local_imports, imports_map
+    )
+    caller_path = str(Path(caller_file_path).resolve().as_posix())
+    if type_name in local_names or resolved_path != caller_path:
+        return resolved_path, "EXTRACTED"
+    return resolved_path, "INFERRED"
+
+
+def build_binds_links(
+    all_file_data: List[Dict[str, Any]],
+    imports_map: dict,
+) -> List[Dict[str, Any]]:
+    """Resolve Hilt @Binds/@Provides functions on @Module classes/objects
+    into BINDS row payloads for write_binds_links.
+
+    @Binds: source = the function's return_type, target = the single
+    arg_types entry (the abstract method's one parameter). Both are
+    known statically -- no need to consult function_calls.
+
+    @Provides: source = the function's return_type, target = the type
+    constructed in the function body. Kotlin has no `new` keyword, so a
+    constructor call is indistinguishable at the syntax level from any
+    other call -- function_calls records it with call_kind "call" like
+    every other invocation. We locate candidate calls by matching a
+    call's context (function name, "function_declaration", function
+    line_number) and class_context (enclosing class/object name) back
+    to the @Provides function, then require the call's name to resolve
+    to a known type (local class/interface/object or an import) so an
+    incidental non-constructor call in the body isn't mistaken for the
+    binding target. If more than one call in the body resolves to a
+    known type, the actually-returned one is ambiguous with the
+    information available -- e.g. "val logger = LoggerImpl();
+    return ThingImpl(logger)" wants the last call, while
+    "return ThingImpl(LoggerImpl())" wants the first (textually) -- so
+    no row is emitted rather than guessing. A wrong DI edge is worse
+    for impact analysis than a missing one.
+    """
+    binds_batch: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    for file_data in all_file_data:
+        if file_data.get("lang") != "kotlin":
+            continue
+
+        caller_file_path = str(Path(file_data["path"]).resolve().as_posix())
+
+        # Unlike build_decorated_by_links' local_names (functions/classes
+        # only), Hilt bindings routinely name an *interface* as the
+        # return_type/arg_types entry, so interfaces must be included or
+        # every @Binds row would incorrectly resolve to __external__/INFERRED.
+        local_names = {
+            item["name"]
+            for key in ("classes", "interfaces", "objects")
+            for item in file_data.get(key, [])
+            if item.get("name")
+        }
+        local_imports = {
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: (
+                imp.get("full_import_name") or imp.get("name")
+            )
+            for imp in file_data.get("imports", [])
+            if imp.get("name") or imp.get("alias")
+        }
+
+        module_names = set()
+        for key in ("classes", "objects"):
+            for item in file_data.get(key, []):
+                for dec_raw in item.get("decorators") or []:
+                    if _parse_decorator_name(dec_raw) == "Module":
+                        module_names.add(item.get("name"))
+                        break
+
+        if not module_names:
+            continue
+
+        function_calls = file_data.get("function_calls") or []
+
+        for func in file_data.get("functions", []):
+            class_context = func.get("class_context")
+            if not class_context or class_context not in module_names:
+                continue
+
+            dec_names = {_parse_decorator_name(d) for d in (func.get("decorators") or [])}
+            return_type = func.get("return_type")
+
+            if "Binds" in dec_names:
+                provider = "Binds"
+                arg_types = func.get("arg_types") or []
+                if not return_type or len(arg_types) != 1 or not arg_types[0]:
+                    continue
+                target_type = arg_types[0]
+            elif "Provides" in dec_names:
+                provider = "Provides"
+                if not return_type:
+                    continue
+                func_name = func.get("name")
+                func_line = func.get("line_number")
+                candidates = []
+                for call in function_calls:
+                    ctx = call.get("context") or []
+                    call_class_ctx = call.get("class_context") or []
+                    if (
+                        len(ctx) >= 3
+                        and ctx[0] == func_name
+                        and ctx[2] == func_line
+                        and len(call_class_ctx) >= 1
+                        and call_class_ctx[0] == class_context
+                    ):
+                        call_name = call.get("name")
+                        if call_name and (
+                            call_name in local_names
+                            or call_name in local_imports
+                            or call_name in imports_map
+                        ):
+                            candidates.append(call_name)
+                if not candidates:
+                    continue
+                if len(candidates) > 1:
+                    # More than one type-resolvable call in the body -- e.g.
+                    # "val logger = LoggerImpl(); return ThingImpl(logger)"
+                    # (wanted call is last) vs "return ThingImpl(LoggerImpl())"
+                    # (wanted call is first, textually). Neither a first- nor
+                    # last-line tie-break is correct in general with the
+                    # information available in function_calls, and a wrong DI
+                    # edge is worse than a missing one for impact analysis.
+                    # Skip rather than guess, mirroring the @Binds arity check
+                    # above.
+                    continue
+                target_type = candidates[0]
+            else:
+                continue
+
+            source_path, source_conf = _resolve_type_name(
+                return_type, caller_file_path, local_names, local_imports, imports_map
+            )
+            target_path, target_conf = _resolve_type_name(
+                target_type, caller_file_path, local_names, local_imports, imports_map
+            )
+            confidence_label = (
+                "EXTRACTED" if source_conf == "EXTRACTED" and target_conf == "EXTRACTED" else "INFERRED"
+            )
+
+            key = (return_type, source_path, target_type, target_path, func.get("line_number"), provider)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            binds_batch.append({
+                "source_name": return_type,
+                "source_path": source_path,
+                "target_name": target_type,
+                "target_path": target_path,
+                "line_number": func.get("line_number"),
+                "provider": provider,
+                "confidence_label": confidence_label,
+            })
+
+    return binds_batch
+
+
 def build_elixir_implements_links(
     all_file_data: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:

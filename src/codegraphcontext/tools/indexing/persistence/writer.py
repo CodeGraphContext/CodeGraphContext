@@ -1192,6 +1192,71 @@ class GraphWriter:
         execute_write_operation(self.driver, backend, _work)
         info_logger(f"[DECORATED_BY] Complete: {len(decorated_by_batch)} decorator links processed.")
 
+    def write_binds_links(self, binds_batch: List[Dict[str, Any]]) -> None:
+        """Create BINDS edges: Hilt's @Binds/@Provides link an interface (or
+        class) to the concrete class (or interface) that satisfies it.
+
+        BINDS is declared as a REL TABLE GROUP with three explicit FROM..TO
+        pairs (Interface->Class, Class->Class, Interface->Interface). Kùzu
+        needs both endpoint labels known at query-plan time for a grouped
+        relationship -- an unlabeled MATCH raises "Create rel r bound by
+        multiple node labels is not supported." So, like
+        write_inheritance_links, we try each declared pair per row; a MATCH
+        against the wrong label simply matches nothing and that pair's
+        MERGE is a no-op for the row.
+
+        A row carries only name/path, not a label, and Kotlin does not
+        qualify `name` by enclosing scope (kotlin.py:1394-1436) -- a
+        top-level interface and an unrelated nested class can legitimately
+        share name+path. Once a pair's MATCH actually finds both endpoints
+        we stop trying the remaining pairs for that row; otherwise a
+        same-named node under a different label would pick up a second,
+        spurious BINDS edge.
+        """
+        if not binds_batch:
+            return
+
+        backend = get_backend_type(self.driver, self._db_manager)
+        label_pairs = (("Interface", "Class"), ("Class", "Class"), ("Interface", "Interface"))
+
+        def _work(session):
+            for row in binds_batch:
+                for source_label, target_label in label_pairs:
+                    source_cypher = _cypher_label(source_label, backend)
+                    target_cypher = _cypher_label(target_label, backend)
+                    try:
+                        result = session.run(
+                            f"""
+                            MATCH (source:{source_cypher} {{name: $source_name, path: $source_path}})
+                            MATCH (target:{target_cypher} {{name: $target_name, path: $target_path}})
+                            MERGE (source)-[r:BINDS]->(target)
+                            SET r.line_number = $line_number,
+                                r.provider = $provider,
+                                r.confidence_label = coalesce($confidence_label, 'EXTRACTED')
+                            RETURN r
+                            """,
+                            source_name=row["source_name"],
+                            source_path=row["source_path"],
+                            target_name=row["target_name"],
+                            target_path=row["target_path"],
+                            line_number=row.get("line_number"),
+                            provider=row.get("provider"),
+                            confidence_label=row.get("confidence_label"),
+                        )
+                    except Exception as e:
+                        if _is_binder_exception(e):
+                            continue
+                        raise e
+                    else:
+                        if result.single() is not None:
+                            # This pair matched real endpoints -- do not let a
+                            # coincidentally same-named node under another
+                            # label add a second edge for this row.
+                            break
+
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(f"[BINDS] Complete: {len(binds_batch)} Hilt binding links processed.")
+
     def write_metaclass_links(self, metaclass_batch: List[Dict[str, Any]]) -> None:
         if not metaclass_batch:
             return

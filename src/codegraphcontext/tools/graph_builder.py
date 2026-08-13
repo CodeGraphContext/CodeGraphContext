@@ -841,6 +841,7 @@ class GraphBuilder:
             Global imports map for cross-file resolution.
         """
         from .indexing.resolution.inheritance import (
+            build_binds_links,
             build_companion_of_links,
             build_decorated_by_links,
             build_elixir_implements_links,
@@ -865,6 +866,7 @@ class GraphBuilder:
         self._writer.write_part_of_links(build_part_of_links(all_file_data))
         self._writer.write_metaclass_links(build_metaclass_links(all_file_data, imports_map))
         self._writer.write_decorated_by_links(build_decorated_by_links(all_file_data, imports_map))
+        self._writer.write_binds_links(build_binds_links(all_file_data, imports_map))
 
     def _create_all_inheritance_links(self, all_file_data: list[Dict], imports_map: dict) -> None:
         self.link_inheritance(all_file_data, imports_map)

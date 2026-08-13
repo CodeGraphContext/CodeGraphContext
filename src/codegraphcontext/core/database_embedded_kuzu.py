@@ -291,6 +291,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("PARTIAL_OF", "FROM Class TO Class, line_number INT64, confidence_label STRING", False),
             ("PART_OF", "FROM File TO File", False),
             ("INJECTS", "FROM Class TO Class, field_name STRING, inject_line INT64, confidence_label STRING", False),
+            ("BINDS", "FROM Interface TO Class, FROM Class TO Class, FROM Interface TO Interface, line_number INT64, provider STRING, confidence_label STRING", True),
             ("MAPS_TO", "FROM Class TO DbTable, datastore STRING, line_number INT64", False),
             ("READS", "FROM Function TO DbTable, line_number INT64", False),
             ("WRITES", "FROM Function TO DbTable, line_number INT64", False),
@@ -403,6 +404,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("EMBEDS", "FROM Struct TO Struct, line_number INT64", False),
             ("PARTIAL_OF", "FROM Class TO Class, line_number INT64, confidence_label STRING", False),
             ("PART_OF", "FROM File TO File", False),
+            ("BINDS", "FROM Interface TO Class, FROM Class TO Class, FROM Interface TO Interface, line_number INT64, provider STRING, confidence_label STRING", True),
         ]
         for table_name, schema, use_group in rel_table_migrations:
             try:

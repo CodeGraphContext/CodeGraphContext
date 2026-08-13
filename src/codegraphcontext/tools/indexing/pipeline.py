@@ -17,6 +17,7 @@ from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
 from .resolution.calls import build_function_call_groups
 from .resolution.inheritance import (
+    build_binds_links,
     build_companion_of_links,
     build_decorated_by_links,
     build_elixir_implements_links,
@@ -258,6 +259,7 @@ async def run_tree_sitter_index_async(
     writer.write_part_of_links(build_part_of_links(all_file_data))
     writer.write_metaclass_links(build_metaclass_links(all_file_data, imports_map))
     writer.write_decorated_by_links(build_decorated_by_links(all_file_data, imports_map))
+    writer.write_binds_links(build_binds_links(all_file_data, imports_map))
     t1 = time.time()
     info_logger(f"Inheritance links created in {t1 - t0:.1f}s. Starting function calls...")
 
