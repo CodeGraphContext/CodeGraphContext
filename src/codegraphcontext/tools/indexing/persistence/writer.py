@@ -217,7 +217,7 @@ class GraphWriter:
 
         backend = get_backend_type(self.driver, self._db_manager)
         secret_findings: List[Tuple[str, str, str, Optional[str]]] = []
-        from ...cli.config_manager import get_config_value as _gcv
+        from ....cli.config_manager import get_config_value as _gcv
         _should_redact = (_gcv("REDACT_SECRETS") or "false").lower() == "true"
         def _work(session):
             if repo_path_str:
@@ -627,7 +627,7 @@ class GraphWriter:
         execute_write_operation(self.driver, backend, _work)
 
         if secret_findings:
-            from ...cli.config_manager import get_config_value
+            from ....cli.config_manager import get_config_value
             redact_on = (get_config_value("REDACT_SECRETS") or "false").lower() == "true"
             count = len(secret_findings)
             sample = secret_findings[:5]
