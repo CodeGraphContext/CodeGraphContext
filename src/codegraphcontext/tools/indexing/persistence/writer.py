@@ -243,12 +243,16 @@ class GraphWriter:
             session.run(
                 """
                 MERGE (f:File {path: $path})
-                SET f.name = $name, f.relative_path = $relative_path, f.is_dependency = $is_dependency
+                SET f.name = $name, f.relative_path = $relative_path, f.is_dependency = $is_dependency,
+                    f.language = $language
             """,
                 path=file_path_str,
                 name=file_name,
                 relative_path=relative_path,
                 is_dependency=is_dependency,
+                # Bundle export reads f.language to build metadata["languages"].
+                # Nothing set it before, so every bundle advertised no languages.
+                language=lang,
             )
 
             file_path_obj = Path(file_path_str)
