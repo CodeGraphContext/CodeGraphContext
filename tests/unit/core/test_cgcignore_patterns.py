@@ -14,6 +14,7 @@ from pathspec import PathSpec
 
 # ✅ CORRECT IMPORT PATH
 from codegraphcontext.tools.graph_builder import DEFAULT_IGNORE_PATTERNS
+from codegraphcontext.core.cgcignore import build_ignore_spec
 
 # Use unique directory for EACH test run to avoid conflicts
 BASE_TEST_DIR = Path("/tmp/cgc_test")
@@ -636,3 +637,47 @@ def test_tc23_cgcignore_auto_created_with_default_content():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
+
+
+# --- Root anchoring of multi-segment patterns (#1513) -------------------------
+#
+# Under gitignore semantics a slash anywhere except the trailing position
+# anchors the pattern to the ignore root. Previously only a *leading* slash
+# anchored, so `src/generated` also ignored `vendor/src/generated` -- copying a
+# line out of .gitignore, which the docs encourage, silently over-ignored real
+# source. Every expectation below was cross-checked against `git check-ignore`.
+
+
+@pytest.mark.parametrize(
+    "pattern,path,expected",
+    [
+        # multi-segment patterns are anchored to the root
+        ("src/generated", "src/generated/a.py", True),
+        ("src/generated", "vendor/src/generated/a.py", False),
+        ("a/**/b", "a/b/f.py", True),
+        ("a/**/b", "a/x/y/b/f.py", True),
+        ("a/**/b", "z/a/b/f.py", False),
+        ("docs/**", "docs/a.md", True),
+        ("docs/**", "vendor/docs/a.md", False),
+        # a trailing slash is not an internal slash: still matches at any depth
+        ("build/", "build/a.py", True),
+        ("build/", "sub/build/a.py", True),
+        # ...but must still respect segment boundaries
+        ("build/", "layout/a.py", False),
+        # single-segment patterns keep matching at any depth
+        ("node_modules", "node_modules/x.js", True),
+        ("node_modules", "web/node_modules/x.js", True),
+        # a leading `**/` means any depth even though a slash is present
+        ("**/dist", "dist/a.js", True),
+        ("**/dist", "web/dist/a.js", True),
+        # an explicit leading slash anchors, as before
+        ("/foo", "foo/a.py", True),
+        ("/foo", "bar/foo/a.py", False),
+    ],
+)
+def test_multi_segment_patterns_are_root_anchored(tmp_path, pattern, path, expected):
+    (tmp_path / ".cgcignore").write_text(pattern + "\n", encoding="utf-8")
+    spec, _ = build_ignore_spec(
+        ignore_root=tmp_path, default_patterns=[], explicit_path=None
+    )
+    assert bool(spec.match_file(path)) is expected
