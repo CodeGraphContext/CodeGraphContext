@@ -96,29 +96,45 @@ const Navbar: React.FC = () => {
           <ul className="hidden lg:flex items-center gap-6 font-bold text-[10px] uppercase tracking-widest text-gray-500">
             {[
               { label: "Features", href: "#features" },
+              { label: "Understand", href: "/understand", isRoute: true },
               { label: "Pre-indexed", href: "#bundle-registry" },
               { label: "Cookbook", href: "#cookbook" },
               { label: "Demo", href: "#demo" },
               { label: "Installation", href: "#installation" },
             ].map((link) => {
+              const isRoute = (link as any).isRoute;
               const id = link.href.replace("#", "");
-              const isActive = activeSection === id;
+              const isActive = isRoute
+                ? location.pathname === link.href
+                : activeSection === id;
               
               return (
                 <li key={link.label} className="relative flex items-center h-full py-4">
-                  <a
-                    href={link.href}
-                    className={`transition-colors duration-200 relative pb-1 ${isActive ? "text-white" : "hover:text-white text-gray-500"}`}
-                    onClick={(e) => {
-                      setActiveSection(id); // Instant visual update on click
-                      handleScroll(e);
-                    }}
-                  >
-                    {link.label}
-                    {isActive && (
-                      <span className="absolute bottom-0 left-0 w-full h-[2px] bg-purple-500 transition-all duration-300" />
-                    )}
-                  </a>
+                  {isRoute ? (
+                    <Link
+                      to={link.href}
+                      className={`transition-colors duration-200 relative pb-1 ${isActive ? "text-white" : "hover:text-white text-gray-500"}`}
+                    >
+                      {link.label}
+                      {isActive && (
+                        <span className="absolute bottom-0 left-0 w-full h-[2px] bg-purple-500 transition-all duration-300" />
+                      )}
+                    </Link>
+                  ) : (
+                    <a
+                      href={link.href}
+                      className={`transition-colors duration-200 relative pb-1 ${isActive ? "text-white" : "hover:text-white text-gray-500"}`}
+                      onClick={(e) => {
+                        setActiveSection(id);
+                        handleScroll(e);
+                      }}
+                    >
+                      {link.label}
+                      {isActive && (
+                        <span className="absolute bottom-0 left-0 w-full h-[2px] bg-purple-500 transition-all duration-300" />
+                      )}
+                    </a>
+                  )}
                 </li>
               );
             })}

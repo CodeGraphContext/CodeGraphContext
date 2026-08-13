@@ -21,6 +21,7 @@ import { exportSvg } from "../lib/svg-exporter";
 import { packageInteractiveExport } from "../lib/html-exporter";
 import { toast } from "sonner";
 import { getOrCreateSessionId } from "../lib/utils";
+import { generateNodeSummary, type NodeSummary, loadLLMConfig, saveLLMConfig, type LLMConfig, executeClientAIQuery } from "../lib/summary-engine";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -437,8 +438,8 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
   const [ownerPart, repoPart] = repoName.includes('/') ? repoName.split('/') : [owner || repoName, repo || ''];
   const cleanOwner = String(ownerPart).trim();
   const cleanRepo = String(repoPart).trim();
-  const designedRepoName = cleanOwner && cleanRepo 
-    ? `${cleanOwner}__${cleanRepo}__${branchName}__${cleanCommit}` 
+  const designedRepoName = cleanOwner && cleanRepo
+    ? `${cleanOwner}__${cleanRepo}__${branchName}__${cleanCommit}`
     : repoName;
 
   const userId = getOrCreateSessionId();
@@ -477,7 +478,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
       } else {
         filename = `${repoName}.cgc`;
       }
-      
+
       const blob = await packageCgcBundle(repoName, data.nodes, data.links, data.metadata?.version || "1.0.0", data.metadata);
       downloadBlob(blob, filename);
       toast.success("CGC bundle exported successfully!");
@@ -511,14 +512,14 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
     try {
       let filename = "interactive-graph.zip";
       if (data.metadata?.repo) {
-         filename = `${data.metadata.repo.replace(/\//g, '_')}_interactive.zip`;
+        filename = `${data.metadata.repo.replace(/\//g, '_')}_interactive.zip`;
       }
-      
+
       const exportMode = graphMode === 'mermaid' ? 'mermaid' : 'classic';
       const blob = await packageInteractiveExport(
-        filteredData.nodes, 
-        filteredData.links, 
-        data.metadata || {}, 
+        filteredData.nodes,
+        filteredData.links,
+        data.metadata || {},
         nodeColors,
         edgeColors,
         exportMode
@@ -555,7 +556,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
       toast.error("Invalid repository name. Expected 'owner/repo' format.");
       return;
     }
-    
+
     // Check if this repository and commit/branch is already pre-indexed in the manifest
     const commitSha = data.metadata?.commit || "";
     if (commitSha) {
@@ -566,20 +567,20 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
         if (manifestRes.ok) {
           const manifestData = await manifestRes.json();
           const bundles = manifestData.bundles || [];
-          
+
           const match = bundles.find((b: any) => {
             const sameRepo = b.repo && b.repo.toLowerCase() === publishRepo.toLowerCase();
-            
+
             // The commit SHA can be stored in either b.commit or b.version (e.g. Hugging Face manifest)
             const targetCommit = (b.commit || b.version || "").toLowerCase();
             const currentCommit = commitSha.toLowerCase();
-            
+
             const sameCommit = targetCommit && (
               currentCommit === targetCommit ||
               currentCommit.startsWith(targetCommit) ||
               targetCommit.startsWith(currentCommit)
             );
-            
+
             return sameRepo && sameCommit;
           });
 
@@ -611,8 +612,12 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
   const [codeContent, setCodeContent] = useState<string | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
   const [codePanelWidth, setCodePanelWidth] = useState(420);
-  const [codePanelTab, setCodePanelTab] = useState<'code' | 'entities'>('code');
+  const [codePanelTab, setCodePanelTab] = useState<'code' | 'entities' | 'architecture'>('code');
   const [highlightLine, setHighlightLine] = useState<number | null>(null);
+  const [selectedNode, setSelectedNode] = useState<any | null>(null);
+  const [nodeSummary, setNodeSummary] = useState<NodeSummary | null>(null);
+  const [llmConfig, setLlmConfig] = useState<LLMConfig>(loadLLMConfig());
+  const [showLlmSettings, setShowLlmSettings] = useState<boolean>(false);
   const isCodeResizing = useRef(false);
   const codeResizeStartX = useRef(0);
   const codeResizeStartW = useRef(420);
@@ -840,16 +845,44 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
       }
 
       default: {
+        const degree = degreeMap.get(node.id) || 0;
+        const baseSize = Math.max(3, Math.min(2 + Math.sqrt(degree) * 1.5, 15)) * nodeSize * graphAwareNodeScale;
+
+        // Glow for selected/highlighted
         if (isHovered || (selectedFile && node.file === selectedFile && node.type === 'File')) {
+          const glowGradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, baseSize * 4);
+          glowGradient.addColorStop(0, getRGBA(baseColor, 0.4));
+          glowGradient.addColorStop(1, 'transparent');
           ctx.beginPath();
-          ctx.arc(node.x, node.y, radius * (isHovered ? 2.5 : 2.0), 0, 2 * Math.PI, false);
-          ctx.fillStyle = getRGBA(baseColor, isHovered ? (isFocused ? 0.3 : 0.1) : 0.1);
+          ctx.arc(node.x, node.y, baseSize * 4, 0, 2 * Math.PI, false);
+          ctx.fillStyle = glowGradient;
+          ctx.fill();
+        } else if (isFocused && !isMassive) {
+          const glowGradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, baseSize * 2.5);
+          glowGradient.addColorStop(0, getRGBA(baseColor, 0.15));
+          glowGradient.addColorStop(1, 'transparent');
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, baseSize * 2.5, 0, 2 * Math.PI, false);
+          ctx.fillStyle = glowGradient;
           ctx.fill();
         }
+
+        // Main circle
         ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-        ctx.fillStyle = isFocused ? baseColor : getRGBA(baseColor, opacity);
+        ctx.arc(node.x, node.y, baseSize, 0, 2 * Math.PI, false);
+        ctx.fillStyle = isFocused ? getRGBA(baseColor, 0.8) : getRGBA(baseColor, 0.15);
         ctx.fill();
+
+        // Border
+        if (isHovered || (selectedFile && node.file === selectedFile && node.type === 'File')) {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2.5 / globalScale;
+          ctx.stroke();
+        } else if (isFocused) {
+          ctx.strokeStyle = baseColor;
+          ctx.lineWidth = 1.5 / globalScale;
+          ctx.stroke();
+        }
         break;
       }
     }
@@ -1198,6 +1231,11 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
 
     setHighlightLine(targetLine || null);
 
+    // Clear selectedNode if we manually clicked a file from tree
+    if (!targetLine) {
+      setSelectedNode(null);
+    }
+
     if (path !== selectedFile) {
       setSelectedFile(path);
       loadFileCode(path);
@@ -1247,11 +1285,27 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
       }
       return;
     }
+
+    setSelectedNode(node);
+    if (node.type !== 'File' && node.type !== 'Directory') {
+      setCodePanelTab('architecture');
+    }
+
     const filePath = node.file || node.properties?.path || node.properties?.file;
     if (!filePath) return;
     const lineNum = node.line_number ?? node.properties?.line_number;
-    onFileClick(filePath, lineNum ? Number(lineNum) : undefined);
+
+    // Pass lineNum to preserve selectedNode
+    onFileClick(filePath, lineNum ? Number(lineNum) : -1);
   };
+
+  useEffect(() => {
+    if (selectedNode) {
+      setNodeSummary(generateNodeSummary(selectedNode, data.nodes, data.links));
+    } else {
+      setNodeSummary(null);
+    }
+  }, [selectedNode, data.links]);
 
   useEffect(() => {
     if (highlightLine && codeContent && codePanelTab === 'code') {
@@ -1364,7 +1418,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
 
   const highlightAIQueryResultNodes = useCallback((responseObj = aiResponse) => {
     if (!responseObj || !responseObj.nodes) return;
-    
+
     const returnedNodeIds = new Set(responseObj.nodes.map((n: any) => n.id));
     const pathNodes = new Set<any>();
     const pathLinks = new Set<any>();
@@ -1413,36 +1467,46 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
     setAiLoading(true);
     setAiError(null);
     setAiResponse(null);
-    
+
     try {
       const searchParams = new URLSearchParams(window.location.search);
       const backend = searchParams.get("backend");
-      const backendUrl = backend || window.location.origin;
-      const url = `${backendUrl.replace(/\/$/, "")}/api/ai_query`;
 
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: aiQuery,
-          repo_path: data.metadata?.path || null,
-        }),
-      });
+      if (backend) {
+        const backendUrl = backend || window.location.origin;
+        const url = `${backendUrl.replace(/[\\/]+$/, "")}/api/ai_query`;
+        
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            query: aiQuery,
+            repo_path: data.metadata?.path || null,
+          }),
+        });
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `Server error (${response.status})`);
-      }
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || `Server error (${response.status})`);
+        }
 
-      const resData = await response.json();
-      if (resData.success) {
-        setAiResponse(resData);
-        // Automatically focus and zoom to the query result nodes
-        highlightAIQueryResultNodes(resData);
+        const resData = await response.json();
+        if (resData.success) {
+          setAiResponse(resData);
+          highlightAIQueryResultNodes(resData);
+        } else {
+          setAiError(resData.error || "An error occurred during AI analysis.");
+        }
       } else {
-        setAiError(resData.error || "An error occurred during AI analysis.");
+        const resData = await executeClientAIQuery(aiQuery, data.nodes, data.links, llmConfig);
+        if (resData.success) {
+          setAiResponse(resData);
+          highlightAIQueryResultNodes(resData);
+        } else {
+          setAiError(resData.error || "An error occurred during AI analysis.");
+        }
       }
     } catch (err: any) {
       console.error("AI Query Error:", err);
@@ -1451,7 +1515,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
     } finally {
       setAiLoading(false);
     }
-  }, [aiQuery, data, highlightAIQueryResultNodes]);
+  }, [aiQuery, data, highlightAIQueryResultNodes, llmConfig]);
 
   const getLinkColor = useCallback((link: any) => {
     const isFocused = focusSet ? focusSet.links.has(link) : true;
@@ -1610,10 +1674,65 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
               <div className="flex-1 overflow-y-auto px-2 py-1 custom-scrollbar">
                 {isAIMode ? (
                   <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
-                    <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-                      <MessageSquare className="w-3 h-3 text-purple-400 animate-pulse" /> AI Knowledge Explorer
-                    </h3>
-                    <p className="text-[11px] text-gray-400 leading-relaxed">Ask natural language questions about your repository's code graph.</p>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2 m-0">
+                        <MessageSquare className="w-3 h-3 text-purple-400 animate-pulse" /> AI Knowledge Explorer
+                      </h3>
+                      {!new URLSearchParams(window.location.search).get("backend") && (
+                        <button 
+                          onClick={() => setShowLlmSettings(!showLlmSettings)}
+                          title="BYOK Settings"
+                          className="text-gray-500 hover:text-white"
+                        >
+                          <Settings2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                    
+                    {!new URLSearchParams(window.location.search).get("backend") && (llmConfig.provider === 'none' || showLlmSettings) ? (
+                      <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg space-y-3">
+                        <div className="text-[11px] text-purple-200 leading-relaxed">
+                          <strong>Client-Side Engine:</strong> Configure your API key to run queries locally in your browser.
+                        </div>
+                        <select
+                          value={llmConfig.provider}
+                          onChange={e => setLlmConfig({...llmConfig, provider: e.target.value as any})}
+                          className={`w-full p-2 text-xs rounded border ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
+                        >
+                          <option value="none">Select Provider</option>
+                          <option value="gemini">Google Gemini</option>
+                          <option value="mistral">Mistral AI</option>
+                        </select>
+                        <input
+                          type="password"
+                          placeholder="API Key"
+                          value={llmConfig.apiKey}
+                          onChange={e => setLlmConfig({...llmConfig, apiKey: e.target.value})}
+                          className={`w-full p-2 text-xs rounded border ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
+                        />
+                        <Button 
+                          size="sm" 
+                          className="w-full text-xs" 
+                          onClick={() => {
+                            saveLLMConfig(llmConfig);
+                            setShowLlmSettings(false);
+                            toast.success("LLM Config Saved");
+                          }}
+                        >
+                          Save Config
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-[11px] text-gray-400 leading-relaxed flex items-center justify-between">
+                          <span>Ask natural language questions about your repository's code graph.</span>
+                          {!new URLSearchParams(window.location.search).get("backend") && (
+                            <span className="text-[9px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded ml-2 whitespace-nowrap">Browser BYOK</span>
+                          )}
+                          {new URLSearchParams(window.location.search).get("backend") && (
+                            <span className="text-[9px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded ml-2 whitespace-nowrap">Neo4j Engine</span>
+                          )}
+                        </p>
 
                     <div className="space-y-2 mt-2">
                       <textarea
@@ -1711,6 +1830,8 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                           </div>
                         )}
                       </motion.div>
+                    )}
+                    </>
                     )}
                   </motion.div>
                 ) : isPathMode ? (
@@ -2009,8 +2130,8 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                         key={mode.id}
                         onClick={() => { setGraphMode(mode.id); setShowModeMenu(false); }}
                         className={`w-full flex items-center gap-3 px-4 py-2.5 transition-all cursor-pointer ${graphMode === mode.id
-                            ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
-                            : (isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10' : 'text-gray-500 hover:text-black hover:bg-black/5')
+                          ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
+                          : (isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10' : 'text-gray-500 hover:text-black hover:bg-black/5')
                           }`}
                       >
                         <div
@@ -2127,8 +2248,8 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                     key={mode.id}
                     onClick={() => { setGraphMode(mode.id); setShowMobileMenu(false); }}
                     className={`flex items-center gap-3 px-3 py-1.5 rounded-lg transition-all text-left cursor-pointer ${graphMode === mode.id
-                        ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
-                        : (isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10' : 'text-gray-500 hover:text-black hover:bg-black/5')
+                      ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black')
+                      : (isDark ? 'text-gray-400 hover:text-white hover:bg-purple-500/10' : 'text-gray-500 hover:text-black hover:bg-black/5')
                       }`}
                   >
                     <div
@@ -2184,10 +2305,8 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
           </AnimatePresence>
         </div>
 
-        <div className="mt-1 mb-4 flex justify-center">
-          <div className="w-full max-w-[1330px]">
-            <RepositorySummary graphData={data} isIndexed={true} />
-          </div>
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[50] w-full flex justify-center px-4">
+          <RepositorySummary graphData={data} isIndexed={true} />
         </div>
 
         {graphMode === 'city3d' ? (
@@ -2296,10 +2415,16 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
             linkDirectionalParticleSpeed={0.005}
             nodeCanvasObject={nodeCanvasObject}
             nodePointerAreaPaint={(node: any, color: string, ctx: any, globalScale: number) => {
-              const radius = (node.val || 1) * 0.8 * nodeSize * graphAwareNodeScale;
-              const hitSize = graphMode === 'icon'
-                ? Math.max(14 / globalScale, (node.val || 1) * 2)
-                : radius * 1.5;
+              let hitSize = 0;
+              if (graphMode === 'icon') {
+                hitSize = Math.max(14 / globalScale, (node.val || 1) * 2);
+              } else if (graphMode === 'classic' || graphMode === 'curvy') {
+                const degree = degreeMap.get(node.id as any) || 0;
+                hitSize = Math.max(3, Math.min(2 + Math.sqrt(degree) * 1.5, 15)) * nodeSize * graphAwareNodeScale * 1.5;
+              } else {
+                hitSize = (node.val || 1) * 0.8 * nodeSize * graphAwareNodeScale * 1.5;
+              }
+
               ctx.fillStyle = color;
               ctx.beginPath();
               ctx.arc(node.x, node.y, hitSize, 0, 2 * Math.PI, false);
@@ -2369,7 +2494,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
 
       {/* ── CODE VIEWER PANEL ── */}
       <AnimatePresence>
-        {selectedFile && (
+        {(selectedFile || selectedNode) && (
           <>
             {dimensions.width < 768 && (
               <div
@@ -2402,11 +2527,11 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                   <div className="flex items-center gap-2 min-w-0">
                     <Code2 className="w-4 h-4 text-purple-400 flex-shrink-0" />
                     <span className="text-[13px] font-bold truncate" style={{ color: pal.text }}>
-                      {selectedFile.split('/').pop()}
+                      {selectedNode ? selectedNode.name : (selectedFile ? selectedFile.split('/').pop() : 'Details')}
                     </span>
                   </div>
                   <button
-                    onClick={() => onFileClick(null)}
+                    onClick={() => { onFileClick(null); setSelectedNode(null); }}
                     className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${isDark ? 'text-gray-500 hover:text-white hover:bg-purple-500/20' : 'text-gray-400 hover:text-black hover:bg-black/10'}`}
                   >
                     <X className="w-4 h-4" />
@@ -2415,7 +2540,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
 
                 {/* path breadcrumb + tabs */}
                 <div className="flex items-center gap-0 px-4 py-0 text-[10px] font-mono flex-shrink-0" style={{ borderBottom: `1px solid ${pal.border}` }}>
-                  <span className="text-gray-500 truncate flex-1 py-1.5">{selectedFile}</span>
+                  <span className="text-gray-500 truncate flex-1 py-1.5">{selectedFile || (selectedNode && selectedNode.type)}</span>
                   <div className="flex ml-2 flex-shrink-0">
                     <button
                       onClick={() => setCodePanelTab('code')}
@@ -2428,6 +2553,12 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                       className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'entities' ? 'text-purple-400 border-b-2 border-purple-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
                     >
                       Entities
+                    </button>
+                    <button
+                      onClick={() => setCodePanelTab('architecture')}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${codePanelTab === 'architecture' ? 'text-purple-400 border-b-2 border-purple-400' : (isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600')}`}
+                    >
+                      Architecture
                     </button>
                   </div>
                 </div>
@@ -2457,6 +2588,39 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                         <p>{codeError || 'No source available'}</p>
                       </div>
                     )
+                  ) : codePanelTab === 'architecture' ? (
+                    <div className="p-4 space-y-4">
+                      {!selectedNode ? (
+                        <div className="flex items-center justify-center h-40 text-gray-500 text-xs">
+                          Select a specific class, function, or module in the graph to view its architecture details.
+                        </div>
+                      ) : nodeSummary ? (
+                        <>
+                          <div className={`p-4 rounded-xl ${isDark ? 'bg-black/20 border border-white/5' : 'bg-gray-50 border border-black/5'}`}>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest mb-2 text-purple-400">Component Role</h3>
+                            <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{nodeSummary.description}</p>
+                          </div>
+
+                          <div className={`p-4 rounded-xl ${isDark ? 'bg-black/20 border border-white/5' : 'bg-gray-50 border border-black/5'}`}>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest mb-2 text-blue-400">Architecture Position</h3>
+                            <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{nodeSummary.architecturePosition}</p>
+                          </div>
+
+                          <div className={`p-4 rounded-xl ${isDark ? 'bg-black/20 border border-white/5' : 'bg-gray-50 border border-black/5'}`}>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest mb-2 text-amber-400">Dependency Impact</h3>
+                            <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{nodeSummary.dependencyImpact}</p>
+                            <div className={`flex gap-6 mt-3 pt-3 border-t ${isDark ? 'border-white/10' : 'border-black/5'}`}>
+                              <div><span className="text-[10px] uppercase font-bold tracking-wider text-gray-500 block mb-1">Incoming</span><span className={`font-mono text-sm ${isDark ? 'text-white' : 'text-black'}`}>{nodeSummary.incomingCount}</span></div>
+                              <div><span className="text-[10px] uppercase font-bold tracking-wider text-gray-500 block mb-1">Outgoing</span><span className={`font-mono text-sm ${isDark ? 'text-white' : 'text-black'}`}>{nodeSummary.outgoingCount}</span></div>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-center h-40 text-gray-500 text-xs">
+                          Loading architecture...
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div className="p-4">
                       <div className="space-y-1">
@@ -2534,11 +2698,10 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${
-                isDark 
-                  ? "bg-zinc-950/80 border-zinc-800 text-white" 
+              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${isDark
+                  ? "bg-zinc-950/80 border-zinc-800 text-white"
                   : "bg-white/90 border-zinc-200 text-zinc-900"
-              }`}
+                }`}
             >
               {/* Subtle top glow bar */}
               <div className="absolute top-0 left-0 right-0 h-1 bg-white" />
@@ -2553,9 +2716,8 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                 <button
                   disabled={isPublishing}
                   onClick={() => setShowPublishModal(false)}
-                  className={`p-1.5 rounded-full transition-colors ${
-                    isDark ? "hover:bg-purple-500/20 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
-                  }`}
+                  className={`p-1.5 rounded-full transition-colors ${isDark ? "hover:bg-purple-500/20 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
+                    }`}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -2573,11 +2735,10 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                     value={publishRepo}
                     onChange={(e) => setPublishRepo(e.target.value)}
                     placeholder="e.g. owner/repository"
-                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all ${
-                      isDark 
-                        ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700" 
+                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all ${isDark
+                        ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700"
                         : "bg-zinc-50 border-zinc-200 text-zinc-950 placeholder-zinc-400 focus:border-zinc-300"
-                    }`}
+                      }`}
                   />
                 </div>
 
@@ -2592,11 +2753,10 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                     value={publishVersion}
                     onChange={(e) => setPublishVersion(e.target.value)}
                     placeholder="e.g. 1.0.0"
-                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all ${
-                      isDark 
-                        ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700" 
+                    className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all ${isDark
+                        ? "bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700"
                         : "bg-zinc-50 border-zinc-200 text-zinc-950 placeholder-zinc-400 focus:border-zinc-300"
-                    }`}
+                      }`}
                   />
                 </div>
 
@@ -2649,11 +2809,10 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${
-                isDark 
-                  ? "bg-zinc-950/80 border-zinc-800 text-white" 
+              className={`relative w-full max-w-md p-6 rounded-3xl shadow-2xl border backdrop-blur-2xl overflow-hidden ${isDark
+                  ? "bg-zinc-950/80 border-zinc-800 text-white"
                   : "bg-white/90 border-zinc-200 text-zinc-900"
-              }`}
+                }`}
             >
               {/* Subtle top glow bar */}
               <div className="absolute top-0 left-0 right-0 h-1 bg-white" />
@@ -2670,9 +2829,8 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                 </div>
                 <button
                   onClick={() => setShowChatGPTModal(false)}
-                  className={`p-1.5 rounded-full transition-colors ${
-                    isDark ? "hover:bg-purple-500/20 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
-                  }`}
+                  className={`p-1.5 rounded-full transition-colors ${isDark ? "hover:bg-purple-500/20 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950"
+                    }`}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -2683,18 +2841,16 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                   <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-400 block">
                     Connection Prompt (Auto-copied on Launch)
                   </label>
-                  <div className={`relative p-3 rounded-xl border font-mono text-xs flex justify-between items-center ${
-                    isDark ? "bg-zinc-900/60 border-zinc-800 text-zinc-300" : "bg-zinc-50 border-zinc-200 text-zinc-700"
-                  }`}>
+                  <div className={`relative p-3 rounded-xl border font-mono text-xs flex justify-between items-center ${isDark ? "bg-zinc-900/60 border-zinc-800 text-zinc-300" : "bg-zinc-50 border-zinc-200 text-zinc-700"
+                    }`}>
                     <span className="select-all break-all pr-8">{chatgptPreFillPrompt}</span>
                     <button
                       onClick={() => {
                         navigator.clipboard.writeText(chatgptPreFillPrompt);
                         toast.success("Prompt copied to clipboard!", { icon: "📋" });
                       }}
-                      className={`absolute right-2 p-1.5 rounded-lg transition-colors ${
-                        isDark ? "hover:bg-purple-500/10 text-zinc-400 hover:text-white" : "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-900"
-                      }`}
+                      className={`absolute right-2 p-1.5 rounded-lg transition-colors ${isDark ? "hover:bg-purple-500/10 text-zinc-400 hover:text-white" : "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-900"
+                        }`}
                       title="Copy prompt to clipboard"
                     >
                       <Copy className="w-3.5 h-3.5" />
@@ -2702,9 +2858,8 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                   </div>
                 </div>
 
-                <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
-                  isDark ? "bg-amber-950/20 border-amber-900/40 text-amber-300" : "bg-amber-50 border-amber-200/60 text-amber-800"
-                }`}>
+                <div className={`p-3 rounded-xl border text-xs leading-relaxed ${isDark ? "bg-amber-950/20 border-amber-900/40 text-amber-300" : "bg-amber-50 border-amber-200/60 text-amber-800"
+                  }`}>
                   <p className="font-semibold mb-1">💡 Important Instruction:</p>
                   <p>When the ChatGPT window loads, click on the chat box, press <kbd className="px-1 py-0.5 rounded border border-current font-sans text-[10px]">Ctrl+V</kbd> (or <kbd className="px-1 py-0.5 rounded border border-current font-sans text-[10px]">Cmd+V</kbd>) to paste the copied prompt, and hit enter!</p>
                 </div>
@@ -2737,7 +2892,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
         <AlertDialogContent className="bg-zinc-950 border border-zinc-800 text-zinc-100 max-w-md rounded-3xl shadow-2xl p-6 relative overflow-hidden backdrop-blur-2xl">
           {/* Subtle top glow bar */}
           <div className="absolute top-0 left-0 right-0 h-1 bg-white" />
-          
+
           <AlertDialogHeader>
             <AlertDialogTitle className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
               <span className="text-amber-500">⚡</span> Pre-indexed Bundle Exists
