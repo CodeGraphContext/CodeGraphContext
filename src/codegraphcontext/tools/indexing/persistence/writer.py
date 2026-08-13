@@ -327,6 +327,14 @@ class GraphWriter:
                 for item in item_list:
                     row = dict(item)
                     row["path"] = file_path_str
+                    # Inherit the file's is_dependency unless the extractor set its
+                    # own. Only ~half the language extractors emit this per item, and
+                    # find_dead_code filters on `func.is_dependency = false` -- in
+                    # Cypher `null = false` is null, not false, so every function from
+                    # an extractor that omitted it was silently dropped and the tool
+                    # returned an empty list. Module has no such column in the schema.
+                    if label != "Module":
+                        row.setdefault("is_dependency", is_dependency)
                     if label == "Function" and "cyclomatic_complexity" not in row:
                         row["cyclomatic_complexity"] = 1
                     sanitized, findings = sanitize_props_with_secrets(row, redact=_should_redact)
