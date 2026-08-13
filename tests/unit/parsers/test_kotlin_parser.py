@@ -4110,10 +4110,9 @@ class TestKotlinDecorators:
             """,
         )
         fn = next(f for f in data["functions"] if f["name"] == "plain")
-        # The key must be present and an empty list -- not missing, not None.
-        # find_dead_code filters with NOT ANY(d IN func.decorators ...), which
-        # evaluates NULL (not TRUE) against an unset property, silently dropping
-        # un-annotated functions from results.
+        # The key must be present and an empty list -- not missing, not None --
+        # so consumers can rely on it rather than testing for it. This matches
+        # the ten extractors that already populate `decorators`.
         assert "decorators" in fn
         assert fn["decorators"] == []
 
