@@ -409,7 +409,16 @@ def test_cli_inventory_grouped_from_source():
     assert inventory["mcp"] == {"setup", "start", "tools"}
     assert inventory["neo4j"] == {"setup"}
     assert inventory["config"] == {"show", "set", "reset", "db"}
-    assert inventory["bundle"] == {"export", "import", "load", "merge"}
+    assert inventory["bundle"] == {
+        "export",
+        "import",
+        "load",
+        "merge",
+        # Added alongside bundle signing/encryption (#1060).
+        "verify",
+        "inspect",
+        "diff",
+    }
     assert inventory["hook"] == {"install", "uninstall", "status"}
     assert inventory["registry"] == {"list", "search", "download", "request"}
     assert inventory["find"] == {"name", "pattern", "type", "variable", "content", "decorator", "argument"}
@@ -541,6 +550,13 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs, 
     # `bundle merge` is a non-interactive git merge driver that takes file
     # arguments; it is not exercised by this smoke matrix.
     expected_set.discard(("bundle", "merge"))
+    # `bundle verify`/`inspect`/`diff` (#1060) each require an existing .cgc
+    # file (two, for diff) as a positional argument, so they cannot be invoked
+    # bare the way this matrix invokes everything else. Their behaviour is
+    # covered by the bundle round-trip tests instead.
+    expected_set.discard(("bundle", "verify"))
+    expected_set.discard(("bundle", "inspect"))
+    expected_set.discard(("bundle", "diff"))
     assert _matrix_command_set(command_matrix) == expected_set
 
     for args in command_matrix:
