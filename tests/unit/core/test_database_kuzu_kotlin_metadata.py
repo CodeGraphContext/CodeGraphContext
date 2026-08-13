@@ -353,3 +353,278 @@ def test_kotlin_decorators_persist_in_kuzu(tmp_path):
         assert {r["name"] for r in retained} == {"load"}
     finally:
         manager.close_driver()
+
+
+def test_write_inheritance_links_skips_empty_label_pairs_in_kuzu(tmp_path):
+    """write_inheritance_links used to UNWIND-query all 12*12 (child, parent)
+    label combinations regardless of whether either node table held any
+    rows -- 144 pair queries plus 12 external-batch queries per call, most
+    of them pure waste against empty Kuzu node tables. It now probes which
+    of the 12 labels have at least one row and skips any pair where either
+    side is empty.
+
+    This test creates only two Class nodes (Base, Derived), so 11 of the 12
+    labels are empty tables. It asserts both halves of the contract: the
+    INHERITS edge for the real Class->Class hierarchy must still be created
+    (the skip must never drop a real edge), and the number of session.run
+    calls issued must stay far below the naive 12*12 + 12 = 156 fan-out the
+    unoptimized code would have issued.
+    """
+    manager = _fresh_kuzu_manager(tmp_path / "inherits-skip-db")
+    try:
+        driver = manager.get_driver()
+        with driver.session() as session:
+            session.run(
+                """
+                MERGE (c:Class {uid: $uid})
+                SET c.name = $name, c.path = $path, c.line_number = $line_number
+                """,
+                uid="base",
+                name="Base",
+                path="/repo/Hierarchy.kt",
+                line_number=2,
+            )
+            session.run(
+                """
+                MERGE (c:Class {uid: $uid})
+                SET c.name = $name, c.path = $path, c.line_number = $line_number
+                """,
+                uid="derived",
+                name="Derived",
+                path="/repo/Hierarchy.kt",
+                line_number=6,
+            )
+
+        writer = GraphWriter(driver)
+
+        session_cls = type(driver.session())
+        original_run = session_cls.run
+        call_count = 0
+
+        def counting_run(self, query, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return original_run(self, query, *args, **kwargs)
+
+        session_cls.run = counting_run
+        try:
+            writer.write_inheritance_links(
+                [
+                    {
+                        "child_name": "Derived",
+                        "path": "/repo/Hierarchy.kt",
+                        "parent_name": "Base",
+                        "resolved_parent_file_path": "/repo/Hierarchy.kt",
+                        "confidence_label": "EXTRACTED",
+                    }
+                ],
+                [],
+                {},
+            )
+        finally:
+            session_cls.run = original_run
+
+        with driver.session() as session:
+            edge = session.run(
+                """
+                MATCH (child:Class {name: $child_name, path: $path})
+                      -[r:INHERITS]->
+                      (parent:Class {name: $parent_name, path: $path})
+                RETURN r.confidence_label AS confidence_label
+                """,
+                child_name="Derived",
+                parent_name="Base",
+                path="/repo/Hierarchy.kt",
+            ).data()
+
+        assert edge == [{"confidence_label": "EXTRACTED"}]
+
+        # Unoptimized fan-out: 12*12 internal pair queries + 12 external
+        # per-label queries = 156, every one of them a full Kuzu parse ->
+        # bind -> plan for a table that (in this test) is empty 11/12 of
+        # the time. The skip should reduce this to a handful of existence
+        # probes plus the one populated (Class, Class) pair.
+        naive_fanout = 12 * 12 + 12
+        assert call_count < naive_fanout
+        assert call_count <= 20
+    finally:
+        manager.close_driver()
+
+
+def test_write_inheritance_links_probe_failure_falls_back_to_populated_in_kuzu(tmp_path):
+    """If the existence probe for a label raises for any reason, that label
+    must be treated as populated (i.e. fall back to the old, unconditional
+    behaviour) rather than skipped -- the task's explicit invariant is that
+    the optimisation must never cause a *missed* edge.
+
+    This forces the probe for `Class` specifically to raise, and asserts the
+    Derived->Base INHERITS edge is still created despite the probe failure
+    -- proving the fallback path keeps Class in the populated set instead of
+    incorrectly skipping every pair involving it.
+    """
+    manager = _fresh_kuzu_manager(tmp_path / "inherits-probe-failure-db")
+    try:
+        driver = manager.get_driver()
+        with driver.session() as session:
+            session.run(
+                """
+                MERGE (c:Class {uid: $uid})
+                SET c.name = $name, c.path = $path, c.line_number = $line_number
+                """,
+                uid="base",
+                name="Base",
+                path="/repo/Hierarchy.kt",
+                line_number=2,
+            )
+            session.run(
+                """
+                MERGE (c:Class {uid: $uid})
+                SET c.name = $name, c.path = $path, c.line_number = $line_number
+                """,
+                uid="derived",
+                name="Derived",
+                path="/repo/Hierarchy.kt",
+                line_number=6,
+            )
+
+        writer = GraphWriter(driver)
+
+        session_cls = type(driver.session())
+        original_run = session_cls.run
+
+        def failing_probe_run(self, query, *args, **kwargs):
+            if "MATCH (n:Class)" in query and "LIMIT 1" in query:
+                raise RuntimeError("simulated existence-probe failure")
+            return original_run(self, query, *args, **kwargs)
+
+        session_cls.run = failing_probe_run
+        try:
+            writer.write_inheritance_links(
+                [
+                    {
+                        "child_name": "Derived",
+                        "path": "/repo/Hierarchy.kt",
+                        "parent_name": "Base",
+                        "resolved_parent_file_path": "/repo/Hierarchy.kt",
+                        "confidence_label": "EXTRACTED",
+                    }
+                ],
+                [],
+                {},
+            )
+        finally:
+            session_cls.run = original_run
+
+        with driver.session() as session:
+            edge = session.run(
+                """
+                MATCH (child:Class {name: $child_name, path: $path})
+                      -[r:INHERITS]->
+                      (parent:Class {name: $parent_name, path: $path})
+                RETURN r.confidence_label AS confidence_label
+                """,
+                child_name="Derived",
+                parent_name="Base",
+                path="/repo/Hierarchy.kt",
+            ).data()
+
+        assert edge == [{"confidence_label": "EXTRACTED"}]
+    finally:
+        manager.close_driver()
+
+
+def test_write_inheritance_links_resolves_cross_label_hierarchy_with_empty_labels_skipped(tmp_path):
+    """The skip optimisation gates the child loop and the parent loop
+    independently via a shared `populated_labels` set -- it does not gate
+    on a single (child, parent) pair being "the same label". Both of the
+    tests added by 500f87e only ever create Class->Class hierarchies, so
+    neither one would catch a future refactor that broke resolution across
+    two *different*, both-populated labels (e.g. accidentally intersecting
+    populated_labels per-loop instead of sharing it, or only probing the
+    child's labels).
+
+    This test creates one Class node and one Interface node (both
+    populated, different labels) and leaves the other ten labels (Trait,
+    Struct, Enum, Union, Record, Mixin, Extension, Module, Object,
+    Variable) empty, so the skip path is genuinely active for most of the
+    12*12 grid while the Class->Interface pair must still be probed as
+    populated on both sides and produce an edge. It asserts the INHERITS
+    edge runs specifically from the Class to the Interface, not merely
+    that some edge exists.
+    """
+    manager = _fresh_kuzu_manager(tmp_path / "inherits-cross-label-db")
+    try:
+        driver = manager.get_driver()
+        with driver.session() as session:
+            session.run(
+                """
+                MERGE (c:Class {uid: $uid})
+                SET c.name = $name, c.path = $path, c.line_number = $line_number
+                """,
+                uid="widget",
+                name="Widget",
+                path="/repo/Widget.kt",
+                line_number=2,
+            )
+            session.run(
+                """
+                MERGE (i:Interface {uid: $uid})
+                SET i.name = $name, i.path = $path, i.line_number = $line_number
+                """,
+                uid="drawable",
+                name="Drawable",
+                path="/repo/Widget.kt",
+                line_number=1,
+            )
+
+        writer = GraphWriter(driver)
+        writer.write_inheritance_links(
+            [
+                {
+                    "child_name": "Widget",
+                    "path": "/repo/Widget.kt",
+                    "parent_name": "Drawable",
+                    "resolved_parent_file_path": "/repo/Widget.kt",
+                    "confidence_label": "EXTRACTED",
+                }
+            ],
+            [],
+            {},
+        )
+
+        with driver.session() as session:
+            edge = session.run(
+                """
+                MATCH (child:Class {name: $child_name, path: $path})
+                      -[r:INHERITS]->
+                      (parent:Interface {name: $parent_name, path: $path})
+                RETURN r.confidence_label AS confidence_label
+                """,
+                child_name="Widget",
+                parent_name="Drawable",
+                path="/repo/Widget.kt",
+            ).data()
+
+        assert edge == [{"confidence_label": "EXTRACTED"}]
+
+        # Confirm there is exactly one INHERITS edge overall, and that it is
+        # the Class->Interface one -- not just "some edge exists" that could
+        # be satisfied by an unrelated or misdirected match.
+        with driver.session() as session:
+            all_edges = session.run(
+                """
+                MATCH (child)-[r:INHERITS]->(parent)
+                RETURN labels(child) AS child_labels, child.name AS child_name,
+                       labels(parent) AS parent_labels, parent.name AS parent_name
+                """
+            ).data()
+
+        assert len(all_edges) == 1
+        assert all_edges[0]["child_name"] == "Widget"
+        assert all_edges[0]["parent_name"] == "Drawable"
+        assert "Class" in all_edges[0]["child_labels"]
+        assert "Interface" in all_edges[0]["parent_labels"]
+    finally:
+        manager.close_driver()
+
+
