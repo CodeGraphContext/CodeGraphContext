@@ -129,6 +129,7 @@ DEFAULT_CONFIG = {
     "CGC_EMBEDDING_BATCH_SIZE": "256",
     # Default fuzzy matching behavior for `cgc find name` (overridable per-command with --fuzzy/--no-fuzzy)
     "FUZZY_SEARCH": "true",
+    "REDACT_SECRETS": "false",
     # Default LLM model names used for graph queries when no value is explicitly configured
     "OPENAI_MODEL": "gpt-4o",
     "ANTHROPIC_MODEL": "claude-3-5-sonnet-20241022",
@@ -206,6 +207,12 @@ CONFIG_DESCRIPTIONS = {
         "Enable fuzzy matching by default for `cgc find name` (true|false). "
         "Per-invocation overrides are available via --fuzzy / --no-fuzzy."
     ),
+    "REDACT_SECRETS": (
+        "Scan string literals and variable values for likely secrets (API keys, tokens, "
+        "passwords, connection strings) during indexing and replace them with [REDACTED] "
+        "before writing to the graph database. When false (default), secrets are still "
+        "detected and a warning is logged, but values are stored verbatim."
+    ),
     "OPENAI_MODEL": (
         "Default OpenAI model used for graph queries. "
         "Requires OPENAI_API_KEY environment variable. "
@@ -243,6 +250,7 @@ CONFIG_VALIDATORS = {
     "ENABLE_VECTOR_RESOLVE": ["true", "false"],
     "CGC_EMBEDDING_MODEL": ["local", "openai"],
     "FUZZY_SEARCH": ["true", "false"],
+    "REDACT_SECRETS": ["true", "false"],
 }
 
 SUPPORTED_DATABASES: List[str] = CONFIG_VALIDATORS["DEFAULT_DATABASE"]

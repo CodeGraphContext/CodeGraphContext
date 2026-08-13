@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ....utils.debug_log import info_logger, warning_logger
 from ....utils.git_utils import get_repo_commit_hash
-from ..sanitize import sanitize_props
+from ..sanitize import sanitize_props, sanitize_props_with_secrets
 from ..schema_contract import NODE_LABELS
 from .utils import get_backend_type, execute_write_operation, execute_read_operation
 
@@ -216,6 +216,9 @@ class GraphWriter:
         lang = file_data.get("lang")
 
         backend = get_backend_type(self.driver, self._db_manager)
+        secret_findings: List[Tuple[str, str, str, Optional[str]]] = []
+        from ....cli.config_manager import get_config_value as _gcv
+        _should_redact = (_gcv("REDACT_SECRETS") or "false").lower() == "true"
         def _work(session):
             if repo_path_str:
                 resolved_repo_str = _normalize_path(repo_path_str)
@@ -326,7 +329,11 @@ class GraphWriter:
                     row["path"] = file_path_str
                     if label == "Function" and "cyclomatic_complexity" not in row:
                         row["cyclomatic_complexity"] = 1
-                    batch.append(sanitize_props(row))
+                    sanitized, findings = sanitize_props_with_secrets(row, redact=_should_redact)
+                    batch.append(sanitized)
+                    for prop_key, pattern in findings:
+                        item_name = item.get("name", "<unknown>")
+                        secret_findings.append((label, item_name, prop_key, pattern))
                     if label == "EnumMember":
                         enum_member_batch.append(
                             {
@@ -618,6 +625,26 @@ class GraphWriter:
                 )
 
         execute_write_operation(self.driver, backend, _work)
+
+        if secret_findings:
+            from ....cli.config_manager import get_config_value
+            redact_on = (get_config_value("REDACT_SECRETS") or "false").lower() == "true"
+            count = len(secret_findings)
+            sample = secret_findings[:5]
+            sample_desc = "; ".join(
+                f"{lbl} '{nm}' prop={pk} ({pat})" for lbl, nm, pk, pat in sample
+            )
+            suffix = f" (showing {len(sample)} of {count})" if count > 5 else ""
+            if redact_on:
+                warning_logger(
+                    f"[SECRETS] {count} potential secret(s) detected and REDACTED in {file_name}{suffix}: {sample_desc}"
+                )
+            else:
+                warning_logger(
+                    f"[SECRETS] {count} potential secret(s) detected in {file_name} "
+                    f"(values stored verbatim — set REDACT_SECRETS=true to redact){suffix}: {sample_desc}"
+                )
+
     def add_minimal_file_node(
         self, file_path: Path, repo_path: Path, is_dependency: bool = False
     ) -> None:
