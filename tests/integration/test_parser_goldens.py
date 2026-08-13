@@ -19,6 +19,12 @@ GENERATED_BUILD_DIRS = {"obj"}
 def clean_path(p):
     return str(p).replace("\\", "/")
 
+def count_jsonl_records(path):
+    if not os.path.exists(path):
+        return 0
+    with open(path, "r", encoding="utf-8") as f:
+        return sum(1 for line in f if line.strip())
+
 def normalize_labels(labels):
     if labels is None:
         return []
@@ -290,7 +296,33 @@ bundle_export(output=bundle_path, repo=project_path, no_stats=False, context=Non
     actual_nodes_path = extract_dir / "nodes.jsonl"
     actual_edges_path = extract_dir / "edges.jsonl"
     actual_metadata_path = extract_dir / "metadata.json"
-    
+
+    # 4.5. Guard: the index/export subprocess can exit 0 and still produce an
+    # empty graph. FalkorDB Lite runs its storage in a worker subprocess whose
+    # startup is timing-sensitive; under CPU contention that worker can fail to
+    # come up while indexing reports success anyway, so the export bundle
+    # exists but is empty. Left unchecked, the golden diff below would then
+    # report every expected node as "missing", which looks exactly like a
+    # parser regression but is actually an infrastructure failure. Catch that
+    # here, before any golden comparison, so this applies under
+    # --update-goldens too (bootstrapping a golden from an empty graph would
+    # be worse than failing).
+    actual_node_count = count_jsonl_records(actual_nodes_path)
+    actual_edge_count = count_jsonl_records(actual_edges_path)
+    assert actual_node_count > 0, (
+        f"Indexing produced an EMPTY graph for {project_name} ({actual_node_count} nodes, "
+        f"{actual_edge_count} edges) even though the subprocess exited 0 and wrote a bundle. "
+        "This means the indexing/database step failed, NOT that the parser regressed -- do "
+        "not read a subsequent golden diff as evidence of a parser change.\n"
+        "Known cause: FalkorDB Lite runs its storage in a worker subprocess with a "
+        "timing-sensitive startup; under CPU contention (e.g. another long-running index "
+        "competing for the machine) that worker can fail to come up while the index step "
+        "still exits 0 with an empty graph. Re-run this test on an idle machine before "
+        "investigating the parser.\n"
+        f"Subprocess STDOUT:\n{run_res.stdout}\n"
+        f"Subprocess STDERR:\n{run_res.stderr}"
+    )
+
     # 5. Handle --update-goldens Option
     if update_goldens:
         # Overwrite the regression baselines ("What We Have") with current raw actual outputs
