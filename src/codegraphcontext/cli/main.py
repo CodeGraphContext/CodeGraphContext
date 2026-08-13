@@ -46,6 +46,7 @@ from .cli_helpers import (
     setup_scip_helper,
 )
 from .hook_manager import HookError, get_hook_status, install_hooks, uninstall_hooks
+from codegraphcontext.utils.tool_limits import get_tool_result_limit
 
 # Set the log level for the noisy neo4j, asyncio, and urllib3 loggers to keep the output clean.
 # Get the log level from config, defaulting to WARNING
@@ -2274,7 +2275,11 @@ def find_by_decorator_search(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        results = code_finder.find_functions_by_decorator(decorator, file)
+        req_limit = get_tool_result_limit("find_functions_by_decorator")
+        results = code_finder.find_functions_by_decorator(decorator, file, limit=req_limit + 1 if req_limit is not None else None)
+        truncated = bool(req_limit and len(results) > req_limit)
+        if truncated:
+            results = results[:req_limit]
         
         if not results:
             console.print(f"[yellow]No functions found with decorator '@{decorator}'[/yellow]")
@@ -2299,6 +2304,8 @@ def find_by_decorator_search(
             
         console.print(f"[cyan]Found {len(results)} function(s) with decorator '@{decorator}':[/cyan]")
         console.print(table)
+        if truncated:
+            console.print(f"[dim]... truncated ({req_limit} shown), more exist[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -2322,7 +2329,11 @@ def find_by_argument_search(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        results = code_finder.find_functions_by_argument(argument, file)
+        req_limit = get_tool_result_limit("find_functions_by_argument")
+        results = code_finder.find_functions_by_argument(argument, file, limit=req_limit + 1 if req_limit is not None else None)
+        truncated = bool(req_limit and len(results) > req_limit)
+        if truncated:
+            results = results[:req_limit]
         
         if not results:
             console.print(f"[yellow]No functions found with argument '{argument}'[/yellow]")
@@ -2344,6 +2355,8 @@ def find_by_argument_search(
             
         console.print(f"[cyan]Found {len(results)} function(s) with argument '{argument}':[/cyan]")
         console.print(table)
+        if truncated:
+            console.print(f"[dim]... truncated ({req_limit} shown), more exist[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -2378,7 +2391,11 @@ def analyze_calls(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        results = code_finder.what_does_function_call(function, file)
+        req_limit = get_tool_result_limit("find_callees")
+        results = code_finder.what_does_function_call(function, file, limit=req_limit + 1 if req_limit is not None else None)
+        truncated = bool(req_limit and len(results) > req_limit)
+        if truncated:
+            results = results[:req_limit]
         
         if not results:
             console.print(f"[yellow]No function calls found for '{function}'[/yellow]")
@@ -2407,7 +2424,10 @@ def analyze_calls(
         
         console.print(f"\n[bold cyan]Function '{function}' calls:[/bold cyan]")
         console.print(table)
-        console.print(f"\n[dim]Total: {len(results)} function(s)[/dim]")
+        if truncated:
+            console.print(f"\n[dim]Total: {len(results)} function(s) (truncated, {req_limit}+ exist)[/dim]")
+        else:
+            console.print(f"\n[dim]Total: {len(results)} function(s)[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -2434,7 +2454,11 @@ def analyze_callers(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        results = code_finder.who_calls_function(function, file)
+        req_limit = get_tool_result_limit("find_callers")
+        results = code_finder.who_calls_function(function, file, limit=req_limit + 1 if req_limit is not None else None)
+        truncated = bool(req_limit and len(results) > req_limit)
+        if truncated:
+            results = results[:req_limit]
         
         if not results:
             console.print(f"[yellow]No callers found for '{function}'[/yellow]")
@@ -2465,7 +2489,10 @@ def analyze_callers(
         
         console.print(f"\n[bold cyan]Functions that call '{function}':[/bold cyan]")
         console.print(table)
-        console.print(f"\n[dim]Total: {len(results)} caller(s)[/dim]")
+        if truncated:
+            console.print(f"\n[dim]Total: {len(results)} caller(s) (truncated, {req_limit}+ exist)[/dim]")
+        else:
+            console.print(f"\n[dim]Total: {len(results)} caller(s)[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -2495,7 +2522,11 @@ def analyze_chain(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        results = code_finder.find_function_call_chain(from_func, to_func, max_depth, from_file, to_file)
+        req_limit = get_tool_result_limit("call_chain")
+        results = code_finder.find_function_call_chain(from_func, to_func, max_depth, from_file, to_file, limit=req_limit + 1 if req_limit is not None else None)
+        truncated = bool(req_limit and len(results) > req_limit)
+        if truncated:
+            results = results[:req_limit]
         
         if not results:
             console.print(f"[yellow]No call chain found between '{from_func}' and '{to_func}' within depth {max_depth}[/yellow]")
@@ -2908,7 +2939,11 @@ def analyze_overrides(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        results = code_finder.find_function_overrides(function_name)
+        req_limit = get_tool_result_limit("overrides")
+        results = code_finder.find_function_overrides(function_name, limit=req_limit + 1 if req_limit is not None else None)
+        truncated = bool(req_limit and len(results) > req_limit)
+        if truncated:
+            results = results[:req_limit]
         
         if not results:
             console.print(f"[yellow]No implementations found for function '{function_name}'[/yellow]")
@@ -2937,6 +2972,8 @@ def analyze_overrides(
         
         console.print(f"\n[bold cyan]Found {len(results)} implementation(s) of '{function_name}':[/bold cyan]")
         console.print(table)
+        if truncated:
+            console.print(f"[dim]... truncated ({req_limit} shown), more exist[/dim]")
     finally:
         db_manager.close_driver()
 
