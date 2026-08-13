@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 import textwrap
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -114,7 +114,7 @@ def _section_god_nodes(driver: Any, limit: int = 15, repo_path: Optional[str] = 
     rows = _run_cypher(
         driver,
         """
-        MATCH ()-[:CALLS]->(target)
+        MATCH ()-[:CALLS|HEURISTIC_CALLS]->(target)
         WITH target, count(*) AS in_degree
         WHERE in_degree > 1
           AND ($repo_path IS NULL OR target.path STARTS WITH $repo_path)
@@ -178,7 +178,7 @@ def _section_cross_module_calls(driver: Any, limit: int = 20, repo_path: Optiona
     rows = _run_cypher(
         driver,
         """
-        MATCH (caller)-[c:CALLS]->(callee)
+        MATCH (caller)-[c:CALLS|HEURISTIC_CALLS]->(callee)
         WHERE caller.path IS NOT NULL AND callee.path IS NOT NULL
           AND ($repo_path IS NULL OR caller.path STARTS WITH $repo_path)
           AND ($repo_path IS NULL OR callee.path STARTS WITH $repo_path)
@@ -220,13 +220,26 @@ def _section_cross_module_calls(driver: Any, limit: int = 20, repo_path: Optiona
 
 def _section_dead_code(driver: Any, limit: int = 20, repo_path: Optional[str] = None) -> str:
     """Functions with no incoming CALLS edges (potential dead code)."""
+    # Share the entry-point list with `CodeFinder.find_dead_code` so the report
+    # and the CLI/MCP tool cannot disagree. They previously did, in both
+    # directions: this query had no name exclusions at all (so every dunder and
+    # `test_*` showed up as dead), while `find_dead_code` restricted callers to
+    # `(caller:Function)` and so missed the File-sourced edges that this one
+    # correctly counts.
+    from .code_finder import _ENTRY_POINT_NAMES_CYPHER
+
     rows = _run_cypher(
         driver,
-        """
+        f"""
         MATCH (fn:Function)
         WHERE (fn.is_dependency IS NULL OR fn.is_dependency = false)
           AND ($repo_path IS NULL OR fn.path STARTS WITH $repo_path)
-          AND NOT ()-[:CALLS]->(fn)
+          AND NOT toLower(fn.name) IN {_ENTRY_POINT_NAMES_CYPHER}
+          AND fn.name <> '<module>'
+          AND NOT (fn.name STARTS WITH '__' AND fn.name ENDS WITH '__')
+          AND NOT fn.name STARTS WITH '_test'
+          AND NOT fn.name STARTS WITH 'test_'
+          AND NOT ()-[:CALLS|HEURISTIC_CALLS]->(fn)
         RETURN fn.name AS name, fn.path AS path
         ORDER BY fn.path, fn.name
         LIMIT $limit
@@ -334,7 +347,7 @@ def _section_suggested_queries() -> str:
         (
             "Callers of a specific function",
             """
-            MATCH (caller)-[:CALLS]->(fn:Function {name: 'yourFunctionName'})
+            MATCH (caller)-[:CALLS|HEURISTIC_CALLS]->(fn:Function {name: 'yourFunctionName'})
             RETURN caller.name, caller.path LIMIT 20
             """,
         ),
@@ -364,7 +377,7 @@ def _section_suggested_queries() -> str:
         (
             "CALLS edges with low confidence (potential mis-resolutions)",
             """
-            MATCH (a)-[c:CALLS]->(b)
+            MATCH (a)-[c:CALLS|HEURISTIC_CALLS]->(b)
             WHERE c.confidence_label = 'AMBIGUOUS'
             RETURN a.name, b.name, c.resolution_tier, a.path LIMIT 20
             """,
@@ -403,7 +416,7 @@ def generate_report(
         The full report as a markdown string.
     """
     driver = db_manager.get_driver()
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     if repo_path is None:
         repo_path = resolve_report_repo_scope(db_manager)
 

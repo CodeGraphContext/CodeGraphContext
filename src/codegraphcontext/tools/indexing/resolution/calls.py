@@ -2,6 +2,7 @@
 """Heuristic resolution of function calls into CALLS edge payloads (no DB I/O)."""
 
 from collections import defaultdict
+from functools import lru_cache
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -9,6 +10,20 @@ from typing import Any, Dict, List, Optional, Tuple
 from ....cli.config_manager import get_config_value
 from ...type_utils import strip_type_modifiers
 from ....utils.debug_log import info_logger
+
+
+@lru_cache(maxsize=None)
+def _resolved_posix(path: str) -> str:
+    """Memoized ``Path(path).resolve().as_posix()``.
+
+    The CALLS pass resolves the same handful of paths hundreds of thousands of
+    times; ``Path.resolve()`` hits the filesystem (``realpath``/``lstat``) on
+    every call. The mapping from a path string to its resolved POSIX form is
+    deterministic for the duration of an index run, so memoizing it is exact.
+    ``build_function_call_groups`` clears this cache on entry to stay fresh
+    across runs in long-lived processes.
+    """
+    return Path(path).resolve().as_posix()
 
 
 # Confidence score for each resolution tier.
@@ -56,6 +71,7 @@ _SUFFIX_TO_LANG = {
     ".hs": "haskell",
     ".ex": "elixir", ".exs": "elixir",
     ".el": "elisp",
+    ".sol": "solidity",
 }
 
 def detect_lang_from_path(path: str) -> Optional[str]:
@@ -679,7 +695,7 @@ def resolve_function_call(
         if not path:
             return line_hint, context_hint, False
 
-        candidates = function_index.get((Path(path).resolve().as_posix(), method_name), [])
+        candidates = function_index.get((_resolved_posix(path), method_name), [])
         if not candidates:
             return line_hint, context_hint, False
 
@@ -759,7 +775,7 @@ def resolve_function_call(
             return line_hint, False
 
         class_key = simple_type_key(class_name) or class_name
-        candidates = class_index.get((Path(path).resolve().as_posix(), class_key), [])
+        candidates = class_index.get((_resolved_posix(path), class_key), [])
         if not candidates:
             return None, False
 
@@ -1092,7 +1108,7 @@ def resolve_function_call(
         and called_name
         and (is_rust_super or call.get("caller_module_context"))
     ):
-        caller_fp = Path(caller_file_path).resolve().as_posix()
+        caller_fp = _resolved_posix(caller_file_path)
         candidates = function_index.get((caller_fp, called_name), [])
         if is_rust_super:
             caller_mod = call.get("caller_module_context") or ""
@@ -1114,7 +1130,7 @@ def resolve_function_call(
                 mod_matches = [mod_matches[0]]
         if len(mod_matches) == 1:
             match = mod_matches[0]
-            resolved_path = Path(match["path"]).resolve().as_posix()
+            resolved_path = _resolved_posix(match["path"])
             resolved_called_line_number = match.get("line_number")
             resolved_called_context = match.get("module_context")
             resolved_called_name = called_name
@@ -1127,7 +1143,9 @@ def resolve_function_call(
         and base_obj in ("$this", "this")
     ):
         enclosing_class = call.get("enclosing_class")
-        trait_hit = (local_class_trait_methods.get(enclosing_class or {}) or {}).get(
+        # `or {}` belongs outside the lookup: using {} as the *key* raises
+        # TypeError: unhashable type: 'dict' whenever enclosing_class is None.
+        trait_hit = (local_class_trait_methods.get(enclosing_class) or {}).get(
             called_name
         )
         if trait_hit:
@@ -1188,11 +1206,11 @@ def resolve_function_call(
         and function_index
         and called_name == "specialized_action"
     ):
-        caller_fp = Path(caller_file_path).resolve().as_posix()
+        caller_fp = _resolved_posix(caller_file_path)
         candidates = function_index.get((caller_fp, called_name), [])
         if len(candidates) > 1:
             match = max(candidates, key=lambda c: c.get("line_number", 0))
-            resolved_path = Path(match["path"]).resolve().as_posix()
+            resolved_path = _resolved_posix(match["path"])
             resolved_called_line_number = match.get("line_number")
             resolved_called_context = match.get("module_context")
             resolved_called_name = called_name
@@ -1538,7 +1556,7 @@ def resolve_function_call(
     class_target_key = simple_type_key(resolved_called_name) or resolved_called_name
     target_is_class = bool(
         resolved_path
-        and class_index.get((Path(resolved_path).resolve().as_posix(), class_target_key), [])
+        and class_index.get((_resolved_posix(resolved_path), class_target_key), [])
     )
     if target_is_class:
         (
@@ -1586,7 +1604,7 @@ def resolve_function_call(
     if caller_context and len(caller_context) == 3 and caller_context[0] is not None:
         caller_name, caller_type, caller_line_number = caller_context
         if caller_type == "nested_call":
-            fp = Path(caller_file_path).resolve().as_posix()
+            fp = _resolved_posix(caller_file_path)
             candidates = function_index.get((fp, caller_name), [])
             if candidates:
                 lines = [
@@ -1645,6 +1663,10 @@ def build_function_call_groups(
     """
     skip_external = (get_config_value("SKIP_EXTERNAL_RESOLUTION") or "false").lower() == "true"
 
+    # Resolved-path memoization is keyed by raw path string; clear it per run so a
+    # long-lived process never serves stale results if files move between indexes.
+    _resolved_posix.cache_clear()
+
     if file_class_lookup is None:
         file_class_lookup = {}
 
@@ -1653,7 +1675,7 @@ def build_function_call_groups(
     # Symbols absent from this map are assumed to be Function nodes.
     file_symbol_labels: Dict[str, Dict[str, str]] = {}
     for fd in all_file_data:
-        fp = Path(fd["path"]).resolve().as_posix()
+        fp = _resolved_posix(fd["path"])
         sym_labels: Dict[str, str] = {}
         targets = {c["name"] for c in fd.get("classes", [])}
         for name in targets:
@@ -1751,9 +1773,9 @@ def build_function_call_groups(
 
     def file_local_imports(fd: Dict[str, Any]) -> Dict[str, str]:
         return {
-            imp.get("alias") or imp["name"].split(".")[-1]: imp["name"]
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: imp.get("name")
             for imp in fd.get("imports", [])
-            if not imp["name"].endswith(".*")
+            if imp.get("name") and not imp["name"].endswith(".*")
         }
 
     def file_package(fd: Dict[str, Any]) -> Optional[str]:
@@ -1911,7 +1933,7 @@ def build_function_call_groups(
         return list(dict.fromkeys(context_names))
 
     for fd in all_file_data:
-        file_path = Path(fd["path"]).resolve().as_posix()
+        file_path = _resolved_posix(fd["path"])
         package_name = file_package(fd)
         fd_local_imports = file_local_imports(fd)
         for class_data in fd.get("classes", []) + fd.get("interfaces", []) + fd.get("objects", []):
@@ -2062,13 +2084,15 @@ def build_function_call_groups(
                 "lua":        {".lua"},
                 "haskell":    {".hs"},
                 "elixir":     {".ex", ".exs"},
+                "solidity":   {".sol"},
             }
             exts = _LANG_EXTS.get(caller_lang)
             if not exts:
                 _lang_imports_cache[caller_lang] = imports_map
             else:
                 filtered: dict = {}
-                for name, paths in imports_map.items():
+                # Snapshot so concurrent indexer updates cannot resize the map mid-iteration.
+                for name, paths in list(imports_map.items()):
                     same_lang = [p for p in paths if Path(p).suffix in exts]
                     if same_lang:
                         filtered[name] = same_lang
@@ -2082,16 +2106,21 @@ def build_function_call_groups(
         Tuple[str, str, str], List[Tuple[str, str, Optional[int]]]
     ] = defaultdict(list)
 
+    # Precompute name -> [(file_path, func)] once (O(F)). Previously functions_named
+    # scanned the entire function_index per call, making the callback-argument
+    # pre-pass O(total_calls x distinct_functions) -- the dominant cost on large
+    # repos. The build order matches the old per-call scan order exactly, so the
+    # resolved output is identical.
+    _functions_by_name: Dict[str, List[Tuple[str, Dict[str, Any]]]] = defaultdict(list)
+    for (_fpath, _fname), _funcs in function_index.items():
+        for _func in _funcs:
+            _functions_by_name[_fname].append((_fpath, _func))
+
     def functions_named(name: str) -> List[Tuple[str, Dict[str, Any]]]:
-        matches: List[Tuple[str, Dict[str, Any]]] = []
-        for (fpath, fname), funcs in function_index.items():
-            if fname == name:
-                for func in funcs:
-                    matches.append((fpath, func))
-        return matches
+        return _functions_by_name.get(name, [])
 
     for fd in all_file_data:
-        caller_fp = Path(fd["path"]).resolve().as_posix()
+        caller_fp = _resolved_posix(fd["path"])
         for call in fd.get("function_calls", []):
             callee_name = call.get("name")
             if not callee_name:
@@ -2118,7 +2147,7 @@ def build_function_call_groups(
                         )
 
     for idx, file_data in enumerate(all_file_data):
-        caller_file_path = Path(file_data["path"]).resolve().as_posix()
+        caller_file_path = _resolved_posix(file_data["path"])
         func_names = {f["name"] for f in file_data.get("functions", [])}
         class_names = {c["name"] for c in file_data.get("classes", [])}
         # Pre-sort functions by line range for O(log n) scope lookup via bisect.
@@ -2142,9 +2171,9 @@ def build_function_call_groups(
             if c.get("trait_method_map")
         }
         local_imports = {
-            imp.get("alias") or imp["name"].split(".")[-1]: imp["name"]
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: imp.get("name")
             for imp in file_data.get("imports", [])
-            if not imp["name"].endswith(".*")
+            if imp.get("name") and not imp["name"].endswith(".*")
         }
         wildcard_imports = [
             imp["name"][:-2]
@@ -2883,12 +2912,21 @@ def build_function_call_groups(
                 call_to_resolve.get("call_kind") == "dynamic_import"
                 and caller_lang in ("typescript", "javascript")
             ):
-                static_imports = [
-                    imp for imp in file_data.get("imports", [])
-                    if imp.get("source") and imp.get("name") not in ("*",)
-                ]
-                if static_imports:
-                    source = static_imports[0]["source"]
+                # Resolve from the dynamic import's OWN specifier. This used to
+                # take static_imports[0] — the first *static* import in the file —
+                # which has nothing to do with the module being imported, so
+                #     await import(`./tough_dynamic_${name}`)
+                # produced an edge to whatever the file happened to import first.
+                # A template literal or variable specifier is not knowable at
+                # index time, so emit nothing rather than guess.
+                raw_args = call_to_resolve.get("args") or []
+                specifier = (raw_args[0] or "").strip() if raw_args else ""
+                is_string_literal = len(specifier) >= 2 and (
+                    (specifier[0] == specifier[-1] == '"')
+                    or (specifier[0] == specifier[-1] == "'")
+                )
+                if is_string_literal:
+                    source = specifier[1:-1]
                     caller_dir = Path(caller_file_path).parent
                     target = (caller_dir / source).resolve()
                     if not target.suffix:
@@ -2954,12 +2992,12 @@ def build_function_call_groups(
             if resolved["type"] == "function":
                 caller_fp_raw = resolved["caller_file_path"]
                 if caller_fp_raw.endswith(_CPP_EXTS):
-                    caller_fp = Path(caller_fp_raw).resolve().as_posix()
+                    caller_fp = _resolved_posix(caller_fp_raw)
                     caller_name = resolved["caller_name"]
                     resolved["caller_label"] = file_symbol_labels.get(caller_fp, {}).get(caller_name, "Function")
             called_fp_raw = resolved.get("called_file_path") or ""
             if called_fp_raw.endswith(_CPP_EXTS):
-                called_fp = Path(called_fp_raw).resolve().as_posix()
+                called_fp = _resolved_posix(called_fp_raw)
                 called_name = resolved["called_name"]
                 resolved["called_label"] = file_symbol_labels.get(called_fp, {}).get(called_name, "Function")
 
@@ -2977,7 +3015,18 @@ def build_function_call_groups(
                                 [],
                             )
                         for impl_fn in impl_entries:
-                            impl_path = Path(impl_fn["path"]).resolve().as_posix()
+                            impl_path = _resolved_posix(impl_fn["path"])
+                            # This fan-out speculatively widens an already-resolved
+                            # call to every implementor of the interface, keyed on a
+                            # bare simple name. Without a language check a Java
+                            # `Processor.process` collides with an unrelated Kotlin
+                            # `Processor.process` in a different project and emits a
+                            # cross-language edge that no build could ever produce.
+                            # Java/Kotlin interop is real, but it is scoped to a
+                            # shared module — a bare name match across source roots
+                            # is not evidence of it.
+                            if detect_lang_from_path(impl_path) != caller_lang:
+                                continue
                             impl_line = impl_fn.get("line_number")
                             if (
                                 impl_path == resolved.get("called_file_path")
@@ -3015,11 +3064,11 @@ def build_function_call_groups(
         # Normalize paths for DB consistency (Windows: backslash → forward slash)
         caller_fp = edge.get("caller_file_path")
         if caller_fp:
-            edge["caller_file_path"] = Path(caller_fp).resolve().as_posix()
+            edge["caller_file_path"] = _resolved_posix(caller_fp)
         called_fp = edge.get("called_file_path")
         if called_fp:
-            edge["called_file_path"] = Path(called_fp).resolve().as_posix()
-        called_path = Path(edge.get("called_file_path", "")).resolve().as_posix()
+            edge["called_file_path"] = _resolved_posix(called_fp)
+        called_path = _resolved_posix(edge.get("called_file_path", ""))
         called_name = edge.get("called_name")
         target_label = file_symbol_labels.get(called_path, {}).get(called_name)
 

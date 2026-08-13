@@ -275,3 +275,81 @@ def test_class_function_containment_uses_owner_line_in_kuzu(tmp_path):
         assert second_owner == [{"line_number": 8}]
     finally:
         manager.close_driver()
+
+
+def test_kotlin_decorators_persist_in_kuzu(tmp_path):
+    """Annotations must survive the writer and the Kuzu property allow-list.
+
+    Everything else in this feature is parser-level. This is the test that
+    backs the claim that find_dead_code(exclude_decorated_with=...) works
+    for Kotlin.
+    """
+    from codegraphcontext.tools.languages.kotlin import KotlinTreeSitterParser
+    from codegraphcontext.utils.tree_sitter_manager import get_tree_sitter_manager
+
+    manager_ts = get_tree_sitter_manager()
+    wrapper = MagicMock()
+    wrapper.language_name = "kotlin"
+    wrapper.language = manager_ts.get_language_safe("kotlin")
+    wrapper.parser = manager_ts.create_parser("kotlin")
+    parser = KotlinTreeSitterParser(wrapper)
+
+    source = tmp_path / "Android.kt"
+    source.write_text(
+        'package a\n'
+        '\n'
+        '@Composable\n'
+        '@Preview(showBackground = true)\n'
+        'fun GreetingPreview() {\n'
+        '}\n'
+        '\n'
+        '@HiltViewModel\n'
+        'class UserViewModel {\n'
+        '    fun load(): String {\n'
+        '        return "u"\n'
+        '    }\n'
+        '}\n',
+        encoding="utf-8",
+    )
+    file_data = parser.parse(source)
+
+    manager = _fresh_kuzu_manager(tmp_path / "decorators-db")
+    try:
+        driver = manager.get_driver()
+        GraphWriter(driver).add_file_to_graph(
+            file_data, "repo", {}, repo_path_str=str(tmp_path)
+        )
+
+        with driver.session() as session:
+            fn = session.run(
+                "MATCH (f:Function {name: $name}) RETURN f.decorators AS decorators",
+                name="GreetingPreview",
+            ).single()
+            cls = session.run(
+                "MATCH (c:Class {name: $name}) RETURN c.decorators AS decorators",
+                name="UserViewModel",
+            ).single()
+
+            # The writer normalizes [] -> [""] (writer.py:405) for every language,
+            # so the stored value is not literally []. What the feature actually
+            # claims is that find_dead_code's filter behaves correctly, so assert
+            # that directly -- this is the exact predicate the tool builds
+            # (code_finder.py:816-820). Before this change, un-annotated Kotlin
+            # functions stored NULL, and the predicate silently dropped them.
+            retained = session.run(
+                """
+                MATCH (f:Function)
+                WHERE NOT ANY(d IN f.decorators WHERE d CONTAINS 'Preview')
+                RETURN f.name AS name
+                """
+            ).data()
+
+        assert fn is not None
+        assert fn["decorators"] == ["@Composable", "@Preview(showBackground = true)"]
+
+        assert cls is not None
+        assert cls["decorators"] == ["@HiltViewModel"]
+
+        assert {r["name"] for r in retained} == {"load"}
+    finally:
+        manager.close_driver()

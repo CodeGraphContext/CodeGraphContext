@@ -208,6 +208,30 @@ class KotlinTreeSitterParser:
         if not node: return ""
         return node.text.decode("utf-8")
 
+    def _get_node_annotations(self, node: Any) -> List[str]:
+        """Return raw annotation text for a declaration, e.g. ['@Preview(showBackground = true)'].
+
+        Only *direct* `annotation` children of the `modifiers` node are collected.
+        In `annotation class Foo`, the `annotation` keyword also produces a node of
+        type `annotation`, but nested one level down under `class_modifier` -- so a
+        recursive search would emit the bare string "annotation" as a decorator.
+        """
+        modifiers = None
+        for child in node.children:
+            if child.type == "modifiers":
+                modifiers = child
+                break
+        if not modifiers:
+            return []
+
+        annotations = []
+        for child in modifiers.children:
+            if child.type == "annotation":
+                text = " ".join(self._get_node_text(child).split())
+                if text:
+                    annotations.append(text)
+        return annotations
+
     def _get_enclosing_class_context(self, node: Any) -> Tuple[Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
@@ -1271,6 +1295,7 @@ class KotlinTreeSitterParser:
                             "lang": self.language_name,
                             "context": context_name,
                             "class_context": context_name if is_class_context else None,
+                            "decorators": self._get_node_annotations(node),
                         }
                         if is_class_context and context_line is not None:
                             func_data["class_context_line"] = context_line
@@ -1397,6 +1422,12 @@ class KotlinTreeSitterParser:
                         "path": str(path),
                         "lang": self.language_name,
                     }
+                    # Only the Class node table declares a `decorators` column.
+                    # Interface and Object do not, and the Kuzu backend drops
+                    # unknown properties silently -- so gate on the category
+                    # rather than setting it on the shared class_data dict.
+                    if category == "classes":
+                        class_data["decorators"] = self._get_node_annotations(node)
                     if is_nested_class:
                         class_data["class_context"] = context_name
                         if context_line is not None:

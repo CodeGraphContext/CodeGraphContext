@@ -1,16 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-06-11T13:13:00Z",
+  "exported_at": "2026-08-05T17:35:27Z",
   "format_version": "1.0.0",
   "repo": "sample_project_ruby",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "c74cd26c",
-  "branch": "main",
-  "generator": "PYv0.5.0",
+  "commit": "1aa7e080",
+  "branch": "fix/parser-ruby-nesting",
+  "generator": "PYv0.5.6",
   "name": "sample_project_ruby.cgc",
   "graph_metrics": {
-    "total_nodes": 75,
-    "total_edges": 107
+    "total_nodes": 86,
+    "total_edges": 116
   }
 }

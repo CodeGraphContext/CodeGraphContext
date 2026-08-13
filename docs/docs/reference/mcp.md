@@ -110,7 +110,7 @@ Returns methods with the highest cyclomatic complexity scores.
 ### `find_dead_code`
 Scans for unreferenced code declarations.
 - **Parameters**:
-  - `exclude_decorated_with` (array of strings, optional): Excludes functions carrying specified decorator annotations (e.g., `@app.route`).
+  - `exclude_decorated_with` (array of strings, optional): Excludes functions carrying specified decorator annotations (e.g., `@app.route`, or `Composable` for Kotlin). Matching is by substring, so `Preview` matches `@Preview(showBackground = true)`.
   - `repo_path` (string, optional): Restricts search scope.
 
 ---

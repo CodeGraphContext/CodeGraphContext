@@ -25,9 +25,11 @@ Use `cgc version` (or `cgc --version`) to print the installed release (currently
 
 ## Core Index & Lifecycle
 
+The `clean`, `delete`, and `rm` commands are disabled by default because they remove data. Before using them, enable `ALLOW_DB_DELETION` as described in [Destructive Operation Safety](config.md#destructive-operation-safety).
+
 | Command | Usage | Notes |
 | :--- | :--- | :--- |
-| **`index`** | `cgc index [PATH] [--force] [--dependency]` | Shortcut: `cgc i`. Incremental by default; `--force` rebuilds from scratch. |
+| **`index`** | `cgc index [PATH] [--force] [--summarize]` | Shortcut: `cgc i`. Incremental by default; `--force` rebuilds from scratch; `--summarize` displays a summary after indexing. |
 | **`clean`** | `cgc clean` | Purges orphaned nodes and dangling relationships. |
 | **`stats`** | `cgc stats` | Repository and node counts for the active context. |
 | **`delete`** | `cgc delete <repo_path>` | Shortcut: `cgc rm`. Removes one indexed repository. |
@@ -69,7 +71,7 @@ cgc analyze <subcommand> [args] [options]
 | `analyze tree <class>` | Class inheritance tree. |
 | `analyze complexity <function>` | Cyclomatic complexity for one function. |
 | `analyze dead-code` | Unreferenced functions/files (with optional filters). |
-| `analyze overrides <class>` | Methods overridden in subclasses. |
+| `analyze overrides <function>` | Implementations of a function across classes. |
 | `analyze variable <name>` | Variable scope and modification sites. |
 | `analyze kotlin-call-audit` | Kotlin-specific call resolution audit. |
 
@@ -91,7 +93,7 @@ cgc query "MATCH (n)-[r]->(m) RETURN n,r,m LIMIT 50" --visual
 Generate `CGC_REPORT.md` with god-node, complexity, and coupling metrics.
 
 ```bash
-cgc report [--include-java]
+cgc report [--java]
 ```
 
 #### `visualize`
@@ -176,7 +178,7 @@ cgc unwatch <PATH>
 cgc watching
 ```
 
-On startup, watchers reconcile the graph with the filesystem (add missing files, remove deleted paths) before monitoring changes.
+With `--sync-on-start`, watchers reconcile the graph with the filesystem (add missing files, remove deleted paths) before monitoring changes. This is off by default.
 
 ---
 

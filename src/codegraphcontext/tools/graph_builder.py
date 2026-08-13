@@ -54,9 +54,9 @@ class GraphBuilder:
         self.db_manager = db_manager
         self.job_manager = job_manager
         self.loop = loop
-        self.driver = self.db_manager.get_driver()
-        self._writer = GraphWriter(self.driver, db_manager=self.db_manager)
+        self._writer = GraphWriter(self.db_manager.get_driver(), db_manager=self.db_manager)
         self.last_call_resolution_diagnostics: list[Dict[str, Any]] = []
+        self.last_index_summary: Dict[str, Any] = {}
         self.parsers = {
             ".py": "python",
             ".ipynb": "python",
@@ -92,22 +92,38 @@ class GraphBuilder:
             ".ex": "elixir",
             ".exs": "elixir",
             ".el": "elisp",
+            ".sol": "solidity",
             ".html": "html",
             ".css": "css",
+            ".svelte": "svelte",
+            ".vue": "vue",
         }
         
         # Files that should be added to the graph as minimal File nodes, even if not parsed
+        # Keep in sync with discovery._GENERIC_EXTENSIONS / _GENERIC_FILENAMES.
+        # Dotfiles have no suffix, so they must be matched by name, not extension.
         self.generic_extensions = {
-            ".toml", ".sh", ".yaml", ".yml", ".json", ".ini", ".cfg", ".md", ".txt", ".env",
-            ".bat", ".ps1", ".dockerignore", ".gitignore"
+            ".toml", ".sh", ".yaml", ".yml", ".json", ".ini", ".cfg", ".md", ".txt",
+            ".bat", ".ps1"
         }
+        # Literal dotfiles/config filenames have no suffix (e.g. Path(".gitignore").suffix == ""),
+        # so they must be matched by name rather than extension.
         self.generic_filenames = {
-            "Dockerfile", "Makefile"
+            "Dockerfile", "Makefile", ".gitignore", ".dockerignore", ".env"
         }
         
         import threading
         self._parsed_cache = threading.local()
         self.create_schema()
+
+    @property
+    def driver(self):
+        """Default graph driver (backward compatible)."""
+        return self.db_manager.get_driver()
+
+    def _driver_for(self, graph_name: str = None):
+        """Get driver for a specific graph, or default."""
+        return self.db_manager.get_driver(graph_name)
 
     def get_parser(self, extension: str) -> Optional[TreeSitterParser]:
         """Gets or creates a TreeSitterParser for the given extension (thread-local)."""
@@ -126,8 +142,8 @@ class GraphBuilder:
                 return None
         return self._parsed_cache.parsers[lang_name]
 
-    def create_schema(self) -> None:
-        create_graph_schema(self.driver, self.db_manager)
+    def create_schema(self, graph_name: str = None) -> None:
+        create_graph_schema(self._driver_for(graph_name), self.db_manager)
 
     _MAX_STR_LEN = MAX_STR_LEN
 
@@ -528,8 +544,9 @@ class GraphBuilder:
             func_names = {f['name'] for f in file_data.get('functions', [])}
             class_names = {c['name'] for c in file_data.get('classes', [])}
             local_names = func_names | class_names
-            local_imports = {imp.get('alias') or imp['name'].split('.')[-1]: imp['name'] 
-                            for imp in file_data.get('imports', [])}
+            local_imports = {imp.get('alias') or (imp.get('name') or '').split('.')[-1]: imp.get('name')
+                            for imp in file_data.get('imports', [])
+                            if imp.get('name')}
             
             for call in file_data.get('function_calls', []):
                 resolved = self._resolve_function_call(
@@ -734,10 +751,6 @@ class GraphBuilder:
                         path=caller_file_path,
                         parent_name=base_name)
 
-    def _create_all_inheritance_links(self, all_file_data: list[Dict], imports_map: dict):
-        """Create INHERITS relationships for all classes using batched UNWIND queries."""
-        return self.pre_scan_imports(files)
-
     def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
         """Add a repository node to the graph.
 
@@ -866,20 +879,26 @@ class GraphBuilder:
         """
         self._writer.delete_file_from_graph(path)
 
-    def delete_repository_from_graph(self, repo_path: str) -> bool:
+    def delete_repository_from_graph(self, repo_path: str, graph_name: str = None) -> bool:
         """Remove a repository node and all its contents from the graph.
 
         Parameters
         ----------
         repo_path : str
             Absolute path to the repository root.
+        graph_name : str, optional
+            Name of the FalkorDB graph to target. When ``None`` the default
+            graph is used; otherwise a writer bound to that graph's driver
+            performs the deletion.
 
         Returns
         -------
         bool
             ``True`` if the repository was found and removed.
         """
-        return self._writer.delete_repository_from_graph(repo_path)
+        if graph_name is None:
+            return self._writer.delete_repository_from_graph(repo_path)
+        return GraphWriter(self._driver_for(graph_name)).delete_repository_from_graph(repo_path)
 
     def get_caller_file_paths(self, file_path_str: str) -> set:
         """Get all files that have CALLS relationships to the given file.
@@ -1044,14 +1063,33 @@ class GraphBuilder:
                     is_notebook=is_notebook,
                     index_source=index_source,
                 )
+            elif parser.language_name == "solidity":
+                # Solidity resolves import remappings relative to the repo root.
+                file_data = parser.parse(
+                    path,
+                    is_dependency,
+                    index_source=index_source,
+                    repo_path=repo_path,
+                )
             else:
                 file_data = parser.parse(path, is_dependency, index_source=index_source)
             file_data["repo_path"] = str(repo_path)
+            # Most parsers catch their own exceptions and return {"path", "error"}
+            # rather than raising, so the handler below never sees them. Flag the
+            # failure here so it is distinguishable from the benign "generic file"
+            # and "no parser" returns above, which share the same shape.
+            if "error" in file_data:
+                file_data["parse_failed"] = True
             return file_data
         except Exception as e:
             error_logger(f"Error parsing {path} with {parser.language_name} parser: {e}")
             debug_log(f"[parse_file] Error parsing {path}: {e}")
-            return {"path": str(path), "error": str(e)}
+            # `parse_failed` distinguishes a genuine parser failure from the
+            # benign "generic file type" / "no parser" returns above, which
+            # otherwise share the same shape. Without it a broken parse and a
+            # .md file take the identical branch in the pipeline and the run
+            # still reports "Successfully finished indexing".
+            return {"path": str(path), "error": str(e), "parse_failed": True}
 
     def estimate_processing_time(self, path: Path) -> Optional[Tuple[int, float]]:
         """Estimate the time required to index a repository.
@@ -1163,6 +1201,7 @@ class GraphBuilder:
                     )
 
             self.last_call_resolution_diagnostics = []
+            self.last_index_summary = {}
             await run_tree_sitter_index_async(
                 path,
                 is_dependency,
@@ -1175,6 +1214,7 @@ class GraphBuilder:
                 self.parse_file,
                 self.add_minimal_file_node,
                 call_resolution_diagnostics=self.last_call_resolution_diagnostics,
+                index_summary=self.last_index_summary,
             )
         except Exception as e:
             error_message = str(e)
