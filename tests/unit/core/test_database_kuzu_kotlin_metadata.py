@@ -630,6 +630,61 @@ def test_write_inheritance_links_resolves_cross_label_hierarchy_with_empty_label
         manager.close_driver()
 
 
+def test_is_composable_persists_in_kuzu(tmp_path):
+    """The is_composable flag must survive the writer's property allow-list.
+
+    Both True and False must round-trip correctly to catch falsy-drop bugs.
+    """
+    from codegraphcontext.tools.languages.kotlin import KotlinTreeSitterParser
+    from codegraphcontext.utils.tree_sitter_manager import get_tree_sitter_manager
+
+    manager_ts = get_tree_sitter_manager()
+    wrapper = MagicMock()
+    wrapper.language_name = "kotlin"
+    wrapper.language = manager_ts.get_language_safe("kotlin")
+    wrapper.parser = manager_ts.create_parser("kotlin")
+    parser = KotlinTreeSitterParser(wrapper)
+
+    source = tmp_path / "Compose.kt"
+    source.write_text(
+        'package a\n'
+        '\n'
+        '@Composable\n'
+        'fun MyComposable() {\n'
+        '}\n'
+        '\n'
+        'fun plainFunction() {\n'
+        '}\n',
+        encoding="utf-8",
+    )
+    file_data = parser.parse(source)
+
+    manager = _fresh_kuzu_manager(tmp_path / "is-composable-db")
+    try:
+        driver = manager.get_driver()
+        GraphWriter(driver).add_file_to_graph(
+            file_data, "repo", {}, repo_path_str=str(tmp_path)
+        )
+
+        with driver.session() as session:
+            fn_composable = session.run(
+                "MATCH (f:Function {name: $name}) RETURN f.is_composable AS is_composable",
+                name="MyComposable",
+            ).single()
+            fn_plain = session.run(
+                "MATCH (f:Function {name: $name}) RETURN f.is_composable AS is_composable",
+                name="plainFunction",
+            ).single()
+
+        assert fn_composable is not None
+        assert fn_composable["is_composable"] is True
+
+        assert fn_plain is not None
+        assert fn_plain["is_composable"] is False
+    finally:
+        manager.close_driver()
+
+
 def test_modifier_columns_persist_in_kuzu(tmp_path):
     """The 1b columns must survive the writer's property allow-list."""
     manager = _fresh_kuzu_manager(tmp_path / "modifiers-db")
@@ -1044,5 +1099,111 @@ def test_write_binds_links_does_not_create_spurious_edge_from_same_named_node(tm
         assert total is not None and total["n"] == 1
         assert from_interface is not None and from_interface["n"] == 1
         assert from_class is not None and from_class["n"] == 0
+    finally:
+        manager.close_driver()
+
+
+def test_write_previews_links_creates_kuzu_edge_between_functions(tmp_path):
+    """A @Preview function's edge to the composable it renders must
+    persist and be queryable, and a composable with no inbound PREVIEWS
+    edge must be identifiable -- that second query is the actual point of
+    this relationship ("which composables have no preview").
+
+    write_previews_links MATCHes existing nodes rather than creating them,
+    so this test creates the Function nodes first -- otherwise the MERGE
+    would silently match nothing and the test would pass vacuously.
+    """
+    manager = _fresh_kuzu_manager(tmp_path / "previews-db")
+    try:
+        driver = manager.get_driver()
+        with driver.session() as session:
+            session.run(
+                """
+                MERGE (f:Function {uid: $uid})
+                SET f.name = $name, f.path = $path, f.line_number = $line_number,
+                    f.is_composable = $is_composable
+                """,
+                uid="fn-greeting",
+                name="Greeting",
+                path="/repo/AndroidAnnotations.kt",
+                line_number=13,
+                is_composable=True,
+            )
+            session.run(
+                """
+                MERGE (f:Function {uid: $uid})
+                SET f.name = $name, f.path = $path, f.line_number = $line_number,
+                    f.is_composable = $is_composable
+                """,
+                uid="fn-label",
+                name="Label",
+                path="/repo/AndroidAnnotations.kt",
+                line_number=18,
+                is_composable=True,
+            )
+            session.run(
+                """
+                MERGE (f:Function {uid: $uid})
+                SET f.name = $name, f.path = $path, f.line_number = $line_number,
+                    f.is_composable = $is_composable
+                """,
+                uid="fn-greeting-preview",
+                name="GreetingPreview",
+                path="/repo/AndroidAnnotations.kt",
+                line_number=23,
+                is_composable=True,
+            )
+
+        writer = GraphWriter(driver)
+        writer.write_previews_links(
+            [
+                {
+                    "preview_name": "GreetingPreview",
+                    "preview_path": "/repo/AndroidAnnotations.kt",
+                    "preview_line": 23,
+                    "composable_name": "Greeting",
+                    "composable_path": "/repo/AndroidAnnotations.kt",
+                    "line_number": 23,
+                    "confidence_label": "EXTRACTED",
+                }
+            ]
+        )
+
+        with driver.session() as session:
+            edge = session.run(
+                """
+                MATCH (:Function {name: $preview_name, path: $path})
+                      -[r:PREVIEWS]->
+                      (:Function {name: $composable_name, path: $path})
+                RETURN r.line_number AS line_number
+                """,
+                preview_name="GreetingPreview",
+                composable_name="Greeting",
+                path="/repo/AndroidAnnotations.kt",
+            ).data()
+            total = session.run(
+                "MATCH ()-[r:PREVIEWS]->() RETURN count(r) AS n"
+            ).single()
+
+            # The query PREVIEWS exists to answer: which composables have
+            # no inbound preview edge. Label must come back as one of
+            # them; Greeting must not.
+            unpreviewed = session.run(
+                """
+                MATCH (f:Function {path: $path})
+                WHERE f.is_composable = true
+                OPTIONAL MATCH (:Function)-[r:PREVIEWS]->(f)
+                WITH f, r
+                WHERE r IS NULL
+                RETURN f.name AS name
+                """,
+                path="/repo/AndroidAnnotations.kt",
+            ).data()
+
+        assert edge == [{"line_number": 23}]
+        assert total is not None and total["n"] == 1
+        unpreviewed_names = {r["name"] for r in unpreviewed}
+        assert "Label" in unpreviewed_names
+        assert "Greeting" not in unpreviewed_names
     finally:
         manager.close_driver()

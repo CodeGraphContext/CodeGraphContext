@@ -4380,3 +4380,53 @@ class TestKotlinDecorators:
         # 1a gated these out because the columns did not exist. Task 1 added them.
         assert iface["decorators"] == ["@Dao"]
         assert obj["decorators"] == ["@Module"]
+
+    def test_composable_function_flags_is_composable_true(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            fun Greeting(name: String) {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "Greeting")
+        assert fn["is_composable"] is True
+
+    def test_plain_function_flags_is_composable_false(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            fun plain(): Int {
+                return 1
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "plain")
+        assert fn["is_composable"] is False
+
+    def test_composable_target_annotation_does_not_flag_is_composable(self, parser):
+        """Word boundary in regex prevents matching @ComposableTarget and similar.
+
+        This is the boundary test that justifies using a regex instead of a substring check.
+        """
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @ComposableTarget
+            fun special(): Int {
+                return 1
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "special")
+        # Both assertions are necessary: the first proves @ComposableTarget
+        # was extracted, making the second meaningful.
+        assert fn["decorators"] == ["@ComposableTarget"]
+        assert fn["is_composable"] is False

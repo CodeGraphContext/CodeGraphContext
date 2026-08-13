@@ -707,6 +707,145 @@ def build_binds_links(
     return binds_batch
 
 
+def build_previews_links(
+    all_file_data: List[Dict[str, Any]],
+    imports_map: dict,
+) -> List[Dict[str, Any]]:
+    """Build PREVIEWS rows: a @Preview-annotated Compose function exists
+    only to render some composable, so link it to each composable it
+    calls, resolved from function_calls.
+
+    Decorator matching reuses _parse_decorator_name (as build_decorated_by_links
+    and build_binds_links do) to strip the leading "@" and any "(...)"
+    arguments down to the bare annotation name, then compares it for
+    equality against "Preview". This is the word-boundary-safe equivalent
+    of kotlin.py's anchored `^@Preview\\b` regex for is_composable: because
+    the comparison is exact-match rather than substring/prefix, "Preview"
+    != "PreviewParameter" and "Preview" != "PreviewScreenSizes", so those
+    unrelated annotations are correctly excluded without a parallel
+    annotation-name parser.
+
+    Name resolution reuses _resolve_decorator_path, same as build_binds_links
+    reuses it via _resolve_type_name.
+
+    A candidate call target is only emitted once it is confirmed to be an
+    actual @Composable function (via a global (name, path) -> is_composable
+    index built up front) -- otherwise an incidental non-composable call in
+    a preview function's body (e.g. a logging call) would be mistaken for
+    the previewed composable.
+
+    Annotation-echo filtering: KOTLIN_QUERIES["calls"] captures
+    constructor_invocation nodes, and any annotation with arguments --
+    "@Preview(showBackground = true)", "@Query(...)", "@InstallIn(...)" --
+    is syntactically a constructor_invocation, so the Kotlin parser records
+    the annotation itself as a phantom entry in function_calls, sharing the
+    annotated function's context. (Argument-less annotations like bare
+    "@Composable" do not trigger this.) A composable_index membership check
+    alone is not enough to reject this phantom call: it only fails to
+    match by coincidence, when no @Composable function happens to be named
+    e.g. "Preview" or "Query". If one existed with that exact name and were
+    resolvable from this file, the phantom call would pass the
+    composable_index check and produce a bogus PREVIEWS edge to a
+    composable the preview function never actually calls. To close that
+    gap deterministically regardless of what else exists in the indexed
+    codebase, a candidate call name is rejected outright whenever it
+    matches one of the *same function's own* decorator names (also via
+    _parse_decorator_name) -- a real call to a composable can never be
+    named identically to one of its own annotations, so this can only ever
+    reject the echo, never a genuine call.
+    """
+    previews_batch: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    # Global index of composable functions by (name, resolved path), built
+    # once so a call resolved through an import can be confirmed to
+    # actually target a @Composable function rather than any function
+    # sharing that name.
+    composable_index: set = set()
+    for file_data in all_file_data:
+        file_path = str(Path(file_data["path"]).resolve().as_posix())
+        for func in file_data.get("functions", []):
+            if func.get("is_composable") and func.get("name"):
+                composable_index.add((func["name"], file_path))
+
+    for file_data in all_file_data:
+        if file_data.get("lang") != "kotlin":
+            continue
+
+        caller_file_path = str(Path(file_data["path"]).resolve().as_posix())
+        local_names = {
+            item["name"] for item in file_data.get("functions", []) if item.get("name")
+        }
+        local_imports = {
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: (
+                imp.get("full_import_name") or imp.get("name")
+            )
+            for imp in file_data.get("imports", [])
+            if imp.get("name") or imp.get("alias")
+        }
+        function_calls = file_data.get("function_calls") or []
+
+        for func in file_data.get("functions", []):
+            decorators = func.get("decorators") or []
+            if not any(_parse_decorator_name(dec) == "Preview" for dec in decorators):
+                continue
+
+            preview_name = func.get("name")
+            preview_line = func.get("line_number")
+            if not preview_name or preview_line is None:
+                continue
+
+            # The parser records annotations-with-arguments (this
+            # function's own "@Preview(...)" included) as phantom entries
+            # in function_calls sharing this function's context -- see the
+            # docstring. Reject any candidate call whose name matches one
+            # of this function's own decorator names before resolution, so
+            # the exclusion holds regardless of what else is named in the
+            # indexed codebase.
+            own_decorator_names = {_parse_decorator_name(d) for d in decorators}
+
+            for call in function_calls:
+                ctx = call.get("context") or ()
+                if len(ctx) < 3 or ctx[0] != preview_name or ctx[2] != preview_line:
+                    continue
+                call_name = call.get("name")
+                if not call_name:
+                    continue
+                if call_name in own_decorator_names:
+                    continue
+
+                resolved_path = _resolve_decorator_path(
+                    call_name, caller_file_path, local_names, local_imports, imports_map
+                )
+                if (call_name, resolved_path) not in composable_index:
+                    continue
+
+                key = (preview_name, caller_file_path, preview_line, call_name, resolved_path)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                previews_batch.append({
+                    "preview_name": preview_name,
+                    "preview_path": caller_file_path,
+                    "preview_line": preview_line,
+                    "composable_name": call_name,
+                    "composable_path": resolved_path,
+                    "line_number": preview_line,
+                    # Kept for shape-parity with the other builders in this
+                    # module (all of which carry a confidence_label) and in
+                    # case a future PREVIEWS schema change adds the column,
+                    # but PREVIEWS currently has no confidence_label column
+                    # and write_previews_links does not set it -- this
+                    # value is always "EXTRACTED" (every row here has
+                    # already been positively confirmed against
+                    # composable_index) and is not currently persisted.
+                    "confidence_label": "EXTRACTED",
+                })
+
+    return previews_batch
+
+
 def build_elixir_implements_links(
     all_file_data: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:

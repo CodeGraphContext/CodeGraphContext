@@ -6,6 +6,9 @@ from codegraphcontext.tools.type_utils import strip_type_modifiers
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
 
+# Matches @Composable and @Composable(...) but not @ComposableTarget etc.
+_COMPOSABLE_RE = re.compile(r"^@Composable\b")
+
 KOTLIN_QUERIES = {
     "functions": """
         (function_declaration
@@ -1341,6 +1344,9 @@ class KotlinTreeSitterParser:
                             "class_context": context_name if is_class_context else None,
                             "decorators": self._get_node_annotations(node),
                         }
+                        func_data["is_composable"] = any(
+                            _COMPOSABLE_RE.match(d) for d in func_data["decorators"]
+                        )
                         visibility, modifiers = self._get_node_modifiers(node)
                         func_data["visibility"] = visibility
                         func_data["modifiers"] = modifiers

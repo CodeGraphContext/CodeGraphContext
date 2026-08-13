@@ -1213,6 +1213,53 @@ class GraphWriter:
         execute_write_operation(self.driver, backend, _work)
         info_logger(f"[DECORATED_BY] Complete: {len(decorated_by_batch)} decorator links processed.")
 
+    def write_previews_links(self, previews_batch: List[Dict[str, Any]]) -> None:
+        """Create PREVIEWS edges: a @Preview-annotated Compose function ->
+        the composable it calls, so "which composables have no preview" is
+        a plain no-inbound-PREVIEWS-edge query.
+
+        PREVIEWS is declared with a single FROM Function TO Function pair
+        (use_group=False), unlike DECORATED_BY's two-pair group, so unlike
+        write_decorated_by_links there is no second label pair to try --
+        hardcoding :Function on both endpoints here is correct.
+        """
+        if not previews_batch:
+            return
+
+        backend = get_backend_type(self.driver, self._db_manager)
+
+        def _work(session):
+            for row in previews_batch:
+                try:
+                    session.run(
+                        """
+                        MATCH (preview:Function {
+                            name: $preview_name,
+                            path: $preview_path,
+                            line_number: $preview_line
+                        })
+                        MATCH (composable:Function {
+                            name: $composable_name,
+                            path: $composable_path
+                        })
+                        MERGE (preview)-[r:PREVIEWS]->(composable)
+                        SET r.line_number = $line_number
+                        """,
+                        preview_name=row["preview_name"],
+                        preview_path=row["preview_path"],
+                        preview_line=row["preview_line"],
+                        composable_name=row["composable_name"],
+                        composable_path=row["composable_path"],
+                        line_number=row.get("line_number", row["preview_line"]),
+                    )
+                except Exception as e:
+                    if _is_binder_exception(e):
+                        continue
+                    raise e
+
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(f"[PREVIEWS] Complete: {len(previews_batch)} preview links processed.")
+
     def write_binds_links(self, binds_batch: List[Dict[str, Any]]) -> None:
         """Create BINDS edges: Hilt's @Binds/@Provides link an interface (or
         class) to the concrete class (or interface) that satisfies it.

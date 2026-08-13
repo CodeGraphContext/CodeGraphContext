@@ -174,7 +174,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("Directory", "path STRING, name STRING, PRIMARY KEY (path)"),
             ("Module", "name STRING, lang STRING, full_import_name STRING, path STRING, line_number INT64, PRIMARY KEY (name)"),
             # For types with composite keys (name, path, line_number), we use a 'uid'
-            ("Function", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, cyclomatic_complexity INT64, context STRING, context_type STRING, class_context STRING, class_context_line INT64, module_context STRING, is_dependency BOOLEAN, decorators STRING[], args STRING[], http_method STRING, http_path STRING, embedding DOUBLE[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
+            ("Function", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, cyclomatic_complexity INT64, context STRING, context_type STRING, class_context STRING, class_context_line INT64, module_context STRING, is_dependency BOOLEAN, decorators STRING[], args STRING[], http_method STRING, http_path STRING, embedding DOUBLE[], visibility STRING, modifiers STRING[], is_composable BOOLEAN, PRIMARY KEY (uid)"),
             ("Class", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, node_type STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
             ("Variable", "uid STRING, name STRING, path STRING, line_number INT64, source STRING, docstring STRING, lang STRING, value STRING, context STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Trait", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
@@ -292,6 +292,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("PART_OF", "FROM File TO File", False),
             ("INJECTS", "FROM Class TO Class, field_name STRING, inject_line INT64, confidence_label STRING", False),
             ("BINDS", "FROM Interface TO Class, FROM Class TO Class, FROM Interface TO Interface, line_number INT64, provider STRING, confidence_label STRING", True),
+            ("PREVIEWS", "FROM Function TO Function, line_number INT64", False),
             ("MAPS_TO", "FROM Class TO DbTable, datastore STRING, line_number INT64", False),
             ("READS", "FROM Function TO DbTable, line_number INT64", False),
             ("WRITES", "FROM Function TO DbTable, line_number INT64", False),
@@ -355,6 +356,8 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("Interface", "modifiers", "STRING[]"),
             ("Object", "visibility", "STRING"),
             ("Object", "modifiers", "STRING[]"),
+            # Compose semantics
+            ("Function", "is_composable", "BOOLEAN"),
         ]
 
         # REL TABLE GROUP migrations: KuzuDB creates sub-tables named
@@ -405,6 +408,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("PARTIAL_OF", "FROM Class TO Class, line_number INT64, confidence_label STRING", False),
             ("PART_OF", "FROM File TO File", False),
             ("BINDS", "FROM Interface TO Class, FROM Class TO Class, FROM Interface TO Interface, line_number INT64, provider STRING, confidence_label STRING", True),
+            ("PREVIEWS", "FROM Function TO Function, line_number INT64", False),
         ]
         for table_name, schema, use_group in rel_table_migrations:
             try:
@@ -834,7 +838,7 @@ class EmbeddedSessionWrapper:
             'File': {'path', 'name', 'relative_path', 'package_name', 'language', 'is_dependency'},
             'Directory': {'path', 'name'},
             'Module': {'name', 'lang', 'full_import_name', 'path', 'line_number'},
-            'Function': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'cyclomatic_complexity', 'context', 'context_type', 'class_context', 'class_context_line', 'module_context', 'is_dependency', 'decorators', 'args', 'http_method', 'http_path', 'visibility', 'modifiers'},
+            'Function': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'cyclomatic_complexity', 'context', 'context_type', 'class_context', 'class_context_line', 'module_context', 'is_dependency', 'decorators', 'args', 'http_method', 'http_path', 'visibility', 'modifiers', 'is_composable'},
             'Class': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'node_type', 'is_dependency', 'decorators', 'visibility', 'modifiers'},
             'Variable': {'uid', 'name', 'path', 'line_number', 'source', 'docstring', 'lang', 'value', 'context', 'is_dependency'},
             'Trait': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
