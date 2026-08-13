@@ -414,7 +414,11 @@ class CGCBundle:
                 if branch:
                     metadata["branch"] = branch
 
-                try:
+            # Languages are derived for every bundle, not only repo-scoped ones.
+            # This used to sit inside the `if repo_path` branch above, so a
+            # whole-graph export never set the key at all.
+            try:
+                if repo_path:
                     repo_str = repo_path.resolve().as_posix()
                     result = session.run("""
                         MATCH (f:File)
@@ -422,11 +426,18 @@ class CGCBundle:
                         RETURN f.language as language, count(*) as count
                         ORDER BY count DESC
                     """, repo_path=repo_str, repo_prefix=repo_str + "/")
-                    languages = {record["language"]: record["count"] for record in result if record["language"]}
-                    metadata["languages"] = list(languages.keys())
-                except Exception:
-                    pass
-        
+                else:
+                    result = session.run("""
+                        MATCH (f:File)
+                        RETURN f.language as language, count(*) as count
+                        ORDER BY count DESC
+                    """)
+                languages = {record["language"]: record["count"] for record in result if record["language"]}
+                metadata["languages"] = list(languages.keys())
+            except Exception:
+                metadata.setdefault("languages", [])
+
+
         return metadata
     
     def _extract_schema(self) -> Dict[str, Any]:

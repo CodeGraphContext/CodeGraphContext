@@ -170,7 +170,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
         
         node_tables = [
             ("Repository", "path STRING, name STRING, is_dependency BOOLEAN, indexed_at STRING, commit_hash STRING, PRIMARY KEY (path)"),
-            ("File", "path STRING, name STRING, relative_path STRING, package_name STRING, is_dependency BOOLEAN, PRIMARY KEY (path)"),
+            ("File", "path STRING, name STRING, relative_path STRING, package_name STRING, language STRING, is_dependency BOOLEAN, PRIMARY KEY (path)"),
             ("Directory", "path STRING, name STRING, PRIMARY KEY (path)"),
             ("Module", "name STRING, lang STRING, full_import_name STRING, path STRING, line_number INT64, PRIMARY KEY (name)"),
             # For types with composite keys (name, path, line_number), we use a 'uid'
@@ -325,6 +325,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
         # Simple (non-group) table migrations
         simple_migrations = [
             ("File", "package_name", "STRING"),
+            ("File", "language", "STRING"),
             ("Module", "full_import_name", "STRING"),
             ("Module", "path", "STRING"),
             ("Module", "line_number", "INT64"),
@@ -817,7 +818,7 @@ class EmbeddedSessionWrapper:
         # 0. Define Schema Map (Strict property filtering)
         SCHEMA_MAP = {
             'Repository': {'path', 'name', 'is_dependency', 'indexed_at', 'commit_hash'},
-            'File': {'path', 'name', 'relative_path', 'package_name', 'is_dependency'},
+            'File': {'path', 'name', 'relative_path', 'package_name', 'language', 'is_dependency'},
             'Directory': {'path', 'name'},
             'Module': {'name', 'lang', 'full_import_name', 'path', 'line_number'},
             'Function': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'cyclomatic_complexity', 'context', 'context_type', 'class_context', 'class_context_line', 'module_context', 'is_dependency', 'decorators', 'args', 'http_method', 'http_path'},
