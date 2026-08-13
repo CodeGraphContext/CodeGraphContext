@@ -81,7 +81,8 @@ dependencies = [
     # Lift this once mcp_sse.py is ported to the 2.x server API.
     "mcp>=1.0.0,<2",
     "fastapi>=0.100.0",
-    "uvicorn>=0.22.0"
+    "uvicorn>=0.22.0",
+    "cryptography>=42.0.0"
 ]
 
 [project.optional-dependencies]

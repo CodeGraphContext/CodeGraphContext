@@ -24,6 +24,10 @@ import os
 import re
 import zipfile
 import tempfile
+import hashlib
+import hmac
+import base64
+import secrets
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, date
@@ -123,7 +127,9 @@ class CGCBundle:
         self,
         output_path: Path,
         repo_path: Optional[Path] = None,
-        include_stats: bool = True
+        include_stats: bool = True,
+        sign_key: Optional[str] = None,
+        encrypt_password: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """
         Export the current graph (or a specific repository) to a .cgc bundle.
@@ -216,12 +222,24 @@ class CGCBundle:
                 # Step 6: Create README
                 self._create_readme(temp_path / "README.md", metadata, stats if include_stats else None)
                 
-                # Step 7: Create ZIP archive
+                # Step 7: Add integrity manifest and optional signature
+                self._create_manifest(temp_path)
+                if sign_key:
+                    self._create_signature(temp_path, sign_key)
+
+                # Step 8: Create ZIP archive
                 info_logger("Creating bundle archive...")
-                self._create_zip(temp_path, output_path)
+                if encrypt_password:
+                    self._create_encrypted_zip(temp_path, output_path, encrypt_password)
+                else:
+                    self._create_zip(temp_path, output_path)
             
             success_msg = f"✅ Successfully exported to {output_path}\n"
             success_msg += f"   Nodes: {node_count:,} | Edges: {edge_count:,}"
+            if sign_key:
+                success_msg += "\n   Signature: HMAC-SHA256"
+            if encrypt_password:
+                success_msg += "\n   Encryption: AES-256-GCM"
             info_logger(success_msg)
             return True, success_msg
             
@@ -238,7 +256,9 @@ class CGCBundle:
         bundle_path: Path,
         clear_existing: bool = False,
         readonly: bool = False,
-        graph_name: str = None
+        password: Optional[str] = None,
+        verify_key: Optional[str] = None,
+        graph_name: str = None,
     ) -> Tuple[bool, str]:
         self._active_graph = graph_name
         """
@@ -264,25 +284,22 @@ class CGCBundle:
                 
                 # Step 1: Extract ZIP (with Zip Slip protection)
                 info_logger("Extracting bundle...")
-                with zipfile.ZipFile(bundle_path, 'r') as zip_ref:
-                    extract_root = temp_path.resolve()
-                    for entry in zip_ref.namelist():
-                        resolved = (temp_path / entry).resolve()
-                        # Compare path components, not string prefixes: a bare
-                        # startswith also accepts a sibling directory whose name
-                        # merely extends the target's (/tmp/tmpabc vs /tmp/tmpabc2).
-                        if resolved != extract_root and extract_root not in resolved.parents:
-                            return False, f"Zip Slip detected: entry '{entry}' escapes target directory"
-                    zip_ref.extractall(temp_path)
+                # _extract_bundle_archive delegates to _extract_zip_safely, which
+                # rejects Zip Slip via relative_to() on resolved paths — the same
+                # component-wise comparison main used inline, applied to both the
+                # outer archive and the decrypted inner payload.
+                payload_path, extract_msg = self._extract_bundle_archive(bundle_path, temp_path, password)
+                if payload_path is None:
+                    return False, extract_msg
                 
                 # Step 2: Validate bundle
                 info_logger("Validating bundle...")
-                is_valid, validation_msg = self._validate_bundle(temp_path)
+                is_valid, validation_msg = self._validate_bundle(payload_path, verify_key=verify_key)
                 if not is_valid:
                     return False, f"Invalid bundle: {validation_msg}"
                 
                 # Step 3: Load metadata
-                with open(temp_path / "metadata.json", 'r') as f:
+                with open(payload_path / "metadata.json", 'r') as f:
                     metadata = json.load(f)
                 
                 info_logger(f"Loading bundle: {metadata.get('repo', 'unknown')}")
@@ -309,15 +326,15 @@ class CGCBundle:
                 
                 # Step 5: Create schema
                 info_logger("Creating schema...")
-                self._import_schema(temp_path / "schema.json")
+                self._import_schema(payload_path / "schema.json")
                 
                 # Step 6: Import nodes
                 info_logger("Importing nodes...")
-                node_count = self._import_nodes(temp_path / "nodes.jsonl")
+                node_count = self._import_nodes(payload_path / "nodes.jsonl")
                 
                 # Step 7: Import edges
                 info_logger("Importing edges...")
-                edge_count = self._import_edges(temp_path / "edges.jsonl")
+                edge_count = self._import_edges(payload_path / "edges.jsonl")
             
             success_msg = f"✅ Successfully imported {bundle_path.name}\n"
             success_msg += f"   Repository: {metadata.get('repo', 'unknown')}\n"
@@ -814,6 +831,385 @@ cgc import <bundle-file>.cgc
         
         with open(output_file, 'w') as f:
             f.write(readme_content)
+
+    @staticmethod
+    def _sha256_file(path: Path) -> str:
+        digest = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _canonical_json(data: Dict[str, Any]) -> bytes:
+        return json.dumps(data, sort_keys=True, separators=(",", ":"), cls=_BundleEncoder).encode("utf-8")
+
+    def _create_manifest(self, bundle_dir: Path) -> Dict[str, Any]:
+        """Create a checksum manifest for every payload file in the bundle."""
+        files = {}
+        for path in sorted(bundle_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(bundle_dir).as_posix()
+            if rel in {"manifest.json", "signature.json"}:
+                continue
+            files[rel] = {
+                "sha256": self._sha256_file(path),
+                "size": path.stat().st_size,
+            }
+
+        manifest = {
+            "manifest_version": "1.0.0",
+            "digest": "sha256",
+            "files": files,
+            "created_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        with open(bundle_dir / "manifest.json", "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2, cls=_BundleEncoder)
+        return manifest
+
+    def _load_manifest(self, bundle_dir: Path) -> Optional[Dict[str, Any]]:
+        manifest_path = bundle_dir / "manifest.json"
+        if not manifest_path.exists():
+            return None
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _verify_manifest(self, bundle_dir: Path) -> Tuple[bool, str]:
+        manifest = self._load_manifest(bundle_dir)
+        if manifest is None:
+            return True, "No manifest present; skipped checksum verification"
+
+        expected_files = manifest.get("files", {})
+        if not isinstance(expected_files, dict):
+            return False, "Invalid manifest: files must be an object"
+
+        actual_files = {
+            path.relative_to(bundle_dir).as_posix()
+            for path in bundle_dir.rglob("*")
+            if path.is_file() and path.relative_to(bundle_dir).as_posix() not in {"manifest.json", "signature.json"}
+        }
+        expected_names = set(expected_files)
+        missing = sorted(expected_names - actual_files)
+        extra = sorted(actual_files - expected_names)
+        if missing:
+            return False, f"Manifest mismatch: missing file(s): {', '.join(missing)}"
+        if extra:
+            return False, f"Manifest mismatch: unexpected file(s): {', '.join(extra)}"
+
+        for rel, expected in expected_files.items():
+            path = bundle_dir / rel
+            if path.stat().st_size != expected.get("size"):
+                return False, f"Checksum mismatch for {rel}: size changed"
+            digest = self._sha256_file(path)
+            if not hmac.compare_digest(digest, str(expected.get("sha256", ""))):
+                return False, f"Checksum mismatch for {rel}"
+
+        return True, "Manifest checksums verified"
+
+    def _create_signature(self, bundle_dir: Path, sign_key: str) -> Dict[str, Any]:
+        """Create an HMAC-SHA256 signature over manifest.json."""
+        manifest = self._load_manifest(bundle_dir) or self._create_manifest(bundle_dir)
+        signature = hmac.new(
+            sign_key.encode("utf-8"),
+            self._canonical_json(manifest),
+            hashlib.sha256,
+        ).hexdigest()
+        payload = {
+            "signature_version": "1.0.0",
+            "algorithm": "HMAC-SHA256",
+            "signature": signature,
+        }
+        with open(bundle_dir / "signature.json", "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        return payload
+
+    def _verify_signature(self, bundle_dir: Path, verify_key: Optional[str]) -> Tuple[bool, str]:
+        signature_path = bundle_dir / "signature.json"
+        if not signature_path.exists():
+            return True, "No signature present"
+        if not verify_key:
+            return False, "Bundle is signed; provide a verification key"
+
+        manifest = self._load_manifest(bundle_dir)
+        if manifest is None:
+            return False, "Signature present but manifest.json is missing"
+        with open(signature_path, "r", encoding="utf-8") as f:
+            signature = json.load(f)
+        if signature.get("algorithm") != "HMAC-SHA256":
+            return False, f"Unsupported signature algorithm: {signature.get('algorithm')}"
+        expected = hmac.new(
+            verify_key.encode("utf-8"),
+            self._canonical_json(manifest),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(expected, str(signature.get("signature", ""))):
+            return False, "Signature verification failed"
+        return True, "Signature verified"
+
+    @staticmethod
+    def _derive_encryption_key(password: str, salt: bytes, iterations: int) -> bytes:
+        try:
+            from cryptography.hazmat.primitives import hashes
+            from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+        except ImportError as exc:
+            raise RuntimeError("Encrypted bundles require the 'cryptography' package") from exc
+
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=iterations,
+        )
+        return kdf.derive(password.encode("utf-8"))
+
+    def _create_encrypted_zip(self, payload_dir: Path, output_file: Path, password: str):
+        """Create an encrypted .cgc outer ZIP containing an encrypted bundle payload."""
+        try:
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        except ImportError as exc:
+            raise RuntimeError("Encrypted bundles require the 'cryptography' package") from exc
+
+        with tempfile.TemporaryDirectory() as enc_dir:
+            enc_path = Path(enc_dir)
+            payload_zip = enc_path / "payload.zip"
+            self._create_zip(payload_dir, payload_zip)
+
+            salt = secrets.token_bytes(16)
+            nonce = secrets.token_bytes(12)
+            iterations = 390000
+            key = self._derive_encryption_key(password, salt, iterations)
+            plaintext = payload_zip.read_bytes()
+            ciphertext = AESGCM(key).encrypt(nonce, plaintext, None)
+
+            (enc_path / "payload.enc").write_bytes(ciphertext)
+            metadata = {
+                "encryption_version": "1.0.0",
+                "algorithm": "AES-256-GCM",
+                "kdf": "PBKDF2-HMAC-SHA256",
+                "iterations": iterations,
+                "salt": base64.b64encode(salt).decode("ascii"),
+                "nonce": base64.b64encode(nonce).decode("ascii"),
+                "payload_sha256": hashlib.sha256(ciphertext).hexdigest(),
+            }
+            with open(enc_path / "encryption.json", "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=2)
+
+            payload_zip.unlink()
+            self._create_zip(enc_path, output_file)
+
+    def _extract_zip_safely(self, zip_path: Path, target_dir: Path) -> Tuple[bool, str]:
+        target_root = target_dir.resolve()
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            for entry in zip_ref.namelist():
+                resolved = (target_dir / entry).resolve()
+                try:
+                    resolved.relative_to(target_root)
+                except ValueError:
+                    return False, f"Zip Slip detected: entry '{entry}' escapes target directory"
+            zip_ref.extractall(target_dir)
+        return True, "Extracted"
+
+    def _extract_bundle_archive(
+        self,
+        bundle_path: Path,
+        target_dir: Path,
+        password: Optional[str] = None,
+    ) -> Tuple[Optional[Path], str]:
+        ok, message = self._extract_zip_safely(bundle_path, target_dir)
+        if not ok:
+            return None, message
+
+        encryption_path = target_dir / "encryption.json"
+        encrypted_payload = target_dir / "payload.enc"
+        if not encryption_path.exists() and not encrypted_payload.exists():
+            return target_dir, "Extracted plaintext bundle"
+        if not encryption_path.exists() or not encrypted_payload.exists():
+            return None, "Encrypted bundle is missing encryption.json or payload.enc"
+        if not password:
+            return None, "Bundle is encrypted; provide a password"
+
+        try:
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        except ImportError as exc:
+            raise RuntimeError("Encrypted bundles require the 'cryptography' package") from exc
+
+        with open(encryption_path, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+        if metadata.get("algorithm") != "AES-256-GCM":
+            return None, f"Unsupported encryption algorithm: {metadata.get('algorithm')}"
+
+        ciphertext = encrypted_payload.read_bytes()
+        expected_digest = metadata.get("payload_sha256")
+        if expected_digest and not hmac.compare_digest(hashlib.sha256(ciphertext).hexdigest(), expected_digest):
+            return None, "Encrypted payload checksum mismatch"
+
+        salt = base64.b64decode(metadata["salt"])
+        nonce = base64.b64decode(metadata["nonce"])
+        key = self._derive_encryption_key(password, salt, int(metadata.get("iterations", 390000)))
+        try:
+            plaintext = AESGCM(key).decrypt(nonce, ciphertext, None)
+        except Exception:
+            return None, "Failed to decrypt bundle payload"
+
+        payload_zip = target_dir / "payload.zip"
+        payload_zip.write_bytes(plaintext)
+        payload_dir = target_dir / "payload"
+        payload_dir.mkdir()
+        ok, message = self._extract_zip_safely(payload_zip, payload_dir)
+        if not ok:
+            return None, message
+        return payload_dir, "Extracted encrypted bundle"
+
+    def verify_bundle(
+        self,
+        bundle_path: Path,
+        password: Optional[str] = None,
+        verify_key: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """Verify bundle structure, checksums, optional signature, and encryption envelope."""
+        if not bundle_path.exists():
+            return False, f"Bundle file not found: {bundle_path}"
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                payload_dir, message = self._extract_bundle_archive(bundle_path, Path(temp_dir), password)
+                if payload_dir is None:
+                    return False, message
+                valid, validation_msg = self._validate_bundle(payload_dir, verify_key=verify_key)
+                if not valid:
+                    return False, validation_msg
+                return True, validation_msg
+        except Exception as exc:
+            return False, str(exc)
+
+    def inspect_bundle(
+        self,
+        bundle_path: Path,
+        password: Optional[str] = None,
+        verify_key: Optional[str] = None,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """Return metadata, stats, and verification status for a bundle."""
+        if not bundle_path.exists():
+            return False, {"error": f"Bundle file not found: {bundle_path}"}
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                payload_dir, message = self._extract_bundle_archive(bundle_path, Path(temp_dir), password)
+                if payload_dir is None:
+                    return False, {"error": message}
+                valid, validation_msg = self._validate_bundle(payload_dir, verify_key=verify_key)
+                with open(payload_dir / "metadata.json", "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+                stats = {}
+                stats_path = payload_dir / "stats.json"
+                if stats_path.exists():
+                    with open(stats_path, "r", encoding="utf-8") as f:
+                        stats = json.load(f)
+                manifest = self._load_manifest(payload_dir) or {}
+                return True, {
+                    "path": str(bundle_path),
+                    "encrypted": message == "Extracted encrypted bundle",
+                    "valid": valid,
+                    "validation": validation_msg,
+                    "signed": (payload_dir / "signature.json").exists(),
+                    "metadata": metadata,
+                    "stats": stats,
+                    "manifest": manifest,
+                }
+        except Exception as exc:
+            return False, {"error": str(exc)}
+
+    @staticmethod
+    def _node_key(node: Dict[str, Any]) -> str:
+        labels = node.get("labels") or []
+        if isinstance(labels, str):
+            labels = [labels]
+        props = node.get("properties") or {}
+        primary = labels[0] if labels else "Node"
+        for field in ("uid", "id", "path", "name"):
+            if props.get(field) is not None:
+                return f"{primary}:{field}:{props[field]}"
+        return json.dumps(node, sort_keys=True, cls=_BundleEncoder)
+
+    @staticmethod
+    def _edge_key(edge: Dict[str, Any]) -> str:
+        rel_type = edge.get("type", "REL")
+        props = edge.get("properties") or {}
+        from_id = edge.get("from")
+        to_id = edge.get("to")
+        return json.dumps(
+            {"type": rel_type, "from": from_id, "to": to_id, "properties": props},
+            sort_keys=True,
+            cls=_BundleEncoder,
+        )
+
+    @classmethod
+    def _load_jsonl_index(cls, file_path: Path, kind: str) -> Dict[str, str]:
+        key_fn = cls._node_key if kind == "node" else cls._edge_key
+        indexed = {}
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                item = json.loads(line)
+                key = key_fn(item)
+                indexed[key] = hashlib.sha256(
+                    json.dumps(item, sort_keys=True, cls=_BundleEncoder).encode("utf-8")
+                ).hexdigest()
+        return indexed
+
+    def diff_bundles(
+        self,
+        left_path: Path,
+        right_path: Path,
+        left_password: Optional[str] = None,
+        right_password: Optional[str] = None,
+        left_verify_key: Optional[str] = None,
+        right_verify_key: Optional[str] = None,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """Compare two bundles without importing them."""
+        try:
+            with tempfile.TemporaryDirectory() as left_tmp, tempfile.TemporaryDirectory() as right_tmp:
+                left_dir, left_msg = self._extract_bundle_archive(left_path, Path(left_tmp), left_password)
+                right_dir, right_msg = self._extract_bundle_archive(right_path, Path(right_tmp), right_password)
+                if left_dir is None:
+                    return False, {"error": f"Left bundle: {left_msg}"}
+                if right_dir is None:
+                    return False, {"error": f"Right bundle: {right_msg}"}
+
+                for payload_dir, verify_key in ((left_dir, left_verify_key), (right_dir, right_verify_key)):
+                    valid, validation_msg = self._validate_bundle(payload_dir, verify_key=verify_key)
+                    if not valid:
+                        return False, {"error": validation_msg}
+
+                left_nodes = self._load_jsonl_index(left_dir / "nodes.jsonl", "node")
+                right_nodes = self._load_jsonl_index(right_dir / "nodes.jsonl", "node")
+                left_edges = self._load_jsonl_index(left_dir / "edges.jsonl", "edge")
+                right_edges = self._load_jsonl_index(right_dir / "edges.jsonl", "edge")
+
+                def compare(left: Dict[str, str], right: Dict[str, str]) -> Dict[str, Any]:
+                    left_keys = set(left)
+                    right_keys = set(right)
+                    common = left_keys & right_keys
+                    changed = sorted(key for key in common if left[key] != right[key])
+                    return {
+                        "added": sorted(right_keys - left_keys),
+                        "removed": sorted(left_keys - right_keys),
+                        "changed": changed,
+                    }
+
+                with open(left_dir / "metadata.json", "r", encoding="utf-8") as f:
+                    left_metadata = json.load(f)
+                with open(right_dir / "metadata.json", "r", encoding="utf-8") as f:
+                    right_metadata = json.load(f)
+
+                return True, {
+                    "left": {"path": str(left_path), "metadata": left_metadata},
+                    "right": {"path": str(right_path), "metadata": right_metadata},
+                    "nodes": compare(left_nodes, right_nodes),
+                    "edges": compare(left_edges, right_edges),
+                }
+        except Exception as exc:
+            return False, {"error": str(exc)}
     
     def _create_zip(self, source_dir: Path, output_file: Path):
         """Create a ZIP archive from the bundle directory."""
@@ -827,7 +1223,7 @@ cgc import <bundle-file>.cgc
     # IMPORT HELPERS
     # ========================================================================
     
-    def _validate_bundle(self, bundle_dir: Path) -> Tuple[bool, str]:
+    def _validate_bundle(self, bundle_dir: Path, verify_key: Optional[str] = None) -> Tuple[bool, str]:
         """Validate that the bundle contains all required files."""
         required_files = ['metadata.json', 'schema.json', 'nodes.jsonl', 'edges.jsonl']
         
@@ -843,6 +1239,14 @@ cgc import <bundle-file>.cgc
                     return False, "Invalid metadata: missing cgc_version"
         except json.JSONDecodeError as e:
             return False, f"Invalid metadata.json: {e}"
+
+        manifest_ok, manifest_msg = self._verify_manifest(bundle_dir)
+        if not manifest_ok:
+            return False, manifest_msg
+
+        signature_ok, signature_msg = self._verify_signature(bundle_dir, verify_key)
+        if not signature_ok:
+            return False, signature_msg
 
         # Reject unsafe identifiers up front. The import writes in batches with
         # no transaction, so validating lazily would let a malicious label
