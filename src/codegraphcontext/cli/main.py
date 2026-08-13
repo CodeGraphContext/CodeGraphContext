@@ -726,12 +726,23 @@ def bundle_export(
     """
     _load_credentials()
     from codegraphcontext.core.cgc_bundle import CGCBundle
-    
+
+    # Typer resolves defaults only when *it* invokes the command. Called as a
+    # plain function (tests/integration/test_parser_goldens.py does this, as can
+    # any programmatic caller), an omitted option keeps its OptionInfo sentinel
+    # -- which is truthy, so `if sign_key:` passes and `sign_key.encode()` then
+    # raises AttributeError. These two are normalized rather than merely
+    # forwarded because they are the only options here that get dereferenced.
+    if not isinstance(sign_key, (str, type(None))):
+        sign_key = None
+    if not isinstance(encrypt_password, (str, type(None))):
+        encrypt_password = None
+
     services = _initialize_services(context)
     if not all(services[:3]):
         raise typer.Exit(code=1)
     db_manager, _, code_finder = services[:3]
-    
+
     try:
         output_path = Path(output)
         repo_path = Path(repo).resolve() if repo else None
