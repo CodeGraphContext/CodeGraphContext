@@ -55,6 +55,51 @@ def _normalize_prefix(p) -> str:
     return _normalize_path(p) + "/"
 
 
+# These labels are deliberately global: one node per name, shared across files.
+# They are keyed on `name` alone and must not take a per-file disambiguator.
+_NAME_ONLY_MERGE_LABELS = {"Module", "DbTable", "ExternalClass"}
+
+
+def _assign_occurrence_indices(
+    items: List[Dict[str, Any]],
+) -> Tuple[List[int], List[Tuple[str, Any, int]]]:
+    """Disambiguate symbols in one file that share a ``(name, line_number)`` key.
+
+    ``(name, path, line_number)`` is not a unique identity for a symbol. Two
+    distinct symbols sharing a name and a line silently merged onto a single
+    node and the following ``SET n += row`` overwrote the first one's ``args``,
+    ``class_context``, ``end_line`` and ``cyclomatic_complexity`` with the last
+    one's. Two confirmed sources:
+
+    * CSS -- every selector is emitted as a ``Function``, so a grouped rule such
+      as ``tfoot th, tfoot td { }`` yields two ``tfoot`` records on one line.
+    * Minified/bundled JS -- the file is a single line, so genuinely different
+      functions all carry ``line_number: 1`` and collapse into one node whose
+      ``class_context`` is whichever record happened to be written last.
+
+    Returns ``(indices, collisions)`` where *indices* is a per-item ordinal
+    parallel to *items* -- 0 for the first record of each key, and therefore 0
+    for every symbol in the overwhelming majority of files that have no
+    collision at all -- and *collisions* lists ``(name, line_number, count)``
+    for the keys that genuinely repeated, so the caller can report them.
+
+    The ordinal is stable for an unchanged file because parse order is
+    deterministic, and edits cannot strand a stale node because
+    ``update_file_in_graph`` deletes the file's elements before re-adding them.
+
+    See https://github.com/CodeGraphContext/CodeGraphContext/issues/1393
+    """
+    seen: Dict[Tuple[str, Any], int] = {}
+    indices: List[int] = []
+    for item in items:
+        key = (str(item.get("name", "")), item.get("line_number"))
+        index = seen.get(key, 0)
+        indices.append(index)
+        seen[key] = index + 1
+    collisions = [(name, line, count) for (name, line), count in seen.items() if count > 1]
+    return indices, collisions
+
+
 def _cypher_label(label: str, backend: str) -> str:
     """Format a node label for Cypher; Kùzu reserves some identifiers and needs backticks."""
     if backend in ("kuzudb", "ladybugdb") and label in ("Union", "Macro", "Property"):
@@ -327,10 +372,32 @@ class GraphWriter:
             for item_list, label in item_mappings:
                 if not item_list:
                     continue
+
+                # Symbols sharing (name, line_number) in one file used to merge
+                # onto a single node and clobber each other's properties (#1393).
+                # Give each one a per-file ordinal so they stay distinct. Labels
+                # merged on name alone are global and keep their old identity.
+                keyed_by_position = label not in _NAME_ONLY_MERGE_LABELS
+                occurrence_indices, key_collisions = _assign_occurrence_indices(item_list)
+                if keyed_by_position and key_collisions:
+                    shown = ", ".join(
+                        f"{name!r}@line {line} x{count}" for name, line, count in key_collisions[:5]
+                    )
+                    remainder = len(key_collisions) - 5
+                    if remainder > 0:
+                        shown += f", (+{remainder} more)"
+                    warning_logger(
+                        f"{file_path_str}: {len(key_collisions)} {label} merge-key "
+                        f"collision(s) on (name, line_number); disambiguating with "
+                        f"occurrence_index: {shown}"
+                    )
+
                 batch: List[Dict[str, Any]] = []
-                for item in item_list:
+                for occurrence_index, item in zip(occurrence_indices, item_list):
                     row = dict(item)
                     row["path"] = file_path_str
+                    if keyed_by_position:
+                        row["occurrence_index"] = occurrence_index
                     # Inherit the file's is_dependency unless the extractor set its
                     # own. Only ~half the language extractors emit this per item, and
                     # find_dead_code filters on `func.is_dependency = false` -- in
@@ -360,6 +427,7 @@ class GraphWriter:
                                 {
                                     "func_name": item["name"],
                                     "line_number": item["line_number"],
+                                    "occurrence_index": occurrence_index,
                                     "arg_name": arg_name,
                                 }
                             )
@@ -451,12 +519,20 @@ class GraphWriter:
                     key_order = sorted(all_keys)
                     batch[:] = [{k: b[k] for k in key_order if k in b} for b in batch]
 
-                if label in {"Module", "DbTable", "ExternalClass"}:
+                if not keyed_by_position:
                     merge_clause = f"MERGE (n:{label} {{name: row.name}})"
                     match_clause = f"MATCH (n:{label} {{name: row.name}})"
                 else:
-                    merge_clause = f"MERGE (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})"
-                    match_clause = f"MATCH (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})"
+                    # occurrence_index is 0 unless two symbols in this file share
+                    # a (name, line_number), so the identity of every node in a
+                    # collision-free file is unchanged (#1393).
+                    node_key = (
+                        "name: row.name, path: $file_path, "
+                        "line_number: row.line_number, "
+                        "occurrence_index: row.occurrence_index"
+                    )
+                    merge_clause = f"MERGE (n:{label} {{{node_key}}})"
+                    match_clause = f"MATCH (n:{label} {{{node_key}}})"
 
                 session.run(
                     f"""
@@ -482,14 +558,17 @@ class GraphWriter:
                 seen_params: set = set()
                 unique_params: List[Dict[str, Any]] = []
                 for p in params_batch:
-                    key = (p["func_name"], p["line_number"], p["arg_name"])
+                    # occurrence_index belongs in the dedupe key too: without it
+                    # two colliding functions that share an argument name would
+                    # collapse to one row and only one of them would be linked.
+                    key = (p["func_name"], p["line_number"], p["occurrence_index"], p["arg_name"])
                     if key not in seen_params:
                         seen_params.add(key)
                         unique_params.append(p)
                 session.run(
                     """
                     UNWIND $batch AS row
-                    MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.line_number})
+                    MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.line_number, occurrence_index: row.occurrence_index})
                     MERGE (p:Parameter {name: row.arg_name, path: $file_path, function_line_number: row.line_number})
                     SET p.name = row.arg_name, p.path = $file_path, p.function_line_number = row.line_number
                     MERGE (fn)-[:HAS_PARAMETER]->(p)
