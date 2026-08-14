@@ -40,6 +40,7 @@ export default function ScrollButtons() {
         <button
           onClick={scrollToTop}
           className="h-12 w-12 rounded-full bg-purple-600 text-white shadow-lg hover:scale-110 transition"
+          aria-label="Scroll to top"
         >
           ↑
         </button>
@@ -49,6 +50,7 @@ export default function ScrollButtons() {
         <button
           onClick={scrollToBottom}
           className="h-12 w-12 rounded-full bg-cyan-500 text-white shadow-lg hover:scale-110 transition"
+          aria-label="Scroll to bottom"
         >
           ↓
         </button>

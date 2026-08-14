@@ -40,7 +40,7 @@ const Privacy: React.FC = () => {
           >
             <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-purple-500 to-indigo-500 opacity-50" />
             <Database className="w-8 h-8 text-purple-400 mb-4" />
-            <h3 className="text-xl font-bold text-white mb-2">100% Client-Side Parsing</h3>
+            <h2 className="text-xl font-bold text-white mb-2">100% Client-Side Parsing</h2>
             <p className="text-zinc-400 text-sm leading-relaxed">
               When you index a repository via local upload or GitHub Fetch, our lightweight WebAssembly Tree-Sitter parser extracts AST nodes and links **entirely in your own browser's background web worker thread**. Absolutely zero files or raw code contents are ever uploaded to our servers or processed in the cloud.
             </p>
@@ -55,7 +55,7 @@ const Privacy: React.FC = () => {
           >
             <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-cyan-500 opacity-50" />
             <Lock className="w-8 h-8 text-blue-400 mb-4" />
-            <h3 className="text-xl font-bold text-white mb-2">Private Local Caching</h3>
+            <h2 className="text-xl font-bold text-white mb-2">Private Local Caching</h2>
             <p className="text-zinc-400 text-sm leading-relaxed">
               All parsed code graph relationships (nodes and links) are saved directly in your browser's local **IndexedDB cache**. They stay securely stored on your own physical drive. No account sign-up is required, and we do not compile any profile or store analytics on your indexed files.
             </p>
@@ -70,7 +70,7 @@ const Privacy: React.FC = () => {
           >
             <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 to-purple-500 opacity-50" />
             <RefreshCw className="w-8 h-8 text-indigo-400 mb-4" />
-            <h3 className="text-xl font-bold text-white mb-2">Ephemeral Signaling Tunnels</h3>
+            <h2 className="text-xl font-bold text-white mb-2">Ephemeral Signaling Tunnels</h2>
             <p className="text-zinc-400 text-sm leading-relaxed">
               ChatGPT Custom Actions query your browser dashboard using transient realtime broadcast channels powered by Supabase. These messages are completely stateless and ephemeral. They route queries and results immediately, without keeping any long-term logs or storing analysis payloads on our servers.
             </p>
@@ -85,7 +85,7 @@ const Privacy: React.FC = () => {
           >
             <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-pink-500 to-rose-500 opacity-50" />
             <Shield className="w-8 h-8 text-pink-400 mb-4" />
-            <h3 className="text-xl font-bold text-white mb-2">Data Retention & Deletion</h3>
+            <h2 className="text-xl font-bold text-white mb-2">Data Retention & Deletion</h2>
             <p className="text-zinc-400 text-sm leading-relaxed">
               Because all data is stored on your own device, you have complete control over it. You can instantly delete all cached repository code graphs at any time by clearing your browser's cookies and site data, or by clicking "Clear Cache" directly within the visualizer dashboard.
             </p>
