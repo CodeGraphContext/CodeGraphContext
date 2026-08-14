@@ -17,12 +17,12 @@ def test_startup_sync_reconciles_current_and_deleted_files(tmp_path: Path):
     added_file = repo / "added.py"
     changed_file.write_text("def changed(): pass\n", encoding="utf-8")
     added_file.write_text("def added(): pass\n", encoding="utf-8")
-    stale_path = str((repo / "deleted.py").resolve())
+    stale_path = (repo / "deleted.py").resolve().as_posix()
 
     graph_builder = MagicMock()
     graph_builder.parsers = {".py": "python"}
     graph_builder.get_repo_file_paths.return_value = {
-        str(changed_file.resolve()),
+        changed_file.resolve().as_posix(),
         stale_path,
     }
     graph_builder.pre_scan_imports.return_value = {}
@@ -52,8 +52,8 @@ def test_startup_sync_reconciles_current_and_deleted_files(tmp_path: Path):
     )
     assert graph_builder.update_file_in_graph.call_count == 2
     refreshed_paths = {
-        str(changed_file.resolve()),
-        str(added_file.resolve()),
+        changed_file.resolve().as_posix(),
+        added_file.resolve().as_posix(),
     }
     assert set(graph_builder.delete_outgoing_calls_from_files.call_args.args[0]) == refreshed_paths
     assert set(graph_builder.delete_inherits_for_files.call_args.args[0]) == refreshed_paths
@@ -162,7 +162,7 @@ def test_repo_file_paths_are_scoped_to_repository_root(tmp_path: Path):
     assert paths == {indexed_path}
     query = session.run.call_args.args[0]
     assert "MATCH (f:File)" in query
-    assert session.run.call_args.kwargs["prefix"] == str(repo.resolve()) + "/"
+    assert session.run.call_args.kwargs["prefix"] == Path(repo).resolve().as_posix() + "/"
 
 
 def test_mcp_watcher_syncs_already_indexed_repository(tmp_path: Path):

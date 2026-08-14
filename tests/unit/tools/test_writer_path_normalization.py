@@ -225,6 +225,26 @@ class TestAddRepositoryToGraph:
             f"Path should be absolute: {path_value}"
 
 
+class TestAddFileToGraph:
+    def test_file_relative_path_uses_forward_slashes(self, tmp_path):
+        writer, session = _make_writer()
+        file_path = tmp_path / "src" / "utils" / "helper.py"
+        file_data = {
+            "path": str(file_path),
+            "repo_path": str(tmp_path),
+            "lang": "python",
+        }
+        writer.add_file_to_graph(file_data, repo_name="myrepo", imports_map={}, repo_path_str=str(tmp_path))
+
+        all_kwargs = {}
+        for c in session.run.call_args_list:
+            all_kwargs.update(c.kwargs)
+
+        rel_path = all_kwargs.get("relative_path", "")
+        assert "\\" not in rel_path, f"relative_path contains backslashes: {rel_path}"
+        assert rel_path == "src/utils/helper.py"
+
+
 class TestDeleteRepositoryFromGraph:
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific backslash path regression test")
     def test_normalized_path_used_for_lookup(self, tmp_path):
