@@ -18,6 +18,11 @@ KOTLIN_QUERIES = {
             (class_declaration (type_identifier) @name)
             (object_declaration (type_identifier) @name)
             (companion_object (type_identifier)? @name)
+            (infix_expression
+                (object_literal)
+                (simple_identifier) @name
+                (lambda_literal)
+            )
         ] @class
     """,
     "imports": """
@@ -146,6 +151,38 @@ class KotlinTreeSitterParser:
                 "package": "",
             }
 
+    @staticmethod
+    def _single_line_object_name_node(node: Any) -> Optional[Any]:
+        """Return the name node when `node` is a misparsed single-line object.
+
+        The grammar does not produce an `object_declaration` for
+        `object A { fun x() = 1 }`; it produces
+
+            infix_expression
+              object_literal ("object")
+              simple_identifier ("A")
+              lambda_literal { statements { ... } }
+
+        `object A { }` and the multi-line form parse correctly, so this
+        applies only to the one-line-with-a-body shape. See issue #1600.
+
+        `object_literal` as the left operand is what makes this safe to key
+        on: it can only come from the `object` keyword, so an ordinary infix
+        call with a trailing lambda (`someValue apply { ... }`) does not
+        match. Returns None for anything that is not this shape, so callers
+        can use it as both predicate and accessor.
+        """
+        if node.type != "infix_expression":
+            return None
+        children = [c for c in node.children if c.is_named]
+        if len(children) < 3:
+            return None
+        if children[0].type != "object_literal" or children[-1].type != "lambda_literal":
+            return None
+        if children[1].type != "simple_identifier":
+            return None
+        return children[1]
+
     def _get_parent_context(self, node: Any) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
@@ -160,6 +197,20 @@ class KotlinTreeSitterParser:
                     curr.type,
                     curr.start_point[0] + 1,
                 )
+            # A misparsed single-line object is the enclosing scope of its own
+            # members, but has no object_declaration for the branch below to
+            # find -- without this, `fun x` in `object A { fun x() = 1 }` lands
+            # at top level while the multi-line form gets context "A" (#1600).
+            # Reported as object_declaration so downstream nesting checks treat
+            # it identically to a correctly-parsed object.
+            single_line_object_name = self._single_line_object_name_node(curr)
+            if single_line_object_name is not None:
+                return (
+                    self._get_node_text(single_line_object_name),
+                    "object_declaration",
+                    curr.start_point[0] + 1,
+                )
+
             if curr.type in ("class_declaration", "interface_declaration", "object_declaration"):
                 for child in curr.children:
                     if child.type in ("simple_identifier", "type_identifier"):
@@ -279,6 +330,13 @@ class KotlinTreeSitterParser:
     def _get_enclosing_class_context(self, node: Any) -> Tuple[Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
+            # Same misparse as in _get_parent_context -- see #1600.
+            single_line_object_name = self._single_line_object_name_node(curr)
+            if single_line_object_name is not None:
+                return (
+                    self._get_node_text(single_line_object_name),
+                    curr.start_point[0] + 1,
+                )
             if curr.type in ("class_declaration", "interface_declaration", "object_declaration"):
                 for child in curr.children:
                     if child.type in ("simple_identifier", "type_identifier"):
@@ -1399,7 +1457,13 @@ class KotlinTreeSitterParser:
                 seen_nodes.add(node_id)
                 
                 try:
-                    if node.type in ("object_declaration", "companion_object"):
+                    if node.type in ("object_declaration", "companion_object") or (
+                        # A misparsed single-line object is still an object;
+                        # without this it would fall through to the
+                        # class_declaration branch and be recorded as a Class
+                        # (#1600).
+                        self._single_line_object_name_node(node) is not None
+                    ):
                         category = "objects"
                         label = "Object"
                     else:
