@@ -1,12 +1,12 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-08-13T22:48:43Z",
+  "exported_at": "2026-08-14T19:21:25Z",
   "format_version": "1.0.0",
   "repo": "sample_project_kotlin",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "8381406f",
-  "branch": "stack/3-hilt-di-edges",
+  "commit": "976d596c",
+  "branch": "fix/five-open-issues",
   "languages": [
     "kotlin"
   ],

@@ -1,16 +1,20 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-07-25T16:55:17Z",
+  "exported_at": "2026-08-14T18:40:14Z",
   "format_version": "1.0.0",
   "repo": "sample_project_c",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "8bd1a8f7",
-  "branch": "main",
-  "generator": "PYv0.5.1",
+  "commit": "976d596c",
+  "branch": "fix/five-open-issues",
+  "languages": [
+    "c",
+    "cpp"
+  ],
+  "generator": "PYv0.5.8",
   "name": "sample_project_c.cgc",
   "graph_metrics": {
     "total_nodes": 111,
-    "total_edges": 129
+    "total_edges": 128
   }
 }

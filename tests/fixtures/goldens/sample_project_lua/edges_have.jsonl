@@ -45,7 +45,6 @@
 {"from": {"offset": 0, "table": 4}, "to": {"offset": 1, "table": 4}, "type": "CALLS", "properties": {"line_number": 7, "args": ["10", "20"], "full_call_name": "Rectangle.new", "args_key": "[\"10\", \"20\"]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 0, "table": 4}, "to": {"offset": 12, "table": 4}, "type": "CALLS", "properties": {"line_number": 8, "args": ["\"Area: \" .. r:area()"], "full_call_name": "Utils.log", "args_key": "[\"\\\"Area: \\\" .. r:area()\"]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 0, "table": 4}, "to": {"offset": 2, "table": 4}, "type": "CALLS", "properties": {"line_number": 8, "args": [], "full_call_name": "r.area", "args_key": "[]", "confidence": 0.7, "resolution_tier": 7, "confidence_label": "INFERRED"}}
-{"from": {"offset": 5, "table": 4}, "to": {"offset": 4, "table": 4}, "type": "CALLS", "properties": {"line_number": 21, "args": ["self"], "full_call_name": "Base.describe", "args_key": "[\"self\"]", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
 {"from": {"offset": 1, "table": 4}, "to": {"offset": 0, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 1, "table": 4}, "to": {"offset": 1, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 2, "table": 4}, "to": {"offset": 2, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}

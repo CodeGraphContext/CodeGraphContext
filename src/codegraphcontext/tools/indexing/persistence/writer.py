@@ -420,16 +420,26 @@ class GraphWriter:
                         for b in batch:
                             v = b.get(k)
                             if dominant == "list":
+                                # An empty list persists as [], not [""] (#1607).
+                                # The sentinel was not guarding a backend that
+                                # rejects empty lists: Kùzu accepts [] for a
+                                # STRING[] column in every shape used here --
+                                # inside UNWIND $rows, as a single-row parameter,
+                                # and when every row in the batch is empty, so
+                                # there is no sibling row to infer an element
+                                # type from. `dominant` above is unaffected too:
+                                # it only skips None, and [] is not None, so an
+                                # always-empty key still resolves to "list".
                                 if isinstance(v, list):
-                                    b[k] = [str(x) for x in v] if v else [""]
+                                    b[k] = [str(x) for x in v]
                                 elif isinstance(v, str) and v:
                                     try:
                                         p = _json.loads(v)
-                                        b[k] = [str(x) for x in p] if isinstance(p, list) and p else [""]
+                                        b[k] = [str(x) for x in p] if isinstance(p, list) and p else []
                                     except Exception:
                                         b[k] = [v]
                                 else:
-                                    b[k] = [""]
+                                    b[k] = []
                             elif dominant == "int":
                                 if v is None or v == "":
                                     b[k] = 0

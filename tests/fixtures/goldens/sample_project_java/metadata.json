@@ -1,13 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-07-25T16:56:35Z",
+  "exported_at": "2026-08-14T19:20:55Z",
   "format_version": "1.0.0",
   "repo": "sample_project_java",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "8bd1a8f7",
-  "branch": "main",
-  "generator": "PYv0.5.1",
+  "commit": "976d596c",
+  "branch": "fix/five-open-issues",
+  "languages": [
+    "java"
+  ],
+  "generator": "PYv0.5.8",
   "name": "sample_project_java.cgc",
   "graph_metrics": {
     "total_nodes": 159,
