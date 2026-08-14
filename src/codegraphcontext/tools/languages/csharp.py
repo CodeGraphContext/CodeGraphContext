@@ -446,13 +446,9 @@ class CSharpTreeSitterParser:
         curr = node.parent
         while curr:
             if curr.type in types:
-                if curr.type in ('method_declaration', 'function_declaration'):
-                     name_node = curr.child_by_field_name('name')
-                     return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
-                else: 
-                     # Classes, structs, etc.
-                     name_node = curr.child_by_field_name('name')
-                     return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
+                name_node = curr.child_by_field_name('name')
+                if name_node:
+                    return self._get_node_text(name_node), curr.type, curr.start_point[0] + 1
             curr = curr.parent
         return None, None, None
 
