@@ -141,6 +141,10 @@ CPP_QUERIES = {
         (preproc_def
             name: (identifier) @name
         ) @macro
+
+        (preproc_function_def
+            name: (identifier) @func_name
+        ) @func_macro
     """,
     "variables": """
     (declaration
@@ -151,6 +155,10 @@ CPP_QUERIES = {
         declarator: (init_declarator
                         declarator: (pointer_declarator
                             declarator: (identifier) @name)))
+
+    (declaration
+        type: (_) @var_type
+        declarator: (identifier) @plain_name)
 
     (field_declaration
         declarator: [
@@ -243,6 +251,16 @@ class CppTreeSitterParser:
                     name = parts[1]
                 else:
                     name = raw_text
+
+                if not class_context:
+                    ancestor = func_node.parent
+                    while ancestor:
+                        if ancestor.type == 'class_specifier':
+                            class_name_node = ancestor.child_by_field_name('name')
+                            if class_name_node:
+                                class_context = self._get_node_text(class_name_node)
+                            break
+                        ancestor = ancestor.parent
 
                 params = self._extract_function_params(func_node)
 
@@ -362,7 +380,7 @@ class CppTreeSitterParser:
             capture_name = match[1]
             node = match[0]
             if capture_name == 'path':
-                path = self._get_node_text(node).strip('<>')
+                path = self._get_node_text(node).strip('"<>')
                 imports.append({
                     "name": path,
                     "full_import_name": path,
@@ -462,14 +480,25 @@ class CppTreeSitterParser:
         for match in execute_query(self.language, query_str, root_node):
             capture_name = match[1]
             node = match[0]
-            if capture_name == 'name':
+            if capture_name in ('name', 'func_name'):
                 macro_node = node.parent
                 name = self._get_node_text(node)
+                end_row = macro_node.end_point[0]
+                end_col = macro_node.end_point[1]
+                end_line = end_row if end_col == 0 else end_row + 1
                 macro_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
-                    "end_line": macro_node.end_point[0] + 1,
+                    "end_line": end_line,
                 }
+                if capture_name == 'func_name':
+                    parameters_node = macro_node.child_by_field_name('parameters')
+                    params = []
+                    if parameters_node:
+                        for child in parameters_node.children:
+                            if child.type == 'identifier':
+                                params.append(self._get_node_text(child))
+                    macro_data["params"] = params
                 if self.index_source:
                     macro_data["source"] = self._get_node_text(macro_node)
                 macros.append(macro_data)
@@ -524,6 +553,7 @@ class CppTreeSitterParser:
     def _find_variables(self, root_node):
         variables = []
         query_str = CPP_QUERIES['variables']
+        seen_plain_names = set()
         for match in execute_query(self.language, query_str, root_node):
             capture_name = match[1]
             node = match[0]
@@ -538,8 +568,17 @@ class CppTreeSitterParser:
 
                 name = self._get_node_text(node)
                 value = self._get_node_text(right_node) if right_node else None
-                
-                type_node = assignment_node.child_by_field_name('type')
+
+                # For `int x = 5;`, `assignment_node` is the init_declarator,
+                # which has no 'type' field — the type lives on the enclosing
+                # `declaration` node. For field declarations (`int m;` inside
+                # a class), `assignment_node` is already the `field_declaration`
+                # node itself and already carries the 'type' field directly.
+                if assignment_node.type == 'init_declarator':
+                    decl_node = assignment_node.parent
+                    type_node = decl_node.child_by_field_name('type') if decl_node else None
+                else:
+                    type_node = assignment_node.child_by_field_name('type')
                 type_text = self._get_node_text(type_node) if type_node else None
 
                 context, _, _ = self._get_parent_context(node)
@@ -549,6 +588,33 @@ class CppTreeSitterParser:
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "value": value,
+                    "type": type_text,
+                    "context": context,
+                    "class_context": class_context,
+                    "lang": self.language_name,
+                    "is_dependency": False,
+                }
+                variables.append(variable_data)
+                seen_plain_names.add((name, node.start_point[0]))
+
+            elif capture_name == 'plain_name':
+                # Uninitialized declaration: `int count;`
+                key = (self._get_node_text(node), node.start_point[0])
+                if key in seen_plain_names:
+                    continue
+                seen_plain_names.add(key)
+
+                decl_node = node.parent
+                type_node = decl_node.child_by_field_name('type') if decl_node else None
+                type_text = self._get_node_text(type_node) if type_node else None
+
+                context, _, _ = self._get_parent_context(node)
+                class_context, _, _ = self._get_parent_context(node, types=('class_specifier',))
+
+                variable_data = {
+                    "name": self._get_node_text(node),
+                    "line_number": node.start_point[0] + 1,
+                    "value": None,
                     "type": type_text,
                     "context": context,
                     "class_context": class_context,
