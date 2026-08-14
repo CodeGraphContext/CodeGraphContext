@@ -1719,6 +1719,44 @@ class KotlinTreeSitterParser:
 
         return imports
 
+    @staticmethod
+    def _is_within_annotation(node: Any) -> bool:
+        """True when `node` is part of an annotation rather than a real call.
+
+        An annotation carrying arguments is `annotation -> @ +
+        constructor_invocation` in this grammar, and KOTLIN_QUERIES["calls"]
+        captures `constructor_invocation`, so `@Preview(showBackground =
+        true)` would otherwise be recorded as a call made by the annotated
+        declaration. The same applies to expressions *inside* the argument
+        list -- `@PreviewParameter(provider = FooProvider::class)` puts a
+        `callable_reference` there, which the query captures too.
+
+        The walk is over ancestors rather than a single parent check because
+        the captured node is the annotation's own `constructor_invocation`
+        (direct parent `annotation`) in the first case and an argument nested
+        below it in the second. Ancestors are also what keeps genuine calls:
+        `B()` in `class A : B()` is a `constructor_invocation` as well, but
+        its parent chain runs through `delegation_specifier`, never
+        `annotation`, so it survives -- as does a `constructor_delegation_call`
+        under `secondary_constructor`. Keying on the node type alone would
+        delete both.
+
+        Two node types are checked, not one. Declaration-level annotations
+        nest under `annotation`, which covers functions, classes, objects,
+        interfaces, typealiases, properties and use-site targets such as
+        `@field:ColumnInfo(...)` and `@get:JvmName(...)`. File-level
+        annotations are the exception: `@file:JvmName("Utils")` produces a
+        `file_annotation` node instead, with no `annotation` anywhere in the
+        chain, so checking only `annotation` would leave the phantom at the
+        top of every file using a `@file:` target. See issue #1602.
+        """
+        current = node.parent
+        while current is not None:
+            if current.type in ("annotation", "file_annotation"):
+                return True
+            current = current.parent
+        return False
+
     def _parse_calls(
         self,
         captures: list,
@@ -1810,6 +1848,8 @@ class KotlinTreeSitterParser:
 
         for node, capture_name in captures:
             if capture_name == "call_node":
+                if self._is_within_annotation(node):
+                    continue
                 try:
                     # navigation_expression check
                     

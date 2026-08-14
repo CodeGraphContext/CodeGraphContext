@@ -72,13 +72,15 @@ class TestParserOutputSanity:
             and call["context"][2] == greeting_preview["line_number"]
         ]
         matching_names = {call["name"] for call in matching_calls}
-        # The parser also records the "@Preview(...)" annotation itself as
-        # a call sharing the same context (it is a constructor-shaped
-        # invocation) -- build_previews_links relies on the is_composable
-        # check to filter that one out, since "Preview" the annotation
-        # class is never a @Composable function.
+        # The parser used to also record the "@Preview(...)" annotation
+        # itself as a call sharing this context, because an annotation with
+        # arguments is a constructor-shaped invocation in the grammar.
+        # Issue #1602 fixed that at source, so the echo is gone before any
+        # resolution builder sees it. build_previews_links keeps its own
+        # own_decorator_names rejection as a backstop; the test below pins
+        # that it still holds even if a phantom were reintroduced.
         assert "Greeting" in matching_names
-        assert "Preview" in matching_names
+        assert "Preview" not in matching_names
 
     def test_label_is_composable_with_no_preview_decorator(self, parsed_annotations_file):
         label = next(f for f in parsed_annotations_file["functions"] if f["name"] == "Label")

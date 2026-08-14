@@ -734,25 +734,30 @@ def build_previews_links(
     a preview function's body (e.g. a logging call) would be mistaken for
     the previewed composable.
 
-    Annotation-echo filtering: KOTLIN_QUERIES["calls"] captures
+    Annotation-echo filtering (backstop): KOTLIN_QUERIES["calls"] captures
     constructor_invocation nodes, and any annotation with arguments --
     "@Preview(showBackground = true)", "@Query(...)", "@InstallIn(...)" --
-    is syntactically a constructor_invocation, so the Kotlin parser records
-    the annotation itself as a phantom entry in function_calls, sharing the
-    annotated function's context. (Argument-less annotations like bare
-    "@Composable" do not trigger this.) A composable_index membership check
-    alone is not enough to reject this phantom call: it only fails to
-    match by coincidence, when no @Composable function happens to be named
-    e.g. "Preview" or "Query". If one existed with that exact name and were
-    resolvable from this file, the phantom call would pass the
-    composable_index check and produce a bogus PREVIEWS edge to a
-    composable the preview function never actually calls. To close that
-    gap deterministically regardless of what else exists in the indexed
-    codebase, a candidate call name is rejected outright whenever it
-    matches one of the *same function's own* decorator names (also via
-    _parse_decorator_name) -- a real call to a composable can never be
+    is syntactically a constructor_invocation. The Kotlin parser used to
+    record the annotation itself as a phantom entry in function_calls,
+    sharing the annotated function's context (issue #1602). That is now
+    filtered at source by KotlinTreeSitterParser._is_within_annotation, so
+    no echo should reach this builder.
+
+    The rejection below is kept as a backstop rather than removed, because
+    a composable_index membership check alone would not be enough if an
+    echo ever returned: it only fails to match by coincidence, when no
+    @Composable function happens to be named e.g. "Preview" or "Query". If
+    one existed with that exact name and were resolvable from this file,
+    the phantom would pass the composable_index check and produce a bogus
+    PREVIEWS edge to a composable the preview function never actually
+    calls. Rejecting any candidate whose name matches one of the *same
+    function's own* decorator names (also via _parse_decorator_name) closes
+    that gap deterministically -- a real call to a composable can never be
     named identically to one of its own annotations, so this can only ever
-    reject the echo, never a genuine call.
+    reject an echo, never a genuine call. It costs one set lookup per
+    candidate and is pinned by
+    test_annotation_echo_is_rejected_even_when_a_same_named_composable_exists,
+    which feeds it hand-built rows rather than parser output.
     """
     previews_batch: List[Dict[str, Any]] = []
     seen: set = set()
@@ -795,13 +800,11 @@ def build_previews_links(
             if not preview_name or preview_line is None:
                 continue
 
-            # The parser records annotations-with-arguments (this
-            # function's own "@Preview(...)" included) as phantom entries
-            # in function_calls sharing this function's context -- see the
-            # docstring. Reject any candidate call whose name matches one
-            # of this function's own decorator names before resolution, so
-            # the exclusion holds regardless of what else is named in the
-            # indexed codebase.
+            # Backstop only: the parser no longer emits annotation echoes
+            # into function_calls (#1602), but rejecting any candidate whose
+            # name matches one of this function's own decorator names keeps
+            # the exclusion holding regardless of what else is named in the
+            # indexed codebase -- see the docstring.
             own_decorator_names = {_parse_decorator_name(d) for d in decorators}
 
             for call in function_calls:
