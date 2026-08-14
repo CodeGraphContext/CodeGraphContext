@@ -869,9 +869,18 @@ class CodeFinder:
             
             return result.data()
     
-    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None, graph_name: str = None) -> Dict[str, Any]:
+    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None, graph_name: str = None, limit: Optional[int] = None) -> Dict[str, Any]:
         self._active_graph = graph_name
-        """Find potentially unused functions (not called by other functions in the project), optionally excluding those with specific decorators."""
+        """Find potentially unused functions (not called by other functions in the project), optionally excluding those with specific decorators.
+
+        Returns `potentially_unused_functions` (at most `limit` rows, all of
+        them when `limit` is None) alongside `total_count`, the full number
+        of matches before paging. Ordering is by path then line number, so a
+        limited result is a path-ordered prefix and clusters in the first few
+        files rather than sampling the codebase -- callers wanting a
+        representative sample should request the full set and sample
+        themselves.
+        """
         if exclude_decorated_with is None:
             exclude_decorated_with = []
 
@@ -919,17 +928,28 @@ class CodeFinder:
                     func.context as context,
                     file.name as file_name
                 ORDER BY func.path, func.line_number
-                LIMIT 50
             """
-            
+
             params = {}
             if repo_path:
                 params["repo_path"] = repo_path
 
             result = session.run(query, **params)
-            
+            rows = result.data()
+
+            # The query is deliberately unbounded and the page is taken here,
+            # so total_count is the true number of dead functions rather than
+            # the size of the page. A `LIMIT 50` inside the query applied
+            # *after* the decorator filter instead, which made
+            # exclude_decorated_with look inert: excluded rows were backfilled
+            # by the next ones in path order and the count came back 50 either
+            # way (#1606).
+            total_count = len(rows)
+            page = rows[:limit] if limit else rows
+
             return {
-                "potentially_unused_functions": result.data(),
+                "potentially_unused_functions": page,
+                "total_count": total_count,
                 "note": "These functions might be unused, but could be entry points, callbacks, or called dynamically"
             }
     

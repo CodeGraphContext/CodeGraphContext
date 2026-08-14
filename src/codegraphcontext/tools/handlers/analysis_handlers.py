@@ -14,6 +14,10 @@ def find_dead_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         debug_log(f"Finding dead code. repo_path={repo_path}")
         results = code_finder.find_dead_code(exclude_decorated_with=exclude_decorated_with, repo_path=repo_path, graph_name=graph_name)
 
+        # find_dead_code no longer caps its own query, so this truncation is
+        # now reached with the real result set behind it. It previously never
+        # saw more than the 50 rows the query itself returned, which made
+        # raising TOOL_RESULT_LIMITS above 50 a no-op (#1606).
         limit = get_tool_result_limit("find_dead_code")
         unused = results.get("potentially_unused_functions", [])
         truncated = False

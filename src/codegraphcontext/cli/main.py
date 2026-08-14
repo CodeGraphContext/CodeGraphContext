@@ -3023,10 +3023,19 @@ def analyze_dead_code(
         # `path` was accepted and then dropped, so running inside one repository
         # still reported dead code from every repository in the database.
         repo_path = Path(path).resolve().as_posix() if path else None
-        results = code_finder.find_dead_code(exclude_list, repo_path=repo_path)
+        # find_dead_code used to cap itself at 50 rows inside the query, which
+        # doubled as this table's page size by accident. Now that it returns
+        # the full set, ask for a page explicitly -- otherwise a real codebase
+        # (7,141 dead functions was the reported figure) would print thousands
+        # of table rows. The true count comes from total_count below (#1606).
+        display_limit = get_tool_result_limit("find_dead_code")
+        results = code_finder.find_dead_code(
+            exclude_list, repo_path=repo_path, limit=display_limit
+        )
 
         unused_funcs = results.get('potentially_unused_functions', [])
-        
+        total_count = results.get('total_count', len(unused_funcs))
+
         if not unused_funcs:
             console.print("[green]✓ No dead code found![/green]")
             return
@@ -3047,7 +3056,13 @@ def analyze_dead_code(
         
         console.print("\n[bold yellow]⚠️  Potentially Unused Functions:[/bold yellow]")
         console.print(table)
-        console.print(f"\n[dim]Total: {len(unused_funcs)} function(s)[/dim]")
+        if total_count > len(unused_funcs):
+            console.print(
+                f"\n[dim]Total: {total_count} function(s); "
+                f"showing the first {len(unused_funcs)} by path[/dim]"
+            )
+        else:
+            console.print(f"\n[dim]Total: {total_count} function(s)[/dim]")
         console.print(f"[dim]Note: {results.get('note', '')}[/dim]")
     finally:
         db_manager.close_driver()
