@@ -26,7 +26,15 @@ def _write_and_parse(parser, src: str, suffix: str = ".kt") -> dict:
         mode="w", suffix=suffix, delete=False, encoding="utf-8"
     ) as f:
         f.write(src)
-        tmp = f.name
+        # Resolve before parsing, not after. On macOS tempfile hands back
+        # /var/folders/... while /var is a symlink to /private/var, and the
+        # call-resolution layer stores the fully resolved path -- so any test
+        # comparing an edge's called_file_path against Path(data["path"])
+        # compares /private/var/... to /var/... and fails on a clean
+        # checkout. Resolving here makes data["path"] already canonical, so
+        # every such comparison in this file holds without each one having
+        # to remember to call .resolve(). See issue #1608.
+        tmp = str(Path(f.name).resolve())
     try:
         result = parser.parse(Path(tmp))
         assert isinstance(result, dict)
