@@ -1,28 +1,15 @@
-"""Verification tests for the six C++ parser bugs.
+"""Regression tests for six independent bugs in the C++ tree-sitter parser.
 
-Covers the bugs fixed in `src/codegraphcontext/tools/languages/cpp.py`
-(see CPP_PARSER_FIXES.md). Each bug gets a test pinning the fixed behaviour,
-plus preservation tests pinning the neighbouring behaviour the fix must not
-disturb.
+Each bug produced incorrect graph data or silently dropped code elements. Every
+bug gets a test pinning the fixed behaviour, plus preservation tests pinning the
+neighbouring behaviour the fix must not disturb.
 
-Self-contained: uses pytest's built-in `tmp_path` rather than the `temp_test_dir`
-fixture from tests/conftest.py, since this file lives outside the tests/ tree.
-
-Run with:
-    set PYTHONPATH=<repo>\\src
-    python -m pytest cpp_parser_fix/specs/_tmp-test/test_cpp_parser_fixes.py -v
+Fixes live in `src/codegraphcontext/tools/languages/cpp.py`.
 """
 
-from pathlib import Path
 from unittest.mock import MagicMock
-import sys
 
 import pytest
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_SRC = _REPO_ROOT / "src"
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
 
 from codegraphcontext.tools.languages.cpp import CppTreeSitterParser
 from codegraphcontext.utils.tree_sitter_manager import get_tree_sitter_manager
@@ -41,8 +28,8 @@ def cpp_parser():
     return CppTreeSitterParser(wrapper)
 
 
-def _parse(cpp_parser, tmp_path, code, name="sample.cpp"):
-    f = tmp_path / name
+def _parse(cpp_parser, temp_test_dir, code, name="sample.cpp"):
+    f = temp_test_dir / name
     f.write_text(code, encoding="utf-8")
     return cpp_parser.parse(f)
 
@@ -50,18 +37,18 @@ def _parse(cpp_parser, tmp_path, code, name="sample.cpp"):
 # --- Bug 1: local quoted includes kept their surrounding double quotes,
 # because _find_imports stripped only '<>' and not '"'. ---
 
-def test_local_quoted_include_strips_quotes(cpp_parser, tmp_path):
-    result = _parse(cpp_parser, tmp_path, '#include "local.h"\n')
+def test_local_quoted_include_strips_quotes(cpp_parser, temp_test_dir):
+    result = _parse(cpp_parser, temp_test_dir, '#include "local.h"\n')
 
     names = [i["name"] for i in result["imports"]]
     assert names == ["local.h"]
     assert all('"' not in n for n in names)
 
 
-def test_system_include_still_strips_angle_brackets(cpp_parser, tmp_path):
+def test_system_include_still_strips_angle_brackets(cpp_parser, temp_test_dir):
     """Preservation: the '<>' stripping that already worked must keep working."""
     result = _parse(
-        cpp_parser, tmp_path, '#include <stdio.h>\n#include "local.h"\n'
+        cpp_parser, temp_test_dir, '#include <stdio.h>\n#include "local.h"\n'
     )
 
     assert [i["name"] for i in result["imports"]] == ["stdio.h", "local.h"]
@@ -70,8 +57,8 @@ def test_system_include_still_strips_angle_brackets(cpp_parser, tmp_path):
 # --- Bug 2: an initialized declaration reported type None, because node.parent
 # is the init_declarator (which has no 'type' field), not the declaration. ---
 
-def test_initialized_variable_reports_its_type(cpp_parser, tmp_path):
-    result = _parse(cpp_parser, tmp_path, "int x = 5;\ndouble ratio = 1.5;\n")
+def test_initialized_variable_reports_its_type(cpp_parser, temp_test_dir):
+    result = _parse(cpp_parser, temp_test_dir, "int x = 5;\ndouble ratio = 1.5;\n")
 
     variables = {v["name"]: v for v in result["variables"]}
     assert variables["x"]["type"] == "int"
@@ -79,7 +66,7 @@ def test_initialized_variable_reports_its_type(cpp_parser, tmp_path):
     assert variables["ratio"]["type"] == "double"
 
 
-def test_class_field_declaration_keeps_type_and_context(cpp_parser, tmp_path):
+def test_class_field_declaration_keeps_type_and_context(cpp_parser, temp_test_dir):
     """Preservation: field_declaration carries 'type' on the node itself, not on
     a parent, so the Bug 2 fix must not walk up an extra level for fields."""
     code = """
@@ -88,7 +75,7 @@ class Foo {
     double m_ratio;
 };
 """
-    result = _parse(cpp_parser, tmp_path, code)
+    result = _parse(cpp_parser, temp_test_dir, code)
 
     variables = {v["name"]: v for v in result["variables"]}
     assert variables["m_count"]["type"] == "int"
@@ -99,8 +86,8 @@ class Foo {
 # --- Bug 3: a declaration with no initializer was never captured at all,
 # because the variables query only matched init_declarator shapes. ---
 
-def test_uninitialized_variable_is_captured(cpp_parser, tmp_path):
-    result = _parse(cpp_parser, tmp_path, "int count;\nint initialized = 7;\n")
+def test_uninitialized_variable_is_captured(cpp_parser, temp_test_dir):
+    result = _parse(cpp_parser, temp_test_dir, "int count;\nint initialized = 7;\n")
 
     variables = {v["name"]: v for v in result["variables"]}
     assert "count" in variables, "uninitialized declaration must be captured"
@@ -114,7 +101,7 @@ def test_uninitialized_variable_is_captured(cpp_parser, tmp_path):
 # --- Bug 4: a method defined inline in a class body got no class_context, so
 # the indexer could not build the Class-[:CONTAINS]->Function edge for it. ---
 
-def test_inline_class_method_gets_class_context(cpp_parser, tmp_path):
+def test_inline_class_method_gets_class_context(cpp_parser, temp_test_dir):
     code = """
 class Foo {
 public:
@@ -122,14 +109,14 @@ public:
     int baz(int n) { return n; }
 };
 """
-    result = _parse(cpp_parser, tmp_path, code)
+    result = _parse(cpp_parser, temp_test_dir, code)
 
     functions = {fn["name"]: fn for fn in result["functions"]}
     assert functions["bar"].get("class_context") == "Foo"
     assert functions["baz"].get("class_context") == "Foo"
 
 
-def test_inline_method_in_nested_class_uses_innermost_class(cpp_parser, tmp_path):
+def test_inline_method_in_nested_class_uses_innermost_class(cpp_parser, temp_test_dir):
     code = """
 class Outer {
 public:
@@ -140,14 +127,14 @@ public:
     void shallow() {}
 };
 """
-    result = _parse(cpp_parser, tmp_path, code)
+    result = _parse(cpp_parser, temp_test_dir, code)
 
     functions = {fn["name"]: fn for fn in result["functions"]}
     assert functions["deep"].get("class_context") == "Inner"
     assert functions["shallow"].get("class_context") == "Outer"
 
 
-def test_file_scope_function_has_no_class_context(cpp_parser, tmp_path):
+def test_file_scope_function_has_no_class_context(cpp_parser, temp_test_dir):
     """Preservation: the ancestor walk added for Bug 4 must not invent a class
     context for functions that genuinely have none."""
     code = """
@@ -158,16 +145,16 @@ public:
     void member() {}
 };
 """
-    result = _parse(cpp_parser, tmp_path, code)
+    result = _parse(cpp_parser, temp_test_dir, code)
 
     functions = {fn["name"]: fn for fn in result["functions"]}
     assert functions["process"].get("class_context") is None
     assert functions["member"].get("class_context") == "Foo"
 
 
-def test_qualified_method_context_survives_the_ancestor_walk(cpp_parser, tmp_path):
+def test_qualified_method_context_survives_the_ancestor_walk(cpp_parser, temp_test_dir):
     """Preservation: '::' splitting must still win over the ancestor walk."""
-    result = _parse(cpp_parser, tmp_path, "void Foo::bar() {}\n")
+    result = _parse(cpp_parser, temp_test_dir, "void Foo::bar() {}\n")
 
     bar = next(fn for fn in result["functions"] if fn["name"] == "bar")
     assert bar.get("class_context") == "Foo"
@@ -176,13 +163,13 @@ def test_qualified_method_context_survives_the_ancestor_walk(cpp_parser, tmp_pat
 # --- Bug 5: function-like macros use the preproc_function_def node type, which
 # the preproc_def-only query never matched, so they were missed entirely. ---
 
-def test_function_like_macro_is_extracted(cpp_parser, tmp_path):
+def test_function_like_macro_is_extracted(cpp_parser, temp_test_dir):
     code = """
 #define SQUARE(x) ((x)*(x))
 #define ADD(a, b) ((a)+(b))
 #define NOARGS() 0
 """
-    result = _parse(cpp_parser, tmp_path, code)
+    result = _parse(cpp_parser, temp_test_dir, code)
 
     macros = {m["name"]: m for m in result["macros"]}
     assert "SQUARE" in macros
@@ -191,14 +178,14 @@ def test_function_like_macro_is_extracted(cpp_parser, tmp_path):
     assert macros["NOARGS"]["params"] == []
 
 
-def test_object_like_macro_still_extracted(cpp_parser, tmp_path):
+def test_object_like_macro_still_extracted(cpp_parser, temp_test_dir):
     """Preservation: adding the preproc_function_def alternative must not
     disturb the object-like macros that already matched."""
     code = """
 #define MAX_SIZE 100
 #define SQUARE(x) ((x)*(x))
 """
-    result = _parse(cpp_parser, tmp_path, code)
+    result = _parse(cpp_parser, temp_test_dir, code)
 
     macros = {m["name"]: m for m in result["macros"]}
     assert "MAX_SIZE" in macros
@@ -209,34 +196,36 @@ def test_object_like_macro_still_extracted(cpp_parser, tmp_path):
 # end_point already rolls to column 0 of the next row for the trailing newline
 # and the code then added 1 on top of that. ---
 
-def test_single_line_macro_end_line_is_its_own_line(cpp_parser, tmp_path):
-    result = _parse(cpp_parser, tmp_path, "#define MAX 100\n")
+def test_single_line_macro_end_line_is_its_own_line(cpp_parser, temp_test_dir):
+    result = _parse(cpp_parser, temp_test_dir, "#define MAX 100\n")
 
     macro = result["macros"][0]
     assert macro["line_number"] == 1
     assert macro["end_line"] == 1
 
 
-def test_multi_line_macro_end_line_covers_continuations(cpp_parser, tmp_path):
+def test_multi_line_macro_end_line_covers_continuations(cpp_parser, temp_test_dir):
     """Preservation: a line-continued macro must still span to its real end."""
     code = "#define SUM(a, b) \\\n    ((a) + \\\n     (b))\n"
-    result = _parse(cpp_parser, tmp_path, code)
+    result = _parse(cpp_parser, temp_test_dir, code)
 
     macro = next(m for m in result["macros"] if m["name"] == "SUM")
     assert macro["line_number"] == 1
     assert macro["end_line"] == 3
 
 
-def test_lambda_assignment_still_extracted_as_function(cpp_parser, tmp_path):
+def test_lambda_assignment_still_extracted_as_function(cpp_parser, temp_test_dir):
     """Preservation: the variables query changes must not steal lambdas away
     from _find_lambda_assignments or duplicate them as plain variables."""
-    result = _parse(cpp_parser, tmp_path, "auto fn = [](int x) { return x; };\n")
+    result = _parse(
+        cpp_parser, temp_test_dir, "auto fn = [](int x) { return x; };\n"
+    )
 
     assert any(fn["name"] == "fn" for fn in result["functions"])
     assert "fn" not in [v["name"] for v in result["variables"]]
 
 
-def test_all_six_bug_scenarios_in_one_file(cpp_parser, tmp_path):
+def test_all_six_bug_scenarios_in_one_file(cpp_parser, temp_test_dir):
     """Integration: every bug scenario together, to catch cross-interference."""
     code = """#include <stdio.h>
 #include "local.h"
@@ -256,7 +245,7 @@ void Foo::other() {}
 
 void free_fn() {}
 """
-    result = _parse(cpp_parser, tmp_path, code, name="all_bugs.cpp")
+    result = _parse(cpp_parser, temp_test_dir, code, name="all_bugs.cpp")
 
     assert [i["name"] for i in result["imports"]] == ["stdio.h", "local.h"]
 
