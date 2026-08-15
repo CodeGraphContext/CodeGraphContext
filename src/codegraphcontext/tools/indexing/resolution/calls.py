@@ -1483,11 +1483,22 @@ def resolve_function_call(
             )
         return None
 
+    # `lookup_name` is only the same symbol as `called_name` for a *direct*
+    # call resolved through an import alias (e.g. `from x import fn as g; g()`,
+    # where lookup_name == called_name == "g"). For an attribute-qualified
+    # call (`module.fn()` / `obj.method()`), lookup_name is the *base_obj*
+    # (module/receiver name) instead, which is a different symbol than the
+    # function actually being called. Treating lookup_name as the callee's
+    # canonical name in that case overwrites resolved_called_name with the
+    # module/receiver name, so the later MATCH (by called_name) in writer.py
+    # can never find a matching Function node and the whole edge is silently
+    # dropped (see issue #1573).
+    is_attribute_lookup = bool(base_obj) and lookup_name == base_obj and lookup_name != called_name
     if not resolved_path:
-        if lookup_name in local_imports:
+        if lookup_name in local_imports and not is_attribute_lookup:
             resolved_called_name = local_imports[lookup_name]
         possible_paths = imports_map.get(lookup_name, [])
-        if not possible_paths and lookup_name in local_imports:
+        if not possible_paths and lookup_name in local_imports and not is_attribute_lookup:
             imported_name = local_imports[lookup_name]
             alias_paths = imports_map.get(imported_name, [])
             if alias_paths:
