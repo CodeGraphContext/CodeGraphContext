@@ -692,10 +692,14 @@ class MCPServer:
         # different meanings (path = file path, repo_path = repo filter).
         if isinstance(args, dict):
             args = dict(args)
+            # path_means_file: for these tools `path` is a file disambiguator and
+            # `repo_path` is a separate repo-prefix filter. Aliasing either way
+            # collapses the two meanings (#1532: path → repo_path made
+            # calculate_cyclomatic_complexity return null).
             path_means_file = tool_name in ("calculate_cyclomatic_complexity",)
             if "repo_path" in args and "path" not in args and not path_means_file:
                 args["path"] = args["repo_path"]
-            elif "path" in args and "repo_path" not in args:
+            elif "path" in args and "repo_path" not in args and not path_means_file:
                 args["repo_path"] = args["path"]
 
         tool_map: Dict[str, Coroutine] = {
