@@ -1498,13 +1498,14 @@ def resolve_function_call(
         if lookup_name in local_imports and not is_attribute_lookup:
             resolved_called_name = local_imports[lookup_name]
         possible_paths = imports_map.get(lookup_name, [])
-        if not possible_paths and lookup_name in local_imports and not is_attribute_lookup:
+        if not possible_paths and lookup_name in local_imports:
             imported_name = local_imports[lookup_name]
             alias_paths = imports_map.get(imported_name, [])
             if alias_paths:
                 possible_paths = alias_paths
                 lookup_name = imported_name
-                resolved_called_name = imported_name
+                if not is_attribute_lookup:
+                    resolved_called_name = imported_name
         if len(possible_paths) == 1:
             resolved_path = possible_paths[0]
             resolution_tier = 5

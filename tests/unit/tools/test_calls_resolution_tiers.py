@@ -356,3 +356,16 @@ class TestAttributeQualifiedModuleCalls:
         assert result["called_name"] == "attr_probe_fn"
         assert result["called_file_path"] == "/tmp/attrtest/target.py"
 
+    def test_aliased_module_attribute_call_resolves_module_path_from_imports_map(self):
+        call = _call("attr_probe_fn", full_name="t.attr_probe_fn")
+        local_imports = {"t": "target"}
+        imports_map = {"target": ["/tmp/attrtest/target.py"]}
+
+        result = resolve(
+            call, local_imports=local_imports, imports_map=imports_map
+        )
+
+        assert result["called_name"] == "attr_probe_fn"
+        assert result["called_file_path"] == "/tmp/attrtest/target.py"
+
+
