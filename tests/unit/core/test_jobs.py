@@ -33,3 +33,20 @@ class TestJobManager:
         job = manager.get_job("non_existent_id")
         assert job is None
 
+    def test_list_active_jobs_includes_pending_and_running_only(self):
+        """#1536: switch_context must see PENDING as well as RUNNING."""
+        manager = JobManager()
+        pending_id = manager.create_job("/pending")
+        running_id = manager.create_job("/running")
+        done_id = manager.create_job("/done")
+        failed_id = manager.create_job("/failed")
+        cancelled_id = manager.create_job("/cancelled")
+
+        manager.update_job(running_id, status=JobStatus.RUNNING)
+        manager.update_job(done_id, status=JobStatus.COMPLETED)
+        manager.update_job(failed_id, status=JobStatus.FAILED)
+        manager.update_job(cancelled_id, status=JobStatus.CANCELLED)
+
+        active_ids = {job.job_id for job in manager.list_active_jobs()}
+        assert active_ids == {pending_id, running_id}
+

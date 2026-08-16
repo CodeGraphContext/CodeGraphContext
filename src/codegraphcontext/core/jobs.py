@@ -121,6 +121,14 @@ class JobManager:
                     
             return None
 
+    def list_active_jobs(self) -> List[JobInfo]:
+        """Return all jobs that are still PENDING or RUNNING (#1536)."""
+        with self.lock:
+            return [
+                job for job in self.jobs.values()
+                if job.status in (JobStatus.PENDING, JobStatus.RUNNING)
+            ]
+
     def cleanup_old_jobs(self, max_age_hours: int = 24):
         """Removes old jobs from memory to prevent memory leaks.
 
