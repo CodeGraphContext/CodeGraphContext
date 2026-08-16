@@ -11,7 +11,8 @@ import NotFound from "./pages/NotFound";
 import Explore from "./pages/Explore";
 import Privacy from "./pages/Privacy";
 import PRReviewerPage from "./pages/PRReviewerPage";
-import Contributing from "./pages/contributing";
+import Contributing from "./pages/Contributing";
+
 import Navbar from "./components/Navbar";
 import MoveToTop from "./components/MoveToTop";
 // Removed AOS for instant loading
