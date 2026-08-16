@@ -198,6 +198,52 @@ class TestPythonParser:
         assert imports_by_name["configure"]["alias"] == "setup"
         assert imports_by_name["configure"]["full_import_name"] == "pkg.utils.configure"
 
+    def test_from_import_records_source_module_not_symbol(self, parser, temp_test_dir):
+        """from X import Y must keep X as the module and Y as the imported name.
+
+        Call resolution still keys local_imports off `name` (the symbol).
+        `import os.path` must stay a module named os.path, not a from-import.
+        """
+        code = (
+            "import os\n"
+            "import os.path\n"
+            "from pathlib import Path\n"
+            "from unittest.mock import AsyncMock as AM\n"
+            "from typing import Optional, Dict\n"
+        )
+        f = temp_test_dir / "from_imports.py"
+        f.write_text(code)
+
+        result = parser.parse(str(f))
+        by_full = {imp["full_import_name"]: imp for imp in result["imports"]}
+
+        os_imp = by_full["os"]
+        assert os_imp["name"] == "os"
+        assert os_imp.get("source") is None
+
+        os_path = by_full["os.path"]
+        assert os_path["name"] == "os.path"
+        assert os_path.get("source") is None
+
+        path_imp = by_full["pathlib.Path"]
+        assert path_imp["name"] == "Path"
+        assert path_imp["source"] == "pathlib"
+        assert path_imp["imported_name"] == "Path"
+        assert path_imp["source"] != path_imp["name"]
+
+        async_imp = by_full["unittest.mock.AsyncMock"]
+        assert async_imp["source"] == "unittest.mock"
+        assert async_imp["name"] == "AsyncMock"
+        assert async_imp["imported_name"] == "AsyncMock"
+        assert async_imp["alias"] == "AM"
+
+        optional = by_full["typing.Optional"]
+        dict_imp = by_full["typing.Dict"]
+        assert optional["source"] == "typing"
+        assert dict_imp["source"] == "typing"
+        assert optional["name"] == "Optional"
+        assert dict_imp["name"] == "Dict"
+
     def test_parse_class_with_method(self, parser, temp_test_dir):
         """Parse a class with a method."""
         code = """

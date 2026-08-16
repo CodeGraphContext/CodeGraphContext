@@ -569,8 +569,8 @@
 {"from": {"offset": 40, "table": 1}, "to": {"offset": 80, "table": 6}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 40, "table": 1}, "to": {"offset": 81, "table": 6}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 1, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "abc.ABC", "imported_name": "ABC"}}
-{"from": {"offset": 1, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "abc.abstractmethod", "imported_name": "abstractmethod"}}
-{"from": {"offset": 2, "table": 1}, "to": {"offset": 2, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "enum.Enum", "imported_name": "Enum"}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "abc.abstractmethod", "imported_name": "abstractmethod"}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 16, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "enum.Enum", "imported_name": "Enum"}}
 {"from": {"offset": 2, "table": 1}, "to": {"offset": 3, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "dataclasses.dataclass", "imported_name": "dataclass"}}
 {"from": {"offset": 4, "table": 1}, "to": {"offset": 4, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "math", "imported_name": "math"}}
 {"from": {"offset": 4, "table": 1}, "to": {"offset": 5, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 6, "alias": "", "full_import_name": "random", "imported_name": "random"}}
@@ -589,23 +589,23 @@
 {"from": {"offset": 15, "table": 1}, "to": {"offset": 17, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "collections.namedtuple", "imported_name": "namedtuple"}}
 {"from": {"offset": 16, "table": 1}, "to": {"offset": 18, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "importlib", "imported_name": "importlib"}}
 {"from": {"offset": 16, "table": 1}, "to": {"offset": 19, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "operator", "imported_name": "operator"}}
-{"from": {"offset": 16, "table": 1}, "to": {"offset": 20, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "functools.partial", "imported_name": "partial"}}
+{"from": {"offset": 16, "table": 1}, "to": {"offset": 27, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "functools.partial", "imported_name": "partial"}}
 {"from": {"offset": 17, "table": 1}, "to": {"offset": 18, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "importlib", "imported_name": "importlib"}}
 {"from": {"offset": 17, "table": 1}, "to": {"offset": 12, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 7, "alias": "", "full_import_name": "json", "imported_name": "json"}}
 {"from": {"offset": 17, "table": 1}, "to": {"offset": 15, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 5, "alias": "json", "full_import_name": "ujson", "imported_name": "ujson"}}
 {"from": {"offset": 26, "table": 1}, "to": {"offset": 4, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 5, "alias": "m", "full_import_name": "math", "imported_name": "math"}}
 {"from": {"offset": 28, "table": 1}, "to": {"offset": 4, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "math", "imported_name": "math"}}
 {"from": {"offset": 28, "table": 1}, "to": {"offset": 21, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "mb", "full_import_name": "module_b", "imported_name": "module_b"}}
-{"from": {"offset": 28, "table": 1}, "to": {"offset": 22, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "module_b.process_data", "imported_name": "process_data"}}
-{"from": {"offset": 31, "table": 1}, "to": {"offset": 23, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "module_b.helper", "imported_name": "helper"}}
+{"from": {"offset": 28, "table": 1}, "to": {"offset": 21, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "module_b.process_data", "imported_name": "process_data"}}
+{"from": {"offset": 31, "table": 1}, "to": {"offset": 21, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "module_b.helper", "imported_name": "helper"}}
 {"from": {"offset": 32, "table": 1}, "to": {"offset": 24, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "module_c.submodule1.call_helper_twice", "imported_name": "call_helper_twice"}}
 {"from": {"offset": 39, "table": 1}, "to": {"offset": 25, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "..parent_mod.ParentClass", "imported_name": "ParentClass"}}
-{"from": {"offset": 39, "table": 1}, "to": {"offset": 26, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "..parent_mod.parent_function", "imported_name": "parent_function"}}
+{"from": {"offset": 39, "table": 1}, "to": {"offset": 25, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "..parent_mod.parent_function", "imported_name": "parent_function"}}
 {"from": {"offset": 40, "table": 1}, "to": {"offset": 27, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "functools", "imported_name": "functools"}}
 {"from": {"offset": 40, "table": 1}, "to": {"offset": 6, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "sys", "imported_name": "sys"}}
 {"from": {"offset": 41, "table": 1}, "to": {"offset": 28, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "typing.Dict", "imported_name": "Dict"}}
-{"from": {"offset": 41, "table": 1}, "to": {"offset": 29, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "typing.List", "imported_name": "List"}}
-{"from": {"offset": 41, "table": 1}, "to": {"offset": 30, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "typing.Union", "imported_name": "Union"}}
+{"from": {"offset": 41, "table": 1}, "to": {"offset": 28, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "typing.List", "imported_name": "List"}}
+{"from": {"offset": 41, "table": 1}, "to": {"offset": 28, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "typing.Union", "imported_name": "Union"}}
 {"from": {"offset": 0, "table": 5}, "to": {"offset": 1, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 1, "table": 5}, "to": {"offset": 4, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 2, "table": 5}, "to": {"offset": 6, "table": 4}, "type": "CONTAINS", "properties": {}}

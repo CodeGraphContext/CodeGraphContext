@@ -563,14 +563,20 @@ class GraphWriter:
                                 "imported_name": imp.get("name", "*"),
                                 "alias": imp.get("alias") or "",
                                 "line_number": imp.get("line_number") or 0,
+                                "lang": imp.get("lang") or lang,
                             }
                         )
                 else:
-                    module_name = (
-                        imp.get("name")
-                        or imp.get("source")
-                        or imp.get("full_import_name")
-                    )
+                    # Python from-imports keep `name` as the imported symbol
+                    # (call resolution) and stash the module in `source`.
+                    if lang == "python" and imp.get("source"):
+                        module_name = imp.get("source")
+                    else:
+                        module_name = (
+                            imp.get("name")
+                            or imp.get("source")
+                            or imp.get("full_import_name")
+                        )
                     if not module_name:
                         continue
                     full_import_name = (
@@ -582,7 +588,11 @@ class GraphWriter:
                         {
                             "name": module_name,
                             "full_import_name": full_import_name,
-                            "imported_name": imp.get("imported_name") or module_name,
+                            "imported_name": (
+                                imp.get("imported_name")
+                                or imp.get("name")
+                                or module_name
+                            ),
                             "alias": imp.get("alias"),
                             "line_number": imp.get("line_number") or 0,
                             "lang": imp.get("lang") or lang,
@@ -597,7 +607,8 @@ class GraphWriter:
                     MERGE (m:Module {name: row.module_name})
                     MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)
                     SET r.imported_name = row.imported_name,
-                        r.alias = row.alias
+                        r.alias = row.alias,
+                        r.lang = row.lang
                 """,
                     batch=js_imports,
                     file_path=file_path_str,
@@ -612,10 +623,10 @@ class GraphWriter:
                     MERGE (m:Module {name: row.name})
                     SET m.lang = coalesce(m.lang, row.lang),
                         m.full_import_name = coalesce(m.full_import_name, row.full_import_name)
-                    MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)
+                    MERGE (f)-[r:IMPORTS {line_number: row.line_number, imported_name: row.imported_name}]->(m)
                     SET r.alias = coalesce(row.alias, ""),
-                        r.imported_name = row.imported_name,
-                        r.full_import_name = row.full_import_name
+                        r.full_import_name = row.full_import_name,
+                        r.lang = row.lang
                 """,
                     batch=other_imports,
                     file_path=file_path_str,
