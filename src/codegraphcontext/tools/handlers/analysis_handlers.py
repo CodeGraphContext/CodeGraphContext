@@ -103,20 +103,13 @@ def analyze_code_relationships(code_finder: CodeFinder, **args) -> Dict[str, Any
         debug_log(f"Analyzing relationships: {query_type} for {target}, repo_path={repo_path}, depth={depth}")
         results = code_finder.analyze_code_relationships(query_type, target, context, repo_path=repo_path, depth=depth, graph_name=graph_name)
 
-        # Apply per-query-type limit (falls back to tool-level limit)
-        limit = get_tool_result_limit(query_type) or get_tool_result_limit("analyze_code_relationships")
-        truncated = False
-        if limit and isinstance(results, list) and len(results) > limit:
-            results = results[:limit]
-            truncated = True
-
         response = {
             "success": True, "query_type": query_type, "target": target,
             "context": context, "results": results,
         }
-        if truncated:
-            response["result_limit"] = limit
-            response["truncated"] = True
+        if isinstance(results, dict) and "truncated" in results:
+            response["truncated"] = results["truncated"]
+            response["result_limit"] = results.get("result_limit")
         return response
 
     except Exception as e:
@@ -236,8 +229,8 @@ def find_java_spring_beans(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     query = f"""
         MATCH (c:Class)
         WHERE {where_clause}
-        OPTIONAL MATCH ()-[:INJECTS]->(c)
-        WITH c, count(*) AS injection_count
+        OPTIONAL MATCH ()-[inj:INJECTS]->(c)
+        WITH c, count(inj) AS injection_count
         RETURN c.name AS name, c.spring_stereotype AS stereotype,
                c.path AS file, c.line_number AS line_number, injection_count
         ORDER BY stereotype, name
@@ -296,7 +289,8 @@ def find_datasource_nodes(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         {kp_where}
         OPTIONAL MATCH (kp:RedisKeyPattern)-[:STORED_IN]->(d)
         RETURN d.name AS datasource,
-               collect({{pattern: kp.pattern, key_type: kp.key_type, count: kp.count}}) AS key_patterns
+               [x IN collect(kp) | {{pattern: x.pattern, key_type: x.key_type,
+                                     count: x.count}}] AS key_patterns
     """
 
     try:

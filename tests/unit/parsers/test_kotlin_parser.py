@@ -42,6 +42,9 @@ def _write_source(root: Path, relative_path: str, src: str) -> Path:
     return path
 
 
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "sample_projects"
+
+
 EVENT_PROCESSOR_SRC = """
 package com.example
 
@@ -4090,3 +4093,290 @@ class TestKotlinSemanticResolution:
         }
         assert calls_by_name["fromCall.applyEvent"]["inferred_obj_type"] is None
         assert calls_by_name["fromComparison.applyEvent"]["inferred_obj_type"] is None
+
+
+class TestKotlinDecorators:
+    """Annotation extraction into the `decorators` property (PR 1a)."""
+
+    def test_plain_function_emits_empty_decorators_list(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            fun plain(): Int {
+                return 1
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "plain")
+        # The key must be present and an empty list -- not missing, not None.
+        # find_dead_code filters with NOT ANY(d IN func.decorators ...), which
+        # evaluates NULL (not TRUE) against an unset property, silently dropping
+        # un-annotated functions from results.
+        assert "decorators" in fn
+        assert fn["decorators"] == []
+
+    def test_single_annotation_on_function(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            fun Greeting(name: String) {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "Greeting")
+        assert fn["decorators"] == ["@Composable"]
+
+    def test_multiple_annotations_preserve_source_order(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            @Preview(showBackground = true)
+            fun GreetingPreview() {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "GreetingPreview")
+        assert fn["decorators"] == ["@Composable", "@Preview(showBackground = true)"]
+
+    def test_annotation_arguments_are_retained_verbatim(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Query("SELECT * FROM users")
+            fun all() {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "all")
+        assert fn["decorators"] == ['@Query("SELECT * FROM users")']
+
+    def test_visibility_and_function_modifiers_do_not_leak(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            private inline suspend fun Greeting(name: String) {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "Greeting")
+        # `private` and `inline` are visibility_modifier / function_modifier
+        # siblings inside the same `modifiers` node. They belong to PR 1b.
+        assert fn["decorators"] == ["@Composable"]
+
+    def test_multiline_annotation_is_collapsed_to_one_line(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Deprecated(
+                message = "old",
+                replaceWith = ReplaceWith("newThing()")
+            )
+            fun multiLine() {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "multiLine")
+        assert fn["decorators"] == [
+            '@Deprecated( message = "old", replaceWith = ReplaceWith("newThing()") )'
+        ]
+
+    def test_annotated_class_carries_decorators(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @HiltViewModel
+            class MyViewModel {
+                fun load() {
+                }
+            }
+            """,
+        )
+        cls = next(c for c in data["classes"] if c["name"] == "MyViewModel")
+        assert cls["decorators"] == ["@HiltViewModel"]
+
+    def test_plain_class_emits_empty_decorators_list(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            class Plain {
+            }
+            """,
+        )
+        cls = next(c for c in data["classes"] if c["name"] == "Plain")
+        assert "decorators" in cls
+        assert cls["decorators"] == []
+
+    def test_annotation_class_keyword_is_not_a_decorator(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            annotation class Fancy(val id: Int)
+            """,
+        )
+        cls = next(c for c in data["classes"] if c["name"] == "Fancy")
+        # `annotation` here is the class_modifier keyword, not an annotation.
+        # It parses to a node of type `annotation` nested under `class_modifier`,
+        # so only scanning *direct* children of `modifiers` excludes it.
+        assert cls["decorators"] == []
+
+    def test_interface_carries_decorators(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Dao
+            interface UserDao {
+                @Query("SELECT * FROM users")
+                fun all(): Int
+            }
+            """,
+        )
+        iface = next(c for c in data["interfaces"] if c["name"] == "UserDao")
+        # The Interface node table acquired a `decorators` column in Task 1.
+        # Task 2 removed the category gate, so interfaces now carry decorators.
+        assert iface["decorators"] == ["@Dao"]
+
+        # The interface's methods are function_declaration nodes and DO carry
+        # decorators -- which is what preserves the dead-code payoff for @Dao types.
+        fn = next(f for f in data["functions"] if f["name"] == "all")
+        assert fn["decorators"] == ['@Query("SELECT * FROM users")']
+
+    def test_android_fixture_annotations_are_extracted(self, parser):
+        fixture = FIXTURES / "sample_project_kotlin" / "AndroidAnnotations.kt"
+        data = parser.parse(fixture)
+
+        greeting = next(f for f in data["functions"] if f["name"] == "Greeting")
+        assert greeting["decorators"] == ["@Composable"]
+
+        greeting_preview = next(
+            f for f in data["functions"] if f["name"] == "GreetingPreview"
+        )
+        assert greeting_preview["decorators"] == [
+            "@Composable",
+            '@Preview(showBackground = true, name = "Greeting preview")',
+        ]
+
+        find_all = next(f for f in data["functions"] if f["name"] == "findAll")
+        assert find_all["decorators"] == ['@Query("SELECT * FROM users")']
+
+        helped = next(f for f in data["functions"] if f["name"] == "helped")
+        assert helped["decorators"] == []
+
+        user_view_model = next(c for c in data["classes"] if c["name"] == "UserViewModel")
+        assert user_view_model["decorators"] == ["@HiltViewModel"]
+
+        user_entity = next(c for c in data["classes"] if c["name"] == "UserEntity")
+        assert user_entity["decorators"] == ['@Entity(tableName = "users")']
+
+        plain_helper = next(c for c in data["classes"] if c["name"] == "PlainHelper")
+        assert plain_helper["decorators"] == []
+
+        # The stub `annotation class` declarations must not pick up their own
+        # `annotation` keyword as a decorator.
+        composable = next(c for c in data["classes"] if c["name"] == "Composable")
+        assert composable["decorators"] == []
+
+    def test_visibility_defaults_to_public(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            fun plain() {
+            }
+            """)
+        fn = next(f for f in data["functions"] if f["name"] == "plain")
+        # Kotlin's default is public; emit it explicitly so queries need no
+        # null handling.
+        assert fn["visibility"] == "public"
+        assert fn["modifiers"] == []
+
+    def test_explicit_visibility_and_function_modifiers(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            private suspend inline fun work() {
+            }
+            """)
+        fn = next(f for f in data["functions"] if f["name"] == "work")
+        assert fn["visibility"] == "private"
+        assert fn["modifiers"] == ["suspend", "inline"]
+
+    def test_override_is_captured_as_a_modifier(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            class VM : Base() {
+                override fun onCreate() {
+                }
+            }
+            """)
+        fn = next(f for f in data["functions"] if f["name"] == "onCreate")
+        # `override` is a member_modifier. G2 treats these as live.
+        assert "override" in fn["modifiers"]
+
+    def test_class_kind_modifiers(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            sealed class A
+            data class B(val x: Int)
+            internal value class C(val v: Int)
+            """)
+        by = {c["name"]: c for c in data["classes"]}
+        assert by["A"]["modifiers"] == ["sealed"]
+        assert by["B"]["modifiers"] == ["data"]
+        assert by["C"]["modifiers"] == ["value"]
+        assert by["C"]["visibility"] == "internal"
+
+    def test_enum_is_recorded_even_though_it_is_not_a_modifier_node(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            enum class Color { RED, GREEN }
+            """)
+        cls = next(c for c in data["classes"] if c["name"] == "Color")
+        # `enum class` produces NO modifiers node -- `enum` is a direct keyword
+        # child of class_declaration, like `interface`. Derived separately so
+        # that `modifiers` is the single place to ask what kind of class this is.
+        assert cls["modifiers"] == ["enum"]
+
+    def test_interface_and_object_now_carry_decorators(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            @Dao
+            interface UserDao {
+                fun all(): Int
+            }
+
+            @Module
+            object AppModule {
+                fun provide(): Int = 1
+            }
+            """)
+        iface = next(c for c in data["interfaces"] if c["name"] == "UserDao")
+        obj = next(c for c in data["objects"] if c["name"] == "AppModule")
+        # 1a gated these out because the columns did not exist. Task 1 added them.
+        assert iface["decorators"] == ["@Dao"]
+        assert obj["decorators"] == ["@Module"]

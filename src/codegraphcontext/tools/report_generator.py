@@ -220,12 +220,25 @@ def _section_cross_module_calls(driver: Any, limit: int = 20, repo_path: Optiona
 
 def _section_dead_code(driver: Any, limit: int = 20, repo_path: Optional[str] = None) -> str:
     """Functions with no incoming CALLS edges (potential dead code)."""
+    # Share the entry-point list with `CodeFinder.find_dead_code` so the report
+    # and the CLI/MCP tool cannot disagree. They previously did, in both
+    # directions: this query had no name exclusions at all (so every dunder and
+    # `test_*` showed up as dead), while `find_dead_code` restricted callers to
+    # `(caller:Function)` and so missed the File-sourced edges that this one
+    # correctly counts.
+    from .code_finder import _ENTRY_POINT_NAMES_CYPHER
+
     rows = _run_cypher(
         driver,
-        """
+        f"""
         MATCH (fn:Function)
         WHERE (fn.is_dependency IS NULL OR fn.is_dependency = false)
           AND ($repo_path IS NULL OR fn.path STARTS WITH $repo_path)
+          AND NOT toLower(fn.name) IN {_ENTRY_POINT_NAMES_CYPHER}
+          AND fn.name <> '<module>'
+          AND NOT (fn.name STARTS WITH '__' AND fn.name ENDS WITH '__')
+          AND NOT fn.name STARTS WITH '_test'
+          AND NOT fn.name STARTS WITH 'test_'
           AND NOT ()-[:CALLS|HEURISTIC_CALLS]->(fn)
         RETURN fn.name AS name, fn.path AS path
         ORDER BY fn.path, fn.name

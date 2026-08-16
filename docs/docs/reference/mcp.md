@@ -110,8 +110,9 @@ Returns methods with the highest cyclomatic complexity scores.
 ### `find_dead_code`
 Scans for unreferenced code declarations.
 - **Parameters**:
-  - `exclude_decorated_with` (array of strings, optional): Excludes functions carrying specified decorator annotations (e.g., `@app.route`).
+  - `exclude_decorated_with` (array of strings, optional): Excludes functions carrying specified decorator annotations (e.g., `@app.route`, or `Composable` for Kotlin). Matching is by substring, so `Preview` matches `@Preview(showBackground = true)`.
   - `repo_path` (string, optional): Restricts search scope.
+- For Android codebases, `ANDROID_DECORATOR_PRESET` (`codegraphcontext.tools.code_finder.ANDROID_DECORATOR_PRESET`) is a preset tuple of Compose/JUnit/Hilt/Room/tooling annotation names to pass as `exclude_decorated_with`. Same substring matching applies.
 
 ---
 

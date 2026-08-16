@@ -170,15 +170,15 @@ class EmbeddedGraphManager(GraphQueryInterface):
         
         node_tables = [
             ("Repository", "path STRING, name STRING, is_dependency BOOLEAN, indexed_at STRING, commit_hash STRING, PRIMARY KEY (path)"),
-            ("File", "path STRING, name STRING, relative_path STRING, package_name STRING, is_dependency BOOLEAN, PRIMARY KEY (path)"),
+            ("File", "path STRING, name STRING, relative_path STRING, package_name STRING, language STRING, is_dependency BOOLEAN, PRIMARY KEY (path)"),
             ("Directory", "path STRING, name STRING, PRIMARY KEY (path)"),
             ("Module", "name STRING, lang STRING, full_import_name STRING, path STRING, line_number INT64, PRIMARY KEY (name)"),
             # For types with composite keys (name, path, line_number), we use a 'uid'
-            ("Function", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, cyclomatic_complexity INT64, context STRING, context_type STRING, class_context STRING, class_context_line INT64, module_context STRING, is_dependency BOOLEAN, decorators STRING[], args STRING[], http_method STRING, http_path STRING, embedding DOUBLE[], PRIMARY KEY (uid)"),
-            ("Class", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, node_type STRING, is_dependency BOOLEAN, decorators STRING[], PRIMARY KEY (uid)"),
+            ("Function", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, cyclomatic_complexity INT64, context STRING, context_type STRING, class_context STRING, class_context_line INT64, module_context STRING, is_dependency BOOLEAN, decorators STRING[], args STRING[], http_method STRING, http_path STRING, embedding DOUBLE[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
+            ("Class", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, node_type STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
             ("Variable", "uid STRING, name STRING, path STRING, line_number INT64, source STRING, docstring STRING, lang STRING, value STRING, context STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Trait", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Interface", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Interface", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
             ("Macro", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Struct", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Enum", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
@@ -190,7 +190,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("Parameter", "uid STRING, name STRING, path STRING, function_line_number INT64, PRIMARY KEY (uid)"),
             ("Mixin", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Extension", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Object", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Object", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
             ("DbTable", "name STRING, fqn STRING, datasource_name STRING, path STRING, PRIMARY KEY (name)"),
             ("Datasource", "name STRING, kind STRING, host STRING, env STRING, PRIMARY KEY (name)"),
             ("DbColumn", "name STRING, table_fqn STRING, type STRING, nullable BOOLEAN, datasource_name STRING, is_primary_key BOOLEAN, PRIMARY KEY (name, table_fqn)"),
@@ -291,6 +291,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("PARTIAL_OF", "FROM Class TO Class, line_number INT64, confidence_label STRING", False),
             ("PART_OF", "FROM File TO File", False),
             ("INJECTS", "FROM Class TO Class, field_name STRING, inject_line INT64, confidence_label STRING", False),
+            ("BINDS", "FROM Interface TO Class, FROM Class TO Class, FROM Interface TO Interface, line_number INT64, provider STRING, confidence_label STRING", True),
             ("MAPS_TO", "FROM Class TO DbTable, datastore STRING, line_number INT64", False),
             ("READS", "FROM Function TO DbTable, line_number INT64", False),
             ("WRITES", "FROM Function TO DbTable, line_number INT64", False),
@@ -325,6 +326,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
         # Simple (non-group) table migrations
         simple_migrations = [
             ("File", "package_name", "STRING"),
+            ("File", "language", "STRING"),
             ("Module", "full_import_name", "STRING"),
             ("Module", "path", "STRING"),
             ("Module", "line_number", "INT64"),
@@ -342,6 +344,17 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("Function", "module_context", "STRING"),
             ("Function", "embedding", "DOUBLE[]"),
             ("Class", "node_type", "STRING"),
+            # Visibility/modifiers columns and Interface/Object decorators
+            ("Function", "visibility", "STRING"),
+            ("Function", "modifiers", "STRING[]"),
+            ("Class", "visibility", "STRING"),
+            ("Class", "modifiers", "STRING[]"),
+            ("Interface", "decorators", "STRING[]"),
+            ("Object", "decorators", "STRING[]"),
+            ("Interface", "visibility", "STRING"),
+            ("Interface", "modifiers", "STRING[]"),
+            ("Object", "visibility", "STRING"),
+            ("Object", "modifiers", "STRING[]"),
         ]
 
         # REL TABLE GROUP migrations: KuzuDB creates sub-tables named
@@ -391,6 +404,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("EMBEDS", "FROM Struct TO Struct, line_number INT64", False),
             ("PARTIAL_OF", "FROM Class TO Class, line_number INT64, confidence_label STRING", False),
             ("PART_OF", "FROM File TO File", False),
+            ("BINDS", "FROM Interface TO Class, FROM Class TO Class, FROM Interface TO Interface, line_number INT64, provider STRING, confidence_label STRING", True),
         ]
         for table_name, schema, use_group in rel_table_migrations:
             try:
@@ -817,14 +831,14 @@ class EmbeddedSessionWrapper:
         # 0. Define Schema Map (Strict property filtering)
         SCHEMA_MAP = {
             'Repository': {'path', 'name', 'is_dependency', 'indexed_at', 'commit_hash'},
-            'File': {'path', 'name', 'relative_path', 'package_name', 'is_dependency'},
+            'File': {'path', 'name', 'relative_path', 'package_name', 'language', 'is_dependency'},
             'Directory': {'path', 'name'},
             'Module': {'name', 'lang', 'full_import_name', 'path', 'line_number'},
-            'Function': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'cyclomatic_complexity', 'context', 'context_type', 'class_context', 'class_context_line', 'module_context', 'is_dependency', 'decorators', 'args', 'http_method', 'http_path'},
-            'Class': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'node_type', 'is_dependency', 'decorators'},
+            'Function': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'cyclomatic_complexity', 'context', 'context_type', 'class_context', 'class_context_line', 'module_context', 'is_dependency', 'decorators', 'args', 'http_method', 'http_path', 'visibility', 'modifiers'},
+            'Class': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'node_type', 'is_dependency', 'decorators', 'visibility', 'modifiers'},
             'Variable': {'uid', 'name', 'path', 'line_number', 'source', 'docstring', 'lang', 'value', 'context', 'is_dependency'},
             'Trait': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'Interface': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
+            'Interface': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency', 'decorators', 'visibility', 'modifiers'},
             'Macro': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
             'Struct': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
             'Enum': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
@@ -836,7 +850,7 @@ class EmbeddedSessionWrapper:
             'Parameter': {'uid', 'name', 'path', 'function_line_number'},
             'Mixin': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
             'Extension': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'Object': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'}
+            'Object': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency', 'decorators', 'visibility', 'modifiers'}
         }
 
         # 1. Translate SET n += $props  and  SET n = $props  (map merge/assign)
@@ -859,7 +873,7 @@ class EmbeddedSessionWrapper:
                     pk_field = PK_MAP.get(label, 'uid')
 
                     for k, v in props_dict.items():
-                        if isinstance(v, (dict, list)) and k != 'args' and k != 'decorators':
+                        if isinstance(v, (dict, list)) and k != 'args' and k != 'decorators' and k != 'modifiers':
                             continue
                         
                         if allowed_props and k not in allowed_props:

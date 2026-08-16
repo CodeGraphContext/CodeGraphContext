@@ -118,6 +118,17 @@ Potentially unused functions across the indexed codebase.
 - **Args:** `exclude_decorated_with` (list of strings), `repo_path` (string, optional)
 - **Returns:** Candidate dead symbols
 
+`exclude_decorated_with` matches on substrings of the recorded annotation or decorator
+text, so a pattern of `Preview` excludes a function annotated `@Preview(showBackground = true)`.
+Kotlin annotations are recorded on functions and classes.
+
+For Android codebases, `ANDROID_DECORATOR_PRESET` (importable from
+`codegraphcontext.tools.code_finder`) is a ready-made tuple of annotation names — Compose,
+JUnit, Hilt, Room, and similar framework/tooling markers — for `exclude_decorated_with`.
+`find_dead_code` inspects `Function` nodes, so the preset matches function-level
+annotations only. Like any pattern passed to `exclude_decorated_with`, its entries match
+by substring.
+
 ### `calculate_cyclomatic_complexity`
 
 Complexity for a single function.

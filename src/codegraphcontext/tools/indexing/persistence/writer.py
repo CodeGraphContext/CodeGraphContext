@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ....utils.debug_log import info_logger, warning_logger
 from ....utils.git_utils import get_repo_commit_hash
-from ..sanitize import sanitize_props
+from ..sanitize import sanitize_props, sanitize_props_with_secrets
 from ..schema_contract import NODE_LABELS
 from .utils import get_backend_type, execute_write_operation, execute_read_operation
 
@@ -216,6 +216,9 @@ class GraphWriter:
         lang = file_data.get("lang")
 
         backend = get_backend_type(self.driver, self._db_manager)
+        secret_findings: List[Tuple[str, str, str, Optional[str]]] = []
+        from ....cli.config_manager import get_config_value as _gcv
+        _should_redact = (_gcv("REDACT_SECRETS") or "false").lower() == "true"
         def _work(session):
             if repo_path_str:
                 resolved_repo_str = _normalize_path(repo_path_str)
@@ -240,12 +243,16 @@ class GraphWriter:
             session.run(
                 """
                 MERGE (f:File {path: $path})
-                SET f.name = $name, f.relative_path = $relative_path, f.is_dependency = $is_dependency
+                SET f.name = $name, f.relative_path = $relative_path, f.is_dependency = $is_dependency,
+                    f.language = $language
             """,
                 path=file_path_str,
                 name=file_name,
                 relative_path=relative_path,
                 is_dependency=is_dependency,
+                # Bundle export reads f.language to build metadata["languages"].
+                # Nothing set it before, so every bundle advertised no languages.
+                language=lang,
             )
 
             file_path_obj = Path(file_path_str)
@@ -324,9 +331,21 @@ class GraphWriter:
                 for item in item_list:
                     row = dict(item)
                     row["path"] = file_path_str
+                    # Inherit the file's is_dependency unless the extractor set its
+                    # own. Only ~half the language extractors emit this per item, and
+                    # find_dead_code filters on `func.is_dependency = false` -- in
+                    # Cypher `null = false` is null, not false, so every function from
+                    # an extractor that omitted it was silently dropped and the tool
+                    # returned an empty list. Module has no such column in the schema.
+                    if label != "Module":
+                        row.setdefault("is_dependency", is_dependency)
                     if label == "Function" and "cyclomatic_complexity" not in row:
                         row["cyclomatic_complexity"] = 1
-                    batch.append(sanitize_props(row))
+                    sanitized, findings = sanitize_props_with_secrets(row, redact=_should_redact)
+                    batch.append(sanitized)
+                    for prop_key, pattern in findings:
+                        item_name = item.get("name", "<unknown>")
+                        secret_findings.append((label, item_name, prop_key, pattern))
                     if label == "EnumMember":
                         enum_member_batch.append(
                             {
@@ -618,6 +637,26 @@ class GraphWriter:
                 )
 
         execute_write_operation(self.driver, backend, _work)
+
+        if secret_findings:
+            from ....cli.config_manager import get_config_value
+            redact_on = (get_config_value("REDACT_SECRETS") or "false").lower() == "true"
+            count = len(secret_findings)
+            sample = secret_findings[:5]
+            sample_desc = "; ".join(
+                f"{lbl} '{nm}' prop={pk} ({pat})" for lbl, nm, pk, pat in sample
+            )
+            suffix = f" (showing {len(sample)} of {count})" if count > 5 else ""
+            if redact_on:
+                warning_logger(
+                    f"[SECRETS] {count} potential secret(s) detected and REDACTED in {file_name}{suffix}: {sample_desc}"
+                )
+            else:
+                warning_logger(
+                    f"[SECRETS] {count} potential secret(s) detected in {file_name} "
+                    f"(values stored verbatim — set REDACT_SECRETS=true to redact){suffix}: {sample_desc}"
+                )
+
     def add_minimal_file_node(
         self, file_path: Path, repo_path: Path, is_dependency: bool = False
     ) -> None:
@@ -978,9 +1017,28 @@ class GraphWriter:
             external_batch = [r for r in inheritance_batch if r.get("resolved_parent_file_path") == "__external__"]
 
             labels = ("Class", "Trait", "Interface", "Struct", "Enum", "Union", "Record", "Mixin", "Extension", "Module", "Object", "Variable")
+
+            def _label_is_populated(label: str) -> bool:
+                # An empty node table can never match, so skip the pair entirely.
+                # If the existence probe itself fails for any reason, fall back to
+                # treating the label as populated -- we must never *skip* a pair
+                # that could have produced a real edge.
+                cypher_label = _cypher_label(label, backend)
+                try:
+                    result = session.run(f"MATCH (n:{cypher_label}) RETURN n LIMIT 1")
+                    return result.single() is not None
+                except Exception:
+                    return True
+
+            populated_labels = {label for label in labels if _label_is_populated(label)}
+
             for child_label in labels:
+                if child_label not in populated_labels:
+                    continue
                 child_cypher = _cypher_label(child_label, backend)
                 for parent_label in labels:
+                    if parent_label not in populated_labels:
+                        continue
                     parent_cypher = _cypher_label(parent_label, backend)
                     try:
                         session.run(
@@ -999,6 +1057,8 @@ class GraphWriter:
                         raise e
 
             for child_label in labels:
+                if child_label not in populated_labels:
+                    continue
                 child_cypher = _cypher_label(child_label, backend)
                 try:
                     session.run(
@@ -1152,6 +1212,71 @@ class GraphWriter:
 
         execute_write_operation(self.driver, backend, _work)
         info_logger(f"[DECORATED_BY] Complete: {len(decorated_by_batch)} decorator links processed.")
+
+    def write_binds_links(self, binds_batch: List[Dict[str, Any]]) -> None:
+        """Create BINDS edges: Hilt's @Binds/@Provides link an interface (or
+        class) to the concrete class (or interface) that satisfies it.
+
+        BINDS is declared as a REL TABLE GROUP with three explicit FROM..TO
+        pairs (Interface->Class, Class->Class, Interface->Interface). Kùzu
+        needs both endpoint labels known at query-plan time for a grouped
+        relationship -- an unlabeled MATCH raises "Create rel r bound by
+        multiple node labels is not supported." So, like
+        write_inheritance_links, we try each declared pair per row; a MATCH
+        against the wrong label simply matches nothing and that pair's
+        MERGE is a no-op for the row.
+
+        A row carries only name/path, not a label, and Kotlin does not
+        qualify `name` by enclosing scope (kotlin.py:1394-1436) -- a
+        top-level interface and an unrelated nested class can legitimately
+        share name+path. Once a pair's MATCH actually finds both endpoints
+        we stop trying the remaining pairs for that row; otherwise a
+        same-named node under a different label would pick up a second,
+        spurious BINDS edge.
+        """
+        if not binds_batch:
+            return
+
+        backend = get_backend_type(self.driver, self._db_manager)
+        label_pairs = (("Interface", "Class"), ("Class", "Class"), ("Interface", "Interface"))
+
+        def _work(session):
+            for row in binds_batch:
+                for source_label, target_label in label_pairs:
+                    source_cypher = _cypher_label(source_label, backend)
+                    target_cypher = _cypher_label(target_label, backend)
+                    try:
+                        result = session.run(
+                            f"""
+                            MATCH (source:{source_cypher} {{name: $source_name, path: $source_path}})
+                            MATCH (target:{target_cypher} {{name: $target_name, path: $target_path}})
+                            MERGE (source)-[r:BINDS]->(target)
+                            SET r.line_number = $line_number,
+                                r.provider = $provider,
+                                r.confidence_label = coalesce($confidence_label, 'EXTRACTED')
+                            RETURN r
+                            """,
+                            source_name=row["source_name"],
+                            source_path=row["source_path"],
+                            target_name=row["target_name"],
+                            target_path=row["target_path"],
+                            line_number=row.get("line_number"),
+                            provider=row.get("provider"),
+                            confidence_label=row.get("confidence_label"),
+                        )
+                    except Exception as e:
+                        if _is_binder_exception(e):
+                            continue
+                        raise e
+                    else:
+                        if result.single() is not None:
+                            # This pair matched real endpoints -- do not let a
+                            # coincidentally same-named node under another
+                            # label add a second edge for this row.
+                            break
+
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(f"[BINDS] Complete: {len(binds_batch)} Hilt binding links processed.")
 
     def write_metaclass_links(self, metaclass_batch: List[Dict[str, Any]]) -> None:
         if not metaclass_batch:

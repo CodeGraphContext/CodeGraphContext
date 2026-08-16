@@ -1,6 +1,6 @@
 # CGC Report
 
-_Generated: 2026-06-07 17:00 UTC_
+_Generated: 2026-08-13 18:25 UTC_
 
 
 ## God Nodes — Highest Fan-In
@@ -40,7 +40,7 @@ _Copy these into `execute_cypher_query` to explore further._
 
 ### Callers of a specific function
 ```cypher
-MATCH (caller)-[:CALLS]->(fn:Function {name: 'yourFunctionName'})
+MATCH (caller)-[:CALLS|HEURISTIC_CALLS]->(fn:Function {name: 'yourFunctionName'})
 RETURN caller.name, caller.path LIMIT 20
 ```
 
@@ -66,7 +66,7 @@ ORDER BY lib.artifact_id
 
 ### CALLS edges with low confidence (potential mis-resolutions)
 ```cypher
-MATCH (a)-[c:CALLS]->(b)
+MATCH (a)-[c:CALLS|HEURISTIC_CALLS]->(b)
 WHERE c.confidence_label = 'AMBIGUOUS'
 RETURN a.name, b.name, c.resolution_tier, a.path LIMIT 20
 ```

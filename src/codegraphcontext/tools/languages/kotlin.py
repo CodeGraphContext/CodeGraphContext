@@ -208,6 +208,74 @@ class KotlinTreeSitterParser:
         if not node: return ""
         return node.text.decode("utf-8")
 
+    def _get_node_annotations(self, node: Any) -> List[str]:
+        """Return raw annotation text for a declaration, e.g. ['@Preview(showBackground = true)'].
+
+        Only *direct* `annotation` children of the `modifiers` node are collected.
+        In `annotation class Foo`, the `annotation` keyword also produces a node of
+        type `annotation`, but nested one level down under `class_modifier` -- so a
+        recursive search would emit the bare string "annotation" as a decorator.
+        """
+        modifiers = None
+        for child in node.children:
+            if child.type == "modifiers":
+                modifiers = child
+                break
+        if not modifiers:
+            return []
+
+        annotations = []
+        for child in modifiers.children:
+            if child.type == "annotation":
+                text = " ".join(self._get_node_text(child).split())
+                if text:
+                    annotations.append(text)
+        return annotations
+
+    _MODIFIER_CHILD_TYPES = (
+        "class_modifier",
+        "function_modifier",
+        "inheritance_modifier",
+        "member_modifier",
+        "platform_modifier",
+        "parameter_modifier",
+        "property_modifier",
+        "reification_modifier",
+    )
+
+    def _get_node_modifiers(self, node: Any) -> Tuple[str, List[str]]:
+        """Return (visibility, modifiers) for a declaration.
+
+        `visibility` defaults to "public", matching Kotlin's own default, so
+        consumers never have to handle a missing value. `modifiers` holds the
+        bare keyword text of every non-annotation, non-visibility modifier in
+        source order.
+
+        Note `enum` is NOT here: `enum class C` produces no `modifiers` node at
+        all. Callers that care derive it from a direct `enum` keyword child.
+        """
+        modifiers_node = None
+        for child in node.children:
+            if child.type == "modifiers":
+                modifiers_node = child
+                break
+
+        visibility = "public"
+        modifiers: List[str] = []
+        if not modifiers_node:
+            return visibility, modifiers
+
+        for child in modifiers_node.children:
+            if child.type == "visibility_modifier":
+                visibility = self._get_node_text(child).strip()
+            elif child.type in self._MODIFIER_CHILD_TYPES:
+                text = self._get_node_text(child).strip()
+                # `annotation` appears here as a class_modifier keyword on
+                # `annotation class Foo`; keep it, it is a real class kind.
+                if text:
+                    modifiers.append(text)
+        return visibility, modifiers
+
     def _get_enclosing_class_context(self, node: Any) -> Tuple[Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
@@ -1271,7 +1339,11 @@ class KotlinTreeSitterParser:
                             "lang": self.language_name,
                             "context": context_name,
                             "class_context": context_name if is_class_context else None,
+                            "decorators": self._get_node_annotations(node),
                         }
+                        visibility, modifiers = self._get_node_modifiers(node)
+                        func_data["visibility"] = visibility
+                        func_data["modifiers"] = modifiers
                         if is_class_context and context_line is not None:
                             func_data["class_context_line"] = context_line
 
@@ -1397,6 +1469,16 @@ class KotlinTreeSitterParser:
                         "path": str(path),
                         "lang": self.language_name,
                     }
+                    # Task 1 added `decorators` to Interface and Object, so the
+                    # 1a category gate is no longer needed.
+                    class_data["decorators"] = self._get_node_annotations(node)
+                    visibility, modifiers = self._get_node_modifiers(node)
+                    class_data["visibility"] = visibility
+                    # `enum class` produces no modifiers node; the keyword is a
+                    # direct child, same as `interface`.
+                    if any(c.type == "enum" for c in node.children):
+                        modifiers.append("enum")
+                    class_data["modifiers"] = modifiers
                     if is_nested_class:
                         class_data["class_context"] = context_name
                         if context_line is not None:

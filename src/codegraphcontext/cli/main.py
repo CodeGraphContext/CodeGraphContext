@@ -46,6 +46,7 @@ from .cli_helpers import (
     setup_scip_helper,
 )
 from .hook_manager import HookError, get_hook_status, install_hooks, uninstall_hooks
+from codegraphcontext.utils.tool_limits import get_tool_result_limit
 
 # Set the log level for the noisy neo4j, asyncio, and urllib3 loggers to keep the output clean.
 # Get the log level from config, defaulting to WARNING
@@ -708,6 +709,8 @@ def bundle_export(
     output: str = typer.Argument(..., help="Output path for the .cgc bundle file"),
     repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Specific repository path to export (default: export all)"),
     no_stats: bool = typer.Option(False, "--no-stats", help="Skip statistics generation"),
+    sign_key: Optional[str] = typer.Option(None, "--sign-key", envvar="CGC_BUNDLE_SIGN_KEY", help="HMAC signing key (or set CGC_BUNDLE_SIGN_KEY)"),
+    encrypt_password: Optional[str] = typer.Option(None, "--encrypt-password", envvar="CGC_BUNDLE_PASSWORD", help="Encrypt bundle with this password (or set CGC_BUNDLE_PASSWORD)", hide_input=True),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
@@ -723,12 +726,23 @@ def bundle_export(
     """
     _load_credentials()
     from codegraphcontext.core.cgc_bundle import CGCBundle
-    
+
+    # Typer resolves defaults only when *it* invokes the command. Called as a
+    # plain function (tests/integration/test_parser_goldens.py does this, as can
+    # any programmatic caller), an omitted option keeps its OptionInfo sentinel
+    # -- which is truthy, so `if sign_key:` passes and `sign_key.encode()` then
+    # raises AttributeError. These two are normalized rather than merely
+    # forwarded because they are the only options here that get dereferenced.
+    if not isinstance(sign_key, (str, type(None))):
+        sign_key = None
+    if not isinstance(encrypt_password, (str, type(None))):
+        encrypt_password = None
+
     services = _initialize_services(context)
     if not all(services[:3]):
         raise typer.Exit(code=1)
     db_manager, _, code_finder = services[:3]
-    
+
     try:
         output_path = Path(output)
         repo_path = Path(repo).resolve() if repo else None
@@ -743,7 +757,9 @@ def bundle_export(
         success, message = bundle.export_to_bundle(
             output_path,
             repo_path=repo_path,
-            include_stats=not no_stats
+            include_stats=not no_stats,
+            sign_key=sign_key,
+            encrypt_password=encrypt_password,
         )
         
         if success:
@@ -778,6 +794,8 @@ def _confirm_bundle_clear(clear: bool, yes: bool) -> bool:
 def bundle_import(
     bundle_file: str = typer.Argument(..., help="Path to the .cgc bundle file to import"),
     clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before importing"),
+    password: Optional[str] = typer.Option(None, "--password", envvar="CGC_BUNDLE_PASSWORD", help="Password for encrypted bundles (or set CGC_BUNDLE_PASSWORD)", hide_input=True),
+    verify_key: Optional[str] = typer.Option(None, "--verify-key", envvar="CGC_BUNDLE_VERIFY_KEY", help="HMAC verification key for signed bundles (or set CGC_BUNDLE_VERIFY_KEY)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation when using --clear"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
@@ -814,7 +832,9 @@ def bundle_import(
         bundle = CGCBundle(db_manager)
         success, message = bundle.import_from_bundle(
             bundle_path,
-            clear_existing=clear
+            clear_existing=clear,
+            password=password,
+            verify_key=verify_key,
         )
         
         if success:
@@ -826,10 +846,117 @@ def bundle_import(
     finally:
         db_manager.close_driver()
 
+@bundle_app.command("verify")
+def bundle_verify(
+    bundle_file: str = typer.Argument(..., help="Path to the .cgc bundle file to verify"),
+    password: Optional[str] = typer.Option(None, "--password", envvar="CGC_BUNDLE_PASSWORD", help="Password for encrypted bundles (or set CGC_BUNDLE_PASSWORD)", hide_input=True),
+    verify_key: Optional[str] = typer.Option(None, "--verify-key", envvar="CGC_BUNDLE_VERIFY_KEY", help="HMAC verification key for signed bundles (or set CGC_BUNDLE_VERIFY_KEY)"),
+):
+    """Verify bundle structure, checksums, optional signature, and encryption envelope."""
+    from codegraphcontext.core.cgc_bundle import CGCBundle
+
+    bundle = CGCBundle(None)
+    success, message = bundle.verify_bundle(Path(bundle_file), password=password, verify_key=verify_key)
+    if success:
+        console.print(f"[bold green]Bundle verified:[/bold green] {message}")
+    else:
+        console.print(f"[bold red]Bundle verification failed:[/bold red] {message}")
+        raise typer.Exit(code=1)
+
+
+@bundle_app.command("inspect")
+def bundle_inspect(
+    bundle_file: str = typer.Argument(..., help="Path to the .cgc bundle file to inspect"),
+    password: Optional[str] = typer.Option(None, "--password", envvar="CGC_BUNDLE_PASSWORD", help="Password for encrypted bundles (or set CGC_BUNDLE_PASSWORD)", hide_input=True),
+    verify_key: Optional[str] = typer.Option(None, "--verify-key", envvar="CGC_BUNDLE_VERIFY_KEY", help="HMAC verification key for signed bundles (or set CGC_BUNDLE_VERIFY_KEY)"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON inspection output"),
+):
+    """Inspect bundle metadata without importing it."""
+    from codegraphcontext.core.cgc_bundle import CGCBundle
+
+    bundle = CGCBundle(None)
+    success, info = bundle.inspect_bundle(Path(bundle_file), password=password, verify_key=verify_key)
+    if not success:
+        console.print(f"[bold red]Inspect failed:[/bold red] {info.get('error', 'unknown error')}")
+        raise typer.Exit(code=1)
+    if json_output:
+        console.print_json(data=info)
+        return
+
+    metadata = info.get("metadata", {})
+    stats = info.get("stats", {})
+    graph_metrics = metadata.get("graph_metrics", {})
+    table = Table(title=f"Bundle: {Path(bundle_file).name}", show_header=False)
+    table.add_column("Field", style="cyan")
+    table.add_column("Value", overflow="fold")
+    table.add_row("Repository", str(metadata.get("repo", "unknown")))
+    table.add_row("Name", str(metadata.get("name", Path(bundle_file).name)))
+    table.add_row("Format", str(metadata.get("format_version", metadata.get("cgc_version", "unknown"))))
+    table.add_row("Exported", str(metadata.get("exported_at", "unknown")))
+    table.add_row("Nodes", str(graph_metrics.get("total_nodes", stats.get("node_count", "unknown"))))
+    table.add_row("Edges", str(graph_metrics.get("total_edges", stats.get("edge_count", "unknown"))))
+    table.add_row("Encrypted", "yes" if info.get("encrypted") else "no")
+    table.add_row("Signed", "yes" if info.get("signed") else "no")
+    table.add_row("Valid", "yes" if info.get("valid") else f"no ({info.get('validation')})")
+    console.print(table)
+
+
+@bundle_app.command("diff")
+def bundle_diff(
+    left_bundle: str = typer.Argument(..., help="Older/base .cgc bundle"),
+    right_bundle: str = typer.Argument(..., help="Newer/target .cgc bundle"),
+    left_password: Optional[str] = typer.Option(None, "--left-password", help="Password for the left encrypted bundle", hide_input=True),
+    right_password: Optional[str] = typer.Option(None, "--right-password", help="Password for the right encrypted bundle", hide_input=True),
+    left_verify_key: Optional[str] = typer.Option(None, "--left-verify-key", help="HMAC verification key for the left signed bundle"),
+    right_verify_key: Optional[str] = typer.Option(None, "--right-verify-key", help="HMAC verification key for the right signed bundle"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON diff output"),
+    limit: int = typer.Option(20, "--limit", help="Maximum changed keys to show per category"),
+):
+    """Compare two .cgc bundles without importing them."""
+    from codegraphcontext.core.cgc_bundle import CGCBundle
+
+    bundle = CGCBundle(None)
+    success, diff = bundle.diff_bundles(
+        Path(left_bundle),
+        Path(right_bundle),
+        left_password=left_password or os.environ.get("CGC_BUNDLE_PASSWORD"),
+        right_password=right_password or os.environ.get("CGC_BUNDLE_PASSWORD"),
+        left_verify_key=left_verify_key or os.environ.get("CGC_BUNDLE_VERIFY_KEY"),
+        right_verify_key=right_verify_key or os.environ.get("CGC_BUNDLE_VERIFY_KEY"),
+    )
+    if not success:
+        console.print(f"[bold red]Diff failed:[/bold red] {diff.get('error', 'unknown error')}")
+        raise typer.Exit(code=1)
+    if json_output:
+        console.print_json(data=diff)
+        return
+
+    table = Table(title="Bundle Diff")
+    table.add_column("Category", style="cyan")
+    table.add_column("Added", justify="right", style="green")
+    table.add_column("Removed", justify="right", style="red")
+    table.add_column("Changed", justify="right", style="yellow")
+    for category in ("nodes", "edges"):
+        item = diff[category]
+        table.add_row(category, str(len(item["added"])), str(len(item["removed"])), str(len(item["changed"])))
+    console.print(table)
+
+    for category in ("nodes", "edges"):
+        item = diff[category]
+        samples = []
+        for label in ("added", "removed", "changed"):
+            values = item[label][:limit]
+            if values:
+                samples.append(f"[bold]{category} {label}[/bold]\n" + "\n".join(f"  {value}" for value in values))
+        if samples:
+            console.print("\n".join(samples))
+
 @bundle_app.command("load")
 def bundle_load(
     bundle_name: str = typer.Argument(..., help="Bundle name or path to load (e.g., 'numpy' or 'numpy.cgc')"),
     clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before loading"),
+    password: Optional[str] = typer.Option(None, "--password", envvar="CGC_BUNDLE_PASSWORD", help="Password for encrypted bundles (or set CGC_BUNDLE_PASSWORD)", hide_input=True),
+    verify_key: Optional[str] = typer.Option(None, "--verify-key", envvar="CGC_BUNDLE_VERIFY_KEY", help="HMAC verification key for signed bundles (or set CGC_BUNDLE_VERIFY_KEY)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation when using --clear"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
@@ -852,7 +979,7 @@ def bundle_load(
     
     # If it's an absolute path or has .cgc extension and exists, use it directly
     if bundle_path.is_absolute() or (bundle_path.suffix == '.cgc' and bundle_path.exists()):
-        bundle_import(str(bundle_path), clear=clear, yes=yes, context=context)
+        bundle_import(str(bundle_path), clear=clear, password=password, verify_key=verify_key, yes=yes, context=context)
         return
     
     # Add .cgc extension if not present
@@ -862,7 +989,7 @@ def bundle_load(
     # Check if exists locally
     if bundle_path.exists():
         console.print(f"[dim]Found local bundle: {bundle_path}[/dim]")
-        bundle_import(str(bundle_path), clear=clear, yes=yes, context=context)
+        bundle_import(str(bundle_path), clear=clear, password=password, verify_key=verify_key, yes=yes, context=context)
         return
     
     # Try to download from registry
@@ -880,7 +1007,7 @@ def bundle_load(
         
         if downloaded_path:
             # Import the downloaded bundle
-            bundle_import(downloaded_path, clear=clear, yes=yes, context=context)
+            bundle_import(downloaded_path, clear=clear, password=password, verify_key=verify_key, yes=yes, context=context)
         else:
             console.print(f"[bold red]Failed to download bundle '{name}'[/bold red]")
             raise typer.Exit(code=1)
@@ -1008,22 +1135,33 @@ def export_shortcut(
     output: str = typer.Argument(..., help="Output path for the .cgc bundle file"),
     repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Specific repository path to export"),
     no_stats: bool = typer.Option(False, "--no-stats", help="Skip generating statistics in the bundle"),
+    sign_key: Optional[str] = typer.Option(None, "--sign-key", envvar="CGC_BUNDLE_SIGN_KEY", help="HMAC signing key (or set CGC_BUNDLE_SIGN_KEY)"),
+    encrypt_password: Optional[str] = typer.Option(None, "--encrypt-password", envvar="CGC_BUNDLE_PASSWORD", help="Encrypt bundle with this password (or set CGC_BUNDLE_PASSWORD)", hide_input=True),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """Shortcut for 'cgc bundle export'"""
-    bundle_export(output, repo, no_stats, context)
+    bundle_export(
+        output=output,
+        repo=repo,
+        no_stats=no_stats,
+        sign_key=sign_key,
+        encrypt_password=encrypt_password,
+        context=context,
+    )
 
 @app.command("load", rich_help_panel="Bundle Shortcuts")
 def load_shortcut(
     bundle_name: str = typer.Argument(..., help="Bundle name or path to load"),
     clear: bool = typer.Option(False, "--clear", help="Clear existing graph data before loading"),
+    password: Optional[str] = typer.Option(None, "--password", envvar="CGC_BUNDLE_PASSWORD", help="Password for encrypted bundles (or set CGC_BUNDLE_PASSWORD)", hide_input=True),
+    verify_key: Optional[str] = typer.Option(None, "--verify-key", envvar="CGC_BUNDLE_VERIFY_KEY", help="HMAC verification key for signed bundles (or set CGC_BUNDLE_VERIFY_KEY)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation when using --clear"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """Shortcut for 'cgc bundle load'"""
-    # Must pass `context` explicitly: invoked as a plain function, Typer does not
+    # Must pass every option explicitly: invoked as a plain function, Typer does not
     # resolve defaults, so an omitted parameter keeps its OptionInfo sentinel.
-    bundle_load(bundle_name, clear, yes=yes, context=context)
+    bundle_load(bundle_name, clear, password=password, verify_key=verify_key, yes=yes, context=context)
 
 # ============================================================================
 # REGISTRY COMMAND GROUP - Browse and Download Bundles
@@ -1124,7 +1262,7 @@ def registry_download(
     
     if load and bundle_path:
         console.print("\n[cyan]Loading bundle...[/cyan]")
-        bundle_import(bundle_path, clear=False, yes=False, context=None)
+        bundle_import(bundle_path, clear=False, password=None, verify_key=None, yes=False, context=None)
 
 @registry_app.command("request")
 def registry_request(
@@ -2274,7 +2412,11 @@ def find_by_decorator_search(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        results = code_finder.find_functions_by_decorator(decorator, file)
+        req_limit = get_tool_result_limit("find_functions_by_decorator")
+        results = code_finder.find_functions_by_decorator(decorator, file, limit=req_limit + 1 if req_limit is not None else None)
+        truncated = bool(req_limit and len(results) > req_limit)
+        if truncated:
+            results = results[:req_limit]
         
         if not results:
             console.print(f"[yellow]No functions found with decorator '@{decorator}'[/yellow]")
@@ -2299,6 +2441,8 @@ def find_by_decorator_search(
             
         console.print(f"[cyan]Found {len(results)} function(s) with decorator '@{decorator}':[/cyan]")
         console.print(table)
+        if truncated:
+            console.print(f"[dim]... truncated ({req_limit} shown), more exist[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -2322,7 +2466,11 @@ def find_by_argument_search(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        results = code_finder.find_functions_by_argument(argument, file)
+        req_limit = get_tool_result_limit("find_functions_by_argument")
+        results = code_finder.find_functions_by_argument(argument, file, limit=req_limit + 1 if req_limit is not None else None)
+        truncated = bool(req_limit and len(results) > req_limit)
+        if truncated:
+            results = results[:req_limit]
         
         if not results:
             console.print(f"[yellow]No functions found with argument '{argument}'[/yellow]")
@@ -2344,6 +2492,8 @@ def find_by_argument_search(
             
         console.print(f"[cyan]Found {len(results)} function(s) with argument '{argument}':[/cyan]")
         console.print(table)
+        if truncated:
+            console.print(f"[dim]... truncated ({req_limit} shown), more exist[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -2378,7 +2528,11 @@ def analyze_calls(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        results = code_finder.what_does_function_call(function, file)
+        req_limit = get_tool_result_limit("find_callees")
+        results = code_finder.what_does_function_call(function, file, limit=req_limit + 1 if req_limit is not None else None)
+        truncated = bool(req_limit and len(results) > req_limit)
+        if truncated:
+            results = results[:req_limit]
         
         if not results:
             console.print(f"[yellow]No function calls found for '{function}'[/yellow]")
@@ -2407,7 +2561,10 @@ def analyze_calls(
         
         console.print(f"\n[bold cyan]Function '{function}' calls:[/bold cyan]")
         console.print(table)
-        console.print(f"\n[dim]Total: {len(results)} function(s)[/dim]")
+        if truncated:
+            console.print(f"\n[dim]Total: {len(results)} function(s) (truncated, {req_limit}+ exist)[/dim]")
+        else:
+            console.print(f"\n[dim]Total: {len(results)} function(s)[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -2434,7 +2591,11 @@ def analyze_callers(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        results = code_finder.who_calls_function(function, file)
+        req_limit = get_tool_result_limit("find_callers")
+        results = code_finder.who_calls_function(function, file, limit=req_limit + 1 if req_limit is not None else None)
+        truncated = bool(req_limit and len(results) > req_limit)
+        if truncated:
+            results = results[:req_limit]
         
         if not results:
             console.print(f"[yellow]No callers found for '{function}'[/yellow]")
@@ -2465,7 +2626,10 @@ def analyze_callers(
         
         console.print(f"\n[bold cyan]Functions that call '{function}':[/bold cyan]")
         console.print(table)
-        console.print(f"\n[dim]Total: {len(results)} caller(s)[/dim]")
+        if truncated:
+            console.print(f"\n[dim]Total: {len(results)} caller(s) (truncated, {req_limit}+ exist)[/dim]")
+        else:
+            console.print(f"\n[dim]Total: {len(results)} caller(s)[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -2495,7 +2659,11 @@ def analyze_chain(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        results = code_finder.find_function_call_chain(from_func, to_func, max_depth, from_file, to_file)
+        req_limit = get_tool_result_limit("call_chain")
+        results = code_finder.find_function_call_chain(from_func, to_func, max_depth, from_file, to_file, limit=req_limit + 1 if req_limit is not None else None)
+        truncated = bool(req_limit and len(results) > req_limit)
+        if truncated:
+            results = results[:req_limit]
         
         if not results:
             console.print(f"[yellow]No call chain found between '{from_func}' and '{to_func}' within depth {max_depth}[/yellow]")
@@ -2830,15 +2998,18 @@ def analyze_complexity(
 
 @analyze_app.command("dead-code")
 def analyze_dead_code(
-    path: Optional[str] = typer.Argument(None, help="Path to analyze (not yet implemented)"),
+    path: Optional[str] = typer.Argument(None, help="Repository path to scope the analysis to"),
     exclude_decorators: Optional[str] = typer.Option(None, "--exclude", "-e", help="Comma-separated decorators to exclude"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
-    Find potentially unused functions and classes.
-    
+    Find potentially unused functions.
+
+    Without a path the whole database is scanned, which on a shared graph
+    reports dead code from every indexed repository. Pass a path to scope it.
+
     Example:
-        cgc analyze dead-code
+        cgc analyze dead-code .
         cgc analyze dead-code --exclude route,task,api
     """
     _load_credentials()
@@ -2849,8 +3020,11 @@ def analyze_dead_code(
     
     try:
         exclude_list = exclude_decorators.split(',') if exclude_decorators else []
-        results = code_finder.find_dead_code(exclude_list)
-        
+        # `path` was accepted and then dropped, so running inside one repository
+        # still reported dead code from every repository in the database.
+        repo_path = Path(path).resolve().as_posix() if path else None
+        results = code_finder.find_dead_code(exclude_list, repo_path=repo_path)
+
         unused_funcs = results.get('potentially_unused_functions', [])
         
         if not unused_funcs:
@@ -2902,7 +3076,11 @@ def analyze_overrides(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        results = code_finder.find_function_overrides(function_name)
+        req_limit = get_tool_result_limit("overrides")
+        results = code_finder.find_function_overrides(function_name, limit=req_limit + 1 if req_limit is not None else None)
+        truncated = bool(req_limit and len(results) > req_limit)
+        if truncated:
+            results = results[:req_limit]
         
         if not results:
             console.print(f"[yellow]No implementations found for function '{function_name}'[/yellow]")
@@ -2931,6 +3109,8 @@ def analyze_overrides(
         
         console.print(f"\n[bold cyan]Found {len(results)} implementation(s) of '{function_name}':[/bold cyan]")
         console.print(table)
+        if truncated:
+            console.print(f"[dim]... truncated ({req_limit} shown), more exist[/dim]")
     finally:
         db_manager.close_driver()
 
