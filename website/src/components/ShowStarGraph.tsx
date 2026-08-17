@@ -11,7 +11,7 @@ export default function ShowStarGraph() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const baseStarHistoryImageUrl =
-    "https://api.star-history.com/svg?repos=CodeGraphContext/CodeGraphContext&type=Date";
+    "https://star-history.dera.page/svg?repos=CodeGraphContext/CodeGraphContext&type=Date";
 
   // Add cache busting parameter to force updates
   const starHistoryImageUrl = `${baseStarHistoryImageUrl}&t=${refreshKey}`;
@@ -19,7 +19,7 @@ export default function ShowStarGraph() {
 
   const githubRepoUrl = "https://github.com/CodeGraphContext/CodeGraphContext";
   const starHistoryUrl =
-    "https://star-history.com/#CodeGraphContext/CodeGraphContext&Date";
+    "https://star-history.dera.page/#CodeGraphContext/CodeGraphContext&Date";
 
   const handleImageLoad = () => {
     setImageLoaded(true);

@@ -118,7 +118,7 @@
 ---
 
 ## Star 历史
-[![Star 历史图表](https://api.star-history.com/svg?repos=CodeGraphContext/CodeGraphContext&type=Date)](https://www.star-history.com/#CodeGraphContext/CodeGraphContext&Date)
+[![Star 历史图表](https://star-history.dera.page/svg?repos=CodeGraphContext/CodeGraphContext&type=Date)](https://star-history.dera.page/#CodeGraphContext/CodeGraphContext&Date)
 
 ---
 

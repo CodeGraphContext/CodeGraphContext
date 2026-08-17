@@ -122,7 +122,7 @@
 ---
 
 ## நட்சத்திர வரலாறு
-[![Star History Chart](https://api.star-history.com/svg?repos=CodeGraphContext/CodeGraphContext&type=Date)](https://www.star-history.com/#CodeGraphContext/CodeGraphContext&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=CodeGraphContext/CodeGraphContext&type=Date)](https://star-history.dera.page/#CodeGraphContext/CodeGraphContext&Date)
 
 ---
 
