@@ -40,6 +40,7 @@ class JobInfo:
     result: Optional[Dict[str, Any]] = None
     path: Optional[str] = None
     is_dependency: bool = False
+    last_update_time: Optional[datetime] = None
 
     def __post_init__(self):
         """Ensures the errors list is initialized after the object is created."""
@@ -93,6 +94,7 @@ class JobManager:
                 for key, value in kwargs.items():
                     if hasattr(job, key):
                         setattr(job, key, value)
+                job.last_update_time = datetime.now()
 
     def get_job(self, job_id: str) -> Optional[JobInfo]:
         """Retrieves the information for a single job."""
@@ -132,15 +134,36 @@ class JobManager:
     def cleanup_old_jobs(self, max_age_hours: int = 24):
         """Removes old jobs from memory to prevent memory leaks.
 
-        Finished jobs are aged by end_time; jobs that never finished (e.g.
-        crashed while PENDING/RUNNING) are aged by start_time so they don't
-        leak forever.
+        Terminal jobs (COMPLETED/FAILED/CANCELLED) are aged by end_time,
+        falling back to start_time.
+
+        Jobs still PENDING/RUNNING are never deleted outright (#1537): a
+        healthy long-running index updates its progress constantly, and
+        deleting its record makes update_job silently no-op and
+        check_job_status report not_found while the worker keeps writing.
+        Instead, an active job with *no progress update* for the whole window
+        is presumed crashed and flipped to FAILED — the record stays visible,
+        and the next sweep ages it out through the terminal path.
         """
         cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
         with self.lock:
+            active = (JobStatus.PENDING, JobStatus.RUNNING)
             jobs_to_remove = [
                 job_id for job_id, job in self.jobs.items()
-                if (job.end_time or job.start_time) < cutoff_time
+                if job.status not in active
+                and (job.end_time or job.start_time) < cutoff_time
             ]
             for job_id in jobs_to_remove:
                 del self.jobs[job_id]
+
+            for job in self.jobs.values():
+                if job.status in active:
+                    last_progress = job.last_update_time or job.start_time
+                    if last_progress < cutoff_time:
+                        job.status = JobStatus.FAILED
+                        job.end_time = datetime.now()
+                        if job.errors is None:
+                            job.errors = []
+                        job.errors.append(
+                            f"Presumed crashed: no progress update for {max_age_hours}h"
+                        )
