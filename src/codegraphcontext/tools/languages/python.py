@@ -458,6 +458,8 @@ class PythonTreeSitterParser:
                             full_import_name = f"{module_name}.{imported_name}"
                             import_data = {
                                 "name": imported_name,
+                                "source": module_name,
+                                "imported_name": imported_name,
                                 "full_import_name": full_import_name,
                                 "line_number": child.start_point[0] + 1,
                                 "alias": alias,

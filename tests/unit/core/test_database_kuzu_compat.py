@@ -173,6 +173,7 @@ def test_import_batch_rewrite_sets_missing_full_import_name():
     translated, params = conn.queries[0]
     assert "m.alias = row.alias" not in translated
     assert all("full_import_name" in row for row in params["batch"])
+    assert all("lang" in row for row in params["batch"])
 
 
 def test_unwind_uid_injection_uses_fallback_for_missing_pk_fields():

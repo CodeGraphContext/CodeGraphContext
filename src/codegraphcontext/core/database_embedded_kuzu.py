@@ -264,7 +264,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
                 line_number INT64, args STRING[], full_call_name STRING, args_key STRING, confidence DOUBLE, resolution_tier INT64, 
                 confidence_label STRING, source STRING, resolution_method STRING, called_name STRING
             """, True),
-            ("IMPORTS", "FROM File TO Module, alias STRING, full_import_name STRING, imported_name STRING, line_number INT64", False),
+            ("IMPORTS", "FROM File TO Module, alias STRING, full_import_name STRING, imported_name STRING, line_number INT64, lang STRING", False),
             ("INHERITS", """
                 FROM Class TO Class, FROM Class TO Trait, FROM Class TO Interface, FROM Class TO Struct, FROM Class TO Enum, FROM Class TO `Union`, FROM Class TO Record, FROM Class TO Mixin, FROM Class TO Extension, FROM Class TO Module, FROM Class TO Object, FROM Class TO ExternalClass,
                 FROM Trait TO Class, FROM Trait TO Trait, FROM Trait TO Interface, FROM Trait TO Struct, FROM Trait TO Enum, FROM Trait TO `Union`, FROM Trait TO Record, FROM Trait TO Mixin, FROM Trait TO Extension, FROM Trait TO Module, FROM Trait TO Object, FROM Trait TO ExternalClass,
@@ -334,6 +334,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("ExternalClass", "path", "STRING"),
             ("IMPORTS", "full_import_name", "STRING"),
             ("IMPORTS", "imported_name", "STRING"),
+            ("IMPORTS", "lang", "STRING"),
             ("Repository", "indexed_at", "STRING"),
             ("Repository", "commit_hash", "STRING"),
             # Spring endpoint properties on Function
@@ -1222,8 +1223,10 @@ class EmbeddedSessionWrapper:
                     if isinstance(item, dict):
                         normalized = dict(item)
                         normalized.setdefault("full_import_name", normalized.get("name"))
+                        normalized.setdefault("imported_name", normalized.get("name"))
                         normalized.setdefault("alias", "")
                         normalized.setdefault("line_number", None)
+                        normalized.setdefault("lang", "")
                         normalized_batch.append(normalized)
                     else:
                         normalized_batch.append(item)
