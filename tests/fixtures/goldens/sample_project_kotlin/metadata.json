@@ -1,12 +1,12 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-08-14T09:46:27Z",
+  "exported_at": "2026-08-18T18:38:19Z",
   "format_version": "1.0.0",
   "repo": "sample_project_kotlin",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "db569849",
-  "branch": "stack/4-compose-semantics",
+  "commit": "3e749fae",
+  "branch": "mq",
   "languages": [
     "kotlin"
   ],
