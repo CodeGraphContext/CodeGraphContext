@@ -22,10 +22,11 @@ SCHEMA_FILE = (
     / "src" / "codegraphcontext" / "core" / "database_embedded_kuzu.py"
 )
 
-# Composite primary keys need a multi-key MERGE and a wider `_node_lookup_key`
-# tuple than the current (label, field, value) shape. Tracked separately; listed
-# here so this test states the gap instead of hiding it.
-KNOWN_COMPOSITE_PK_LABELS = {"DbColumn", "RedisKeyPattern"}
+# Composite primary keys no longer exist in the Kùzu schema: Kùzu cannot
+# declare them at all (the DDL fails to parse), so DbColumn and RedisKeyPattern
+# are keyed on a synthesized uid like the positional code labels. Kept as an
+# empty set so a future composite key re-fails this test loudly.
+KNOWN_COMPOSITE_PK_LABELS = set()
 
 
 def declared_node_tables():
@@ -57,8 +58,13 @@ def test_single_key_label_is_mapped(label, pk_fields):
 
 
 def test_labels_reported_in_1322_are_mapped():
-    """The two labels named in the issue report, pinned explicitly."""
-    assert CGCBundle._PK_MAP.get("DbTable") == "name"
+    """The two labels named in the issue report, pinned explicitly.
+
+    DbTable moved from name to fqn: the writer merges DbTable on `fqn`
+    (names collide across datasources), and the Kùzu table is keyed
+    accordingly, so bundles must import it by fqn too.
+    """
+    assert CGCBundle._PK_MAP.get("DbTable") == "fqn"
     assert CGCBundle._PK_MAP.get("ExternalClass") == "name"
 
 

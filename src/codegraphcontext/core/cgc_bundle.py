@@ -1524,9 +1524,9 @@ cgc import <bundle-file>.cgc
     # not a slow path, it is a hard import failure for any bundle containing
     # that label (#1322).
     #
-    # Not yet covered: DbColumn PK(name, table_fqn) and RedisKeyPattern
-    # PK(pattern, datasource_name). Composite keys need a multi-key MERGE and a
-    # wider `_node_lookup_key` tuple; tracked separately.
+    # DbColumn and RedisKeyPattern had composite natural keys, which Kùzu
+    # cannot declare as a PRIMARY KEY; they are keyed on a synthesized uid
+    # (name+table_fqn / pattern+datasource_name) like the positional labels.
     _PK_MAP = {
         'Repository': 'path', 'File': 'path', 'Directory': 'path',
         'Module': 'name',
@@ -1536,7 +1536,9 @@ cgc import <bundle-file>.cgc
         'Annotation': 'uid', 'Record': 'uid', 'Property': 'uid',
         'Parameter': 'uid', 'EnumMember': 'uid', 'Mixin': 'uid',
         'Extension': 'uid', 'Object': 'uid',
-        'DbTable': 'name', 'Datasource': 'name', 'ExternalClass': 'name',
+        'DbTable': 'fqn', 'Datasource': 'name', 'ExternalClass': 'name',
+        'DbColumn': 'uid', 'RedisKeyPattern': 'uid',
+        'GradleModule': 'name', 'MavenModule': 'uid', 'ExternalLibrary': 'uid',
     }
     _UID_PARTS = {
         'Function': ['name', 'path', 'line_number', 'occurrence_index'],
@@ -1556,6 +1558,10 @@ cgc import <bundle-file>.cgc
         'Mixin': ['name', 'path', 'line_number', 'occurrence_index'],
         'Extension': ['name', 'path', 'line_number', 'occurrence_index'],
         'Object': ['name', 'path', 'line_number', 'occurrence_index'],
+        'DbColumn': ['name', 'table_fqn'],
+        'RedisKeyPattern': ['pattern', 'datasource_name'],
+        'MavenModule': ['group_id', 'artifact_id'],
+        'ExternalLibrary': ['group_id', 'artifact_id'],
     }
 
     def _import_node_batch(
