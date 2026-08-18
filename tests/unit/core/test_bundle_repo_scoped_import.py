@@ -205,7 +205,8 @@ def test_function_uid_includes_dest_root_not_relative_path():
     pk = _pk_vals(session)[0]
     assert dest in pk
     assert "./" not in pk
-    assert pk == f"parse{dest}/src/foo.py12"
+    # occurrence_index (default 0) joined the uid parts in #1393.
+    assert pk == f"parse{dest}/src/foo.py120"
 
 
 def test_absolute_paths_are_unchanged_when_not_repo_scoped():

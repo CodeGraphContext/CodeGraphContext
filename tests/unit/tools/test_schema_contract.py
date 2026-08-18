@@ -16,5 +16,7 @@ def test_relationship_types_include_core_edges():
     assert "IMPORTS" in sc.RELATIONSHIP_TYPES
 
 
-def test_function_merge_keys_triple():
-    assert sc.FUNCTION_MERGE_KEYS == ("name", "path", "line_number")
+def test_function_merge_keys_include_occurrence_index():
+    """Identity gained occurrence_index in #1393; the old triple was not unique."""
+    assert sc.FUNCTION_MERGE_KEYS == ("name", "path", "line_number", "occurrence_index")
+    assert sc.CLASS_MERGE_KEYS == ("name", "path", "line_number", "occurrence_index")

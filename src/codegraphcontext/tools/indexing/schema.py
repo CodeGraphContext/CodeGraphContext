@@ -6,6 +6,44 @@ from typing import Any
 from ...utils.debug_log import info_logger, warning_logger
 
 
+# Labels whose node identity is positional: (name, path, line_number,
+# occurrence_index). occurrence_index was added in #1393 because
+# (name, path, line_number) is not unique -- a grouped CSS rule or a minified
+# JS bundle produces several distinct symbols sharing a name and a line, and
+# the old UNIQUE constraints below actively prevented the writer from keeping
+# them apart. Maps label -> the Cypher variable used in its DDL.
+POSITIONAL_IDENTITY_LABELS = {
+    "Function": "f",
+    "Class": "c",
+    "Trait": "t",
+    "Interface": "i",
+    "Macro": "m",
+    "Variable": "v",
+    "Struct": "s",
+    "Enum": "e",
+    "Union": "u",
+    "Record": "r",
+    "Property": "p",
+}
+
+# Old three-property UNIQUE constraints, dropped so existing databases migrate.
+# Recreating under a new name keeps the DROP a no-op on subsequent startups,
+# which matters because rebuilding a constraint on a large graph is expensive.
+_LEGACY_IDENTITY_CONSTRAINTS = {
+    "Function": "function_unique",
+    "Class": "class_unique",
+    "Trait": "trait_unique",
+    "Interface": "interface_unique",
+    "Macro": "macro_unique",
+    "Variable": "variable_unique",
+    "Struct": "struct_cpp",
+    "Enum": "enum_cpp",
+    "Union": "union_cpp",
+    "Record": "record_unique",
+    "Property": "property_unique",
+}
+
+
 class _DDLRunner:
     """Runs schema DDL so that one failing statement cannot skip the rest.
 
@@ -56,18 +94,14 @@ def create_graph_schema(driver: Any, db_manager: Any) -> None:
                 ddl.run("CREATE INDEX IF NOT EXISTS FOR (f:File) ON (f.path)")
                 ddl.run("CREATE INDEX IF NOT EXISTS FOR (d:Directory) ON (d.path)")
                 ddl.run("CREATE INDEX IF NOT EXISTS FOR (m:Module) ON (m.name)")
-                ddl.run("CREATE INDEX IF NOT EXISTS FOR (f:Function) ON (f.name, f.path, f.line_number)")
-                ddl.run("CREATE INDEX IF NOT EXISTS FOR (c:Class) ON (c.name, c.path, c.line_number)")
-                ddl.run("CREATE INDEX IF NOT EXISTS FOR (t:Trait) ON (t.name, t.path, t.line_number)")
-                ddl.run("CREATE INDEX IF NOT EXISTS FOR (i:Interface) ON (i.name, i.path, i.line_number)")
-                ddl.run("CREATE INDEX IF NOT EXISTS FOR (m:Macro) ON (m.name, m.path, m.line_number)")
-                ddl.run("CREATE INDEX IF NOT EXISTS FOR (v:Variable) ON (v.name, v.path, v.line_number)")
-                ddl.run("CREATE INDEX IF NOT EXISTS FOR (s:Struct) ON (s.name, s.path, s.line_number)")
-                ddl.run("CREATE INDEX IF NOT EXISTS FOR (e:Enum) ON (e.name, e.path, e.line_number)")
-                ddl.run("CREATE INDEX IF NOT EXISTS FOR (u:Union) ON (u.name, u.path, u.line_number)")
+                # occurrence_index is part of the MERGE key for these labels
+                # (#1393), so it belongs in the supporting index.
+                for _label, _var in POSITIONAL_IDENTITY_LABELS.items():
+                    ddl.run(
+                        f"CREATE INDEX IF NOT EXISTS FOR ({_var}:{_label}) "
+                        f"ON ({_var}.name, {_var}.path, {_var}.line_number, {_var}.occurrence_index)"
+                    )
                 ddl.run("CREATE INDEX IF NOT EXISTS FOR (a:Annotation) ON (a.name, a.path, a.line_number)")
-                ddl.run("CREATE INDEX IF NOT EXISTS FOR (r:Record) ON (r.name, r.path, r.line_number)")
-                ddl.run("CREATE INDEX IF NOT EXISTS FOR (p:Property) ON (p.name, p.path, p.line_number)")
                 ddl.run("CREATE INDEX IF NOT EXISTS FOR (em:EnumMember) ON (em.name, em.path)")
                 ddl.run("CREATE INDEX IF NOT EXISTS FOR (o:Object) ON (o.name, o.path, o.line_number)")
                 ddl.run("CREATE INDEX IF NOT EXISTS FOR (mx:Mixin) ON (mx.name, mx.path, mx.line_number)")
@@ -82,42 +116,26 @@ def create_graph_schema(driver: Any, db_manager: Any) -> None:
                 ddl.run(
                     "CREATE CONSTRAINT directory_path IF NOT EXISTS FOR (d:Directory) REQUIRE d.path IS UNIQUE"
                 )
-                ddl.run(
-                    "CREATE CONSTRAINT function_unique IF NOT EXISTS FOR (f:Function) REQUIRE (f.name, f.path, f.line_number) IS UNIQUE"
-                )
-                ddl.run(
-                    "CREATE CONSTRAINT class_unique IF NOT EXISTS FOR (c:Class) REQUIRE (c.name, c.path, c.line_number) IS UNIQUE"
-                )
-                ddl.run(
-                    "CREATE CONSTRAINT trait_unique IF NOT EXISTS FOR (t:Trait) REQUIRE (t.name, t.path, t.line_number) IS UNIQUE"
-                )
-                ddl.run(
-                    "CREATE CONSTRAINT interface_unique IF NOT EXISTS FOR (i:Interface) REQUIRE (i.name, i.path, i.line_number) IS UNIQUE"
-                )
-                ddl.run(
-                    "CREATE CONSTRAINT macro_unique IF NOT EXISTS FOR (m:Macro) REQUIRE (m.name, m.path, m.line_number) IS UNIQUE"
-                )
-                ddl.run(
-                    "CREATE CONSTRAINT variable_unique IF NOT EXISTS FOR (v:Variable) REQUIRE (v.name, v.path, v.line_number) IS UNIQUE"
-                )
+                # (name, path, line_number) is not a unique identity: a grouped
+                # CSS rule such as `tfoot th, tfoot td { }` emits two `tfoot`
+                # selectors on one line, and a minified JS bundle puts every
+                # function on line 1. These constraints made that unfixable --
+                # the writer could not create the second node even once it knew
+                # the two symbols were distinct. Drop them in favour of the
+                # four-property identity that includes occurrence_index (#1393).
+                for _label, _legacy_name in _LEGACY_IDENTITY_CONSTRAINTS.items():
+                    ddl.run(f"DROP CONSTRAINT {_legacy_name} IF EXISTS")
+                for _label, _var in POSITIONAL_IDENTITY_LABELS.items():
+                    _constraint = f"{_label.lower()}_identity"
+                    ddl.run(
+                        f"CREATE CONSTRAINT {_constraint} IF NOT EXISTS "
+                        f"FOR ({_var}:{_label}) REQUIRE "
+                        f"({_var}.name, {_var}.path, {_var}.line_number, "
+                        f"{_var}.occurrence_index) IS UNIQUE"
+                    )
                 ddl.run("CREATE CONSTRAINT module_name IF NOT EXISTS FOR (m:Module) REQUIRE m.name IS UNIQUE")
                 ddl.run(
-                    "CREATE CONSTRAINT struct_cpp IF NOT EXISTS FOR (cstruct: Struct) REQUIRE (cstruct.name, cstruct.path, cstruct.line_number) IS UNIQUE"
-                )
-                ddl.run(
-                    "CREATE CONSTRAINT enum_cpp IF NOT EXISTS FOR (cenum: Enum) REQUIRE (cenum.name, cenum.path, cenum.line_number) IS UNIQUE"
-                )
-                ddl.run(
-                    "CREATE CONSTRAINT union_cpp IF NOT EXISTS FOR (cunion: Union) REQUIRE (cunion.name, cunion.path, cunion.line_number) IS UNIQUE"
-                )
-                ddl.run(
                     "CREATE CONSTRAINT annotation_unique IF NOT EXISTS FOR (a:Annotation) REQUIRE (a.name, a.path, a.line_number) IS UNIQUE"
-                )
-                ddl.run(
-                    "CREATE CONSTRAINT record_unique IF NOT EXISTS FOR (r:Record) REQUIRE (r.name, r.path, r.line_number) IS UNIQUE"
-                )
-                ddl.run(
-                    "CREATE CONSTRAINT property_unique IF NOT EXISTS FOR (p:Property) REQUIRE (p.name, p.path, p.line_number) IS UNIQUE"
                 )
 
             ddl.run("CREATE INDEX function_lang IF NOT EXISTS FOR (f:Function) ON (f.lang)")
