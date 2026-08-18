@@ -69,9 +69,14 @@ RELATIONSHIP_TYPES = frozenset({
     "STORED_IN",
 })
 
-# Identity properties used in MERGE for code entities (path = absolute file path)
-FUNCTION_MERGE_KEYS = ("name", "path", "line_number")
-CLASS_MERGE_KEYS = ("name", "path", "line_number")
+# Identity properties used in MERGE for code entities (path = absolute file path).
+# occurrence_index disambiguates distinct symbols that share a name and a line in
+# one file -- grouped CSS selectors, minified JS bundles -- which the previous
+# three-property key silently merged into a single node (#1393). It is 0 for the
+# first record of each (name, line_number) key, so identity is unchanged for the
+# overwhelming majority of symbols, which never collide.
+FUNCTION_MERGE_KEYS = ("name", "path", "line_number", "occurrence_index")
+CLASS_MERGE_KEYS = ("name", "path", "line_number", "occurrence_index")
 FILE_MERGE_KEYS = ("path",)
 REPOSITORY_MERGE_KEYS = ("path",)
 DIRECTORY_MERGE_KEYS = ("path",)
