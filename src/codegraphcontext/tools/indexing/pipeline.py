@@ -28,6 +28,7 @@ from .resolution.inheritance import (
     build_metaclass_links,
     build_partial_of_links,
     build_part_of_links,
+    build_previews_links,
 )
 
 
@@ -260,6 +261,7 @@ async def run_tree_sitter_index_async(
     writer.write_metaclass_links(build_metaclass_links(all_file_data, imports_map))
     writer.write_decorated_by_links(build_decorated_by_links(all_file_data, imports_map))
     writer.write_binds_links(build_binds_links(all_file_data, imports_map))
+    writer.write_previews_links(build_previews_links(all_file_data, imports_map))
     t1 = time.time()
     info_logger(f"Inheritance links created in {t1 - t0:.1f}s. Starting function calls...")
 
