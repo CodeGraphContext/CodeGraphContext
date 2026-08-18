@@ -5,6 +5,16 @@ from codegraphcontext.tools.languages.php import PhpTreeSitterParser
 from codegraphcontext.utils.tree_sitter_manager import get_tree_sitter_manager
 
 
+@pytest.fixture(scope="module")
+def parser():
+    manager = get_tree_sitter_manager()
+    wrapper = MagicMock()
+    wrapper.language_name = "php"
+    wrapper.language = manager.get_language_safe("php")
+    wrapper.parser = manager.create_parser("php")
+    return PhpTreeSitterParser(wrapper)
+
+
 class TestPhpImports:
     """PHP `use` handling.
 
@@ -12,15 +22,6 @@ class TestPhpImports:
     use inside a class body — not a top-level import. That dropped every real
     import and labelled trait uses as imports instead.
     """
-
-    @pytest.fixture(scope="class")
-    def parser(self):
-        manager = get_tree_sitter_manager()
-        wrapper = MagicMock()
-        wrapper.language_name = "php"
-        wrapper.language = manager.get_language_safe("php")
-        wrapper.parser = manager.create_parser("php")
-        return PhpTreeSitterParser(wrapper)
 
     def _imports(self, parser, tmp_path, code):
         f = tmp_path / "sample.php"
@@ -82,3 +83,22 @@ class TestPhpImports:
         )
         imports = self._imports(parser, tmp_path, code)
         assert [i["line_number"] for i in imports] == [2, 3, 4]
+
+
+def test_promoted_and_variadic_parameters(parser, tmp_path):
+    code = (
+        "<?php\n"
+        "class Service {\n"
+        "    public function __construct(private string $dsn) {}\n"
+        "}\n"
+        "function all(...$filters) {}\n"
+    )
+    f = tmp_path / "parameters.php"
+    f.write_text(code, encoding="utf-8")
+
+    functions = parser.parse(str(f))["functions"]
+
+    assert {function["name"]: function["parameters"] for function in functions} == {
+        "__construct": ["$dsn"],
+        "all": ["$filters"],
+    }
