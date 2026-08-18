@@ -230,18 +230,27 @@ class PhpTreeSitterParser:
                         if params_node:
                             # PHP parameters: function($a, $b)
                             for child in params_node.children:
-                                if "variable_name" in child.type or "simple_parameter" in child.type:
-                                     var_node = child if "variable_name" in child.type else child.child_by_field_name("name")
-                                     type_node = child.child_by_field_name("type") if "simple_parameter" in child.type else None
-                                     
-                                     if var_node:
-                                         var_name = self._get_node_text(var_node)
-                                         parameters.append(var_name)
-                                         if type_node:
-                                             var_type = self._get_node_text(type_node)
-                                             # Extract actual type from union/nullable types
-                                             var_type = var_type.lstrip("?").split("|")[0].strip()
-                                             var_type_map[(func_name, var_name)] = var_type
+                                if child.type == "variable_name":
+                                    var_node = child
+                                    type_node = None
+                                elif child.type in (
+                                    "simple_parameter",
+                                    "property_promotion_parameter",
+                                    "variadic_parameter",
+                                ):
+                                    var_node = child.child_by_field_name("name")
+                                    type_node = child.child_by_field_name("type")
+                                else:
+                                    continue
+
+                                if var_node:
+                                    var_name = self._get_node_text(var_node)
+                                    parameters.append(var_name)
+                                    if type_node:
+                                        var_type = self._get_node_text(type_node)
+                                        # Extract actual type from union/nullable types
+                                        var_type = var_type.lstrip("?").split("|")[0].strip()
+                                        var_type_map[(func_name, var_name)] = var_type
 
                         source_text = self._get_node_text(node)
                         
