@@ -68,6 +68,31 @@ def _strip_literals_and_comments(query: str) -> str:
     return _LITERAL_OR_COMMENT_RE.sub(" ", query)
 
 
+# A forbidden keyword only functions as a write *clause* in clause position.
+# The same word is inert — and common in real codebases' graphs — when it is:
+#   n.load        a property access        (preceded by '.')
+#   (n:Insert)    a label / rel-type       (preceded by ':')
+#   $update       a parameter name         (preceded by '$')
+#   AS set        a result-column alias    (preceded by the token AS)
+# Only those provably-safe positions are carved out (#1511); anything
+# ambiguous stays rejected, because a false negative here is a write slipping
+# through a read-only gate while a false positive is merely an inconvenience.
+_TOKEN_RE = re.compile(r"\w+|[^\w\s]")
+
+
+def _keyword_in_clause_position(stripped: str, keyword: str) -> bool:
+    tokens = _TOKEN_RE.findall(stripped)
+    kw = keyword.upper()
+    for i, tok in enumerate(tokens):
+        if tok.upper() != kw:
+            continue
+        prev = tokens[i - 1] if i > 0 else ""
+        if prev in (".", ":", "$") or prev.upper() == "AS":
+            continue
+        return True
+    return False
+
+
 def is_read_only_cypher(query: str) -> bool:
     """Return True when *query* has no write keywords outside string literals."""
     if not query or not query.strip():
@@ -76,7 +101,7 @@ def is_read_only_cypher(query: str) -> bool:
     if ";" in stripped:
         return False
     for keyword in _FORBIDDEN_KEYWORDS:
-        if re.search(r"\b" + keyword + r"\b", stripped, re.IGNORECASE):
+        if _keyword_in_clause_position(stripped, keyword):
             return False
     for pattern in _FORBIDDEN_PATTERNS:
         if pattern.search(stripped):
