@@ -557,6 +557,25 @@ class MCPServer:
         except Exception as exc:
             warning_logger(f"Failed to start new code watcher after context switch: {exc}")
 
+    def _active_jobs_block_context_switch(self) -> Optional[Dict[str, Any]]:
+        """Refuse context switches while indexing jobs still hold the current DB (#1536)."""
+        active = self.job_manager.list_active_jobs()
+        if not active:
+            return None
+        job_ids = [j.job_id for j in active]
+        details = [
+            {"job_id": j.job_id, "status": j.status.value, "path": j.path}
+            for j in active
+        ]
+        return {
+            "error": (
+                "Cannot switch context while indexing jobs are still active "
+                f"({', '.join(job_ids)}). Wait for them to finish "
+                "(check_job_status / list_jobs), then retry switch_context."
+            ),
+            "active_jobs": details,
+        }
+
     def switch_context_tool(self, **args) -> Dict[str, Any]:
         raw_path = args.get("context_path", "")
         should_save = args.get("save", True)
@@ -566,6 +585,9 @@ class MCPServer:
 
         # --- Special case: switch back to the global context ---
         if raw_path == "global":
+            blocked = self._active_jobs_block_context_switch()
+            if blocked:
+                return blocked
             try:
                 watcher_was_running = self._stop_current_watcher()
                 try:
@@ -621,6 +643,10 @@ class MCPServer:
 
         if not cgc_dir.exists() or not cgc_dir.is_dir():
             return {"error": f"No .codegraphcontext directory found at {cgc_dir}."}
+
+        blocked = self._active_jobs_block_context_switch()
+        if blocked:
+            return blocked
 
         local_db = "falkordb"
         local_yaml = cgc_dir / "config.yaml"
