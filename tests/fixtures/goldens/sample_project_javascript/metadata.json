@@ -1,16 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-08-18T18:33:46Z",
+  "exported_at": "2026-08-18T19:26:00Z",
   "format_version": "1.0.0",
   "repo": "sample_project_javascript",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "51d97697",
-  "branch": "mq",
+  "commit": "96554adc",
+  "branch": "fix/core-backlog-batch",
   "languages": [
     "javascript"
   ],
-  "generator": "PYv0.5.8",
+  "generator": "PYv0.6.0",
   "name": "sample_project_javascript.cgc",
   "graph_metrics": {
     "total_nodes": 239,

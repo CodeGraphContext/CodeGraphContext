@@ -80,8 +80,9 @@ def test_parse_svelte_script_symbols(svelte_parser, temp_test_dir):
     function_names = {fn["name"] for fn in result["functions"]}
     assert "increment" in function_names
 
-    import_names = {imp["name"] for imp in result["imports"]}
-    assert "svelte" in import_names
+    # #1526: the module is recorded in `source`; `name` is the binding.
+    import_sources = {imp["source"] for imp in result["imports"]}
+    assert "svelte" in import_sources
 
     # Line numbers should map back to the original SFC, not a 1-based script slice.
     increment = next(fn for fn in result["functions"] if fn["name"] == "increment")
@@ -123,8 +124,9 @@ button { color: blue; }
     function_names = {fn["name"] for fn in result["functions"]}
     assert "increment" in function_names or "setup" in function_names
 
-    import_names = {imp["name"] for imp in result["imports"]}
-    assert "vue" in import_names
+    # #1526: the module is recorded in `source`; `name` is the binding.
+    import_sources = {imp["source"] for imp in result["imports"]}
+    assert "vue" in import_sources
 
     # The <script> block starts on line 5, so symbols inside it must be offset.
     setup = next((fn for fn in result["functions"] if fn["name"] == "setup"), None)
