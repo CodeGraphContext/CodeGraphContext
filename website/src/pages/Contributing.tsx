@@ -52,7 +52,7 @@ const Contributing: React.FC = () => {
       .replace(/^### (.+)$/gm, "<h3>$1</h3>")
       .replace(/^## (.+)$/gm, (match, p1) => {
         const id = p1.toLowerCase().replace(/\s+/g, "-");
-        return '<h2 id="${id}">${p1}</h2>';
+        return `<h2 id="${id}">${p1}</h2>`;
       })
       .replace(/^# (.+)$/gm, "<h1>$1</h1>")
       // Bold and italic

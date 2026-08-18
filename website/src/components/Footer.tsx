@@ -247,9 +247,20 @@ const Footer = () => {
                 <p>Available Worldwide 🌍</p>
               </div>
 
-<a href="/contributing" className="hover:text-white transition-colors">
-  Contributing
-</a>
+              <div className="pt-4 border-t border-white/10">
+                <p className="font-semibold text-white">
+                  Shashank Shekhar Singh
+                </p>
+                <p className="text-gray-500 text-xs">
+                  Creator &amp; Maintainer
+                </p>
+                <a
+                  href="/contributing"
+                  className="mt-2 inline-block text-xs hover:text-white transition-colors underline underline-offset-2"
+                >
+                  Contributing Guide
+                </a>
+              </div>
             </div>
           </div>
 
