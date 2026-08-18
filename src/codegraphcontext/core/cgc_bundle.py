@@ -1539,18 +1539,18 @@ cgc import <bundle-file>.cgc
         'DbTable': 'name', 'Datasource': 'name', 'ExternalClass': 'name',
     }
     _UID_PARTS = {
-        'Function': ['name', 'path', 'line_number'],
-        'Class': ['name', 'path', 'line_number'],
-        'Variable': ['name', 'path', 'line_number'],
-        'Trait': ['name', 'path', 'line_number'],
-        'Interface': ['name', 'path', 'line_number'],
-        'Macro': ['name', 'path', 'line_number'],
-        'Struct': ['name', 'path', 'line_number'],
-        'Enum': ['name', 'path', 'line_number'],
-        'Union': ['name', 'path', 'line_number'],
+        'Function': ['name', 'path', 'line_number', 'occurrence_index'],
+        'Class': ['name', 'path', 'line_number', 'occurrence_index'],
+        'Variable': ['name', 'path', 'line_number', 'occurrence_index'],
+        'Trait': ['name', 'path', 'line_number', 'occurrence_index'],
+        'Interface': ['name', 'path', 'line_number', 'occurrence_index'],
+        'Macro': ['name', 'path', 'line_number', 'occurrence_index'],
+        'Struct': ['name', 'path', 'line_number', 'occurrence_index'],
+        'Enum': ['name', 'path', 'line_number', 'occurrence_index'],
+        'Union': ['name', 'path', 'line_number', 'occurrence_index'],
         'Annotation': ['name', 'path', 'line_number'],
-        'Record': ['name', 'path', 'line_number'],
-        'Property': ['name', 'path', 'line_number'],
+        'Record': ['name', 'path', 'line_number', 'occurrence_index'],
+        'Property': ['name', 'path', 'line_number', 'occurrence_index'],
         'Parameter': ['name', 'path', 'function_line_number'],
         'EnumMember': ['name', 'path', 'line_number'],
         'Mixin': ['name', 'path', 'line_number'],
@@ -1586,7 +1586,12 @@ cgc import <bundle-file>.cgc
             # After rebasing './…' paths, uid must include the dest root so
             # Function/Class MERGE keys do not collide across bundles (#1509).
             if pk_field == 'uid' and parts and (dest_root or 'uid' not in properties):
-                properties['uid'] = ''.join(str(properties.get(p, '')) for p in parts)
+                properties['uid'] = ''.join(
+                    # occurrence_index defaults to 0 to match the writer's uid
+                    # for bundles exported before #1393 added the property.
+                    str(properties.get(p, 0 if p == 'occurrence_index' else ''))
+                    for p in parts
+                )
 
             if pk_field and pk_field in properties:
                 pk_val = properties[pk_field]
