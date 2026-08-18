@@ -229,3 +229,70 @@ class TestMCPServer:
             assert kwargs["repo_path"] == "/some/repo"
 
         asyncio.run(run_test())
+
+    def test_switch_context_refuses_while_job_running(self, mock_server):
+        """#1536: must not tear down the DB under an in-flight indexing job."""
+        from codegraphcontext.core.jobs import JobManager, JobStatus
+
+        jobs = JobManager()
+        job_id = jobs.create_job("/big/monorepo")
+        jobs.update_job(job_id, status=JobStatus.RUNNING)
+        mock_server.job_manager = jobs
+
+        with patch("codegraphcontext.server._teardown_db_manager") as teardown:
+            result = mock_server.switch_context_tool(context_path="global")
+
+        assert "error" in result
+        assert job_id in result["error"]
+        assert result["active_jobs"][0]["job_id"] == job_id
+        assert result["active_jobs"][0]["status"] == "running"
+        assert result["active_jobs"][0]["path"] == "/big/monorepo"
+        teardown.assert_not_called()
+
+    def test_switch_context_refuses_while_job_pending(self, mock_server):
+        """Race window starts at create_job, before pipeline flips to RUNNING."""
+        from codegraphcontext.core.jobs import JobManager
+
+        jobs = JobManager()
+        job_id = jobs.create_job("/still/pending")
+        mock_server.job_manager = jobs
+
+        with patch("codegraphcontext.server._teardown_db_manager") as teardown:
+            result = mock_server.switch_context_tool(context_path="global")
+
+        assert "error" in result
+        assert job_id in result["error"]
+        assert result["active_jobs"][0]["status"] == "pending"
+        teardown.assert_not_called()
+
+    def test_switch_context_global_proceeds_without_active_jobs(self, mock_server):
+        """With no active jobs, switch_context may tear down and rebuild."""
+        from codegraphcontext.core.jobs import JobManager
+        from codegraphcontext.cli.config_manager import ResolvedContext
+
+        mock_server.job_manager = JobManager()
+        mock_server.resolved_context = ResolvedContext(
+            mode="per-repo",
+            context_name="",
+            database="kuzudb",
+            db_path="/tmp/old-db",
+            cgcignore_path="/tmp/.cgcignore",
+            is_local=True,
+        )
+        mock_server.code_watcher = MagicMock()
+        mock_server.code_watcher.observer.is_alive.return_value = False
+
+        new_manager = MagicMock()
+        with patch("codegraphcontext.server._teardown_db_manager") as teardown, \
+             patch("codegraphcontext.server.get_database_manager", return_value=new_manager) as get_db, \
+             patch("codegraphcontext.server.GraphBuilder"), \
+             patch("codegraphcontext.server.CodeFinder"), \
+             patch("codegraphcontext.server.CodeWatcher"), \
+             patch("codegraphcontext.server._default_global_db_path", return_value="/tmp/global-db"), \
+             patch("codegraphcontext.server.load_config", return_value={"DEFAULT_DATABASE": "kuzudb"}):
+            result = mock_server.switch_context_tool(context_path="global")
+
+        assert result.get("status") == "ok", result
+        teardown.assert_called_once()
+        get_db.assert_called_once()
+        new_manager.get_driver.assert_called_once()

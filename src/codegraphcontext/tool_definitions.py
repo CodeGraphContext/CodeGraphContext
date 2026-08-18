@@ -372,7 +372,10 @@ TOOLS = {
 
     "switch_context": {
         "name": "switch_context",
-        "description": "Switch active graph context.",
+        "description": (
+            "Switch active graph context. Refuses while any indexing job is "
+            "PENDING or RUNNING — wait for check_job_status / list_jobs, then retry."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
