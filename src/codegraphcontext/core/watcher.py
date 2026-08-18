@@ -458,6 +458,13 @@ class CodeWatcher:
             h.cancel_timers()
         self.handlers.clear()
 
+        # A stopped watchdog Observer cannot be restarted, so the watch state
+        # must not survive it: a stale entry makes watch_directory answer
+        # "Already watching" for a dead observer and the graph silently goes
+        # stale (#1519).
+        self.watched_paths.clear()
+        self.watches.clear()
+
         if self.observer.is_alive():
             self.observer.stop()
             self.observer.join()
