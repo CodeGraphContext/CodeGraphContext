@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { track } from "@vercel/analytics/react";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
@@ -10,6 +11,7 @@ import functionCallsImage from "@/assets/function-calls.png";
 import hierarchyImage from "@/assets/hierarchy.png";
 
 const DemoSection = () => {
+  const [playVideo, setPlayVideo] = useState(false);
   const visualizations = [
     {
       title: "Complete Code Graph",
@@ -84,14 +86,36 @@ const DemoSection = () => {
           transition={{ type: "spring", stiffness: 80, damping: 20, delay: 0.2 }}
           className="max-w-4xl mx-auto mb-16"
         >
-          <div className="relative aspect-video rounded-3xl overflow-hidden shadow-[0_0_40px_rgba(168,85,247,0.15)] border border-white/20">
-            <iframe
-              src="https://www.youtube.com/embed/KYYSdxhg1xU?autoplay=1&mute=1&loop=1&playlist=KYYSdxhg1xU"
-              title="CodeGraphContext Demo"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              className="w-full h-full"
-            />
+          <div className="relative aspect-video rounded-3xl overflow-hidden shadow-[0_0_40px_rgba(168,85,247,0.15)] border border-white/20 bg-zinc-950">
+            {playVideo ? (
+              <iframe
+                src="https://www.youtube.com/embed/KYYSdxhg1xU?autoplay=1&mute=1&loop=1&playlist=KYYSdxhg1xU"
+                title="CodeGraphContext Demo"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="w-full h-full"
+              />
+            ) : (
+              <div 
+                onClick={() => setPlayVideo(true)}
+                className="absolute inset-0 cursor-pointer flex items-center justify-center group"
+              >
+                <img 
+                  src="https://img.youtube.com/vi/KYYSdxhg1xU/maxresdefault.jpg" 
+                  alt="CodeGraphContext Demo Thumbnail" 
+                  className="w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity duration-300"
+                  loading="lazy"
+                />
+                <div className="absolute w-20 h-20 rounded-full bg-purple-600/90 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] group-hover:scale-110 group-hover:bg-purple-500 transition-all duration-300">
+                  <svg 
+                    className="w-8 h-8 fill-current ml-1" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </div>
+              </div>
+            )}
           </div>
         </motion.div>
 

@@ -1,12 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Github, ExternalLink, Copy, Check, Sparkles, FolderUp, Mail, Loader2, Package, Download, CheckCircle2, XCircle, Clock } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import ShowDownloads from "@/components/ShowDownloads";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import LocalUploader from "@/components/LocalUploader";
-import CodeGraphViewer from "@/components/CodeGraphViewer";
+const CodeGraphViewer = lazy(() => import("@/components/CodeGraphViewer"));
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import MagneticButton from "@/components/MagneticButton";
@@ -353,7 +353,14 @@ const HeroSection = () => {
   if (graphData) {
     return (
       <div className="fixed inset-0 z-50 bg-background w-full h-full">
-        <CodeGraphViewer data={graphData} onClose={() => setGraphData(null)} />
+        <Suspense fallback={
+          <div className="w-full h-full flex flex-col items-center justify-center bg-black text-white font-mono text-sm gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+            <span>Loading Viewer...</span>
+          </div>
+        }>
+          <CodeGraphViewer data={graphData} onClose={() => setGraphData(null)} />
+        </Suspense>
       </div>
     );
   }
