@@ -163,8 +163,11 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
         current_files = self._iter_supported_files()
         current_paths = {p.resolve().as_posix() for p in current_files}
+        # Normalize stored paths lexically only: older Windows indexes stored
+        # backslash paths, but resolving a foreign-platform path against the
+        # local filesystem would prefix cwd and mark every file stale.
         indexed = {
-            Path(p).resolve().as_posix()
+            p.replace("\\", "/")
             for p in self.graph_builder.get_repo_file_paths(self.repo_path)
         }
 
