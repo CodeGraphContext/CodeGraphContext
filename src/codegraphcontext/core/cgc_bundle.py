@@ -80,6 +80,75 @@ def _validate_cypher_identifier(value: Any, kind: str) -> str:
     return value
 
 
+# Repo-scoped export rewrites the repository root to "." and every path under
+# it to "./rel" (#1509). Import must invert that rewrite against a per-bundle
+# destination root; otherwise every second bundle collides on path="." and
+# File keys like ./README.md.
+_BUNDLE_RELATIVE_ROOTS = {".", "./", ".\\"}
+_NON_SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _sanitize_bundle_repo_slug(repo: Optional[str]) -> str:
+    """Turn metadata['repo'] into a single path segment (pallets/flask → pallets__flask)."""
+    if not repo or not isinstance(repo, str):
+        return "unknown"
+    slug = repo.strip().replace("\\", "/").replace("..", "").strip("/")
+    slug = _NON_SLUG_RE.sub("__", slug).strip("_")
+    return slug or "unknown"
+
+
+def _default_bundle_install_root(
+    metadata: Optional[Dict[str, Any]] = None,
+    destination_root: Optional[Path] = None,
+) -> str:
+    """Absolute posix dest root for one imported bundle: ~/.codegraphcontext/bundles/<slug>."""
+    slug = _sanitize_bundle_repo_slug((metadata or {}).get("repo"))
+    base = Path(destination_root) if destination_root is not None else (
+        Path.home() / ".codegraphcontext" / "bundles"
+    )
+    return (base / slug).resolve().as_posix()
+
+
+def _is_bundle_relative_path(val: Any) -> bool:
+    """True for portable export paths: '.', './', '.\\', './foo', '.\\foo'."""
+    if not isinstance(val, str) or not val:
+        return False
+    if val in _BUNDLE_RELATIVE_ROOTS:
+        return True
+    return val.startswith("./") or val.startswith(".\\")
+
+
+def _is_identifying_repo_path(repo_path: Optional[str]) -> bool:
+    """False for None, empty, and bundle-relative paths that are not unique."""
+    if not repo_path:
+        return False
+    return not _is_bundle_relative_path(repo_path)
+
+
+def _rebase_bundle_path(val: str, dest_root: str) -> str:
+    """Map '.' / './rel' onto dest_root. Non-relative strings are returned unchanged."""
+    if not _is_bundle_relative_path(val):
+        return val
+    if val in _BUNDLE_RELATIVE_ROOTS:
+        return dest_root
+    rel = val[2:].replace("\\", "/").lstrip("/")
+    if not rel:
+        return dest_root
+    return dest_root + "/" + rel
+
+
+def _rebase_property_map(
+    props: Optional[Dict[str, Any]], dest_root: Optional[str]
+) -> Dict[str, Any]:
+    """Rewrite every bundle-relative string property in *props* in place."""
+    if not props or not dest_root:
+        return props or {}
+    for key, val in list(props.items()):
+        if isinstance(val, str) and _is_bundle_relative_path(val):
+            props[key] = _rebase_bundle_path(val, dest_root)
+    return props
+
+
 class CGCBundle:
     """Handles creation and loading of .cgc bundle files."""
 
@@ -259,6 +328,7 @@ class CGCBundle:
         password: Optional[str] = None,
         verify_key: Optional[str] = None,
         graph_name: str = None,
+        destination_root: Optional[Path] = None,
     ) -> Tuple[bool, str]:
         self._active_graph = graph_name
         """
@@ -268,6 +338,11 @@ class CGCBundle:
             bundle_path: Path to the .cgc file
             clear_existing: Whether to clear existing graph data first
             readonly: If True, mount as read-only (future feature)
+            password: Optional password to decrypt an encrypted bundle
+            verify_key: Optional HMAC key to verify a signed bundle
+            destination_root: Optional base directory used to re-absolutize
+                repo-scoped relative paths ('.' / './…'). Defaults to
+                ~/.codegraphcontext/bundles/<sanitized repo>.
             
         Returns:
             Tuple[bool, str]: (success, message)
@@ -304,10 +379,15 @@ class CGCBundle:
                 
                 info_logger(f"Loading bundle: {metadata.get('repo', 'unknown')}")
                 info_logger(f"Bundle version: {metadata.get('cgc_version', 'unknown')}")
+
+                dest_root = _default_bundle_install_root(metadata, destination_root)
                 
                 # Step 4: Handle existing data
                 repo_name = metadata.get('repo', 'unknown')
                 repo_path = metadata.get('repo_path')
+                if _is_bundle_relative_path(repo_path):
+                    repo_path = _rebase_bundle_path(repo_path, dest_root)
+                    metadata["repo_path"] = repo_path
                 
                 if clear_existing:
                     # User explicitly wants to clear - remove everything
@@ -330,11 +410,11 @@ class CGCBundle:
                 
                 # Step 6: Import nodes
                 info_logger("Importing nodes...")
-                node_count = self._import_nodes(payload_path / "nodes.jsonl")
+                node_count = self._import_nodes(payload_path / "nodes.jsonl", dest_root)
                 
                 # Step 7: Import edges
                 info_logger("Importing edges...")
-                edge_count = self._import_edges(payload_path / "edges.jsonl")
+                edge_count = self._import_edges(payload_path / "edges.jsonl", dest_root)
             
             success_msg = f"✅ Successfully imported {bundle_path.name}\n"
             success_msg += f"   Repository: {metadata.get('repo', 'unknown')}\n"
@@ -1310,8 +1390,10 @@ cgc import <bundle-file>.cgc
             if result.single():
                 return True
             
-            # If repo_path is provided, also check by path
-            if repo_path:
+            # Path '.' / './…' is the portable export of every repo-scoped
+            # bundle, not a unique identity — matching on it refuses flask
+            # then requests as duplicates (#1509).
+            if _is_identifying_repo_path(repo_path):
                 result = session.run(
                     "MATCH (r:Repository {path: $path}) RETURN r LIMIT 1",
                     path=repo_path
@@ -1338,6 +1420,13 @@ cgc import <bundle-file>.cgc
                 return
             
             repo_path = record['path']
+            if not _is_identifying_repo_path(repo_path):
+                warning_logger(
+                    f"Refusing to delete repository '{repo_identifier}': "
+                    f"path {repo_path!r} is not identifying and would match "
+                    "every repo-scoped bundle import"
+                )
+                return
             
             repo_prefix = repo_path if repo_path.endswith("/") else f"{repo_path}/"
             # Delete all nodes that belong to this repository
@@ -1387,7 +1476,7 @@ cgc import <bundle-file>.cgc
         # This is a placeholder for future enhancement
         debug_log("Schema import not yet implemented - relying on application schema")
     
-    def _import_nodes(self, nodes_file: Path) -> int:
+    def _import_nodes(self, nodes_file: Path, dest_root: Optional[str] = None) -> int:
         """Import nodes from JSONL file."""
         count = 0
         batch_size = 1000
@@ -1416,12 +1505,12 @@ cgc import <bundle-file>.cgc
                     batch.append((labels, node_data, old_id))
                     
                     if len(batch) >= batch_size:
-                        count += self._import_node_batch(session, batch, id_mapping)
+                        count += self._import_node_batch(session, batch, id_mapping, dest_root)
                         batch = []
                 
                 # Import remaining nodes
                 if batch:
-                    count += self._import_node_batch(session, batch, id_mapping)
+                    count += self._import_node_batch(session, batch, id_mapping, dest_root)
         
         # Store ID mapping for edge import
         self._id_mapping = id_mapping
@@ -1469,7 +1558,13 @@ cgc import <bundle-file>.cgc
         'Object': ['name', 'path', 'line_number'],
     }
 
-    def _import_node_batch(self, session, batch: List[Tuple], id_mapping: Dict) -> int:
+    def _import_node_batch(
+        self,
+        session,
+        batch: List[Tuple],
+        id_mapping: Dict,
+        dest_root: Optional[str] = None,
+    ) -> int:
         """Import a batch of nodes."""
         id_function = self._get_id_function()
         
@@ -1483,9 +1578,14 @@ cgc import <bundle-file>.cgc
             label_str = ':'.join(labels)
             primary_label = labels[0]
 
+            if dest_root:
+                _rebase_property_map(properties, dest_root)
+
             pk_field = self._PK_MAP.get(primary_label)
-            if pk_field == 'uid' and 'uid' not in properties:
-                parts = self._UID_PARTS.get(primary_label, [])
+            parts = self._UID_PARTS.get(primary_label, []) if pk_field == 'uid' else []
+            # After rebasing './…' paths, uid must include the dest root so
+            # Function/Class MERGE keys do not collide across bundles (#1509).
+            if pk_field == 'uid' and parts and (dest_root or 'uid' not in properties):
                 properties['uid'] = ''.join(str(properties.get(p, '')) for p in parts)
 
             if pk_field and pk_field in properties:
@@ -1511,7 +1611,7 @@ cgc import <bundle-file>.cgc
         
         return len(batch)
     
-    def _import_edges(self, edges_file: Path) -> int:
+    def _import_edges(self, edges_file: Path, dest_root: Optional[str] = None) -> int:
         """Import edges from JSONL file."""
         count = 0
         batch_size = 1000
@@ -1524,16 +1624,18 @@ cgc import <bundle-file>.cgc
                     batch.append(edge_data)
                     
                     if len(batch) >= batch_size:
-                        count += self._import_edge_batch(session, batch)
+                        count += self._import_edge_batch(session, batch, dest_root)
                         batch = []
                 
                 # Import remaining edges
                 if batch:
-                    count += self._import_edge_batch(session, batch)
+                    count += self._import_edge_batch(session, batch, dest_root)
         
         return count
     
-    def _import_edge_batch(self, session, batch: List[Dict]) -> int:
+    def _import_edge_batch(
+        self, session, batch: List[Dict], dest_root: Optional[str] = None
+    ) -> int:
         """Import a batch of edges."""
         id_mapping = getattr(self, '_id_mapping', {})
         # Detect database backend to use appropriate ID function
@@ -1548,7 +1650,9 @@ cgc import <bundle-file>.cgc
             if isinstance(old_to, dict):
                 old_to = (old_to.get('table', 0), old_to.get('offset', 0))
             rel_type = _validate_cypher_identifier(edge.get('type'), "relationship type")
-            properties = edge.get('properties', {})
+            properties = edge.get('properties', {}) or {}
+            if dest_root:
+                properties = _rebase_property_map(properties, dest_root)
             
             # Map old IDs to new IDs
             new_from = id_mapping.get(old_from)
