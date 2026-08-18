@@ -172,3 +172,60 @@ class TestMCPServer:
             assert result == {"error": "Tool 'find_code' is disabled in mcp.json (disabledTools)."}
 
         asyncio.run(run_test())
+
+    def test_complexity_path_is_not_aliased_into_repo_path(self, mock_server):
+        """#1532: path is a file disambiguator; copying it into repo_path made
+        STARTS WITH never match absolute f.path and returned results: null."""
+        async def run_test():
+            mock_server.calculate_cyclomatic_complexity_tool = MagicMock(
+                return_value={"success": True, "results": {"complexity": 3}}
+            )
+
+            await mock_server.handle_tool_call(
+                "calculate_cyclomatic_complexity",
+                {"function_name": "parse", "path": "src/foo.py"},
+            )
+
+            kwargs = mock_server.calculate_cyclomatic_complexity_tool.call_args.kwargs
+            assert kwargs["function_name"] == "parse"
+            assert kwargs["path"] == "src/foo.py"
+            assert "repo_path" not in kwargs
+
+        asyncio.run(run_test())
+
+    def test_complexity_repo_path_is_not_aliased_into_path(self, mock_server):
+        """Reverse direction was already guarded; keep it that way."""
+        async def run_test():
+            mock_server.calculate_cyclomatic_complexity_tool = MagicMock(
+                return_value={"success": True, "results": {"complexity": 3}}
+            )
+
+            await mock_server.handle_tool_call(
+                "calculate_cyclomatic_complexity",
+                {"function_name": "parse", "repo_path": "/abs/repo"},
+            )
+
+            kwargs = mock_server.calculate_cyclomatic_complexity_tool.call_args.kwargs
+            assert kwargs["function_name"] == "parse"
+            assert kwargs["repo_path"] == "/abs/repo"
+            assert "path" not in kwargs
+
+        asyncio.run(run_test())
+
+    def test_other_tools_still_alias_path_into_repo_path(self, mock_server):
+        """General path/repo_path aliasing must keep working for tools where
+        the two keys mean the same thing."""
+        async def run_test():
+            mock_server.find_code_tool = MagicMock(return_value={"result": "found"})
+
+            await mock_server.handle_tool_call(
+                "find_code",
+                {"query": "x", "path": "/some/repo"},
+            )
+
+            kwargs = mock_server.find_code_tool.call_args.kwargs
+            assert kwargs["query"] == "x"
+            assert kwargs["path"] == "/some/repo"
+            assert kwargs["repo_path"] == "/some/repo"
+
+        asyncio.run(run_test())
