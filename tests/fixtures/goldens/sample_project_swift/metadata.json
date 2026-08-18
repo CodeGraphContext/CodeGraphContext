@@ -1,13 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-07-25T16:58:27Z",
+  "exported_at": "2026-08-14T20:01:09Z",
   "format_version": "1.0.0",
   "repo": "sample_project_swift",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "8bd1a8f7",
-  "branch": "main",
-  "generator": "PYv0.5.1",
+  "commit": "976d596c",
+  "branch": "fix/five-open-issues",
+  "languages": [
+    "swift"
+  ],
+  "generator": "PYv0.5.8",
   "name": "sample_project_swift.cgc",
   "graph_metrics": {
     "total_nodes": 132,

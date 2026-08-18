@@ -420,16 +420,26 @@ class GraphWriter:
                         for b in batch:
                             v = b.get(k)
                             if dominant == "list":
+                                # An empty list persists as [], not [""] (#1607).
+                                # The sentinel was not guarding a backend that
+                                # rejects empty lists: Kùzu accepts [] for a
+                                # STRING[] column in every shape used here --
+                                # inside UNWIND $rows, as a single-row parameter,
+                                # and when every row in the batch is empty, so
+                                # there is no sibling row to infer an element
+                                # type from. `dominant` above is unaffected too:
+                                # it only skips None, and [] is not None, so an
+                                # always-empty key still resolves to "list".
                                 if isinstance(v, list):
-                                    b[k] = [str(x) for x in v] if v else [""]
+                                    b[k] = [str(x) for x in v]
                                 elif isinstance(v, str) and v:
                                     try:
                                         p = _json.loads(v)
-                                        b[k] = [str(x) for x in p] if isinstance(p, list) and p else [""]
+                                        b[k] = [str(x) for x in p] if isinstance(p, list) and p else []
                                     except Exception:
                                         b[k] = [v]
                                 else:
-                                    b[k] = [""]
+                                    b[k] = []
                             elif dominant == "int":
                                 if v is None or v == "":
                                     b[k] = 0
@@ -1174,41 +1184,80 @@ class GraphWriter:
         info_logger(f"[PART_OF] Complete: {len(part_of_batch)} library part links processed.")
 
     def write_decorated_by_links(self, decorated_by_batch: List[Dict[str, Any]]) -> None:
+        """Create DECORATED_BY edges from a decorated declaration to its decorator.
+
+        DECORATED_BY is declared as a REL TABLE GROUP with two FROM..TO
+        pairs -- `FROM Function TO Function, FROM Class TO Function`. Only
+        the *decorated* endpoint varies; the decorator is always a Function.
+
+        This previously hardcoded `:Function` on both endpoints, so every
+        row built for a decorated class matched nothing and was dropped
+        with no error and no log, on every language that records
+        class-level decorators (#1601). build_decorated_by_links emits
+        those rows correctly -- they simply never landed.
+
+        Like write_binds_links, we try each declared source label per row
+        and stop at the first that matches real endpoints: a row carries
+        name+path+line but no label, so a same-named node under the other
+        label could otherwise pick up a second, spurious edge.
+
+        The `context` predicate is emitted only for the Function label.
+        `Class` has no `context` column, and referencing it raises a Kùzu
+        binder exception -- which `_is_binder_exception` swallows, so simply
+        parameterising the label without this would still have dropped every
+        class row, just one layer further down. Omitting the predicate is
+        exact rather than approximate: build_decorated_by_links only sets
+        `decorated_context` from a function's `class_context` and always
+        leaves it "" for classes, so the predicate is a no-op there anyway.
+        """
         if not decorated_by_batch:
             return
 
         backend = get_backend_type(self.driver, self._db_manager)
+        decorated_labels = ("Function", "Class")
 
         def _work(session):
             for row in decorated_by_batch:
-                try:
-                    session.run(
-                        """
-                        MATCH (decorated:Function {
-                            name: $decorated_name,
-                            path: $decorated_path,
-                            line_number: $decorated_line
-                        })
-                        WHERE $decorated_context = "" OR decorated.context = $decorated_context
-                        MATCH (decorator:Function {
-                            name: $decorator_name,
-                            path: $decorator_path
-                        })
-                        MERGE (decorated)-[r:DECORATED_BY]->(decorator)
-                        SET r.line_number = $line_number
-                        """,
-                        decorated_name=row["decorated_name"],
-                        decorated_path=row["decorated_path"],
-                        decorated_line=row["decorated_line"],
-                        decorated_context=row.get("decorated_context", ""),
-                        decorator_name=row["decorator_name"],
-                        decorator_path=row["decorator_path"],
-                        line_number=row.get("line_number", row["decorated_line"]),
+                for decorated_label in decorated_labels:
+                    decorated_cypher = _cypher_label(decorated_label, backend)
+                    context_predicate = (
+                        'WHERE $decorated_context = "" '
+                        "OR decorated.context = $decorated_context"
+                        if decorated_label == "Function"
+                        else ""
                     )
-                except Exception as e:
-                    if _is_binder_exception(e):
-                        continue
-                    raise e
+                    try:
+                        result = session.run(
+                            f"""
+                            MATCH (decorated:{decorated_cypher} {{
+                                name: $decorated_name,
+                                path: $decorated_path,
+                                line_number: $decorated_line
+                            }})
+                            {context_predicate}
+                            MATCH (decorator:Function {{
+                                name: $decorator_name,
+                                path: $decorator_path
+                            }})
+                            MERGE (decorated)-[r:DECORATED_BY]->(decorator)
+                            SET r.line_number = $line_number
+                            RETURN r
+                            """,
+                            decorated_name=row["decorated_name"],
+                            decorated_path=row["decorated_path"],
+                            decorated_line=row["decorated_line"],
+                            decorated_context=row.get("decorated_context", ""),
+                            decorator_name=row["decorator_name"],
+                            decorator_path=row["decorator_path"],
+                            line_number=row.get("line_number", row["decorated_line"]),
+                        )
+                    except Exception as e:
+                        if _is_binder_exception(e):
+                            continue
+                        raise e
+                    else:
+                        if result.single() is not None:
+                            break
 
         execute_write_operation(self.driver, backend, _work)
         info_logger(f"[DECORATED_BY] Complete: {len(decorated_by_batch)} decorator links processed.")

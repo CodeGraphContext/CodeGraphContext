@@ -1,13 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-08-02T17:14:41Z",
+  "exported_at": "2026-08-14T18:40:03Z",
   "format_version": "1.0.0",
   "repo": "sample_project",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "d0f85c2a",
-  "branch": "fix/parser-python-typed-params",
-  "generator": "PYv0.5.4",
+  "commit": "976d596c",
+  "branch": "fix/five-open-issues",
+  "languages": [
+    "python"
+  ],
+  "generator": "PYv0.5.8",
   "name": "sample_project.cgc",
   "graph_metrics": {
     "total_nodes": 526,

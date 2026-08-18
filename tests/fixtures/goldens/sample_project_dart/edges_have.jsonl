@@ -47,15 +47,14 @@
 {"from": {"offset": 1, "table": 2}, "to": {"offset": 4, "table": 1}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 1, "table": 2}, "to": {"offset": 5, "table": 1}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 1, "table": 2}, "to": {"offset": 6, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 0, "table": 4}, "to": {"offset": 4, "table": 4}, "type": "CALLS", "properties": {"line_number": 5, "args": [], "full_call_name": "user.performAction", "args_key": "[]", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
-{"from": {"offset": 4, "table": 4}, "to": {"offset": 2, "table": 4}, "type": "CALLS", "properties": {"line_number": 19, "args": [], "full_call_name": "log", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 6, "table": 4}, "to": {"offset": 8, "table": 4}, "type": "CALLS", "properties": {"line_number": 39, "args": [], "full_call_name": "toSlug", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 2, "table": 4}, "to": {"offset": 3, "table": 4}, "type": "CALLS", "properties": {"line_number": 19, "args": [], "full_call_name": "log", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 8, "table": 4}, "to": {"offset": 7, "table": 4}, "type": "CALLS", "properties": {"line_number": 39, "args": [], "full_call_name": "toSlug", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 9, "table": 4}, "to": {"offset": 5, "table": 4}, "type": "CALLS", "properties": {"line_number": 24, "args": [], "full_call_name": "log", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 0, "table": 4}, "to": {"offset": 1, "table": 5}, "type": "CALLS", "properties": {"line_number": 4, "args": [], "full_call_name": "User", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 3, "table": 4}, "to": {"offset": 0, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 3, "table": 4}, "to": {"offset": 1, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 4, "table": 4}, "to": {"offset": 0, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 4, "table": 4}, "to": {"offset": 1, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 0, "table": 5}, "to": {"offset": 1, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 1, "table": 5}, "to": {"offset": 3, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 5}, "to": {"offset": 2, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 1, "table": 5}, "to": {"offset": 4, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 2, "table": 5}, "to": {"offset": 9, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 3, "table": 5}, "to": {"offset": 10, "table": 4}, "type": "CONTAINS", "properties": {}}
