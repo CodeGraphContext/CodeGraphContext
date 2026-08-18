@@ -182,7 +182,7 @@ async def _run_database_parity_e2e(temp_test_dir):
     project_path = Path("tests/fixtures/sample_projects").resolve()
     
     db_types_to_run = []
-    pkg_map = {"kuzudb": "kuzu", "ladybugdb": "ladybug", "falkordb": "falkordblite", "neo4j": "neo4j"}
+    pkg_map = {"kuzudb": "kuzu", "ladybugdb": "ladybug", "falkordb": "falkordb", "neo4j": "neo4j"}
     for db in ["kuzudb", "ladybugdb", "falkordb", "neo4j"]:
         if importlib.util.find_spec(pkg_map[db]) is None:
             print(f"Skipping {db}: {pkg_map[db]} driver not installed.")
