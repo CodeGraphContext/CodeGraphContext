@@ -191,7 +191,8 @@ class LuaTreeSitterParser:
         while current:
             if current.type in {"function_declaration", "function_definition"}:
                 name, _, _ = self._function_identity(current)
-                return name, current.type, current.start_point[0] + 1
+                if name:
+                    return name, current.type, current.start_point[0] + 1
             current = current.parent
         return None, None, None
 

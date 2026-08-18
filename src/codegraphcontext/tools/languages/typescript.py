@@ -115,11 +115,20 @@ class TypescriptTreeSitterParser:
                     if curr.parent and curr.parent.type == 'variable_declarator':
                         name_node = curr.parent.child_by_field_name('name')
                     elif curr.parent and curr.parent.type == 'assignment_expression':
-                        name_node = curr.parent.child_by_field_name('left')
+                        left = curr.parent.child_by_field_name('left')
+                        if left and left.type == 'member_expression':
+                            name_node = left.child_by_field_name('property') or left
+                        else:
+                            name_node = left
                     elif curr.parent and curr.parent.type == 'pair': # property: function
                         name_node = curr.parent.child_by_field_name('key')
+                    elif curr.parent and curr.parent.type in ('public_field_definition', 'field_definition', 'property_definition'):
+                        name_node = curr.parent.child_by_field_name('name') or curr.parent.child_by_field_name('property')
 
-                return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
+                if name_node:
+                    name_text = self._get_node_text(name_node)
+                    if name_text:
+                        return name_text, curr.type, curr.start_point[0] + 1
             curr = curr.parent
         return None, None, None
 

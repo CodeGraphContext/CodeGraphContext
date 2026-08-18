@@ -647,14 +647,15 @@ class CppTreeSitterParser:
                             decl = child
                         else:
                             break
-                    # Fallback or if not found
-                    return None, curr.type, curr.start_point[0] + 1
+                    # Fallback or if not found - continue walking if no name
                 elif curr.type == 'class_specifier':
                     name_node = curr.child_by_field_name('name')
-                    return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
+                    if name_node:
+                        return self._get_node_text(name_node), curr.type, curr.start_point[0] + 1
                 else:
                     name_node = curr.child_by_field_name('name')
-                    return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
+                    if name_node:
+                        return self._get_node_text(name_node), curr.type, curr.start_point[0] + 1
             curr = curr.parent
         return None, None, None
     

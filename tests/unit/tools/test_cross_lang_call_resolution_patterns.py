@@ -36,6 +36,8 @@ from codegraphcontext.tools.languages.csharp import CSharpTreeSitterParser
 from codegraphcontext.tools.languages.dart import DartTreeSitterParser
 from codegraphcontext.tools.languages.swift import SwiftTreeSitterParser
 from codegraphcontext.tools.languages.typescript import TypescriptTreeSitterParser
+from codegraphcontext.tools.languages.typescriptjsx import TypescriptJSXTreeSitterParser
+from codegraphcontext.tools.languages.javascript import JavascriptTreeSitterParser
 from codegraphcontext.tools.languages.python import PythonTreeSitterParser
 from codegraphcontext.tools.languages.kotlin import KotlinTreeSitterParser
 from codegraphcontext.utils.tree_sitter_manager import get_tree_sitter_manager
@@ -878,3 +880,132 @@ class TestCrossLangCallResolutionPatterns:
             fn["name"] == "<module>" and fn["line_number"] == 1
             for fn in parsed["functions"]
         )
+
+    def test_typescript_anonymous_callback_call_graph_resolution(self, manager, temp_test_dir):
+        """Issue #1570: TS calls inside anonymous callbacks must produce CALLS edges from enclosing named function."""
+        code = """
+export const requestTimeout = (req, res, next) => {
+  setTimeout(() => {
+    customErrorHandler(req, res);
+  }, 1000);
+};
+function customErrorHandler(req, res) {}
+"""
+        file_path = temp_test_dir / "probe.ts"
+        file_path.write_text(code)
+
+        wrapper = _parser(manager, "typescript")
+        parser = TypescriptTreeSitterParser(wrapper)
+        parsed = parser.parse(file_path)
+
+        posix_path = str(file_path.resolve().as_posix())
+        file_data = {
+            "path": posix_path,
+            "lang": "typescript",
+            "functions": parsed["functions"],
+            "classes": parsed.get("classes", []),
+            "function_calls": parsed["function_calls"],
+            "imports": parsed.get("imports", []),
+            "variables": parsed.get("variables", []),
+        }
+
+        fn_to_fn, *_ = build_function_call_groups([file_data], {
+            "requestTimeout": [posix_path],
+            "customErrorHandler": [posix_path],
+        })
+
+        matching_edges = [
+            e for e in fn_to_fn
+            if e.get("caller_name") == "requestTimeout"
+            and e.get("called_name") == "customErrorHandler"
+        ]
+        assert len(matching_edges) == 1
+        assert matching_edges[0]["type"] == "function"
+        assert matching_edges[0]["caller_file_path"] == posix_path
+
+    def test_javascript_anonymous_callback_call_graph_resolution(self, manager, temp_test_dir):
+        """Issue #1570: JS calls inside .then / setTimeout callbacks must produce CALLS edges."""
+        code = """
+function fetchUserData(userId) {
+  apiClient.get('/users/' + userId).then(function(res) {
+    updateUserCache(res.data);
+  });
+}
+function updateUserCache(data) {}
+"""
+        file_path = temp_test_dir / "probe.js"
+        file_path.write_text(code)
+
+        wrapper = _parser(manager, "javascript")
+        parser = JavascriptTreeSitterParser(wrapper)
+        parsed = parser.parse(file_path)
+
+        posix_path = str(file_path.resolve().as_posix())
+        file_data = {
+            "path": posix_path,
+            "lang": "javascript",
+            "functions": parsed["functions"],
+            "classes": parsed.get("classes", []),
+            "function_calls": parsed["function_calls"],
+            "imports": parsed.get("imports", []),
+            "variables": parsed.get("variables", []),
+        }
+
+        fn_to_fn, *_ = build_function_call_groups([file_data], {
+            "fetchUserData": [posix_path],
+            "updateUserCache": [posix_path],
+        })
+
+        matching_edges = [
+            e for e in fn_to_fn
+            if e.get("caller_name") == "fetchUserData"
+            and e.get("called_name") == "updateUserCache"
+        ]
+        assert len(matching_edges) == 1
+        assert matching_edges[0]["type"] == "function"
+
+    def test_typescript_jsx_anonymous_callback_call_graph_resolution(self, manager, temp_test_dir):
+        """Issue #1570: TSX calls inside callbacks inside component helper must produce CALLS edges."""
+        code = """
+export const UserButton = (props) => {
+  const handleClick = () => {
+    setTimeout(() => {
+      logUserEvent('click');
+    }, 100);
+  };
+  return handleClick;
+};
+function logUserEvent(name) {}
+"""
+        file_path = temp_test_dir / "button.tsx"
+        file_path.write_text(code)
+
+        wrapper = _parser(manager, "typescript")
+        parser = TypescriptJSXTreeSitterParser(wrapper)
+        parsed = parser.parse(file_path)
+
+        posix_path = str(file_path.resolve().as_posix())
+        file_data = {
+            "path": posix_path,
+            "lang": "typescript",
+            "functions": parsed["functions"],
+            "classes": parsed.get("classes", []),
+            "function_calls": parsed["function_calls"],
+            "imports": parsed.get("imports", []),
+            "variables": parsed.get("variables", []),
+        }
+
+        fn_to_fn, *_ = build_function_call_groups([file_data], {
+            "UserButton": [posix_path],
+            "handleClick": [posix_path],
+            "logUserEvent": [posix_path],
+        })
+
+        matching_edges = [
+            e for e in fn_to_fn
+            if e.get("caller_name") == "handleClick"
+            and e.get("called_name") == "logUserEvent"
+        ]
+        assert len(matching_edges) == 1
+        assert matching_edges[0]["type"] == "function"
+

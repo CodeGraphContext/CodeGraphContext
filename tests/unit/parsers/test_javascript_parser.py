@@ -1,4 +1,4 @@
-﻿from unittest.mock import MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -171,3 +171,49 @@ function main() {
     imports_map = pre_scan_javascript([f], wrapper)
 
     assert "helper" in imports_map or "main" in imports_map
+
+
+def test_parse_javascript_calls_inside_anonymous_callbacks(js_parser, temp_test_dir):
+    """Regression test for #1570 — calls inside anonymous callbacks in JS must attribute context to nearest named enclosing function."""
+    code = """
+const handleRequest = (req, res) => {
+  setTimeout(function() {
+    processError(req, res);
+  }, 1000);
+};
+function processError() {}
+"""
+    f = temp_test_dir / "probe.js"
+    f.write_text(code)
+
+    result = js_parser.parse(f)
+
+    calls_by_name = {call["name"]: call for call in result["function_calls"]}
+    assert "processError" in calls_by_name
+    err_call = calls_by_name["processError"]
+    assert err_call["context"] is not None
+    assert err_call["context"][0] == "handleRequest"
+
+
+def test_parse_javascript_calls_inside_class_method_callbacks(js_parser, temp_test_dir):
+    """Calls inside class method callbacks must attribute context to the method."""
+    code = """
+class DataService {
+  fetchItems() {
+    api.get('/items').then((response) => {
+      handleSuccess(response);
+    });
+  }
+}
+function handleSuccess() {}
+"""
+    f = temp_test_dir / "service.js"
+    f.write_text(code)
+
+    result = js_parser.parse(f)
+
+    calls_by_name = {call["name"]: call for call in result["function_calls"]}
+    assert "handleSuccess" in calls_by_name
+    success_call = calls_by_name["handleSuccess"]
+    assert success_call["context"] is not None
+    assert success_call["context"][0] == "fetchItems"
