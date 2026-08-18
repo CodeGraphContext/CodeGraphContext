@@ -1,19 +1,19 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-08-18T18:28:47Z",
+  "exported_at": "2026-08-18T20:04:20Z",
   "format_version": "1.0.0",
   "repo": "sample_project_cpp",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "4fe1ee5c",
-  "branch": "mq",
+  "commit": "9b63b4ca",
+  "branch": "perf/kuzu-batch-relationships",
   "languages": [
     "cpp"
   ],
-  "generator": "PYv0.5.8",
+  "generator": "PYv0.6.1",
   "name": "sample_project_cpp.cgc",
   "graph_metrics": {
-    "total_nodes": 141,
-    "total_edges": 185
+    "total_nodes": 144,
+    "total_edges": 188
   }
 }

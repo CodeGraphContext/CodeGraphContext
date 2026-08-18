@@ -201,10 +201,32 @@ async def run_tree_sitter_index_async(
             # it to this file's path string turned a single recoverable write
             # failure into an AttributeError that aborted the whole job.
             failed_path = file_data.get("path")
-            write_failures.append({"path": failed_path, "error": str(exc)})
-            error_logger(f"Failed to write {failed_path} to the graph: {exc}")
-            file_data["error"] = str(exc)
-            file_data["parse_failed"] = True
+            # Retry once before giving up: writes are MERGE-idempotent, and a
+            # transient failure under runner load silently costs the graph the
+            # whole file's edges (observed as LadybugDB intermittently writing
+            # ~51 fewer CONTAINS edges in the parity run, #1612).
+            retried_ok = False
+            if "error" not in file_data:
+                try:
+                    await asyncio.sleep(0.2)
+                    await asyncio.to_thread(
+                        writer.add_file_to_graph,
+                        file_data,
+                        repo_name,
+                        imports_map,
+                        repo_path_str=resolved_repo_path_str,
+                    )
+                    retried_ok = True
+                    warning_logger(
+                        f"Write for {failed_path} succeeded on retry after: {exc}"
+                    )
+                except Exception as retry_exc:  # noqa: BLE001
+                    exc = retry_exc
+            if not retried_ok:
+                write_failures.append({"path": failed_path, "error": str(exc)})
+                error_logger(f"Failed to write {failed_path} to the graph: {exc}")
+                file_data["error"] = str(exc)
+                file_data["parse_failed"] = True
 
     if write_failures:
         warning_logger(

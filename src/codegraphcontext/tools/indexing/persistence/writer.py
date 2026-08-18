@@ -1138,8 +1138,23 @@ class GraphWriter:
         batch_size = 500
         backend = get_backend_type(self.driver, self._db_manager)
         def _work(session):
-            internal_batch = [r for r in inheritance_batch if r.get("resolved_parent_file_path") != "__external__"]
-            external_batch = [r for r in inheritance_batch if r.get("resolved_parent_file_path") == "__external__"]
+            # Dedupe identical rows first: parsers can emit the same
+            # (child, parent) record more than once, and while Neo4j's MERGE
+            # absorbs the repeat, the embedded backends' rewritten
+            # node-MERGE+rel-MERGE shape has been observed writing a duplicate
+            # INHERITS edge for it. Deduping is correct on every backend.
+            seen_rows: set = set()
+            deduped_batch: List[Dict[str, Any]] = []
+            for r in inheritance_batch:
+                key = (r.get("child_name"), r.get("path"), r.get("parent_name"),
+                       r.get("resolved_parent_file_path"))
+                if key in seen_rows:
+                    continue
+                seen_rows.add(key)
+                deduped_batch.append(r)
+
+            internal_batch = [r for r in deduped_batch if r.get("resolved_parent_file_path") != "__external__"]
+            external_batch = [r for r in deduped_batch if r.get("resolved_parent_file_path") == "__external__"]
 
             labels = ("Class", "Trait", "Interface", "Struct", "Enum", "Union", "Record", "Mixin", "Extension", "Module", "Object", "Variable")
 

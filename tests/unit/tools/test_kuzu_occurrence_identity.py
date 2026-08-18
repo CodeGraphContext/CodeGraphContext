@@ -96,3 +96,30 @@ def test_kuzu_rewrite_is_idempotent_for_colliding_symbols(tmp_path):
         assert len(rows) == 2, f"expected exactly 2 nodes after re-write, got {rows}"
     finally:
         manager.close_driver()
+
+
+def test_inheritance_batch_rows_are_deduped(tmp_path):
+    """Identical (child, parent) records emitted twice by a parser must land
+    as one INHERITS edge on the embedded backends too (#1605 follow-on)."""
+    from codegraphcontext.core.database_kuzu import KuzuDBManager
+    manager = KuzuDBManager(str(tmp_path / "db"))
+    driver = manager.get_driver()
+    try:
+        writer = GraphWriter(driver)
+        with driver.session() as s:
+            s.run("MERGE (c:Class {name: $n, path: $p, line_number: $ln, occurrence_index: $oi})",
+                  n="Color", p="/f.py", ln=1, oi=0)
+        writer.write_inheritance_links(
+            [
+                {"child_name": "Color", "path": "/f.py", "parent_name": "Enum",
+                 "resolved_parent_file_path": "__external__", "confidence_label": "INFERRED"},
+                {"child_name": "Color", "path": "/f.py", "parent_name": "Enum",
+                 "resolved_parent_file_path": "__external__", "confidence_label": "INFERRED"},
+            ],
+            csharp_files=[], imports_map={},
+        )
+        with driver.session() as s:
+            n = s.run("MATCH (:Class)-[r:INHERITS]->(:ExternalClass) RETURN count(r) AS c").data()[0]["c"]
+        assert n == 1, f"expected 1 deduped INHERITS edge, got {n}"
+    finally:
+        manager.close_driver()
