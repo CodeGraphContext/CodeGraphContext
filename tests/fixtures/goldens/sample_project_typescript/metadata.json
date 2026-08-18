@@ -1,12 +1,12 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-08-14T20:01:48Z",
+  "exported_at": "2026-08-18T18:34:17Z",
   "format_version": "1.0.0",
   "repo": "sample_project_typescript",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "976d596c",
-  "branch": "fix/five-open-issues",
+  "commit": "51d97697",
+  "branch": "mq",
   "languages": [
     "typescript"
   ],
@@ -14,6 +14,6 @@
   "name": "sample_project_typescript.cgc",
   "graph_metrics": {
     "total_nodes": 918,
-    "total_edges": 1481
+    "total_edges": 1486
   }
 }

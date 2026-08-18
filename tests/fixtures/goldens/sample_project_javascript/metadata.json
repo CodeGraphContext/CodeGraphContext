@@ -1,12 +1,12 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-08-14T19:21:08Z",
+  "exported_at": "2026-08-18T18:33:46Z",
   "format_version": "1.0.0",
   "repo": "sample_project_javascript",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "976d596c",
-  "branch": "fix/five-open-issues",
+  "commit": "51d97697",
+  "branch": "mq",
   "languages": [
     "javascript"
   ],
@@ -14,6 +14,6 @@
   "name": "sample_project_javascript.cgc",
   "graph_metrics": {
     "total_nodes": 239,
-    "total_edges": 309
+    "total_edges": 312
   }
 }
