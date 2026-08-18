@@ -299,6 +299,7 @@ class GraphBuilder:
             build_metaclass_links,
             build_partial_of_links,
             build_part_of_links,
+            build_previews_links,
         )
 
         info_logger(f"[INHERITS] Resolving inheritance links across {len(all_file_data)} files...")
@@ -315,6 +316,7 @@ class GraphBuilder:
         self._writer.write_metaclass_links(build_metaclass_links(all_file_data, imports_map))
         self._writer.write_decorated_by_links(build_decorated_by_links(all_file_data, imports_map))
         self._writer.write_binds_links(build_binds_links(all_file_data, imports_map))
+        self._writer.write_previews_links(build_previews_links(all_file_data, imports_map))
 
     def _create_all_inheritance_links(self, all_file_data: list[Dict], imports_map: dict) -> None:
         self.link_inheritance(all_file_data, imports_map)

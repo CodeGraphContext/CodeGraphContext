@@ -24,6 +24,16 @@ fun GreetingPreview() {
     Greeting("Android")
 }
 
+@Composable
+fun Title(text: String) {
+}
+
+@Composable
+@Preview
+fun TitlePreview() {
+    Title("Section")
+}
+
 @HiltViewModel
 class UserViewModel {
     fun load(): String {

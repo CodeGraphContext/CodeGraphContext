@@ -4404,6 +4404,57 @@ class TestKotlinDecorators:
         assert iface["decorators"] == ["@Dao"]
         assert obj["decorators"] == ["@Module"]
 
+    def test_composable_function_flags_is_composable_true(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            fun Greeting(name: String) {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "Greeting")
+        assert fn["is_composable"] is True
+
+    def test_plain_function_flags_is_composable_false(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            fun plain(): Int {
+                return 1
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "plain")
+        assert fn["is_composable"] is False
+
+    def test_composable_target_annotation_does_not_flag_is_composable(self, parser):
+        """Word boundary in regex prevents matching @ComposableTarget and similar.
+
+        This is the boundary test that justifies using a regex instead of a substring check.
+        """
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @ComposableTarget
+            fun special(): Int {
+                return 1
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "special")
+        # Both assertions are necessary: the first proves @ComposableTarget
+        # was extracted, making the second meaningful.
+        assert fn["decorators"] == ["@ComposableTarget"]
+        assert fn["is_composable"] is False
+
+
 
 class TestKotlinSingleLineObject:
     """`object A { fun x() = 1 }` on one line must still be indexed (#1600).
@@ -4514,3 +4565,182 @@ class TestKotlinSingleLineObject:
         )
         member = next(f for f in data["functions"] if f["name"] == "z")
         assert member["context"] is not None
+
+
+class TestKotlinAnnotationsAreNotCalls:
+    """Annotations must never reach `function_calls` (issue #1602).
+
+    In the tree-sitter Kotlin grammar an annotation *with arguments* is
+    `annotation -> @ + constructor_invocation`, and KOTLIN_QUERIES["calls"]
+    captures `constructor_invocation`. Without filtering, every such
+    annotation is recorded as a call made by the annotated declaration,
+    producing phantom CALLS edges on `@Preview(...)`, `@Query(...)`,
+    `@InstallIn(...)` and friends.
+
+    The discriminator is the parse tree, not the name: an annotation's
+    `constructor_invocation` sits under an `annotation` node, whereas a
+    genuine supertype call (`class A : B()`) sits under a
+    `delegation_specifier`. The negative tests below pin the phantoms;
+    the positive ones pin the real calls that must survive the filter.
+    """
+
+    @staticmethod
+    def _call_names(data: dict) -> set:
+        return {c["name"] for c in data["function_calls"] if c.get("name")}
+
+    def test_annotation_with_arguments_is_not_recorded_as_a_call(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Preview(showBackground = true)
+            @Deprecated("old")
+            fun GreetingPreview() {
+                realCall()
+            }
+            """,
+        )
+        names = self._call_names(data)
+        # Both assertions matter: the first proves calls were extracted at
+        # all, which is what makes the exclusions below meaningful.
+        assert "realCall" in names
+        assert "Preview" not in names
+        assert "Deprecated" not in names
+
+    def test_expressions_inside_annotation_arguments_are_not_calls(self, parser):
+        """The echo is not limited to the annotation's own name.
+
+        `FooProvider::class` inside an annotation argument is captured by the
+        `callable_reference` arm of the calls query, so a preview function
+        appeared to call every type named anywhere in its annotations.
+        """
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @PreviewParameter(provider = FooProvider::class)
+            @Composable
+            fun GreetingPreview() {
+                Greeting("x")
+            }
+            """,
+        )
+        names = self._call_names(data)
+        assert "Greeting" in names
+        assert "FooProvider" not in names
+        assert "PreviewParameter" not in names
+
+    def test_annotations_on_classes_and_parameters_are_not_calls(self, parser):
+        """Annotations appear on far more than functions.
+
+        Class-level (`@Entity(...)`) and use-site-targeted parameter
+        annotations (`@field:ColumnInfo(...)`) take the same path, so the
+        filter must key on the parse tree rather than on the enclosing
+        declaration being a function.
+        """
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Entity(tableName = "users")
+            data class UserEntity(
+                @field:ColumnInfo(name = "n") val n: String
+            )
+            """,
+        )
+        names = self._call_names(data)
+        assert "Entity" not in names
+        assert "ColumnInfo" not in names
+
+    def test_supertype_constructor_call_is_still_recorded(self, parser):
+        """Regression guard for the filter itself.
+
+        `B()` in `class A : B()` is also a `constructor_invocation`. It is
+        distinguished only by its parent (`delegation_specifier`, not
+        `annotation`), so a filter keyed on the node type alone would
+        silently delete every superclass-construction edge.
+        """
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            open class Base
+
+            @Deprecated("old")
+            class Derived : Base()
+            """,
+        )
+        names = self._call_names(data)
+        assert "Base" in names
+        assert "Deprecated" not in names
+
+    def test_file_level_annotations_are_not_calls(self, parser):
+        """`@file:` targets get their own grammar node.
+
+        A file-level annotation is `file_annotation`, not `annotation`, so
+        an ancestor walk looking only for `annotation` misses it and the
+        phantom survives at the top of every file using `@file:JvmName`.
+        """
+        data = _write_and_parse(
+            parser,
+            """@file:JvmName("Utils")
+@file:JvmSuppressWildcards(FooProvider::class)
+
+package com.example
+
+fun real() {
+    actuallyCalled()
+}
+""",
+        )
+        names = self._call_names(data)
+        assert "actuallyCalled" in names
+        assert "JvmName" not in names
+        assert "JvmSuppressWildcards" not in names
+        assert "FooProvider" not in names
+
+    def test_property_use_site_target_annotations_are_not_calls(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            class Holder {
+                @get:JvmName("xx")
+                val x: Int = 1
+            }
+            """,
+        )
+        assert "JvmName" not in self._call_names(data)
+
+    def test_typealias_annotations_are_not_calls(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Deprecated("old")
+            typealias Handler = Int
+            """,
+        )
+        assert "Deprecated" not in self._call_names(data)
+
+    def test_constructor_delegation_is_still_recorded(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Deprecated("old")
+            class Thing(val x: Int) {
+                constructor() : this(1)
+            }
+            """,
+        )
+        names = self._call_names(data)
+        assert "Thing" in names
+        assert "Deprecated" not in names
