@@ -274,6 +274,7 @@ dist/
 build/
 target/
 out/
+obj/
 .git/
 .idea/
 .vscode/
