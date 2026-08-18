@@ -254,6 +254,12 @@ const Footer = () => {
                 <p className="text-gray-500 text-xs">
                   Creator &amp; Maintainer
                 </p>
+                <a
+                  href="/contributing"
+                  className="mt-2 inline-block text-xs hover:text-white transition-colors underline underline-offset-2"
+                >
+                  Contributing Guide
+                </a>
               </div>
             </div>
           </div>

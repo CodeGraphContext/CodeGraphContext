@@ -1,0 +1,188 @@
+/* Contributing Page Content Styles */
+
+.contributing-content {
+  color: #e4e4e7;
+  line-height: 1.8;
+}
+
+.contributing-content h1 {
+  font-size: 2rem;
+  font-weight: 900;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  color: #ffffff;
+  border-bottom: 2px solid rgba(168, 85, 247, 0.3);
+  padding-bottom: 0.5rem;
+}
+
+.contributing-content h2 {
+  font-size: 1.5rem;
+  font-weight: 900;
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
+  color: #ffffff;
+  border-bottom: 2px solid rgba(168, 85, 247, 0.2);
+  padding-bottom: 0.5rem;
+}
+
+.contributing-content h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: #a78bfa;
+}
+
+.contributing-content p {
+  margin-bottom: 1rem;
+  color: #d4d4d8;
+}
+
+.contributing-content strong {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.contributing-content em {
+  font-style: italic;
+  color: #e4e4e7;
+}
+
+/* Lists */
+.contributing-content ul {
+  list-style: disc;
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.contributing-content ol {
+  list-style: decimal;
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.contributing-content li {
+  margin-bottom: 0.5rem;
+  color: #d4d4d8;
+}
+
+/* Code Blocks */
+.contributing-content .code-block {
+  background-color: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+  overflow-x: auto;
+  position: relative;
+}
+
+.contributing-content .code-block::before {
+  content: attr(data-lang);
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  font-size: 0.75rem;
+  color: #a1a1a1;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.contributing-content .code-block code {
+  font-family: "Monaco", "Courier New", monospace;
+  font-size: 0.875rem;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+
+.contributing-content pre {
+  background-color: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+  overflow-x: auto;
+}
+
+.contributing-content pre code {
+  font-family: "Monaco", "Courier New", monospace;
+  font-size: 0.875rem;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+
+/* Inline Code */
+.contributing-content .inline-code {
+  background-color: rgba(168, 85, 247, 0.2);
+  color: #06b6d4;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-family: "Monaco", "Courier New", monospace;
+  font-size: 0.9em;
+}
+
+/* Links */
+.contributing-content a {
+  color: #06b6d4;
+  text-decoration: underline;
+  transition: color 0.2s ease;
+}
+
+.contributing-content a:hover {
+  color: #06d6d6;
+}
+
+/* Blockquotes */
+.contributing-content blockquote {
+  border-left: 4px solid #9333ea;
+  padding-left: 1rem;
+  margin-left: 0;
+  color: #a1a1a1;
+  font-style: italic;
+  margin: 1.5rem 0;
+}
+
+/* Scrollbar */
+.contributing-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.contributing-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.contributing-content::-webkit-scrollbar-thumb {
+  background: #9333ea;
+  border-radius: 4px;
+}
+
+.contributing-content::-webkit-scrollbar-thumb:hover {
+  background: #06b6d4;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .contributing-content h1 {
+    font-size: 1.5rem;
+  }
+
+  .contributing-content h2 {
+    font-size: 1.25rem;
+  }
+
+  .contributing-content h3 {
+    font-size: 1.1rem;
+  }
+
+  .contributing-content .code-block,
+  .contributing-content pre {
+    font-size: 0.75rem;
+    padding: 0.75rem;
+  }
+
+  .contributing-content ul,
+  .contributing-content ol {
+    margin-left: 1rem;
+  }
+}
