@@ -178,9 +178,18 @@ async def _run_database_parity_e2e(temp_test_dir):
     os.environ.setdefault('NEO4J_USERNAME', 'neo4j')
     os.environ.setdefault('NEO4J_PASSWORD', '12345678')
     
+    import importlib.util
     project_path = Path("tests/fixtures/sample_projects").resolve()
     
-    db_types = ["kuzudb", "ladybugdb", "falkordb", "neo4j"]
+    db_types_to_run = []
+    pkg_map = {"kuzudb": "kuzu", "ladybugdb": "ladybug", "falkordb": "falkordblite", "neo4j": "neo4j"}
+    for db in ["kuzudb", "ladybugdb", "falkordb", "neo4j"]:
+        if importlib.util.find_spec(pkg_map[db]) is None:
+            print(f"Skipping {db}: {pkg_map[db]} driver not installed.")
+            continue
+        db_types_to_run.append(db)
+        
+    db_types = db_types_to_run
     results = {}
     
     for db_type in db_types:
@@ -198,12 +207,18 @@ async def _run_database_parity_e2e(temp_test_dir):
             
     # Compile comparison and assert parity
     print("\n================= E2E PARITY TEST REPORT =================")
-    print(f"{'Metric':<25} | {'KuzuDB':<8} | {'LadybugDB':<9} | {'FalkorDB':<8} | {'Neo4j':<8} | Match?")
-    print("-" * 78)
+    header_dbs = "".join(f"{db.title():<10} | " for db in db_types)
+    print(f"{'Metric':<25} | {header_dbs}Match?")
+    print("-" * (35 + 13 * len(db_types)))
     
+    if not results:
+        pytest.skip("No database drivers are installed to run parity tests.")
+    
+    # We will use the keys from the first available database as reference
+    ref_db = next(iter(results.values()))
     # REL_CALLS_DISTINCT is a diagnostic, not a parity metric.
     keys_to_compare = sorted(
-        k for k in results["neo4j"]["stats"].keys() if k != "REL_CALLS_DISTINCT"
+        k for k in ref_db["stats"].keys() if k != "REL_CALLS_DISTINCT"
     )
     # Some relationship resolvers dedupe differently across embedded backends.
     # REL_CALLS: KuzuDB/LadybugDB may drop ≤1 edge when the Neo4j fast/slow MATCH
@@ -212,23 +227,21 @@ async def _run_database_parity_e2e(temp_test_dir):
     all_match = True
     
     for key in keys_to_compare:
-        kuzu_val = results["kuzudb"]["stats"].get(key, 0)
-        ladybug_val = results["ladybugdb"]["stats"].get(key, 0)
-        falkor_val = results["falkordb"]["stats"].get(key, 0)
-        neo4j_val = results["neo4j"]["stats"].get(key, 0)
+        vals = [results[db]["stats"].get(key, 0) for db in db_types if db in results]
         
-        spread = max(kuzu_val, ladybug_val, falkor_val, neo4j_val) - min(
-            kuzu_val, ladybug_val, falkor_val, neo4j_val
-        )
+        spread = max(vals) - min(vals) if vals else 0
         matches = spread <= allowed_spread.get(key, 0)
         match_str = "YES" if matches else "NO"
         if not matches:
             all_match = False
             
-        print(f"{key:<25} | {kuzu_val:<8} | {ladybug_val:<9} | {falkor_val:<8} | {neo4j_val:<8} | {match_str}")
+        vals_str = "".join(f"{v:<10} | " for v in vals)
+        print(f"{key:<25} | {vals_str}{match_str}")
         
-    print("-" * 78)
-    print(f"{'Indexing Duration (s)':<25} | {results['kuzudb']['duration']:<8.2f} | {results['ladybugdb']['duration']:<9.2f} | {results['falkordb']['duration']:<8.2f} | {results['neo4j']['duration']:<8.2f} | -")
+    print("-" * (35 + 13 * len(db_types)))
+    
+    dur_str = "".join(f"{results[db]['duration']:<10.2f} | " for db in db_types if db in results)
+    print(f"{'Indexing Duration (s)':<25} | {dur_str}-")
 
     _report_calls_edge_diff(results, db_types)
 
