@@ -304,7 +304,7 @@ class GraphWriter:
                     )
 
             try:
-                relative_path = str(Path(file_path_str).relative_to(Path(resolved_repo_str)))
+                relative_path = Path(file_path_str).relative_to(Path(resolved_repo_str)).as_posix()
             except ValueError:
                 relative_path = file_name
 
