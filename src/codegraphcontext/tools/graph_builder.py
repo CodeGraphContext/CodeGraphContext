@@ -39,7 +39,7 @@ class GraphBuilder:
     linking for Neo4j, FalkorDB, and Kùzu backends.
     """
 
-    def __init__(self, db_manager: DatabaseManager, job_manager: JobManager, loop: asyncio.AbstractEventLoop):
+    def __init__(self, db_manager: DatabaseManager, job_manager: JobManager, loop: asyncio.AbstractEventLoop, graph_name: str = None):
         """Initialize GraphBuilder.
 
         Parameters
@@ -50,11 +50,16 @@ class GraphBuilder:
             Job manager for tracking indexing progress.
         loop : asyncio.AbstractEventLoop
             Event loop for async operations.
+        graph_name : str, optional
+            Named graph to write into, on backends that support multiple
+            graphs per instance (FalkorDB). None selects the default graph
+            (#1558).
         """
         self.db_manager = db_manager
         self.job_manager = job_manager
         self.loop = loop
-        self._writer = GraphWriter(self.db_manager.get_driver(), db_manager=self.db_manager)
+        self.graph_name = graph_name
+        self._writer = GraphWriter(self.db_manager.get_driver(graph_name), db_manager=self.db_manager)
         self.last_call_resolution_diagnostics: list[Dict[str, Any]] = []
         self.last_index_summary: Dict[str, Any] = {}
         self.parsers = {
@@ -118,8 +123,9 @@ class GraphBuilder:
 
     @property
     def driver(self):
-        """Default graph driver (backward compatible)."""
-        return self.db_manager.get_driver()
+        """Driver for this builder's graph (default graph unless a
+        graph_name was given at construction)."""
+        return self.db_manager.get_driver(self.graph_name)
 
     def _driver_for(self, graph_name: str = None):
         """Get driver for a specific graph, or default."""
@@ -184,21 +190,6 @@ class GraphBuilder:
 
 
     # Language-agnostic method
-    def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False):
-        """Adds a repository node using its absolute path as the unique key."""
-        repo_name = repo_path.name
-        repo_path_str = repo_path.resolve().as_posix()
-        with self.driver.session() as session:
-            session.run(
-                """
-                MERGE (r:Repository {path: $path})
-                SET r.name = $name, r.is_dependency = $is_dependency
-                """,
-                path=repo_path_str,
-                name=repo_name,
-                is_dependency=is_dependency,
-            )
-
     def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
         """Add a repository node to the graph.
 
