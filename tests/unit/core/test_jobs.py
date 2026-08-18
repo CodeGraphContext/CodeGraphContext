@@ -50,3 +50,50 @@ class TestJobManager:
         active_ids = {job.job_id for job in manager.list_active_jobs()}
         assert active_ids == {pending_id, running_id}
 
+
+    def test_cleanup_never_deletes_active_jobs(self):
+        """#1537: a healthy long-running job must survive the age sweep."""
+        from datetime import datetime, timedelta
+        manager = JobManager()
+        running_id = manager.create_job("/monorepo")
+        manager.update_job(running_id, status=JobStatus.RUNNING)
+        # Simulate a job that started long ago but reported progress recently.
+        manager.jobs[running_id].start_time = datetime.now() - timedelta(hours=48)
+        manager.update_job(running_id, processed_files=10_000)
+
+        manager.cleanup_old_jobs(max_age_hours=24)
+
+        job = manager.get_job(running_id)
+        assert job is not None, "active job was deleted mid-run"
+        assert job.status == JobStatus.RUNNING
+
+    def test_cleanup_fails_stalled_active_jobs_instead_of_deleting(self):
+        """A RUNNING job with no progress for the whole window is presumed
+        crashed: flipped to FAILED (still visible), not vanished."""
+        from datetime import datetime, timedelta
+        manager = JobManager()
+        stalled_id = manager.create_job("/crashed")
+        manager.update_job(stalled_id, status=JobStatus.RUNNING)
+        manager.jobs[stalled_id].start_time = datetime.now() - timedelta(hours=48)
+        manager.jobs[stalled_id].last_update_time = datetime.now() - timedelta(hours=30)
+
+        manager.cleanup_old_jobs(max_age_hours=24)
+
+        job = manager.get_job(stalled_id)
+        assert job is not None
+        assert job.status == JobStatus.FAILED
+        assert any("Presumed crashed" in e for e in job.errors)
+
+    def test_cleanup_still_removes_old_terminal_jobs(self):
+        from datetime import datetime, timedelta
+        manager = JobManager()
+        done_id = manager.create_job("/done")
+        manager.update_job(done_id, status=JobStatus.COMPLETED,
+                           end_time=datetime.now() - timedelta(hours=48))
+        # update_job stamps last_update_time but aging uses end_time for
+        # terminal jobs, so backdate it explicitly.
+        manager.jobs[done_id].end_time = datetime.now() - timedelta(hours=48)
+
+        manager.cleanup_old_jobs(max_age_hours=24)
+
+        assert manager.get_job(done_id) is None

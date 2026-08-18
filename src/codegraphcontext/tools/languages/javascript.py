@@ -505,38 +505,49 @@ class JavascriptTreeSitterParser:
             if node.type == 'import_statement':
                 source = self._get_node_text(node.child_by_field_name('source')).strip('\'"')
 
-                # Look for different import structures
-                import_clause = node.child_by_field_name('import')
+                # `import_clause` is an unnamed child of import_statement, not a
+                # field, so child_by_field_name('import') always returned None and
+                # every ES import collapsed into the bare-module fallback (#1526).
+                import_clause = next(
+                    (c for c in node.children if c.type == 'import_clause'), None
+                )
                 if not import_clause:
+                    # Side-effect import: import 'polyfill';
                     imports.append({'name': source, 'source': source, 'alias': None, 'line_number': line_number,
                                     'lang': self.language_name})
                     continue
 
-                # Default import: import defaultExport from '...'
-                if import_clause.type == 'identifier':
-                    alias = self._get_node_text(import_clause)
-                    imports.append({'name': 'default', 'source': source, 'alias': alias, 'line_number': line_number,
-                                    'lang': self.language_name})
-
-                # Namespace import: import * as name from '...'
-                elif import_clause.type == 'namespace_import':
-                    alias_node = import_clause.child_by_field_name('alias')
-                    if alias_node:
-                        alias = self._get_node_text(alias_node)
-                        imports.append({'name': '*', 'source': source, 'alias': alias, 'line_number': line_number,
+                # One clause can carry several bindings at once
+                # (import Def, { a as b } from 'mod'), so walk its children.
+                for binding in import_clause.children:
+                    # Default import: import defaultExport from '...'
+                    if binding.type == 'identifier':
+                        alias = self._get_node_text(binding)
+                        imports.append({'name': 'default', 'source': source, 'alias': alias, 'line_number': line_number,
                                         'lang': self.language_name})
 
-                # Named imports: import { name, name as alias } from '...'
-                elif import_clause.type == 'named_imports':
-                    for specifier in import_clause.children:
-                        if specifier.type == 'import_specifier':
-                            name_node = specifier.child_by_field_name('name')
-                            alias_node = specifier.child_by_field_name('alias')
-                            original_name = self._get_node_text(name_node)
-                            alias = self._get_node_text(alias_node) if alias_node else None
-                            imports.append(
-                                {'name': original_name, 'source': source, 'alias': alias, 'line_number': line_number,
-                                 'lang': self.language_name})
+                    # Namespace import: import * as name from '...' — the alias
+                    # is the identifier child (there is no 'alias' field).
+                    elif binding.type == 'namespace_import':
+                        alias = next(
+                            (self._get_node_text(c) for c in binding.children if c.type == 'identifier'),
+                            None,
+                        )
+                        if alias:
+                            imports.append({'name': '*', 'source': source, 'alias': alias, 'line_number': line_number,
+                                            'lang': self.language_name})
+
+                    # Named imports: import { name, name as alias } from '...'
+                    elif binding.type == 'named_imports':
+                        for specifier in binding.children:
+                            if specifier.type == 'import_specifier':
+                                name_node = specifier.child_by_field_name('name')
+                                alias_node = specifier.child_by_field_name('alias')
+                                original_name = self._get_node_text(name_node)
+                                alias = self._get_node_text(alias_node) if alias_node else None
+                                imports.append(
+                                    {'name': original_name, 'source': source, 'alias': alias, 'line_number': line_number,
+                                     'lang': self.language_name})
 
             elif node.type == 'call_expression':  # require('...')
                 args = node.child_by_field_name('arguments')

@@ -1200,8 +1200,11 @@ class EmbeddedSessionWrapper:
             return f"{prefix}NOT label({var_name}) = '{label_name}'"
         query = re.sub(r'(WHERE\s+|AND\s+|OR\s+)NOT\s+(\w+):([a-zA-Z0-9_`]+)', not_label_replacer, query, flags=re.IGNORECASE)
 
-        # 4. Polymorphic matches and label access
-        query = query.replace("labels(n)[0]", "label(n)")
+        # 4. Polymorphic matches and label access. Kùzu has no labels();
+        # rewrite labels(<var>)[0] for ANY variable name — the literal
+        # "labels(n)[0]" form missed n1/n2 and the simulator's relationship
+        # query reached the engine unsupported (#1512).
+        query = re.sub(r'labels\((\w+)\)\s*\[\s*0\s*\]', r'label(\1)', query)
 
         query = query.replace("coalesce(", "COALESCE(")
         query = re.sub(r'\btype\(', 'label(', query)

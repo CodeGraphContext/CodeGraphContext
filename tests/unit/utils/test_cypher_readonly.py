@@ -67,3 +67,22 @@ def test_keyword_as_substring_not_false_positive():
     assert is_read_only_cypher("MATCH (n:Asset) RETURN n")
     # Read-only APOC helpers (path/coll/text) are still permitted inline.
     assert is_read_only_cypher("RETURN apoc.coll.max([1, 2, 3]) AS m")
+
+
+def test_keywords_in_safe_positions_are_allowed():
+    """#1511: a forbidden word is inert as a property, label, param or alias."""
+    assert is_read_only_cypher("MATCH (n:Module) RETURN n.load ORDER BY n.load")
+    assert is_read_only_cypher("MATCH (n) WHERE n.update > 5 RETURN n")
+    assert is_read_only_cypher("MATCH (n) RETURN n.name AS set")
+    assert is_read_only_cypher("MATCH (n:Insert) RETURN count(n)")
+    assert is_read_only_cypher("MATCH (a)-[r:SET]->(b) RETURN r")
+    assert is_read_only_cypher("MATCH (n) RETURN n.merge AS delete, $update")
+
+
+def test_clause_position_writes_still_rejected_after_1511():
+    """The carve-outs must not open a path for real write clauses."""
+    assert not is_read_only_cypher("RETURN 1 AS set SET n.x = 1")
+    assert not is_read_only_cypher("MATCH (n) WITH n AS delete DELETE n")
+    assert not is_read_only_cypher("MATCH (n) SET n.load = 1 RETURN n")
+    assert not is_read_only_cypher("LOAD CSV FROM 'file:///x' AS row RETURN row")
+    assert not is_read_only_cypher("FOREACH (x IN [1] | SET n.x = x)")

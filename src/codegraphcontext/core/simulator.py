@@ -48,9 +48,11 @@ class CodeGraphTwin:
         """
         
         # 2. Fetch all relationships originating from nodes in the repository
+        # `*0..` includes the repository node itself (zero-length path), which
+        # replaces the old `WHERE n1 = r OR (r)-[:CONTAINS*]->(n1)` form — a
+        # bare pattern predicate the embedded backends cannot plan (#1512).
         rel_query = """
-        MATCH (r:Repository {path: $path})
-        MATCH (n1) WHERE n1 = r OR (r)-[:CONTAINS*]->(n1)
+        MATCH (r:Repository {path: $path})-[:CONTAINS*0..]->(n1)
         MATCH (n1)-[rel]->(n2)
         RETURN 
           labels(n1)[0] as source_label,

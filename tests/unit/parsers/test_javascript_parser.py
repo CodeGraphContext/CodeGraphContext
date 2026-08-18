@@ -62,8 +62,10 @@ const add = (a, b) => {
     class_names = {cls["name"] for cls in result["classes"]}
     assert "Animal" in class_names
 
-    import_names = {imp["name"] for imp in result["imports"]}
-    assert "fs" in import_names or "path" in import_names
+    # #1526: bindings no longer collapse into one bare-module row — the
+    # module lives in `source`, the binding in `name`.
+    import_sources = {imp["source"] for imp in result["imports"]}
+    assert "fs" in import_sources or "path" in import_sources
 
 
 def test_parse_javascript_cyclomatic_complexity(js_parser, temp_test_dir):
@@ -216,4 +218,43 @@ function handleSuccess() {}
     assert "handleSuccess" in calls_by_name
     success_call = calls_by_name["handleSuccess"]
     assert success_call["context"] is not None
-    assert success_call["context"][0] == "fetchItems"
+    assert success_call["context"][0] == "fetchItems"
+
+class TestEsImportBindings:
+    """#1526: import_clause is an unnamed child, so every ES import used to
+    collapse into one bare-module row, losing named/default/namespace
+    bindings."""
+
+    def _imports(self, tmp_path, code):
+        from codegraphcontext.utils.tree_sitter_manager import get_tree_sitter_manager
+        from codegraphcontext.tools.languages.javascript import JavascriptTreeSitterParser
+        from unittest.mock import MagicMock
+        mgr = get_tree_sitter_manager()
+        w = MagicMock()
+        w.language_name = "javascript"
+        w.language = mgr.get_language_safe("javascript")
+        w.parser = mgr.create_parser("javascript")
+        f = tmp_path / "sample.js"
+        f.write_text(code, encoding="utf-8")
+        return JavascriptTreeSitterParser(w).parse(str(f))["imports"]
+
+    def test_named_imports_produce_one_row_per_binding(self, tmp_path):
+        rows = self._imports(tmp_path, "import { useState as us, useEffect } from 'react';\n")
+        assert {(r["name"], r["source"], r["alias"]) for r in rows} == {
+            ("useState", "react", "us"),
+            ("useEffect", "react", None),
+        }
+
+    def test_default_and_namespace_imports(self, tmp_path):
+        rows = self._imports(tmp_path, "import React from 'react';\nimport * as fs from 'fs';\n")
+        assert ("default", "react", "React") in {(r["name"], r["source"], r["alias"]) for r in rows}
+        assert ("*", "fs", "fs") in {(r["name"], r["source"], r["alias"]) for r in rows}
+
+    def test_combined_default_and_named_clause(self, tmp_path):
+        rows = self._imports(tmp_path, "import Def, { named } from 'mod';\n")
+        assert {(r["name"], r["alias"]) for r in rows} == {("default", "Def"), ("named", None)}
+
+    def test_side_effect_import_stays_bare(self, tmp_path):
+        rows = self._imports(tmp_path, "import 'polyfill';\n")
+        assert rows == [{"name": "polyfill", "source": "polyfill", "alias": None,
+                         "line_number": 1, "lang": "javascript"}]

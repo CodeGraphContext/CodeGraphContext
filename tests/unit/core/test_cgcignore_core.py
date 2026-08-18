@@ -239,3 +239,13 @@ def test_directory_pattern_requires_segment_boundary():
     assert not matcher.match_file("apps/web/src/components/layout/Header.tsx")
     assert not matcher.match_file("rebuild/")
     assert not matcher.match_file("retarget/")
+
+
+def test_default_patterns_cover_dotnet_obj_dir():
+    """#1585: .NET's obj/ holds *generated source* (AssemblyInfo.cs,
+    GlobalUsings.g.cs); indexing it added phantom File/Module/IMPORTS rows
+    that silently drifted the C# golden."""
+    from codegraphcontext.tools.indexing.constants import DEFAULT_IGNORE_PATTERNS
+    from codegraphcontext.cli.config_manager import DEFAULT_CGCIGNORE_PATTERNS
+    assert "obj/" in DEFAULT_IGNORE_PATTERNS
+    assert "obj/" in DEFAULT_CGCIGNORE_PATTERNS.splitlines()
