@@ -1544,6 +1544,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
       className="fixed inset-0 z-50 overflow-hidden flex font-sans"
       style={{ backgroundColor: pal.bg }}
     >
+      <h1 className="sr-only">Code Graph Visualization Explorer</h1>
       {/* ── SIDEBAR ── */}
       {!collapsed && dimensions.width < 768 && (
         <div

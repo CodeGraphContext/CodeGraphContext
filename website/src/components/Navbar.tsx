@@ -151,6 +151,7 @@ const Navbar: React.FC = () => {
                 rel="noopener noreferrer"
                 className="p-2 hidden sm:flex text-gray-500 hover:text-white transition-colors duration-200"
                 title="View GitHub Repository"
+                aria-label="View GitHub Repository"
               >
                 <Github className="w-4 h-4" />
               </a>
@@ -176,6 +177,8 @@ const Navbar: React.FC = () => {
               onClick={() => setIsOpen(!isOpen)}
               className="lg:hidden p-2 text-gray-500 hover:text-white transition-colors duration-200 shrink-0"
               title="Menu"
+              aria-label={isOpen ? "Close menu" : "Open menu"}
+              aria-expanded={isOpen}
             >
               {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
