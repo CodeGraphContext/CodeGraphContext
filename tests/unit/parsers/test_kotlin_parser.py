@@ -26,7 +26,15 @@ def _write_and_parse(parser, src: str, suffix: str = ".kt") -> dict:
         mode="w", suffix=suffix, delete=False, encoding="utf-8"
     ) as f:
         f.write(src)
-        tmp = f.name
+        # Resolve before parsing, not after. On macOS tempfile hands back
+        # /var/folders/... while /var is a symlink to /private/var, and the
+        # call-resolution layer stores the fully resolved path -- so any test
+        # comparing an edge's called_file_path against Path(data["path"])
+        # compares /private/var/... to /var/... and fails on a clean
+        # checkout. Resolving here makes data["path"] already canonical, so
+        # every such comparison in this file holds without each one having
+        # to remember to call .resolve(). See issue #1608.
+        tmp = str(Path(f.name).resolve())
     try:
         result = parser.parse(Path(tmp))
         assert isinstance(result, dict)
@@ -4395,3 +4403,114 @@ class TestKotlinDecorators:
         # 1a gated these out because the columns did not exist. Task 1 added them.
         assert iface["decorators"] == ["@Dao"]
         assert obj["decorators"] == ["@Module"]
+
+
+class TestKotlinSingleLineObject:
+    """`object A { fun x() = 1 }` on one line must still be indexed (#1600).
+
+    The tree-sitter Kotlin grammar misparses the single-line form: instead of
+    an `object_declaration` it produces
+
+        infix_expression
+          object_literal ("object")
+          simple_identifier ("A")
+          lambda_literal { statements { function_declaration } }
+
+    so the `object_declaration` pattern the classes query looks for is never
+    produced. The empty (`object A { }`) and multi-line forms parse normally;
+    only the one-line-with-a-body form is affected, and single-line singletons
+    are a common Kotlin idiom.
+
+    Two things follow from that misparse, and a fix that addresses only the
+    first would look complete while leaving members unattributed:
+    the object node is missing, and its members have no enclosing context
+    because they have no `object_declaration` ancestor to find.
+    """
+
+    def test_single_line_object_is_indexed(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            object OneLine { fun x() = 1 }
+            """,
+        )
+        assert "OneLine" in {o["name"] for o in data["objects"]}
+
+    def test_single_line_object_member_carries_its_object_as_context(self, parser):
+        """The multi-line form yields context == "Multi"; the one-line form
+        must agree rather than leaving the member at top level."""
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            object OneLine { fun x() = 1 }
+            """,
+        )
+        member = next(f for f in data["functions"] if f["name"] == "x")
+        assert member["context"] == "OneLine"
+        assert member["class_context"] == "OneLine"
+
+    def test_multi_line_and_empty_object_forms_still_work(self, parser):
+        """Regression guard: these already parsed as object_declaration, and
+        the added pattern must not disturb or duplicate them."""
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            object Multi {
+                fun y() = 2
+            }
+
+            object Empty { }
+            """,
+        )
+        names = [o["name"] for o in data["objects"]]
+        assert names.count("Multi") == 1
+        assert names.count("Empty") == 1
+        member = next(f for f in data["functions"] if f["name"] == "y")
+        assert member["context"] == "Multi"
+
+    def test_genuine_infix_expression_is_not_mistaken_for_an_object(self, parser):
+        """Boundary test for the added pattern.
+
+        The new query arm matches an `infix_expression`, which is also what a
+        real infix call produces. `object_literal` as the left operand is the
+        discriminator -- it can only come from the `object` keyword -- so an
+        ordinary infix expression with a trailing lambda must not be captured.
+        """
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            fun build() {
+                val mapped = listOf(1) zip listOf(2)
+                val handled = someValue apply { println(it) }
+            }
+            """,
+        )
+        object_names = {o["name"] for o in data["objects"]}
+        assert "someValue" not in object_names
+        assert "mapped" not in object_names
+        assert "handled" not in object_names
+
+    def test_single_line_companion_object_was_never_affected(self, parser):
+        """`companion object { fun z() = 3 }` parses as a real companion_object
+        even on one line, so it needs no special handling -- pinned so a future
+        change to the added pattern cannot quietly start double-counting it."""
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            class Holder {
+                companion object { fun z() = 3 }
+            }
+            """,
+        )
+        member = next(f for f in data["functions"] if f["name"] == "z")
+        assert member["context"] is not None

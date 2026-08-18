@@ -14,85 +14,85 @@
 {"from": {"offset": 4, "table": 2}, "to": {"offset": 38, "table": 1}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 4, "table": 2}, "to": {"offset": 39, "table": 1}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 23, "table": 4}, "to": {"offset": 24, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 37, "table": 4}, "to": {"offset": 36, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 53, "table": 4}, "to": {"offset": 56, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 100, "table": 4}, "to": {"offset": 101, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 119, "table": 4}, "to": {"offset": 120, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 135, "table": 4}, "to": {"offset": 138, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 35, "table": 4}, "to": {"offset": 36, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 54, "table": 4}, "to": {"offset": 56, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 101, "table": 4}, "to": {"offset": 99, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 121, "table": 4}, "to": {"offset": 120, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 135, "table": 4}, "to": {"offset": 139, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 136, "table": 4}, "to": {"offset": 137, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 137, "table": 4}, "to": {"offset": 140, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 138, "table": 4}, "to": {"offset": 139, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 137, "table": 4}, "to": {"offset": 138, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 138, "table": 4}, "to": {"offset": 140, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 139, "table": 4}, "to": {"offset": 136, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 140, "table": 4}, "to": {"offset": 141, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 141, "table": 4}, "to": {"offset": 142, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 142, "table": 4}, "to": {"offset": 143, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 143, "table": 4}, "to": {"offset": 144, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 156, "table": 4}, "to": {"offset": 168, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 158, "table": 4}, "to": {"offset": 159, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 159, "table": 4}, "to": {"offset": 162, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 160, "table": 4}, "to": {"offset": 163, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 168, "table": 4}, "to": {"offset": 171, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 2, "table": 4}, "to": {"offset": 0, "table": 4}, "type": "CALLS", "properties": {"line_number": 5, "args": ["x"], "full_call_name": "square", "args_key": "[\"x\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 157, "table": 4}, "to": {"offset": 158, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 159, "table": 4}, "to": {"offset": 163, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 160, "table": 4}, "to": {"offset": 164, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 163, "table": 4}, "to": {"offset": 161, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 171, "table": 4}, "to": {"offset": 157, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 4}, "to": {"offset": 0, "table": 4}, "type": "CALLS", "properties": {"line_number": 5, "args": ["x"], "full_call_name": "square", "args_key": "[\"x\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 9, "table": 4}, "to": {"offset": 9, "table": 4}, "type": "CALLS", "properties": {"line_number": 22, "args": ["mcls", "name", "bases", "dct"], "full_call_name": "super().__new__", "args_key": "[\"mcls\", \"name\", \"bases\", \"dct\"]", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 18, "table": 4}, "to": {"offset": 14, "table": 4}, "type": "CALLS", "properties": {"line_number": 14, "args": [], "full_call_name": "self.m1", "args_key": "[]", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 18, "table": 4}, "to": {"offset": 16, "table": 4}, "type": "CALLS", "properties": {"line_number": 14, "args": [], "full_call_name": "self.m2", "args_key": "[]", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 19, "table": 4}, "to": {"offset": 15, "table": 4}, "type": "CALLS", "properties": {"line_number": 38, "args": [], "full_call_name": "val.magnitude", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 20, "table": 4}, "to": {"offset": 18, "table": 4}, "type": "CALLS", "properties": {"line_number": 17, "args": [], "full_call_name": "c.both", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 20, "table": 4}, "to": {"offset": 15, "table": 4}, "type": "CALLS", "properties": {"line_number": 26, "args": [], "full_call_name": "p.magnitude", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 20, "table": 4}, "to": {"offset": 17, "table": 4}, "type": "CALLS", "properties": {"line_number": 33, "args": [], "full_call_name": "Color.RED.is_primary", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 16, "table": 4}, "to": {"offset": 14, "table": 4}, "type": "CALLS", "properties": {"line_number": 14, "args": [], "full_call_name": "self.m1", "args_key": "[]", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 16, "table": 4}, "to": {"offset": 18, "table": 4}, "type": "CALLS", "properties": {"line_number": 14, "args": [], "full_call_name": "self.m2", "args_key": "[]", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 19, "table": 4}, "to": {"offset": 17, "table": 4}, "type": "CALLS", "properties": {"line_number": 38, "args": [], "full_call_name": "val.magnitude", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 20, "table": 4}, "to": {"offset": 16, "table": 4}, "type": "CALLS", "properties": {"line_number": 17, "args": [], "full_call_name": "c.both", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 20, "table": 4}, "to": {"offset": 17, "table": 4}, "type": "CALLS", "properties": {"line_number": 26, "args": [], "full_call_name": "p.magnitude", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 20, "table": 4}, "to": {"offset": 15, "table": 4}, "type": "CALLS", "properties": {"line_number": 33, "args": [], "full_call_name": "Color.RED.is_primary", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 20, "table": 4}, "to": {"offset": 19, "table": 4}, "type": "CALLS", "properties": {"line_number": 41, "args": ["p"], "full_call_name": "handle", "args_key": "[\"p\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 31, "table": 4}, "to": {"offset": 30, "table": 4}, "type": "CALLS", "properties": {"line_number": 8, "args": ["10"], "full_call_name": "fetch_data", "args_key": "[\"10\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 33, "table": 4}, "to": {"offset": 35, "table": 4}, "type": "CALLS", "properties": {"line_number": 2, "args": ["val"], "full_call_name": "func", "args_key": "[\"val\"]", "confidence": 0.88, "resolution_tier": 3, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 33, "table": 4}, "to": {"offset": 34, "table": 4}, "type": "CALLS", "properties": {"line_number": 2, "args": ["val"], "full_call_name": "func", "args_key": "[\"val\"]", "confidence": 0.88, "resolution_tier": 3, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 38, "table": 4}, "to": {"offset": 33, "table": 4}, "type": "CALLS", "properties": {"line_number": 5, "args": ["square", "5"], "full_call_name": "executor", "args_key": "[\"square\", \"5\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 38, "table": 4}, "to": {"offset": 34, "table": 4}, "type": "CALLS", "properties": {"line_number": 15, "args": ["'Shashank'"], "full_call_name": "hello", "args_key": "[\"'Shashank'\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 38, "table": 4}, "to": {"offset": 37, "table": 4}, "type": "CALLS", "properties": {"line_number": 15, "args": ["'Shashank'"], "full_call_name": "hello", "args_key": "[\"'Shashank'\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 39, "table": 4}, "to": {"offset": 41, "table": 4}, "type": "CALLS", "properties": {"line_number": 4, "args": [], "full_call_name": "func2", "args_key": "[]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 44, "table": 4}, "to": {"offset": 43, "table": 4}, "type": "CALLS", "properties": {"line_number": 5, "args": [], "full_call_name": "super().greet", "args_key": "[]", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
-{"from": {"offset": 48, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 17, "args": [], "full_call_name": "Fluent().step1().step2().step3", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 48, "table": 4}, "to": {"offset": 47, "table": 4}, "type": "CALLS", "properties": {"line_number": 17, "args": [], "full_call_name": "Fluent().step1().step2().step3", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 50, "table": 4}, "to": {"offset": 49, "table": 4}, "type": "CALLS", "properties": {"line_number": 12, "args": [], "full_call_name": "run", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 52, "table": 4}, "to": {"offset": 51, "table": 4}, "type": "CALLS", "properties": {"line_number": 7, "args": [], "full_call_name": "super().greet", "args_key": "[]", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
 {"from": {"offset": 60, "table": 4}, "to": {"offset": 59, "table": 4}, "type": "CALLS", "properties": {"line_number": 2, "args": ["i"], "full_call_name": "double", "args_key": "[\"i\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 60, "table": 4}, "to": {"offset": 59, "table": 4}, "type": "CALLS", "properties": {"line_number": 3, "args": ["i"], "full_call_name": "double", "args_key": "[\"i\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 97, "table": 4}, "to": {"offset": 99, "table": 4}, "type": "CALLS", "properties": {"line_number": 5, "args": ["f3(10)"], "full_call_name": "f2", "args_key": "[\"f3(10)\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 99, "table": 4}, "to": {"offset": 98, "table": 4}, "type": "CALLS", "properties": {"line_number": 5, "args": ["10"], "full_call_name": "f3", "args_key": "[\"10\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 97, "table": 4}, "to": {"offset": 100, "table": 4}, "type": "CALLS", "properties": {"line_number": 5, "args": ["f3(10)"], "full_call_name": "f2", "args_key": "[\"f3(10)\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 100, "table": 4}, "to": {"offset": 98, "table": 4}, "type": "CALLS", "properties": {"line_number": 5, "args": ["10"], "full_call_name": "f3", "args_key": "[\"10\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 102, "table": 4}, "to": {"offset": 97, "table": 4}, "type": "CALLS", "properties": {"line_number": 5, "args": ["f2(f3(10))"], "full_call_name": "f1", "args_key": "[\"f2(f3(10))\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 102, "table": 4}, "to": {"offset": 100, "table": 4}, "type": "CALLS", "properties": {"line_number": 15, "args": ["5"], "full_call_name": "make_adder", "args_key": "[\"5\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 102, "table": 4}, "to": {"offset": 101, "table": 4}, "type": "CALLS", "properties": {"line_number": 15, "args": ["5"], "full_call_name": "make_adder", "args_key": "[\"5\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 110, "table": 4}, "to": {"offset": 109, "table": 4}, "type": "CALLS", "properties": {"line_number": 3, "args": [], "full_call_name": "core_function", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 112, "table": 4}, "to": {"offset": 116, "table": 4}, "type": "CALLS", "properties": {"line_number": 3, "args": [], "full_call_name": "self.start", "args_key": "[]", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 112, "table": 4}, "to": {"offset": 114, "table": 4}, "type": "CALLS", "properties": {"line_number": 3, "args": [], "full_call_name": "self.stop", "args_key": "[]", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 113, "table": 4}, "to": {"offset": 115, "table": 4}, "type": "CALLS", "properties": {"line_number": 13, "args": ["cmd"], "full_call_name": "d.call", "args_key": "[\"cmd\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 118, "table": 4}, "to": {"offset": 125, "table": 4}, "type": "CALLS", "properties": {"line_number": 6, "args": ["[x]"], "full_call_name": "process_data", "args_key": "[\"[x]\"]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 119, "table": 4}, "to": {"offset": 120, "table": 4}, "type": "CALLS", "properties": {"line_number": 16, "args": ["5"], "full_call_name": "inner", "args_key": "[\"5\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 126, "table": 4}, "to": {"offset": 126, "table": 4}, "type": "CALLS", "properties": {"line_number": 12, "args": ["n - 1"], "full_call_name": "factorial", "args_key": "[\"n - 1\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 112, "table": 4}, "to": {"offset": 113, "table": 4}, "type": "CALLS", "properties": {"line_number": 3, "args": [], "full_call_name": "self.start", "args_key": "[]", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 112, "table": 4}, "to": {"offset": 115, "table": 4}, "type": "CALLS", "properties": {"line_number": 3, "args": [], "full_call_name": "self.stop", "args_key": "[]", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 116, "table": 4}, "to": {"offset": 114, "table": 4}, "type": "CALLS", "properties": {"line_number": 13, "args": ["cmd"], "full_call_name": "d.call", "args_key": "[\"cmd\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 118, "table": 4}, "to": {"offset": 126, "table": 4}, "type": "CALLS", "properties": {"line_number": 6, "args": ["[x]"], "full_call_name": "process_data", "args_key": "[\"[x]\"]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 121, "table": 4}, "to": {"offset": 120, "table": 4}, "type": "CALLS", "properties": {"line_number": 16, "args": ["5"], "full_call_name": "inner", "args_key": "[\"5\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 125, "table": 4}, "to": {"offset": 125, "table": 4}, "type": "CALLS", "properties": {"line_number": 12, "args": ["n - 1"], "full_call_name": "factorial", "args_key": "[\"n - 1\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 129, "table": 4}, "to": {"offset": 124, "table": 4}, "type": "CALLS", "properties": {"line_number": 4, "args": ["x"], "full_call_name": "helper", "args_key": "[\"x\"]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 129, "table": 4}, "to": {"offset": 124, "table": 4}, "type": "CALLS", "properties": {"line_number": 4, "args": ["x + 1"], "full_call_name": "helper", "args_key": "[\"x + 1\"]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 131, "table": 4}, "to": {"offset": 129, "table": 4}, "type": "CALLS", "properties": {"line_number": 4, "args": ["x"], "full_call_name": "call_helper_twice", "args_key": "[\"x\"]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 135, "table": 4}, "to": {"offset": 138, "table": 4}, "type": "CALLS", "properties": {"line_number": 20, "args": [], "full_call_name": "level2", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 136, "table": 4}, "to": {"offset": 137, "table": 4}, "type": "CALLS", "properties": {"line_number": 17, "args": [], "full_call_name": "level5", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 137, "table": 4}, "to": {"offset": 140, "table": 4}, "type": "CALLS", "properties": {"line_number": 16, "args": [], "full_call_name": "level6", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 138, "table": 4}, "to": {"offset": 139, "table": 4}, "type": "CALLS", "properties": {"line_number": 19, "args": [], "full_call_name": "level3", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 139, "table": 4}, "to": {"offset": 136, "table": 4}, "type": "CALLS", "properties": {"line_number": 18, "args": [], "full_call_name": "level4", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 135, "table": 4}, "to": {"offset": 139, "table": 4}, "type": "CALLS", "properties": {"line_number": 20, "args": [], "full_call_name": "level2", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 136, "table": 4}, "to": {"offset": 137, "table": 4}, "type": "CALLS", "properties": {"line_number": 18, "args": [], "full_call_name": "level4", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 137, "table": 4}, "to": {"offset": 138, "table": 4}, "type": "CALLS", "properties": {"line_number": 17, "args": [], "full_call_name": "level5", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 138, "table": 4}, "to": {"offset": 140, "table": 4}, "type": "CALLS", "properties": {"line_number": 16, "args": [], "full_call_name": "level6", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 139, "table": 4}, "to": {"offset": 136, "table": 4}, "type": "CALLS", "properties": {"line_number": 19, "args": [], "full_call_name": "level3", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 140, "table": 4}, "to": {"offset": 141, "table": 4}, "type": "CALLS", "properties": {"line_number": 15, "args": [], "full_call_name": "level7", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 141, "table": 4}, "to": {"offset": 142, "table": 4}, "type": "CALLS", "properties": {"line_number": 14, "args": [], "full_call_name": "level8", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 142, "table": 4}, "to": {"offset": 143, "table": 4}, "type": "CALLS", "properties": {"line_number": 13, "args": [], "full_call_name": "level9", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 143, "table": 4}, "to": {"offset": 144, "table": 4}, "type": "CALLS", "properties": {"line_number": 12, "args": [], "full_call_name": "level10", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 153, "table": 4}, "to": {"offset": 149, "table": 4}, "type": "CALLS", "properties": {"line_number": 5, "args": [], "full_call_name": "parent_function", "args_key": "[]", "confidence": 0.85, "resolution_tier": 6, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 154, "table": 4}, "to": {"offset": 150, "table": 4}, "type": "CALLS", "properties": {"line_number": 10, "args": [], "full_call_name": "super().greet", "args_key": "[]", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
-{"from": {"offset": 156, "table": 4}, "to": {"offset": 168, "table": 4}, "type": "CALLS", "properties": {"line_number": 71, "args": [], "full_call_name": "middle_scope", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 157, "table": 4}, "to": {"offset": 158, "table": 4}, "type": "CALLS", "properties": {"line_number": 70, "args": [], "full_call_name": "inner_scope", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 160, "table": 4}, "to": {"offset": 160, "table": 4}, "type": "CALLS", "properties": {"line_number": 33, "args": ["cls", "name", "bases", "dct"], "full_call_name": "super().__new__", "args_key": "[\"cls\", \"name\", \"bases\", \"dct\"]", "confidence": 1.0, "resolution_tier": 1, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 168, "table": 4}, "to": {"offset": 171, "table": 4}, "type": "CALLS", "properties": {"line_number": 70, "args": [], "full_call_name": "inner_scope", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 2, "table": 4}, "to": {"offset": 0, "table": 5}, "type": "CALLS", "properties": {"line_number": 7, "args": [], "full_call_name": "Dummy", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 171, "table": 4}, "to": {"offset": 157, "table": 4}, "type": "CALLS", "properties": {"line_number": 71, "args": [], "full_call_name": "middle_scope", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 1, "table": 4}, "to": {"offset": 0, "table": 5}, "type": "CALLS", "properties": {"line_number": 7, "args": [], "full_call_name": "Dummy", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 20, "table": 4}, "to": {"offset": 13, "table": 5}, "type": "CALLS", "properties": {"line_number": 16, "args": [], "full_call_name": "Combined", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 20, "table": 4}, "to": {"offset": 14, "table": 5}, "type": "CALLS", "properties": {"line_number": 25, "args": ["3", "4"], "full_call_name": "Point", "args_key": "[\"3\", \"4\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 48, "table": 4}, "to": {"offset": 17, "table": 5}, "type": "CALLS", "properties": {"line_number": 7, "args": [], "full_call_name": "A", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 48, "table": 4}, "to": {"offset": 18, "table": 5}, "type": "CALLS", "properties": {"line_number": 9, "args": [], "full_call_name": "B", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 48, "table": 4}, "to": {"offset": 19, "table": 5}, "type": "CALLS", "properties": {"line_number": 9, "args": [], "full_call_name": "B", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 62, "table": 4}, "to": {"offset": 22, "table": 5}, "type": "CALLS", "properties": {"line_number": 8, "args": [], "full_call_name": "FileOpener", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 79, "table": 4}, "to": {"offset": 25, "table": 5}, "type": "CALLS", "properties": {"line_number": 28, "args": [], "full_call_name": "C", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 105, "table": 4}, "to": {"offset": 26, "table": 5}, "type": "CALLS", "properties": {"line_number": 10, "args": [], "full_call_name": "AsyncCM", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 113, "table": 4}, "to": {"offset": 27, "table": 5}, "type": "CALLS", "properties": {"line_number": 12, "args": [], "full_call_name": "Dispatcher", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 166, "table": 4}, "to": {"offset": 1, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 54, "args": [], "full_call_name": "method", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 107, "table": 4}, "to": {"offset": 26, "table": 5}, "type": "CALLS", "properties": {"line_number": 10, "args": [], "full_call_name": "AsyncCM", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 116, "table": 4}, "to": {"offset": 27, "table": 5}, "type": "CALLS", "properties": {"line_number": 12, "args": [], "full_call_name": "Dispatcher", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 167, "table": 4}, "to": {"offset": 2, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 54, "args": [], "full_call_name": "method", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
 {"from": {"offset": 0, "table": 4}, "to": {"offset": 0, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 1, "table": 4}, "to": {"offset": 1, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 1, "table": 4}, "to": {"offset": 2, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 2, "table": 4}, "to": {"offset": 1, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 2, "table": 4}, "to": {"offset": 2, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 4, "table": 4}, "to": {"offset": 3, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 5, "table": 4}, "to": {"offset": 4, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 6, "table": 4}, "to": {"offset": 5, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
@@ -138,7 +138,7 @@
 {"from": {"offset": 51, "table": 4}, "to": {"offset": 45, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 52, "table": 4}, "to": {"offset": 46, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 53, "table": 4}, "to": {"offset": 47, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 54, "table": 4}, "to": {"offset": 48, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 53, "table": 4}, "to": {"offset": 48, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 54, "table": 4}, "to": {"offset": 49, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 55, "table": 4}, "to": {"offset": 50, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 56, "table": 4}, "to": {"offset": 51, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
@@ -153,14 +153,14 @@
 {"from": {"offset": 65, "table": 4}, "to": {"offset": 60, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 66, "table": 4}, "to": {"offset": 61, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 67, "table": 4}, "to": {"offset": 62, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 69, "table": 4}, "to": {"offset": 63, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 68, "table": 4}, "to": {"offset": 63, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 72, "table": 4}, "to": {"offset": 64, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 72, "table": 4}, "to": {"offset": 65, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 73, "table": 4}, "to": {"offset": 66, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 73, "table": 4}, "to": {"offset": 67, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 74, "table": 4}, "to": {"offset": 68, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 74, "table": 4}, "to": {"offset": 69, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 75, "table": 4}, "to": {"offset": 70, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 74, "table": 4}, "to": {"offset": 70, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 75, "table": 4}, "to": {"offset": 71, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 75, "table": 4}, "to": {"offset": 72, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 76, "table": 4}, "to": {"offset": 73, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
@@ -178,7 +178,7 @@
 {"from": {"offset": 84, "table": 4}, "to": {"offset": 85, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 92, "table": 4}, "to": {"offset": 86, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 93, "table": 4}, "to": {"offset": 87, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 93, "table": 4}, "to": {"offset": 88, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 94, "table": 4}, "to": {"offset": 88, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 94, "table": 4}, "to": {"offset": 89, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 97, "table": 4}, "to": {"offset": 90, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 98, "table": 4}, "to": {"offset": 91, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
@@ -187,15 +187,15 @@
 {"from": {"offset": 101, "table": 4}, "to": {"offset": 94, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 103, "table": 4}, "to": {"offset": 95, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 104, "table": 4}, "to": {"offset": 96, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 106, "table": 4}, "to": {"offset": 97, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 107, "table": 4}, "to": {"offset": 98, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 107, "table": 4}, "to": {"offset": 99, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 107, "table": 4}, "to": {"offset": 100, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 107, "table": 4}, "to": {"offset": 101, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 105, "table": 4}, "to": {"offset": 97, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 105, "table": 4}, "to": {"offset": 98, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 105, "table": 4}, "to": {"offset": 99, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 105, "table": 4}, "to": {"offset": 100, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 106, "table": 4}, "to": {"offset": 101, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 112, "table": 4}, "to": {"offset": 102, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 113, "table": 4}, "to": {"offset": 103, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 114, "table": 4}, "to": {"offset": 104, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 115, "table": 4}, "to": {"offset": 105, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 114, "table": 4}, "to": {"offset": 105, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 115, "table": 4}, "to": {"offset": 106, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 116, "table": 4}, "to": {"offset": 107, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 118, "table": 4}, "to": {"offset": 108, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
@@ -209,22 +209,22 @@
 {"from": {"offset": 146, "table": 4}, "to": {"offset": 116, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 150, "table": 4}, "to": {"offset": 117, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 154, "table": 4}, "to": {"offset": 118, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 158, "table": 4}, "to": {"offset": 119, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 159, "table": 4}, "to": {"offset": 120, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 159, "table": 4}, "to": {"offset": 119, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 160, "table": 4}, "to": {"offset": 120, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 160, "table": 4}, "to": {"offset": 121, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 160, "table": 4}, "to": {"offset": 122, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 160, "table": 4}, "to": {"offset": 123, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 160, "table": 4}, "to": {"offset": 124, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 161, "table": 4}, "to": {"offset": 124, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 161, "table": 4}, "to": {"offset": 125, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 161, "table": 4}, "to": {"offset": 126, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 162, "table": 4}, "to": {"offset": 126, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 162, "table": 4}, "to": {"offset": 127, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 162, "table": 4}, "to": {"offset": 128, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 163, "table": 4}, "to": {"offset": 129, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 164, "table": 4}, "to": {"offset": 130, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 166, "table": 4}, "to": {"offset": 131, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 166, "table": 4}, "to": {"offset": 132, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 167, "table": 4}, "to": {"offset": 133, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 169, "table": 4}, "to": {"offset": 134, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 163, "table": 4}, "to": {"offset": 128, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 164, "table": 4}, "to": {"offset": 129, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 165, "table": 4}, "to": {"offset": 130, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 167, "table": 4}, "to": {"offset": 131, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 167, "table": 4}, "to": {"offset": 132, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 168, "table": 4}, "to": {"offset": 133, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 170, "table": 4}, "to": {"offset": 134, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 173, "table": 4}, "to": {"offset": 135, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 173, "table": 4}, "to": {"offset": 136, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 174, "table": 4}, "to": {"offset": 137, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
@@ -233,9 +233,9 @@
 {"from": {"offset": 178, "table": 4}, "to": {"offset": 140, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 178, "table": 4}, "to": {"offset": 141, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 178, "table": 4}, "to": {"offset": 142, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 34, "table": 4}, "to": {"offset": 37, "table": 4}, "type": "DECORATED_BY", "properties": {"line_number": 13}}
-{"from": {"offset": 57, "table": 4}, "to": {"offset": 53, "table": 4}, "type": "DECORATED_BY", "properties": {"line_number": 23}}
-{"from": {"offset": 161, "table": 4}, "to": {"offset": 158, "table": 4}, "type": "DECORATED_BY", "properties": {"line_number": 21}}
+{"from": {"offset": 37, "table": 4}, "to": {"offset": 35, "table": 4}, "type": "DECORATED_BY", "properties": {"line_number": 13}}
+{"from": {"offset": 57, "table": 4}, "to": {"offset": 54, "table": 4}, "type": "DECORATED_BY", "properties": {"line_number": 23}}
+{"from": {"offset": 162, "table": 4}, "to": {"offset": 159, "table": 4}, "type": "DECORATED_BY", "properties": {"line_number": 21}}
 {"from": {"offset": 0, "table": 0}, "to": {"offset": 0, "table": 2}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 0, "table": 0}, "to": {"offset": 1, "table": 2}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 0, "table": 0}, "to": {"offset": 2, "table": 2}, "type": "CONTAINS", "properties": {}}
@@ -606,65 +606,65 @@
 {"from": {"offset": 41, "table": 1}, "to": {"offset": 28, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "typing.Dict", "imported_name": "Dict"}}
 {"from": {"offset": 41, "table": 1}, "to": {"offset": 29, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "typing.List", "imported_name": "List"}}
 {"from": {"offset": 41, "table": 1}, "to": {"offset": 30, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "typing.Union", "imported_name": "Union"}}
-{"from": {"offset": 0, "table": 5}, "to": {"offset": 1, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 5}, "to": {"offset": 2, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 1, "table": 5}, "to": {"offset": 4, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 2, "table": 5}, "to": {"offset": 6, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 3, "table": 5}, "to": {"offset": 5, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 5}, "to": {"offset": 5, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 5}, "to": {"offset": 8, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 4, "table": 5}, "to": {"offset": 7, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 5, "table": 5}, "to": {"offset": 8, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 5, "table": 5}, "to": {"offset": 6, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 6, "table": 5}, "to": {"offset": 9, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 8, "table": 5}, "to": {"offset": 10, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 8, "table": 5}, "to": {"offset": 11, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 8, "table": 5}, "to": {"offset": 12, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 10, "table": 5}, "to": {"offset": 16, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 12, "table": 5}, "to": {"offset": 14, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 13, "table": 5}, "to": {"offset": 18, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 14, "table": 5}, "to": {"offset": 15, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 15, "table": 5}, "to": {"offset": 17, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 9, "table": 5}, "to": {"offset": 14, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 12, "table": 5}, "to": {"offset": 18, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 13, "table": 5}, "to": {"offset": 16, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 14, "table": 5}, "to": {"offset": 17, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 15, "table": 5}, "to": {"offset": 15, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 17, "table": 5}, "to": {"offset": 43, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 18, "table": 5}, "to": {"offset": 44, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 19, "table": 5}, "to": {"offset": 45, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 19, "table": 5}, "to": {"offset": 46, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 19, "table": 5}, "to": {"offset": 47, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 18, "table": 5}, "to": {"offset": 45, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 18, "table": 5}, "to": {"offset": 46, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 18, "table": 5}, "to": {"offset": 47, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 19, "table": 5}, "to": {"offset": 44, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 20, "table": 5}, "to": {"offset": 51, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 21, "table": 5}, "to": {"offset": 52, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 21, "table": 5}, "to": {"offset": 54, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 21, "table": 5}, "to": {"offset": 53, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 21, "table": 5}, "to": {"offset": 55, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 22, "table": 5}, "to": {"offset": 61, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 22, "table": 5}, "to": {"offset": 63, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 25, "table": 5}, "to": {"offset": 78, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 26, "table": 5}, "to": {"offset": 105, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 26, "table": 5}, "to": {"offset": 106, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 26, "table": 5}, "to": {"offset": 107, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 27, "table": 5}, "to": {"offset": 112, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 27, "table": 5}, "to": {"offset": 113, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 27, "table": 5}, "to": {"offset": 114, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 27, "table": 5}, "to": {"offset": 115, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 27, "table": 5}, "to": {"offset": 116, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 28, "table": 5}, "to": {"offset": 150, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 29, "table": 5}, "to": {"offset": 154, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 30, "table": 5}, "to": {"offset": 161, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 31, "table": 5}, "to": {"offset": 164, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 32, "table": 5}, "to": {"offset": 166, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 32, "table": 5}, "to": {"offset": 167, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 33, "table": 5}, "to": {"offset": 169, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 34, "table": 5}, "to": {"offset": 160, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 34, "table": 5}, "to": {"offset": 163, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 30, "table": 5}, "to": {"offset": 162, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 31, "table": 5}, "to": {"offset": 170, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 32, "table": 5}, "to": {"offset": 165, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 33, "table": 5}, "to": {"offset": 160, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 33, "table": 5}, "to": {"offset": 164, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 34, "table": 5}, "to": {"offset": 167, "table": 4}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 34, "table": 5}, "to": {"offset": 168, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 35, "table": 5}, "to": {"offset": 178, "table": 4}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 2, "table": 5}, "to": {"offset": 5, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 3, "table": 5}, "to": {"offset": 1, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 3, "table": 5}, "to": {"offset": 4, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 9, "table": 5}, "to": {"offset": 11, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 3, "table": 5}, "to": {"offset": 5, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 4, "table": 5}, "to": {"offset": 1, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 4, "table": 5}, "to": {"offset": 2, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 10, "table": 5}, "to": {"offset": 11, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
 {"from": {"offset": 11, "table": 5}, "to": {"offset": 16, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 13, "table": 5}, "to": {"offset": 9, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
 {"from": {"offset": 13, "table": 5}, "to": {"offset": 12, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 13, "table": 5}, "to": {"offset": 10, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
 {"from": {"offset": 13, "table": 5}, "to": {"offset": 16, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 18, "table": 5}, "to": {"offset": 17, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 19, "table": 5}, "to": {"offset": 17, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
 {"from": {"offset": 21, "table": 5}, "to": {"offset": 20, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
 {"from": {"offset": 5, "table": 5}, "to": {"offset": 0, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
 {"from": {"offset": 6, "table": 5}, "to": {"offset": 1, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
 {"from": {"offset": 15, "table": 5}, "to": {"offset": 2, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
 {"from": {"offset": 24, "table": 5}, "to": {"offset": 2, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
 {"from": {"offset": 29, "table": 5}, "to": {"offset": 3, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
-{"from": {"offset": 34, "table": 5}, "to": {"offset": 1, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": {"offset": 33, "table": 5}, "to": {"offset": 1, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
 {"from": {"offset": 7, "table": 5}, "to": {"offset": 6, "table": 5}, "type": "METACLASS", "properties": {"line_number": 24, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 8, "table": 5}, "to": {"offset": 6, "table": 5}, "type": "METACLASS", "properties": {"line_number": 27, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 31, "table": 5}, "to": {"offset": 34, "table": 5}, "type": "METACLASS", "properties": {"line_number": 35, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 32, "table": 5}, "to": {"offset": 33, "table": 5}, "type": "METACLASS", "properties": {"line_number": 35, "confidence_label": "EXTRACTED"}}
