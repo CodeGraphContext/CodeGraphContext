@@ -59,6 +59,29 @@ def _normalize_prefix(p) -> str:
 # They are keyed on `name` alone and must not take a per-file disambiguator.
 _NAME_ONLY_MERGE_LABELS = {"Module", "DbTable", "ExternalClass"}
 
+# Variable extractors emit one record per *mention* -- `$i = 0; $i < n; $i++`
+# on one line yields three records for the same symbol. Splitting those with
+# occurrence_index would mint duplicate nodes for a single variable, so records
+# sharing a (name, line_number) key are coalesced (last write wins, matching
+# the old SET-overwrite order) instead of disambiguated. Distinct same-name
+# same-line *variables* would need two scopes on one line -- far rarer than
+# repeated mentions, and merging them is exactly the pre-#1393 behaviour.
+_COALESCE_SAME_KEY_LABELS = {"Variable"}
+
+
+def _coalesce_same_key_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Fold records sharing (name, line_number) into one, in write order."""
+    merged: Dict[Tuple[str, Any], Dict[str, Any]] = {}
+    order: List[Tuple[str, Any]] = []
+    for item in items:
+        key = (str(item.get("name", "")), item.get("line_number"))
+        if key in merged:
+            merged[key].update(item)
+        else:
+            merged[key] = dict(item)
+            order.append(key)
+    return [merged[k] for k in order]
+
 
 def _assign_occurrence_indices(
     items: List[Dict[str, Any]],
@@ -378,6 +401,8 @@ class GraphWriter:
                 # Give each one a per-file ordinal so they stay distinct. Labels
                 # merged on name alone are global and keep their old identity.
                 keyed_by_position = label not in _NAME_ONLY_MERGE_LABELS
+                if label in _COALESCE_SAME_KEY_LABELS:
+                    item_list = _coalesce_same_key_items(item_list)
                 occurrence_indices, key_collisions = _assign_occurrence_indices(item_list)
                 if keyed_by_position and key_collisions:
                     shown = ", ".join(

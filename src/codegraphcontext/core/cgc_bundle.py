@@ -1552,10 +1552,10 @@ cgc import <bundle-file>.cgc
         'Record': ['name', 'path', 'line_number', 'occurrence_index'],
         'Property': ['name', 'path', 'line_number', 'occurrence_index'],
         'Parameter': ['name', 'path', 'function_line_number'],
-        'EnumMember': ['name', 'path', 'line_number'],
-        'Mixin': ['name', 'path', 'line_number'],
-        'Extension': ['name', 'path', 'line_number'],
-        'Object': ['name', 'path', 'line_number'],
+        'EnumMember': ['name', 'path', 'line_number', 'occurrence_index'],
+        'Mixin': ['name', 'path', 'line_number', 'occurrence_index'],
+        'Extension': ['name', 'path', 'line_number', 'occurrence_index'],
+        'Object': ['name', 'path', 'line_number', 'occurrence_index'],
     }
 
     def _import_node_batch(

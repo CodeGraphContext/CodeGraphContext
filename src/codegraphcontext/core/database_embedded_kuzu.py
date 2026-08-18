@@ -182,15 +182,15 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("Macro", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Struct", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Enum", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("EnumMember", "uid STRING, name STRING, path STRING, line_number INT64, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("EnumMember", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Union", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Annotation", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Record", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Property", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Parameter", "uid STRING, name STRING, path STRING, function_line_number INT64, PRIMARY KEY (uid)"),
-            ("Mixin", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Extension", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Object", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
+            ("Mixin", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Extension", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Object", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
             ("DbTable", "name STRING, fqn STRING, datasource_name STRING, path STRING, PRIMARY KEY (name)"),
             ("Datasource", "name STRING, kind STRING, host STRING, env STRING, PRIMARY KEY (name)"),
             ("DbColumn", "name STRING, table_fqn STRING, type STRING, nullable BOOLEAN, datasource_name STRING, is_primary_key BOOLEAN, PRIMARY KEY (name, table_fqn)"),
@@ -347,6 +347,10 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("Union", "occurrence_index", "INT64"),
             ("Record", "occurrence_index", "INT64"),
             ("Property", "occurrence_index", "INT64"),
+            ("EnumMember", "occurrence_index", "INT64"),
+            ("Mixin", "occurrence_index", "INT64"),
+            ("Extension", "occurrence_index", "INT64"),
+            ("Object", "occurrence_index", "INT64"),
             ("Repository", "indexed_at", "STRING"),
             ("Repository", "commit_hash", "STRING"),
             # Spring endpoint properties on Function
@@ -599,15 +603,15 @@ class EmbeddedSessionWrapper:
             'Macro': ['name', 'path', 'line_number', 'occurrence_index'],
             'Struct': ['name', 'path', 'line_number', 'occurrence_index'],
             'Enum': ['name', 'path', 'line_number', 'occurrence_index'],
-            'EnumMember': ['name', 'path', 'line_number'],
+            'EnumMember': ['name', 'path', 'line_number', 'occurrence_index'],
             'Union': ['name', 'path', 'line_number', 'occurrence_index'],
             'Annotation': ['name', 'path', 'line_number'],
             'Record': ['name', 'path', 'line_number', 'occurrence_index'],
             'Property': ['name', 'path', 'line_number', 'occurrence_index'],
             'Parameter': ['name', 'path', 'function_line_number'],
-            'Mixin': ['name', 'path', 'line_number'],
-            'Extension': ['name', 'path', 'line_number'],
-            'Object': ['name', 'path', 'line_number']
+            'Mixin': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Extension': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Object': ['name', 'path', 'line_number', 'occurrence_index']
         }
     
     def __enter__(self):
@@ -855,15 +859,15 @@ class EmbeddedSessionWrapper:
             'Macro': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
             'Struct': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
             'Enum': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'EnumMember': {'uid', 'name', 'path', 'line_number', 'lang', 'is_dependency'},
+            'EnumMember': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'lang', 'is_dependency'},
             'Union': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
             'Annotation': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
             'Record': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
             'Property': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
             'Parameter': {'uid', 'name', 'path', 'function_line_number'},
-            'Mixin': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'Extension': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'Object': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency', 'decorators', 'visibility', 'modifiers'}
+            'Mixin': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
+            'Extension': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
+            'Object': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency', 'decorators', 'visibility', 'modifiers'}
         }
 
         # 1. Translate SET n += $props  and  SET n = $props  (map merge/assign)
