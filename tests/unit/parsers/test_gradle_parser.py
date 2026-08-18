@@ -170,3 +170,45 @@ def test_single_root_module_with_no_includes_keeps_working(tmp_path: Path):
     assert module["name"] == "repo"
     assert len(data["external_libs"]) == 1
     assert data["external_libs"][0]["src_name"] == module["name"]
+
+
+def test_kotlin_dsl_project_deps_are_extracted(tmp_path: Path):
+    """`implementation(project(":x"))` — the Kotlin DSL form with no whitespace
+    before the paren — must produce MODULE_DEPENDS_ON rows just like the
+    Groovy `implementation project(':x')` form (#1603, report 6 of 9)."""
+    repo = tmp_path / "repo"
+    _write(repo / "settings.gradle.kts", """
+        include(":app")
+        include(":core:network")
+    """)
+    _write(repo / "app" / "build.gradle.kts", """
+        dependencies {
+            implementation(project(":core:network"))
+            api(project(":core:network"))
+        }
+    """)
+    _write(repo / "core" / "network" / "build.gradle.kts", "")
+
+    data = parse_repo_gradle(repo)
+    deps = data["inter_module_deps"]
+    assert {"src_name": ":app", "tgt_name": ":core:network", "configuration": "implementation"} in deps
+    assert {"src_name": ":app", "tgt_name": ":core:network", "configuration": "api"} in deps
+
+
+def test_groovy_whitespace_project_deps_still_extracted(tmp_path: Path):
+    """The Groovy form must keep matching after the Kotlin DSL fix."""
+    repo = tmp_path / "repo"
+    _write(repo / "settings.gradle", """
+        include ':app'
+        include ':lib'
+    """)
+    _write(repo / "app" / "build.gradle", """
+        dependencies {
+            implementation project(':lib')
+        }
+    """)
+    _write(repo / "lib" / "build.gradle", "")
+
+    data = parse_repo_gradle(repo)
+    deps = data["inter_module_deps"]
+    assert {"src_name": ":app", "tgt_name": ":lib", "configuration": "implementation"} in deps

@@ -164,8 +164,12 @@ class GradleParser:
                 "configuration": configuration,
             })
 
-        # Extract inter-module project dependencies
-        for m in re.finditer(r"""(\w+)\s+project\(['"]:([\w.\-/:]+)['"]\)""", source):
+        # Extract inter-module project dependencies. The configuration may be
+        # followed by whitespace (Groovy: `implementation project(":x")`) or an
+        # opening paren (Kotlin DSL: `implementation(project(":x"))`); requiring
+        # whitespace made every Kotlin-DSL module dependency invisible, which
+        # left MODULE_DEPENDS_ON empty on standard Android projects (#1603).
+        for m in re.finditer(r"""(\w+)\s*\(?\s*project\(['"]:([\w.\-/:]+)['"]\)""", source):
             configuration = m.group(1)
             # Canonical target identity — same construction as module_name,
             # so both endpoints of MODULE_DEPENDS_ON agree by construction.

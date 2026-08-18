@@ -191,11 +191,17 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("Mixin", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Extension", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Object", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
-            ("DbTable", "name STRING, fqn STRING, datasource_name STRING, path STRING, PRIMARY KEY (name)"),
+            ("DbTable", "fqn STRING, name STRING, datasource_name STRING, table_type STRING, comment STRING, path STRING, PRIMARY KEY (fqn)"),
             ("Datasource", "name STRING, kind STRING, host STRING, env STRING, PRIMARY KEY (name)"),
-            ("DbColumn", "name STRING, table_fqn STRING, type STRING, nullable BOOLEAN, datasource_name STRING, is_primary_key BOOLEAN, PRIMARY KEY (name, table_fqn)"),
-            ("RedisKeyPattern", "pattern STRING, datasource_name STRING, key_type STRING, example_key STRING, count INT64, PRIMARY KEY (pattern, datasource_name)"),
-            ("ExternalClass", "name STRING, path STRING, PRIMARY KEY (name)")
+            ("DbColumn", "uid STRING, name STRING, table_fqn STRING, type STRING, nullable BOOLEAN, datasource_name STRING, is_primary_key BOOLEAN, PRIMARY KEY (uid)"),
+            ("RedisKeyPattern", "uid STRING, pattern STRING, datasource_name STRING, key_type STRING, example_key STRING, count INT64, PRIMARY KEY (uid)"),
+            ("ExternalClass", "name STRING, path STRING, PRIMARY KEY (name)"),
+            # Build-system entities (#1603): these were never declared, so the
+            # whole Gradle/Maven build graph silently failed to write on the
+            # embedded backends. Composite natural keys use a synthesized uid.
+            ("GradleModule", "name STRING, build_file STRING, path STRING, repo_path STRING, PRIMARY KEY (name)"),
+            ("MavenModule", "uid STRING, group_id STRING, artifact_id STRING, version STRING, packaging STRING, pom_path STRING, path STRING, repo_path STRING, PRIMARY KEY (uid)"),
+            ("ExternalLibrary", "uid STRING, group_id STRING, artifact_id STRING, version STRING, PRIMARY KEY (uid)")
         ]
         
         # rel_tables: list of (table_name, schema, use_group)
@@ -299,6 +305,27 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("STORED_IN", "FROM DbTable TO Datasource, FROM RedisKeyPattern TO Datasource", True),
             ("HAS_COLUMN", "FROM DbTable TO DbColumn", False),
         ]
+
+        # Legacy Kùzu databases may carry a DbTable created with PRIMARY KEY
+        # (name) before #1393-era fixes; the writer merges DbTable on `fqn`,
+        # so that shape never received a row. Drop the empty legacy table so
+        # the CREATE below rebuilds it keyed on fqn. Only an *empty* table is
+        # dropped -- a populated one is left untouched.
+        try:
+            info = self._conn.execute("CALL TABLE_INFO('DbTable') RETURN *")
+            legacy_pk_name = False
+            while info.has_next():
+                row = info.get_next()
+                if row[1] == "name" and row[-1]:
+                    legacy_pk_name = True
+            if legacy_pk_name:
+                count_res = self._conn.execute("MATCH (n:DbTable) RETURN count(n)")
+                empty = count_res.get_next()[0] == 0 if count_res.has_next() else True
+                if empty:
+                    self._conn.execute("DROP TABLE DbTable")
+                    debug_log("Dropped empty legacy DbTable (PK name) for rebuild keyed on fqn")
+        except Exception:
+            pass  # table absent -- nothing to migrate
 
         for table_name, schema in node_tables:
             try:
@@ -425,6 +452,10 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("PART_OF", "FROM File TO File", False),
             ("BINDS", "FROM Interface TO Class, FROM Class TO Class, FROM Interface TO Interface, line_number INT64, provider STRING, confidence_label STRING", True),
             ("PREVIEWS", "FROM Function TO Function, line_number INT64", False),
+            # Build-system relationships (#1603)
+            ("MODULE_DEPENDS_ON", "FROM GradleModule TO GradleModule, FROM MavenModule TO MavenModule, configuration STRING, scope STRING", True),
+            ("USES_LIBRARY", "FROM GradleModule TO ExternalLibrary, FROM MavenModule TO ExternalLibrary, configuration STRING, scope STRING", True),
+            ("CHILD_MODULE", "FROM MavenModule TO MavenModule", False),
         ]
         for table_name, schema, use_group in rel_table_migrations:
             try:
@@ -614,7 +645,13 @@ class EmbeddedSessionWrapper:
             'Parameter': ['name', 'path', 'function_line_number'],
             'Mixin': ['name', 'path', 'line_number', 'occurrence_index'],
             'Extension': ['name', 'path', 'line_number', 'occurrence_index'],
-            'Object': ['name', 'path', 'line_number', 'occurrence_index']
+            'Object': ['name', 'path', 'line_number', 'occurrence_index'],
+            # Datasource entities: Kùzu cannot declare composite primary keys,
+            # so these tables are keyed on a synthesized uid (#see write_datasource_graph)
+            'DbColumn': ['name', 'table_fqn'],
+            'RedisKeyPattern': ['pattern', 'datasource_name'],
+            'MavenModule': ['group_id', 'artifact_id'],
+            'ExternalLibrary': ['group_id', 'artifact_id']
         }
     
     def __enter__(self):
@@ -815,6 +852,19 @@ class EmbeddedSessionWrapper:
                         props_used = set(re.findall(rf'{row_var}\.(\w+)', loop_query))
                         for p in props_used:
                             loop_query = loop_query.replace(f"{row_var}.{p}", f"${row_var}_{p}")
+                        # The row var itself may still appear bare in WITH lists
+                        # ("WITH tbl, t") once the UNWIND is gone; a dangling
+                        # reference binder-errors and the row is silently
+                        # dropped. Scrub it from WITH clauses.
+                        loop_query = re.sub(
+                            rf'(WITH\s+[^\n]*?),\s*{row_var}\b(?!\.)', r'\1', loop_query
+                        )
+                        loop_query = re.sub(
+                            rf'WITH\s+{row_var}\s*,\s*', 'WITH ', loop_query
+                        )
+                        loop_query = re.sub(
+                            rf'WITH\s+{row_var}\b(?!\.)\s*\n', 'WITH 1 AS _row_scrubbed\n', loop_query
+                        )
                         
                         last_result = None
                         for item in batch_data:
@@ -844,7 +894,7 @@ class EmbeddedSessionWrapper:
             'File': 'path',
             'Directory': 'path',
             'Module': 'name',
-            'DbTable': 'name',
+            'DbTable': 'fqn',
             'ExternalClass': 'name'
         }
         
@@ -1016,9 +1066,26 @@ class EmbeddedSessionWrapper:
                          # Kuzu node tables are keyed by uid for these labels, so MERGE
                          # should match on the primary key only. Matching on additional
                          # non-PK fields can still lead to duplicate PK insert attempts.
+                         # The displaced pattern properties must be re-applied with an
+                         # explicit SET, though: unlike Neo4j, the uid-only MERGE no
+                         # longer assigns them on create, and queries whose follow-up
+                         # SET does not repeat them (e.g. MavenModule/ExternalLibrary
+                         # writes) would otherwise leave the key columns NULL and break
+                         # every later MATCH on them.
+                         displaced_pairs = [
+                             (k.strip(), v.strip())
+                             for k, v in re.findall(r'(\w+)\s*:\s*([^,{}]+)', props_str)
+                             if k.strip() != 'uid'
+                         ]
+                         displaced_set = ''
+                         if displaced_pairs:
+                             assignments = ', '.join(
+                                 f"{var_name}.{k} = {v}" for k, v in displaced_pairs
+                             )
+                             displaced_set = f" SET {assignments}"
                          query = re.sub(
                              rf"MERGE\s+\({re.escape(var_name)}:{re.escape(label_raw)}\s*\{{[^}}]*uid:\s*{re.escape(row_var)}\.uid[^}}]*\}}\)",
-                             f"MERGE ({var_name}:{label_raw} {{uid: {row_var}.uid}})",
+                             f"MERGE ({var_name}:{label_raw} {{uid: {row_var}.uid}}){displaced_set}",
                              query,
                              count=1,
                          )
