@@ -622,7 +622,7 @@ class TestAddFileToGraph:
 
         import_call = next(
             c for c in session.calls
-            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)" in c["query"]
+            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number" in c["query"]
         )
         assert "m.alias" not in import_call["query"]
         assert import_call["kwargs"]["batch"] == [
@@ -663,11 +663,12 @@ class TestAddFileToGraph:
         import_call = next(
             c
             for c in session.calls
-            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)" in c["query"]
+            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number" in c["query"]
         )
         assert "m.lang = coalesce(m.lang, row.lang)" in import_call["query"]
         assert "m.full_import_name = coalesce(m.full_import_name, row.full_import_name)" in import_call["query"]
         assert "r.full_import_name = row.full_import_name" in import_call["query"]
+        assert "r.lang = row.lang" in import_call["query"]
 
     def test_duplicate_import_metadata_uses_stable_canonical_order(self):
         """Shared Rust module nodes should prefer stable, descriptive import metadata."""
@@ -714,7 +715,7 @@ class TestAddFileToGraph:
         import_call = next(
             c
             for c in session.calls
-            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)" in c["query"]
+            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number" in c["query"]
         )
         batch = import_call["kwargs"]["batch"]
         assert [row["full_import_name"] for row in batch] == [
@@ -723,6 +724,140 @@ class TestAddFileToGraph:
             "pub use super::geometry::shapes::Rectangle;",
             "use super::shapes::{Circle, Rectangle};",
         ]
+
+    def test_python_from_import_uses_source_as_module_name(self):
+        """from X import Y must MERGE a Module named X, with Y on the edge."""
+        session = _RecordingSession(responses=[_FakeResult()])
+        gb, _ = _make_graph_builder(session)
+        file_data = {
+            "path": "/repo/main.py",
+            "lang": "python",
+            "is_dependency": False,
+            "functions": [],
+            "classes": [],
+            "variables": [],
+            "imports": [
+                {
+                    "name": "os",
+                    "full_import_name": "os",
+                    "alias": None,
+                    "line_number": 1,
+                    "lang": "python",
+                },
+                {
+                    "name": "Path",
+                    "source": "pathlib",
+                    "imported_name": "Path",
+                    "full_import_name": "pathlib.Path",
+                    "alias": None,
+                    "line_number": 2,
+                    "lang": "python",
+                },
+                {
+                    "name": "AsyncMock",
+                    "source": "unittest.mock",
+                    "imported_name": "AsyncMock",
+                    "full_import_name": "unittest.mock.AsyncMock",
+                    "alias": "AM",
+                    "line_number": 3,
+                    "lang": "python",
+                },
+            ],
+            "function_calls": [],
+        }
+
+        gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str="/repo")
+
+        import_call = next(
+            c
+            for c in session.calls
+            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number" in c["query"]
+        )
+        by_full = {row["full_import_name"]: row for row in import_call["kwargs"]["batch"]}
+
+        assert by_full["os"]["name"] == "os"
+        assert by_full["os"]["imported_name"] == "os"
+
+        path_row = by_full["pathlib.Path"]
+        assert path_row["name"] == "pathlib"
+        assert path_row["imported_name"] == "Path"
+        assert path_row["name"] != "Path"
+        assert path_row["name"] != "pathlib.Path"
+        assert "imported_name: row.imported_name" in import_call["query"]
+        assert "r.lang = row.lang" in import_call["query"]
+        assert path_row["lang"] == "python"
+
+        async_row = by_full["unittest.mock.AsyncMock"]
+        assert async_row["name"] == "unittest.mock"
+        assert async_row["imported_name"] == "AsyncMock"
+        assert async_row["alias"] == "AM"
+
+    def test_imports_edges_record_language_for_python_and_typescript(self):
+        """Same specifier in two languages must keep distinct r.lang values."""
+        session = _RecordingSession(responses=[_FakeResult(), _FakeResult()])
+        gb, _ = _make_graph_builder(session)
+
+        gb.add_file_to_graph(
+            {
+                "path": "/repo/app.py",
+                "lang": "python",
+                "is_dependency": False,
+                "functions": [],
+                "classes": [],
+                "variables": [],
+                "imports": [
+                    {
+                        "name": "shared",
+                        "full_import_name": "shared",
+                        "line_number": 1,
+                    }
+                ],
+                "function_calls": [],
+            },
+            "my_repo",
+            {},
+            repo_path_str="/repo",
+        )
+        gb.add_file_to_graph(
+            {
+                "path": "/repo/app.ts",
+                "lang": "typescript",
+                "is_dependency": False,
+                "functions": [],
+                "classes": [],
+                "variables": [],
+                "imports": [
+                    {
+                        "name": "default",
+                        "source": "shared",
+                        "alias": "shared",
+                        "line_number": 1,
+                    }
+                ],
+                "function_calls": [],
+            },
+            "my_repo",
+            {},
+            repo_path_str="/repo",
+        )
+
+        python_call = next(
+            c
+            for c in session.calls
+            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number, imported_name: row.imported_name}]" in c["query"]
+        )
+        js_call = next(
+            c
+            for c in session.calls
+            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)" in c["query"]
+            and "row.module_name" in c["query"]
+        )
+
+        assert python_call["kwargs"]["batch"][0]["lang"] == "python"
+        assert js_call["kwargs"]["batch"][0]["lang"] == "typescript"
+        assert js_call["kwargs"]["batch"][0]["module_name"] == "shared"
+        assert "r.lang = row.lang" in python_call["query"]
+        assert "r.lang = row.lang" in js_call["query"]
 
 
 # ---------------------------------------------------------------------------
