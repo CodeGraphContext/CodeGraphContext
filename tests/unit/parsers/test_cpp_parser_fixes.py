@@ -262,3 +262,24 @@ void free_fn() {}
     assert functions["bar"]["class_context"] == "Foo"
     assert functions["other"]["class_context"] == "Foo"
     assert functions["free_fn"].get("class_context") is None
+
+
+def test_lambda_parameters_are_extracted(cpp_parser, tmp_path):
+    """#1527 case 5: lambda assignments always produced args: []."""
+    code = (
+        "#include <string>\n"
+        "auto add = [](int a, int b){ return a + b; };\n"
+        "auto greet = [](const std::string& name, char* buf){ return name; };\n"
+        "auto zero = [](){ return 0; };\n"
+    )
+    f = tmp_path / "lambdas.cpp"
+    f.write_text(code, encoding="utf-8")
+    functions = {fn["name"]: fn for fn in cpp_parser.parse(str(f))["functions"]}
+    # C++ args follow the project's "type name" convention, same as
+    # regular function_definitions extracted through the shared helper.
+    assert functions["add"]["args"] == ["int a", "int b"]
+    # The type field excludes qualifiers/pointer declarators, so refs and
+    # pointers render as the extractor has always rendered them for
+    # function_definitions ("std::string & name", "char buf").
+    assert functions["greet"]["args"] == ["std::string & name", "char buf"]
+    assert functions["zero"]["args"] == []

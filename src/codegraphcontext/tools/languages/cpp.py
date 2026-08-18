@@ -519,11 +519,7 @@ class CppTreeSitterParser:
                 if lambda_node is None or lambda_node.type != 'lambda_expression':
                     continue
 
-                params_node = lambda_node.child_by_field_name('declarator')
-                if params_node:
-                    params_node = params_node.child_by_field_name('parameters')
                 name = self._get_node_text(node)
-                params_node = lambda_node.child_by_field_name('parameters')
 
                 context, context_type, _ = self._get_parent_context(assignment_node)
                 class_context, _, _ = self._get_parent_context(assignment_node, types=('class_specifier',))
@@ -532,7 +528,15 @@ class CppTreeSitterParser:
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": assignment_node.end_point[0] + 1,
-                    "args": [p for p in [self._get_node_text(p) for p in params_node.children if p.type == 'identifier'] if p] if params_node else [],
+                    # lambda_expression carries the same declarator→parameters
+                    # field chain as a function_definition, so the shared
+                    # extractor handles parameter_declaration unwrapping
+                    # (pointers/refs included). The old inline version first
+                    # clobbered its correctly-walked parameter_list with a
+                    # nonexistent field and then filtered for bare identifiers
+                    # over parameter_declaration nodes — every lambda got
+                    # args: [] (#1527, case 5).
+                    "args": self._extract_function_params(lambda_node),
                     
                     "docstring": None,
                     "cyclomatic_complexity": 1,
