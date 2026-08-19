@@ -1,6 +1,6 @@
 [project]
 name = "codegraphcontext"
-version = "0.6.4"
+version = "0.6.5"
 description = "An MCP server that indexes local code into a graph database to provide context to AI assistants."
 authors = [{ name = "Shashank Shekhar Singh", email = "shashankshekharsingh1205@gmail.com" }]
 readme = "README.md"
