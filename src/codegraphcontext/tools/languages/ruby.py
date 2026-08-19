@@ -6,9 +6,14 @@ from codegraphcontext.utils.tree_sitter_manager import execute_query
 
 RUBY_QUERIES = {
     "functions": """
-        (method
-            name: (identifier) @name
-        ) @function_node
+        [
+            (method
+                name: (identifier) @name
+            )
+            (singleton_method
+                name: (identifier) @name
+            )
+        ] @function_node
     """,
     "classes": """
         (class
@@ -582,6 +587,9 @@ def pre_scan_ruby(files: list[Path], parser_wrapper) -> dict:
             name: (constant) @name
         )
         (method
+            name: (identifier) @name
+        )
+        (singleton_method
             name: (identifier) @name
         )
     """

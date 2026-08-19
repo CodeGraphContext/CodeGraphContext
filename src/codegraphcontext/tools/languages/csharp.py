@@ -308,7 +308,26 @@ class CSharpTreeSitterParser:
                             # Parse base list: ": BaseClass, IInterface1, IInterface2"
                             bases_text = bases_text.strip().lstrip(':').strip()
                             if bases_text:
-                                raw_bases = [b.strip() for b in bases_text.split(',')]
+                                # Split on TOP-LEVEL commas only: a naive split
+                                # shredded multi-arg generics —
+                                # `: Dictionary<string, int>` became two bases,
+                                # 'Dictionary<string' and 'int>', creating
+                                # INHERITS edges to nonexistent types (#1538).
+                                raw_bases = []
+                                depth = 0
+                                current = []
+                                for ch in bases_text:
+                                    if ch in "<([":
+                                        depth += 1
+                                    elif ch in ">)]":
+                                        depth = max(0, depth - 1)
+                                    if ch == "," and depth == 0:
+                                        raw_bases.append("".join(current).strip())
+                                        current = []
+                                    else:
+                                        current.append(ch)
+                                if current:
+                                    raw_bases.append("".join(current).strip())
                                 # records might have base calls like : Person(name, age)
                                 # we want just Person
                                 for rb in raw_bases:

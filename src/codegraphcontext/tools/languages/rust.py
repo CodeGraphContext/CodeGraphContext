@@ -289,33 +289,67 @@ class RustTreeSitterParser:
         return structs, enums, traits
 
     def _find_imports(self, root_node: Any) -> list[Dict[str, Any]]:
+        """Walk `use` declarations structurally (#1538).
+
+        The old text-based version had two audit findings: a braced list
+        (`use std::collections::{HashMap, HashSet};`) kept only the LAST
+        name, and `full_import_name` was the raw source including the `use`
+        keyword and semicolon — written verbatim as the Module node name,
+        where no path-matching consumer could ever match it.
+        """
         imports = []
+
+        def _emit(name, full, alias, line):
+            imports.append({
+                "name": name,
+                "full_import_name": full,
+                "line_number": line,
+                "alias": alias,
+            })
+
+        def _last_segment(path_text):
+            seg = path_text.split("::")[-1].strip()
+            return seg or path_text
+
+        def _walk_use_arg(node, base, line):
+            """base is the '::'-joined path prefix accumulated so far."""
+            t = node.type
+            text = self._get_node_text(node)
+            if t in ("identifier", "scoped_identifier", "crate", "self", "super"):
+                full = f"{base}::{text}" if base else text
+                _emit(_last_segment(full), full, None, line)
+            elif t == "use_as_clause":
+                inner = node.children[0]
+                alias_node = node.children[-1]
+                inner_text = self._get_node_text(inner)
+                full = f"{base}::{inner_text}" if base else inner_text
+                _emit(self._get_node_text(alias_node), full, self._get_node_text(alias_node), line)
+            elif t == "use_wildcard":
+                # use x::*;  — child[0] is the path, if any (super/crate/self
+                # are their own node types, not identifiers)
+                path_children = [c for c in node.children if c.type in ("identifier", "scoped_identifier", "super", "crate", "self")]
+                prefix = self._get_node_text(path_children[0]) if path_children else ""
+                full_base = f"{base}::{prefix}" if base and prefix else (prefix or base)
+                _emit("*", f"{full_base}::*" if full_base else "*", None, line)
+            elif t == "scoped_use_list":
+                # <path> :: { list }
+                path_children = [c for c in node.children if c.type in ("identifier", "scoped_identifier", "super", "crate", "self")]
+                prefix = self._get_node_text(path_children[0]) if path_children else ""
+                new_base = f"{base}::{prefix}" if base and prefix else (prefix or base)
+                for c in node.children:
+                    if c.type == "use_list":
+                        _walk_use_arg(c, new_base, line)
+            elif t == "use_list":
+                for c in node.children:
+                    if c.type not in ("{", "}", ","):
+                        _walk_use_arg(c, base, line)
+
         query_str = RUST_QUERIES["imports"]
         for node, _ in execute_query(self.language, query_str, root_node):
-            full_import_name = self._get_node_text(node)
-            alias = None
-
-            alias_match = re.search(r"as\s+(\w+)\s*;?$", full_import_name)
-            if alias_match:
-                alias = alias_match.group(1)
-                name = alias
-            else:
-                cleaned_path = re.sub(r";$", "", full_import_name).strip()
-                last_part = cleaned_path.split("::")[-1]
-                if last_part.strip() == "*":
-                    name = "*"
-                else:
-                    name_match = re.findall(r"(\w+)", last_part)
-                    name = name_match[-1] if name_match else last_part
-
-            imports.append(
-                {
-                    "name": name,
-                    "full_import_name": full_import_name,
-                    "line_number": node.start_point[0] + 1,
-                    "alias": alias,
-                }
-            )
+            line = node.start_point[0] + 1
+            for child in node.children:
+                if child.type not in ("use", ";"):
+                    _walk_use_arg(child, "", line)
         return imports
 
     def _find_calls(self, root_node: Any) -> list[Dict[str, Any]]:

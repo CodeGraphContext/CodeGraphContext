@@ -455,7 +455,15 @@ class PythonTreeSitterParser:
                             imported_name = self._get_node_text(child)
                         
                         if imported_name:
-                            full_import_name = f"{module_name}.{imported_name}"
+                            # `from . import x` has module_name '.', and the
+                            # unconditional join produced '..x' — one package
+                            # level too high, and no consumer strips leading
+                            # dots (#1538). Bare-dot relatives join without
+                            # the separator; dotted paths keep it.
+                            if module_name.endswith('.'):
+                                full_import_name = f"{module_name}{imported_name}"
+                            else:
+                                full_import_name = f"{module_name}.{imported_name}"
                             import_data = {
                                 "name": imported_name,
                                 "source": module_name,

@@ -1,19 +1,19 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-08-14T19:45:11Z",
+  "exported_at": "2026-08-19T19:41:08Z",
   "format_version": "1.0.0",
   "repo": "sample_project_rust",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "976d596c",
-  "branch": "fix/five-open-issues",
+  "commit": "60fcd527",
+  "branch": "fix/1538-audit-batch2",
   "languages": [
     "rust"
   ],
-  "generator": "PYv0.5.8",
+  "generator": "PYv0.6.3",
   "name": "sample_project_rust.cgc",
   "graph_metrics": {
-    "total_nodes": 808,
-    "total_edges": 948
+    "total_nodes": 815,
+    "total_edges": 960
   }
 }

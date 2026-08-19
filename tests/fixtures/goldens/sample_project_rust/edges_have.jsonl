@@ -1,463 +1,3 @@
-{"from": {"offset": 0, "table": 2}, "to": {"offset": 2, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 0, "table": 2}, "to": {"offset": 3, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 0, "table": 2}, "to": {"offset": 4, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 0, "table": 2}, "to": {"offset": 5, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 0, "table": 2}, "to": {"offset": 6, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 0, "table": 2}, "to": {"offset": 7, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 0, "table": 2}, "to": {"offset": 8, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 0, "table": 2}, "to": {"offset": 9, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 0, "table": 2}, "to": {"offset": 10, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 0, "table": 2}, "to": {"offset": 11, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 0, "table": 2}, "to": {"offset": 12, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 0, "table": 2}, "to": {"offset": 13, "table": 1}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 3, "table": 4}, "to": {"offset": 3, "table": 4}, "type": "CALLS", "properties": {"line_number": 90, "args": ["n - 1"], "full_call_name": "factorial(n - 1)", "args_key": "[\"n - 1\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 15, "table": 4}, "to": {"offset": 15, "table": 4}, "type": "CALLS", "properties": {"line_number": 99, "args": ["n - 1"], "full_call_name": "fibonacci(n - 1)", "args_key": "[\"n - 1\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 15, "table": 4}, "to": {"offset": 15, "table": 4}, "type": "CALLS", "properties": {"line_number": 99, "args": ["n - 2"], "full_call_name": "fibonacci(n - 2)", "args_key": "[\"n - 2\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 23, "table": 4}, "to": {"offset": 17, "table": 4}, "type": "CALLS", "properties": {"line_number": 159, "args": ["10", "3"], "full_call_name": "multiple_returns(10, 3)", "args_key": "[\"10\", \"3\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 26, "table": 4}, "to": {"offset": 29, "table": 4}, "type": "CALLS", "properties": {"line_number": 111, "args": ["Vec::new()"], "full_call_name": "RwLock::new(Vec::new())", "args_key": "[\"Vec::new()\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 26, "table": 4}, "to": {"offset": 29, "table": 4}, "type": "CALLS", "properties": {"line_number": 111, "args": ["RwLock::new(Vec::new())"], "full_call_name": "Arc::new(RwLock::new(Vec::new()))", "args_key": "[\"RwLock::new(Vec::new())\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 27, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "CALLS", "properties": {"line_number": 126, "args": [], "full_call_name": "self.data.read().unwrap()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 29, "table": 4}, "to": {"offset": 29, "table": 4}, "type": "CALLS", "properties": {"line_number": 220, "args": ["receiver"], "full_call_name": "Mutex::new(receiver)", "args_key": "[\"receiver\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 29, "table": 4}, "to": {"offset": 29, "table": 4}, "type": "CALLS", "properties": {"line_number": 220, "args": ["Mutex::new(receiver)"], "full_call_name": "Arc::new(Mutex::new(receiver))", "args_key": "[\"Mutex::new(receiver)\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 29, "table": 4}, "to": {"offset": 28, "table": 4}, "type": "CALLS", "properties": {"line_number": 224, "args": ["id", "Arc::clone(&receiver)"], "full_call_name": "Worker::new(id, Arc::clone(&receiver))", "args_key": "[\"id\", \"Arc::clone(&receiver)\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 30, "table": 4}, "to": {"offset": 29, "table": 4}, "type": "CALLS", "properties": {"line_number": 234, "args": ["f"], "full_call_name": "Box::new(f)", "args_key": "[\"f\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 30, "table": 4}, "to": {"offset": 247, "table": 4}, "type": "CALLS", "properties": {"line_number": 235, "args": ["job"], "full_call_name": "self.sender.send(job)", "args_key": "[\"job\"]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 30, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "CALLS", "properties": {"line_number": 235, "args": [], "full_call_name": "self.sender.send(job).unwrap()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 33, "table": 4}, "to": {"offset": 51, "table": 4}, "type": "CALLS", "properties": {"line_number": 348, "args": ["1"], "full_call_name": "data.add(1)", "args_key": "[\"1\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 33, "table": 4}, "to": {"offset": 51, "table": 4}, "type": "CALLS", "properties": {"line_number": 350, "args": ["3"], "full_call_name": "data.add(3)", "args_key": "[\"3\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 33, "table": 4}, "to": {"offset": 51, "table": 4}, "type": "CALLS", "properties": {"line_number": 349, "args": ["2"], "full_call_name": "data.add(2)", "args_key": "[\"2\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 34, "table": 4}, "to": {"offset": 29, "table": 4}, "type": "CALLS", "properties": {"line_number": 81, "args": ["0"], "full_call_name": "Mutex::new(0)", "args_key": "[\"0\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 34, "table": 4}, "to": {"offset": 29, "table": 4}, "type": "CALLS", "properties": {"line_number": 81, "args": ["Mutex::new(0)"], "full_call_name": "Arc::new(Mutex::new(0))", "args_key": "[\"Mutex::new(0)\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 35, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "CALLS", "properties": {"line_number": 91, "args": [], "full_call_name": "self.count.lock().unwrap()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 37, "table": 4}, "to": {"offset": 44, "table": 4}, "type": "CALLS", "properties": {"line_number": 169, "args": ["tx"], "full_call_name": "drop(tx)", "args_key": "[\"tx\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 42, "table": 4}, "to": {"offset": 29, "table": 4}, "type": "CALLS", "properties": {"line_number": 50, "args": ["Mutex::new(0)"], "full_call_name": "Arc::new(Mutex::new(0))", "args_key": "[\"Mutex::new(0)\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 42, "table": 4}, "to": {"offset": 29, "table": 4}, "type": "CALLS", "properties": {"line_number": 50, "args": ["0"], "full_call_name": "Mutex::new(0)", "args_key": "[\"0\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 45, "table": 4}, "to": {"offset": 29, "table": 4}, "type": "CALLS", "properties": {"line_number": 253, "args": ["3"], "full_call_name": "Barrier::new(3)", "args_key": "[\"3\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 45, "table": 4}, "to": {"offset": 29, "table": 4}, "type": "CALLS", "properties": {"line_number": 253, "args": ["Barrier::new(3)"], "full_call_name": "Arc::new(Barrier::new(3))", "args_key": "[\"Barrier::new(3)\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 46, "table": 4}, "to": {"offset": 29, "table": 4}, "type": "CALLS", "properties": {"line_number": 281, "args": ["0"], "full_call_name": "AtomicUsize::new(0)", "args_key": "[\"0\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 48, "table": 4}, "to": {"offset": 42, "table": 4}, "type": "CALLS", "properties": {"line_number": 333, "args": ["5"], "full_call_name": "shared_counter(5)", "args_key": "[\"5\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 50, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "CALLS", "properties": {"line_number": 86, "args": [], "full_call_name": "self.count.lock().unwrap()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 51, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "CALLS", "properties": {"line_number": 116, "args": [], "full_call_name": "self.data.write().unwrap()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 53, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "CALLS", "properties": {"line_number": 121, "args": [], "full_call_name": "self.data.read().unwrap()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 56, "table": 4}, "to": {"offset": 59, "table": 4}, "type": "CALLS", "properties": {"line_number": 141, "args": [], "full_call_name": "String::new()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 58, "table": 4}, "to": {"offset": 81, "table": 4}, "type": "CALLS", "properties": {"line_number": 252, "args": ["id"], "full_call_name": "find_user(id)", "args_key": "[\"id\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 62, "table": 4}, "to": {"offset": 71, "table": 4}, "type": "CALLS", "properties": {"line_number": 184, "args": ["a", "b"], "full_call_name": "divide(a, b)", "args_key": "[\"a\", \"b\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 72, "table": 4}, "to": {"offset": 59, "table": 4}, "type": "CALLS", "properties": {"line_number": 116, "args": ["400", "\"Username too short\".to_string()"], "full_call_name": "CustomError::new(400, \"Username too short\".to_string())", "args_key": "[\"400\", \"\\\"Username too short\\\".to_string()\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 72, "table": 4}, "to": {"offset": 59, "table": 4}, "type": "CALLS", "properties": {"line_number": 119, "args": ["400", "\"Username too long\".to_string()"], "full_call_name": "CustomError::new(400, \"Username too long\".to_string())", "args_key": "[\"400\", \"\\\"Username too long\\\".to_string()\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 72, "table": 4}, "to": {"offset": 59, "table": 4}, "type": "CALLS", "properties": {"line_number": 113, "args": ["400", "\"Username cannot be empty\".to_string()"], "full_call_name": "CustomError::new(400, \"Username cannot be empty\".to_string())", "args_key": "[\"400\", \"\\\"Username cannot be empty\\\".to_string()\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 74, "table": 4}, "to": {"offset": 301, "table": 4}, "type": "CALLS", "properties": {"line_number": 209, "args": [], "full_call_name": "name.is_empty()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 74, "table": 4}, "to": {"offset": 59, "table": 4}, "type": "CALLS", "properties": {"line_number": 207, "args": [], "full_call_name": "Vec::new()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 78, "table": 4}, "to": {"offset": 59, "table": 4}, "type": "CALLS", "properties": {"line_number": 127, "args": [], "full_call_name": "String::new()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 79, "table": 4}, "to": {"offset": 71, "table": 4}, "type": "CALLS", "properties": {"line_number": 179, "args": ["a", "b"], "full_call_name": "divide(a, b)", "args_key": "[\"a\", \"b\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 82, "table": 4}, "to": {"offset": 59, "table": 4}, "type": "CALLS", "properties": {"line_number": 292, "args": ["400", "\"Negative number\".to_string()"], "full_call_name": "CustomError::new(400, \"Negative number\".to_string())", "args_key": "[\"400\", \"\\\"Negative number\\\".to_string()\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 82, "table": 4}, "to": {"offset": 59, "table": 4}, "type": "CALLS", "properties": {"line_number": 292, "args": ["CustomError::new(400, \"Negative number\".to_string())"], "full_call_name": "Box::new(CustomError::new(400, \"Negative number\".to_string()))", "args_key": "[\"CustomError::new(400, \\\"Negative number\\\".to_string())\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 110, "table": 4}, "to": {"offset": 116, "table": 4}, "type": "CALLS", "properties": {"line_number": 400, "args": ["&p2"], "full_call_name": "p1.add(&p2)", "args_key": "[\"&p2\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 113, "table": 4}, "to": {"offset": 113, "table": 4}, "type": "CALLS", "properties": {"line_number": 8, "args": [], "full_call_name": "list.first()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 121, "table": 4}, "to": {"offset": 113, "table": 4}, "type": "CALLS", "properties": {"line_number": 165, "args": [], "full_call_name": "self.items.first()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 125, "table": 4}, "to": {"offset": 107, "table": 4}, "type": "CALLS", "properties": {"line_number": 373, "args": ["index"], "full_call_name": "self.data.get(index)", "args_key": "[\"index\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 147, "table": 4}, "to": {"offset": 152, "table": 4}, "type": "CALLS", "properties": {"line_number": 329, "args": ["numbers"], "full_call_name": "filter_evens(numbers)", "args_key": "[\"numbers\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 150, "table": 4}, "to": {"offset": 139, "table": 4}, "type": "CALLS", "properties": {"line_number": 29, "args": ["move |x| x * factor"], "full_call_name": "Box::new(move |x| x * factor)", "args_key": "[\"move |x| x * factor\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 157, "table": 4}, "to": {"offset": 139, "table": 4}, "type": "CALLS", "properties": {"line_number": 314, "args": ["5"], "full_call_name": "Counter::new(5)", "args_key": "[\"5\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 165, "table": 4}, "to": {"offset": 175, "table": 4}, "type": "CALLS", "properties": {"line_number": 284, "args": [], "full_call_name": "fibonacci_iterator()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 166, "table": 4}, "to": {"offset": 149, "table": 4}, "type": "CALLS", "properties": {"line_number": 341, "args": ["5"], "full_call_name": "make_adder(5)", "args_key": "[\"5\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 167, "table": 4}, "to": {"offset": 165, "table": 4}, "type": "CALLS", "properties": {"line_number": 347, "args": ["10"], "full_call_name": "first_n_fibonacci(10)", "args_key": "[\"10\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 176, "table": 4}, "to": {"offset": 171, "table": 4}, "type": "CALLS", "properties": {"line_number": 322, "args": ["numbers"], "full_call_name": "double_numbers(numbers)", "args_key": "[\"numbers\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 178, "table": 4}, "to": {"offset": 4, "table": 4}, "type": "CALLS", "properties": {"line_number": 39, "args": ["5"], "full_call_name": "simple_function(5)", "args_key": "[\"5\"]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 202, "table": 4}, "to": {"offset": 89, "table": 4}, "type": "CALLS", "properties": {"line_number": 15, "args": ["x"], "full_call_name": "x.split_whitespace().next().unwrap_or(x)", "args_key": "[\"x\"]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 209, "table": 4}, "to": {"offset": 205, "table": 4}, "type": "CALLS", "properties": {"line_number": 271, "args": ["\"1984\"", "\"George Orwell\"", "1949"], "full_call_name": "Book::new(\"1984\", \"George Orwell\", 1949)", "args_key": "[\"\\\"1984\\\"\", \"\\\"George Orwell\\\"\", \"1949\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 219, "table": 4}, "to": {"offset": 210, "table": 4}, "type": "CALLS", "properties": {"line_number": 80, "args": ["1.0"], "full_call_name": "Circle::new(1.0)", "args_key": "[\"1.0\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 221, "table": 4}, "to": {"offset": 210, "table": 4}, "type": "CALLS", "properties": {"line_number": 108, "args": ["5.0"], "full_call_name": "geometry::shapes::Circle::new(5.0)", "args_key": "[\"5.0\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 245, "table": 4}, "to": {"offset": 236, "table": 4}, "type": "CALLS", "properties": {"line_number": 167, "args": ["index"], "full_call_name": "self.data.borrow().get(index)", "args_key": "[\"index\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 250, "table": 4}, "to": {"offset": 235, "table": 4}, "type": "CALLS", "properties": {"line_number": 317, "args": [], "full_call_name": "data.clone_ref()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 250, "table": 4}, "to": {"offset": 234, "table": 4}, "type": "CALLS", "properties": {"line_number": 319, "args": ["1"], "full_call_name": "data.add(1)", "args_key": "[\"1\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 250, "table": 4}, "to": {"offset": 234, "table": 4}, "type": "CALLS", "properties": {"line_number": 320, "args": ["2"], "full_call_name": "data2.add(2)", "args_key": "[\"2\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 251, "table": 4}, "to": {"offset": 230, "table": 4}, "type": "CALLS", "properties": {"line_number": 345, "args": ["\"hello\""], "full_call_name": "cow_example(\"hello\")", "args_key": "[\"\\\"hello\\\"\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 251, "table": 4}, "to": {"offset": 230, "table": 4}, "type": "CALLS", "properties": {"line_number": 348, "args": ["\"hello world\""], "full_call_name": "cow_example(\"hello world\")", "args_key": "[\"\\\"hello world\\\"\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 257, "table": 4}, "to": {"offset": 253, "table": 4}, "type": "CALLS", "properties": {"line_number": 310, "args": ["3"], "full_call_name": "List::new().prepend(3)", "args_key": "[\"3\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 257, "table": 4}, "to": {"offset": 253, "table": 4}, "type": "CALLS", "properties": {"line_number": 310, "args": ["2"], "full_call_name": "List::new().prepend(3).prepend(2)", "args_key": "[\"2\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 257, "table": 4}, "to": {"offset": 253, "table": 4}, "type": "CALLS", "properties": {"line_number": 310, "args": ["1"], "full_call_name": "List::new().prepend(3).prepend(2).prepend(1)", "args_key": "[\"1\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 258, "table": 4}, "to": {"offset": 247, "table": 4}, "type": "CALLS", "properties": {"line_number": 339, "args": ["\"world\""], "full_call_name": "messenger.send(\"world\")", "args_key": "[\"\\\"world\\\"\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 258, "table": 4}, "to": {"offset": 247, "table": 4}, "type": "CALLS", "properties": {"line_number": 338, "args": ["\"hello\""], "full_call_name": "messenger.send(\"hello\")", "args_key": "[\"\\\"hello\\\"\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 259, "table": 4}, "to": {"offset": 248, "table": 4}, "type": "CALLS", "properties": {"line_number": 331, "args": [], "full_call_name": "cell.increment()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 267, "table": 4}, "to": {"offset": 260, "table": 4}, "type": "CALLS", "properties": {"line_number": 272, "args": [], "full_call_name": "person.have_birthday()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 287, "table": 4}, "to": {"offset": 276, "table": 4}, "type": "CALLS", "properties": {"line_number": 279, "args": ["msg"], "full_call_name": "process_message(msg)", "args_key": "[\"msg\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 292, "table": 4}, "to": {"offset": 288, "table": 4}, "type": "CALLS", "properties": {"line_number": 20, "args": [], "full_call_name": "s.tough_print()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 295, "table": 4}, "to": {"offset": 294, "table": 4}, "type": "CALLS", "properties": {"line_number": 74, "args": [], "full_call_name": "w.target_method()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 298, "table": 4}, "to": {"offset": 297, "table": 4}, "type": "CALLS", "properties": {"line_number": 105, "args": [], "full_call_name": "x.specialized_action()", "args_key": "[]", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
-{"from": {"offset": 330, "table": 4}, "to": {"offset": 330, "table": 4}, "type": "CALLS", "properties": {"line_number": 254, "args": ["index"], "full_call_name": "self.items.get(index)", "args_key": "[\"index\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
-{"from": {"offset": 8, "table": 4}, "to": {"offset": 89, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 140, "args": ["s1"], "full_call_name": "s1.split_whitespace().next().unwrap_or(s1)", "args_key": "[\"s1\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 25, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 43, "args": [], "full_call_name": "h.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 28, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 194, "args": [], "full_call_name": "receiver.lock().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 31, "table": 4}, "to": {"offset": 158, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 302, "args": ["|| {\n            SINGLETON = Some(String::from(\"Singleton instance\"));\n        }"], "full_call_name": "INIT.call_once(|| {\n            SINGLETON = Some(String::from(\"Singleton instance\"));\n        })", "args_key": "[\"|| {\\n            SINGLETON = Some(String::from(\\\"Singleton instance\\\"));\\n        }\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 31, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 305, "args": [], "full_call_name": "SINGLETON.as_ref().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 36, "table": 4}, "to": {"offset": 247, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 146, "args": ["msg"], "full_call_name": "tx.send(msg)", "args_key": "[\"msg\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 36, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 146, "args": [], "full_call_name": "tx.send(msg).unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 37, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 165, "args": [], "full_call_name": "tx_clone.send(message).unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 37, "table": 4}, "to": {"offset": 247, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 165, "args": ["message"], "full_call_name": "tx_clone.send(message)", "args_key": "[\"message\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 41, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 15, "args": [], "full_call_name": "handle.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 42, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 65, "args": [], "full_call_name": "handle.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 42, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 57, "args": [], "full_call_name": "counter.lock().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 42, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 68, "args": [], "full_call_name": "counter.lock().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 45, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 267, "args": [], "full_call_name": "handle.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 49, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 27, "args": [], "full_call_name": "handle.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 63, "table": 4}, "to": {"offset": 89, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 202, "args": ["default"], "full_call_name": "s.parse().unwrap_or(default)", "args_key": "[\"default\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 73, "table": 4}, "to": {"offset": 124, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 191, "args": ["|num| {\n            if num >= 0 {\n                Ok(num)\n            } else {\n                Err(\"Number must be non-negative\".to_string())\n            }\n        }"], "full_call_name": "s.parse::<i32>()\n        .map_err(|e| format!(\"Parse error: {}\", e))\n        .and_then(|num| {\n            if num >= 0 {\n                Ok(num)\n            } else {\n                Err(\"Number must be non-negative\".to_string())\n            }\n        })", "args_key": "[\"|num| {\\n            if num >= 0 {\\n                Ok(num)\\n            } else {\\n                Err(\\\"Number must be non-negative\\\".to_string())\\n            }\\n        }\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 79, "table": 4}, "to": {"offset": 89, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 179, "args": ["0"], "full_call_name": "divide(a, b).unwrap_or(0)", "args_key": "[\"0\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 145, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 294, "args": [], "full_call_name": "iter.next().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 178, "table": 4}, "to": {"offset": 28, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 42, "args": ["\"Alice\".to_string()", "30"], "full_call_name": "Person::new(\"Alice\".to_string(), 30)", "args_key": "[\"\\\"Alice\\\".to_string()\", \"30\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 183, "table": 4}, "to": {"offset": 89, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 136, "args": ["\"\""], "full_call_name": "s.split_whitespace().next().unwrap_or(\"\")", "args_key": "[\"\\\"\\\"\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 192, "table": 4}, "to": {"offset": 113, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 82, "args": [], "full_call_name": "slice.first()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 249, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 275, "args": [], "full_call_name": "data.lock().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 249, "table": 4}, "to": {"offset": 88, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 282, "args": [], "full_call_name": "handle.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
-{"from": {"offset": 0, "table": 4}, "to": {"offset": 0, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 0, "table": 4}, "to": {"offset": 1, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 1, "table": 4}, "to": {"offset": 2, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 2, "table": 4}, "to": {"offset": 3, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 2, "table": 4}, "to": {"offset": 4, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 3, "table": 4}, "to": {"offset": 5, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 4, "table": 4}, "to": {"offset": 6, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 5, "table": 4}, "to": {"offset": 7, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 6, "table": 4}, "to": {"offset": 8, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 7, "table": 4}, "to": {"offset": 9, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 8, "table": 4}, "to": {"offset": 10, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 8, "table": 4}, "to": {"offset": 11, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 9, "table": 4}, "to": {"offset": 12, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 11, "table": 4}, "to": {"offset": 13, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 11, "table": 4}, "to": {"offset": 14, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 12, "table": 4}, "to": {"offset": 15, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 12, "table": 4}, "to": {"offset": 16, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 13, "table": 4}, "to": {"offset": 17, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 13, "table": 4}, "to": {"offset": 18, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 14, "table": 4}, "to": {"offset": 19, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 15, "table": 4}, "to": {"offset": 20, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 16, "table": 4}, "to": {"offset": 21, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 17, "table": 4}, "to": {"offset": 22, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 17, "table": 4}, "to": {"offset": 23, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 18, "table": 4}, "to": {"offset": 24, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 19, "table": 4}, "to": {"offset": 25, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 20, "table": 4}, "to": {"offset": 26, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 21, "table": 4}, "to": {"offset": 27, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 25, "table": 4}, "to": {"offset": 28, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 27, "table": 4}, "to": {"offset": 29, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 28, "table": 4}, "to": {"offset": 30, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 28, "table": 4}, "to": {"offset": 31, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 29, "table": 4}, "to": {"offset": 32, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 30, "table": 4}, "to": {"offset": 33, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 30, "table": 4}, "to": {"offset": 34, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 35, "table": 4}, "to": {"offset": 35, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 38, "table": 4}, "to": {"offset": 36, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 42, "table": 4}, "to": {"offset": 37, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 43, "table": 4}, "to": {"offset": 38, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 44, "table": 4}, "to": {"offset": 39, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 47, "table": 4}, "to": {"offset": 40, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 50, "table": 4}, "to": {"offset": 41, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 51, "table": 4}, "to": {"offset": 42, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 51, "table": 4}, "to": {"offset": 43, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 52, "table": 4}, "to": {"offset": 44, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 53, "table": 4}, "to": {"offset": 45, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 53, "table": 4}, "to": {"offset": 46, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 54, "table": 4}, "to": {"offset": 47, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 54, "table": 4}, "to": {"offset": 48, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 55, "table": 4}, "to": {"offset": 49, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 55, "table": 4}, "to": {"offset": 50, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 56, "table": 4}, "to": {"offset": 51, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 57, "table": 4}, "to": {"offset": 52, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 58, "table": 4}, "to": {"offset": 53, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 59, "table": 4}, "to": {"offset": 54, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 59, "table": 4}, "to": {"offset": 55, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 60, "table": 4}, "to": {"offset": 56, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 61, "table": 4}, "to": {"offset": 57, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 62, "table": 4}, "to": {"offset": 58, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 62, "table": 4}, "to": {"offset": 59, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 62, "table": 4}, "to": {"offset": 60, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 63, "table": 4}, "to": {"offset": 61, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 63, "table": 4}, "to": {"offset": 62, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 64, "table": 4}, "to": {"offset": 63, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 65, "table": 4}, "to": {"offset": 64, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 66, "table": 4}, "to": {"offset": 65, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 67, "table": 4}, "to": {"offset": 66, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 69, "table": 4}, "to": {"offset": 67, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 69, "table": 4}, "to": {"offset": 68, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 70, "table": 4}, "to": {"offset": 69, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 71, "table": 4}, "to": {"offset": 70, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 71, "table": 4}, "to": {"offset": 71, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 72, "table": 4}, "to": {"offset": 72, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 73, "table": 4}, "to": {"offset": 73, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 74, "table": 4}, "to": {"offset": 74, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 74, "table": 4}, "to": {"offset": 75, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 74, "table": 4}, "to": {"offset": 76, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 75, "table": 4}, "to": {"offset": 77, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 77, "table": 4}, "to": {"offset": 78, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 78, "table": 4}, "to": {"offset": 79, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 79, "table": 4}, "to": {"offset": 80, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 79, "table": 4}, "to": {"offset": 81, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 80, "table": 4}, "to": {"offset": 82, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 81, "table": 4}, "to": {"offset": 83, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 82, "table": 4}, "to": {"offset": 84, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 85, "table": 4}, "to": {"offset": 85, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 85, "table": 4}, "to": {"offset": 86, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 86, "table": 4}, "to": {"offset": 87, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 87, "table": 4}, "to": {"offset": 88, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 88, "table": 4}, "to": {"offset": 89, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 89, "table": 4}, "to": {"offset": 90, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 89, "table": 4}, "to": {"offset": 91, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 90, "table": 4}, "to": {"offset": 92, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 90, "table": 4}, "to": {"offset": 93, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 91, "table": 4}, "to": {"offset": 94, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 92, "table": 4}, "to": {"offset": 95, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 93, "table": 4}, "to": {"offset": 96, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 93, "table": 4}, "to": {"offset": 97, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 93, "table": 4}, "to": {"offset": 98, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 95, "table": 4}, "to": {"offset": 99, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 97, "table": 4}, "to": {"offset": 100, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 99, "table": 4}, "to": {"offset": 101, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 99, "table": 4}, "to": {"offset": 102, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 100, "table": 4}, "to": {"offset": 103, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 102, "table": 4}, "to": {"offset": 104, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 103, "table": 4}, "to": {"offset": 105, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 104, "table": 4}, "to": {"offset": 106, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 105, "table": 4}, "to": {"offset": 107, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 107, "table": 4}, "to": {"offset": 108, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 108, "table": 4}, "to": {"offset": 109, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 108, "table": 4}, "to": {"offset": 110, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 111, "table": 4}, "to": {"offset": 111, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 111, "table": 4}, "to": {"offset": 112, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 112, "table": 4}, "to": {"offset": 113, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 113, "table": 4}, "to": {"offset": 114, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 114, "table": 4}, "to": {"offset": 115, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 114, "table": 4}, "to": {"offset": 116, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 115, "table": 4}, "to": {"offset": 117, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 115, "table": 4}, "to": {"offset": 118, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 116, "table": 4}, "to": {"offset": 119, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 116, "table": 4}, "to": {"offset": 120, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 117, "table": 4}, "to": {"offset": 121, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 117, "table": 4}, "to": {"offset": 122, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 118, "table": 4}, "to": {"offset": 123, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 119, "table": 4}, "to": {"offset": 124, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 121, "table": 4}, "to": {"offset": 125, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 122, "table": 4}, "to": {"offset": 126, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 122, "table": 4}, "to": {"offset": 127, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 123, "table": 4}, "to": {"offset": 128, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 123, "table": 4}, "to": {"offset": 129, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 124, "table": 4}, "to": {"offset": 130, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 124, "table": 4}, "to": {"offset": 131, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 125, "table": 4}, "to": {"offset": 132, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 125, "table": 4}, "to": {"offset": 133, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 126, "table": 4}, "to": {"offset": 134, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 127, "table": 4}, "to": {"offset": 135, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 128, "table": 4}, "to": {"offset": 136, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 129, "table": 4}, "to": {"offset": 137, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 130, "table": 4}, "to": {"offset": 138, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 130, "table": 4}, "to": {"offset": 139, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 131, "table": 4}, "to": {"offset": 140, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 131, "table": 4}, "to": {"offset": 141, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 132, "table": 4}, "to": {"offset": 142, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 133, "table": 4}, "to": {"offset": 143, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 134, "table": 4}, "to": {"offset": 144, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 135, "table": 4}, "to": {"offset": 145, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 135, "table": 4}, "to": {"offset": 146, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 136, "table": 4}, "to": {"offset": 147, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 136, "table": 4}, "to": {"offset": 148, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 136, "table": 4}, "to": {"offset": 149, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 138, "table": 4}, "to": {"offset": 150, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 139, "table": 4}, "to": {"offset": 151, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 140, "table": 4}, "to": {"offset": 152, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 141, "table": 4}, "to": {"offset": 153, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 142, "table": 4}, "to": {"offset": 154, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 143, "table": 4}, "to": {"offset": 155, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 143, "table": 4}, "to": {"offset": 156, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 144, "table": 4}, "to": {"offset": 157, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 145, "table": 4}, "to": {"offset": 158, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 146, "table": 4}, "to": {"offset": 159, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 146, "table": 4}, "to": {"offset": 160, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 148, "table": 4}, "to": {"offset": 161, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 148, "table": 4}, "to": {"offset": 162, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 149, "table": 4}, "to": {"offset": 163, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 151, "table": 4}, "to": {"offset": 164, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 151, "table": 4}, "to": {"offset": 165, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 152, "table": 4}, "to": {"offset": 166, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 153, "table": 4}, "to": {"offset": 167, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 154, "table": 4}, "to": {"offset": 168, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 154, "table": 4}, "to": {"offset": 169, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 155, "table": 4}, "to": {"offset": 170, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 156, "table": 4}, "to": {"offset": 171, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 158, "table": 4}, "to": {"offset": 172, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 159, "table": 4}, "to": {"offset": 173, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 160, "table": 4}, "to": {"offset": 174, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 160, "table": 4}, "to": {"offset": 175, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 161, "table": 4}, "to": {"offset": 176, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 162, "table": 4}, "to": {"offset": 177, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 162, "table": 4}, "to": {"offset": 178, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 163, "table": 4}, "to": {"offset": 179, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 163, "table": 4}, "to": {"offset": 180, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 164, "table": 4}, "to": {"offset": 181, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 165, "table": 4}, "to": {"offset": 182, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 168, "table": 4}, "to": {"offset": 183, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 169, "table": 4}, "to": {"offset": 184, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 170, "table": 4}, "to": {"offset": 185, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 171, "table": 4}, "to": {"offset": 186, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 172, "table": 4}, "to": {"offset": 187, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 173, "table": 4}, "to": {"offset": 188, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 174, "table": 4}, "to": {"offset": 189, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 179, "table": 4}, "to": {"offset": 190, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 179, "table": 4}, "to": {"offset": 191, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 180, "table": 4}, "to": {"offset": 192, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 181, "table": 4}, "to": {"offset": 193, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 181, "table": 4}, "to": {"offset": 194, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 181, "table": 4}, "to": {"offset": 195, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 182, "table": 4}, "to": {"offset": 196, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 183, "table": 4}, "to": {"offset": 197, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 184, "table": 4}, "to": {"offset": 198, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 185, "table": 4}, "to": {"offset": 199, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 185, "table": 4}, "to": {"offset": 200, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 186, "table": 4}, "to": {"offset": 201, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 188, "table": 4}, "to": {"offset": 202, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 188, "table": 4}, "to": {"offset": 203, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 189, "table": 4}, "to": {"offset": 204, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 190, "table": 4}, "to": {"offset": 205, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 191, "table": 4}, "to": {"offset": 206, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 192, "table": 4}, "to": {"offset": 207, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 193, "table": 4}, "to": {"offset": 208, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 194, "table": 4}, "to": {"offset": 209, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 195, "table": 4}, "to": {"offset": 210, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 196, "table": 4}, "to": {"offset": 211, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 197, "table": 4}, "to": {"offset": 212, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 198, "table": 4}, "to": {"offset": 213, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 199, "table": 4}, "to": {"offset": 214, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 199, "table": 4}, "to": {"offset": 215, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 201, "table": 4}, "to": {"offset": 216, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 201, "table": 4}, "to": {"offset": 217, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 202, "table": 4}, "to": {"offset": 218, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 202, "table": 4}, "to": {"offset": 219, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 203, "table": 4}, "to": {"offset": 220, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 205, "table": 4}, "to": {"offset": 221, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 205, "table": 4}, "to": {"offset": 222, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 205, "table": 4}, "to": {"offset": 223, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 206, "table": 4}, "to": {"offset": 224, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 206, "table": 4}, "to": {"offset": 225, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 207, "table": 4}, "to": {"offset": 226, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 207, "table": 4}, "to": {"offset": 227, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 210, "table": 4}, "to": {"offset": 228, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 211, "table": 4}, "to": {"offset": 229, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 212, "table": 4}, "to": {"offset": 230, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 212, "table": 4}, "to": {"offset": 231, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 213, "table": 4}, "to": {"offset": 232, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 214, "table": 4}, "to": {"offset": 233, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 214, "table": 4}, "to": {"offset": 234, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 215, "table": 4}, "to": {"offset": 235, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 215, "table": 4}, "to": {"offset": 236, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 216, "table": 4}, "to": {"offset": 237, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 223, "table": 4}, "to": {"offset": 238, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 226, "table": 4}, "to": {"offset": 239, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 228, "table": 4}, "to": {"offset": 240, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 229, "table": 4}, "to": {"offset": 241, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 230, "table": 4}, "to": {"offset": 242, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 231, "table": 4}, "to": {"offset": 243, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 232, "table": 4}, "to": {"offset": 244, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 234, "table": 4}, "to": {"offset": 245, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 234, "table": 4}, "to": {"offset": 246, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 235, "table": 4}, "to": {"offset": 247, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 236, "table": 4}, "to": {"offset": 248, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 237, "table": 4}, "to": {"offset": 249, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 237, "table": 4}, "to": {"offset": 250, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 239, "table": 4}, "to": {"offset": 251, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 240, "table": 4}, "to": {"offset": 252, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 241, "table": 4}, "to": {"offset": 253, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 243, "table": 4}, "to": {"offset": 254, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 244, "table": 4}, "to": {"offset": 255, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 245, "table": 4}, "to": {"offset": 256, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 245, "table": 4}, "to": {"offset": 257, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 246, "table": 4}, "to": {"offset": 258, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 247, "table": 4}, "to": {"offset": 259, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 247, "table": 4}, "to": {"offset": 260, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 248, "table": 4}, "to": {"offset": 261, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 253, "table": 4}, "to": {"offset": 262, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 253, "table": 4}, "to": {"offset": 263, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 254, "table": 4}, "to": {"offset": 264, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 255, "table": 4}, "to": {"offset": 265, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 255, "table": 4}, "to": {"offset": 266, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 256, "table": 4}, "to": {"offset": 267, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 260, "table": 4}, "to": {"offset": 268, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 261, "table": 4}, "to": {"offset": 269, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 261, "table": 4}, "to": {"offset": 270, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 262, "table": 4}, "to": {"offset": 271, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 262, "table": 4}, "to": {"offset": 272, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 263, "table": 4}, "to": {"offset": 273, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 264, "table": 4}, "to": {"offset": 274, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 265, "table": 4}, "to": {"offset": 275, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 266, "table": 4}, "to": {"offset": 276, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 268, "table": 4}, "to": {"offset": 277, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 268, "table": 4}, "to": {"offset": 278, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 269, "table": 4}, "to": {"offset": 279, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 269, "table": 4}, "to": {"offset": 280, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 270, "table": 4}, "to": {"offset": 281, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 270, "table": 4}, "to": {"offset": 282, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 271, "table": 4}, "to": {"offset": 283, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 271, "table": 4}, "to": {"offset": 284, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 272, "table": 4}, "to": {"offset": 285, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 272, "table": 4}, "to": {"offset": 286, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 272, "table": 4}, "to": {"offset": 287, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 273, "table": 4}, "to": {"offset": 288, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 274, "table": 4}, "to": {"offset": 289, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 275, "table": 4}, "to": {"offset": 290, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 276, "table": 4}, "to": {"offset": 291, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 277, "table": 4}, "to": {"offset": 292, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 278, "table": 4}, "to": {"offset": 293, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 280, "table": 4}, "to": {"offset": 294, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 281, "table": 4}, "to": {"offset": 295, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 282, "table": 4}, "to": {"offset": 296, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 282, "table": 4}, "to": {"offset": 297, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 284, "table": 4}, "to": {"offset": 298, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 285, "table": 4}, "to": {"offset": 299, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 285, "table": 4}, "to": {"offset": 300, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 286, "table": 4}, "to": {"offset": 301, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 286, "table": 4}, "to": {"offset": 302, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 288, "table": 4}, "to": {"offset": 303, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 293, "table": 4}, "to": {"offset": 304, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 294, "table": 4}, "to": {"offset": 305, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 296, "table": 4}, "to": {"offset": 306, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 297, "table": 4}, "to": {"offset": 307, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 299, "table": 4}, "to": {"offset": 308, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 299, "table": 4}, "to": {"offset": 309, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 299, "table": 4}, "to": {"offset": 310, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 299, "table": 4}, "to": {"offset": 311, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 300, "table": 4}, "to": {"offset": 312, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 301, "table": 4}, "to": {"offset": 313, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 302, "table": 4}, "to": {"offset": 314, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 303, "table": 4}, "to": {"offset": 315, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 304, "table": 4}, "to": {"offset": 316, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 305, "table": 4}, "to": {"offset": 317, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 306, "table": 4}, "to": {"offset": 318, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 307, "table": 4}, "to": {"offset": 319, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 308, "table": 4}, "to": {"offset": 320, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 309, "table": 4}, "to": {"offset": 321, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 309, "table": 4}, "to": {"offset": 322, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 310, "table": 4}, "to": {"offset": 323, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 311, "table": 4}, "to": {"offset": 324, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 311, "table": 4}, "to": {"offset": 325, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 312, "table": 4}, "to": {"offset": 326, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 314, "table": 4}, "to": {"offset": 327, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 315, "table": 4}, "to": {"offset": 328, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 316, "table": 4}, "to": {"offset": 329, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 317, "table": 4}, "to": {"offset": 330, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 318, "table": 4}, "to": {"offset": 331, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 319, "table": 4}, "to": {"offset": 332, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 319, "table": 4}, "to": {"offset": 333, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 320, "table": 4}, "to": {"offset": 334, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 321, "table": 4}, "to": {"offset": 335, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 321, "table": 4}, "to": {"offset": 336, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 322, "table": 4}, "to": {"offset": 337, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 322, "table": 4}, "to": {"offset": 338, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 323, "table": 4}, "to": {"offset": 339, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 324, "table": 4}, "to": {"offset": 340, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 325, "table": 4}, "to": {"offset": 341, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 326, "table": 4}, "to": {"offset": 342, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 327, "table": 4}, "to": {"offset": 343, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 327, "table": 4}, "to": {"offset": 344, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 328, "table": 4}, "to": {"offset": 345, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 329, "table": 4}, "to": {"offset": 346, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 330, "table": 4}, "to": {"offset": 347, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
-{"from": {"offset": 330, "table": 4}, "to": {"offset": 348, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 0, "table": 0}, "to": {"offset": 0, "table": 2}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 0, "table": 0}, "to": {"offset": 0, "table": 1}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 0, "table": 0}, "to": {"offset": 1, "table": 1}, "type": "CONTAINS", "properties": {}}
@@ -874,75 +414,547 @@
 {"from": {"offset": 11, "table": 1}, "to": {"offset": 8, "table": 11}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 11, "table": 1}, "to": {"offset": 9, "table": 11}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 11, "table": 1}, "to": {"offset": 10, "table": 11}, "type": "CONTAINS", "properties": {}}
-{"from": {"offset": 2, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 150, "alias": "", "full_import_name": "use super::*;", "imported_name": "*"}}
-{"from": {"offset": 2, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "use std::fmt;", "imported_name": "fmt"}}
-{"from": {"offset": 3, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 329, "alias": "", "full_import_name": "use super::*;", "imported_name": "*"}}
-{"from": {"offset": 3, "table": 1}, "to": {"offset": 2, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 250, "alias": "", "full_import_name": "use std::sync::Barrier;", "imported_name": "Barrier"}}
-{"from": {"offset": 3, "table": 1}, "to": {"offset": 3, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "use std::time::Duration;", "imported_name": "Duration"}}
-{"from": {"offset": 3, "table": 1}, "to": {"offset": 4, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 295, "alias": "", "full_import_name": "use std::sync::Once;", "imported_name": "Once"}}
-{"from": {"offset": 3, "table": 1}, "to": {"offset": 5, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 272, "alias": "", "full_import_name": "use std::sync::atomic::{AtomicUsize, Ordering};", "imported_name": "Ordering"}}
-{"from": {"offset": 3, "table": 1}, "to": {"offset": 6, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "use std::sync::{Arc, Mutex, RwLock, mpsc};", "imported_name": "mpsc"}}
-{"from": {"offset": 3, "table": 1}, "to": {"offset": 7, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "use std::thread;", "imported_name": "thread"}}
-{"from": {"offset": 4, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 299, "alias": "", "full_import_name": "use super::*;", "imported_name": "*"}}
-{"from": {"offset": 4, "table": 1}, "to": {"offset": 8, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "use std::error::Error;", "imported_name": "Error"}}
-{"from": {"offset": 4, "table": 1}, "to": {"offset": 9, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "use std::fs::File;", "imported_name": "File"}}
-{"from": {"offset": 4, "table": 1}, "to": {"offset": 10, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "full_import_name": "use std::io::{self, Read};", "imported_name": "Read"}}
-{"from": {"offset": 4, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "use std::fmt;", "imported_name": "fmt"}}
-{"from": {"offset": 5, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 388, "alias": "", "full_import_name": "use super::*;", "imported_name": "*"}}
-{"from": {"offset": 5, "table": 1}, "to": {"offset": 11, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "use std::ops::Add;", "imported_name": "Add"}}
-{"from": {"offset": 5, "table": 1}, "to": {"offset": 12, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "use std::fmt::{Debug, Display};", "imported_name": "Display"}}
-{"from": {"offset": 5, "table": 1}, "to": {"offset": 13, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "use std::cmp::PartialOrd;", "imported_name": "PartialOrd"}}
-{"from": {"offset": 6, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 310, "alias": "", "full_import_name": "use super::*;", "imported_name": "*"}}
-{"from": {"offset": 6, "table": 1}, "to": {"offset": 14, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "use std::collections::HashMap;", "imported_name": "HashMap"}}
-{"from": {"offset": 7, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 35, "alias": "", "full_import_name": "use super::*;", "imported_name": "*"}}
-{"from": {"offset": 7, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 15, "alias": "", "full_import_name": "pub use basic_functions::*;", "imported_name": "*"}}
-{"from": {"offset": 7, "table": 1}, "to": {"offset": 15, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 17, "alias": "", "full_import_name": "pub use traits::{Describable, Area};", "imported_name": "Area"}}
-{"from": {"offset": 7, "table": 1}, "to": {"offset": 16, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 16, "alias": "", "full_import_name": "pub use structs_enums::{Person, Status};", "imported_name": "Status"}}
-{"from": {"offset": 8, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 253, "alias": "", "full_import_name": "use super::*;", "imported_name": "*"}}
-{"from": {"offset": 8, "table": 1}, "to": {"offset": 12, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "use std::fmt::Display;", "imported_name": "Display"}}
-{"from": {"offset": 8, "table": 1}, "to": {"offset": 17, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 226, "alias": "", "full_import_name": "use std::rc::Rc;", "imported_name": "Rc"}}
-{"from": {"offset": 9, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 104, "alias": "", "full_import_name": "use super::*;", "imported_name": "*"}}
-{"from": {"offset": 9, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 99, "alias": "", "full_import_name": "pub use super::data::*;", "imported_name": "*"}}
-{"from": {"offset": 9, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 98, "alias": "", "full_import_name": "pub use super::geometry::shapes::*;", "imported_name": "*"}}
-{"from": {"offset": 9, "table": 1}, "to": {"offset": 18, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 76, "alias": "", "full_import_name": "pub use super::geometry::shapes::Circle;", "imported_name": "Circle"}}
-{"from": {"offset": 9, "table": 1}, "to": {"offset": 14, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 86, "alias": "", "full_import_name": "use std::collections::HashMap;", "imported_name": "HashMap"}}
-{"from": {"offset": 9, "table": 1}, "to": {"offset": 19, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 77, "alias": "", "full_import_name": "pub use super::geometry::shapes::Rectangle;", "imported_name": "Rectangle"}}
-{"from": {"offset": 9, "table": 1}, "to": {"offset": 19, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 37, "alias": "", "full_import_name": "use super::shapes::{Circle, Rectangle};", "imported_name": "Rectangle"}}
-{"from": {"offset": 10, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 306, "alias": "", "full_import_name": "use super::*;", "imported_name": "*"}}
-{"from": {"offset": 10, "table": 1}, "to": {"offset": 20, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "use std::sync::Arc;", "imported_name": "Arc"}}
-{"from": {"offset": 10, "table": 1}, "to": {"offset": 21, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 289, "alias": "", "full_import_name": "use std::borrow::Cow;", "imported_name": "Cow"}}
-{"from": {"offset": 10, "table": 1}, "to": {"offset": 22, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 265, "alias": "", "full_import_name": "use std::sync::Mutex;", "imported_name": "Mutex"}}
-{"from": {"offset": 10, "table": 1}, "to": {"offset": 23, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "use std::cell::{Cell, RefCell};", "imported_name": "RefCell"}}
-{"from": {"offset": 10, "table": 1}, "to": {"offset": 24, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "use std::rc::{Rc, Weak};", "imported_name": "Weak"}}
-{"from": {"offset": 10, "table": 1}, "to": {"offset": 7, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 266, "alias": "", "full_import_name": "use std::thread;", "imported_name": "thread"}}
-{"from": {"offset": 11, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 260, "alias": "", "full_import_name": "use super::*;", "imported_name": "*"}}
-{"from": {"offset": 11, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "use std::fmt;", "imported_name": "fmt"}}
-{"from": {"offset": 12, "table": 1}, "to": {"offset": 25, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 56, "alias": "", "full_import_name": "use std::ops::Deref;", "imported_name": "Deref"}}
-{"from": {"offset": 12, "table": 1}, "to": {"offset": 12, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "use std::fmt::Display;", "imported_name": "Display"}}
-{"from": {"offset": 13, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 304, "alias": "", "full_import_name": "use super::*;", "imported_name": "*"}}
-{"from": {"offset": 13, "table": 1}, "to": {"offset": 11, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "use std::ops::Add;", "imported_name": "Add"}}
-{"from": {"offset": 13, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "use std::fmt;", "imported_name": "fmt"}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 150, "alias": "", "full_import_name": "super::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::fmt", "imported_name": "fmt", "lang": "rust"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 329, "alias": "", "full_import_name": "super::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 2, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::sync::Arc", "imported_name": "Arc", "lang": "rust"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 3, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 272, "alias": "", "full_import_name": "std::sync::atomic::AtomicUsize", "imported_name": "AtomicUsize", "lang": "rust"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 4, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 250, "alias": "", "full_import_name": "std::sync::Barrier", "imported_name": "Barrier", "lang": "rust"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 5, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "std::time::Duration", "imported_name": "Duration", "lang": "rust"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 6, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::sync::Mutex", "imported_name": "Mutex", "lang": "rust"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 7, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 295, "alias": "", "full_import_name": "std::sync::Once", "imported_name": "Once", "lang": "rust"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 8, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 272, "alias": "", "full_import_name": "std::sync::atomic::Ordering", "imported_name": "Ordering", "lang": "rust"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 9, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::sync::RwLock", "imported_name": "RwLock", "lang": "rust"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 10, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::sync::mpsc", "imported_name": "mpsc", "lang": "rust"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 11, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "std::thread", "imported_name": "thread", "lang": "rust"}}
+{"from": {"offset": 4, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 299, "alias": "", "full_import_name": "super::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 4, "table": 1}, "to": {"offset": 12, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::error::Error", "imported_name": "Error", "lang": "rust"}}
+{"from": {"offset": 4, "table": 1}, "to": {"offset": 13, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "std::fs::File", "imported_name": "File", "lang": "rust"}}
+{"from": {"offset": 4, "table": 1}, "to": {"offset": 14, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "full_import_name": "std::io::Read", "imported_name": "Read", "lang": "rust"}}
+{"from": {"offset": 4, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "std::fmt", "imported_name": "fmt", "lang": "rust"}}
+{"from": {"offset": 4, "table": 1}, "to": {"offset": 15, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "full_import_name": "std::io::self", "imported_name": "self", "lang": "rust"}}
+{"from": {"offset": 5, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 388, "alias": "", "full_import_name": "super::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 5, "table": 1}, "to": {"offset": 16, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "std::ops::Add", "imported_name": "Add", "lang": "rust"}}
+{"from": {"offset": 5, "table": 1}, "to": {"offset": 17, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "std::fmt::Debug", "imported_name": "Debug", "lang": "rust"}}
+{"from": {"offset": 5, "table": 1}, "to": {"offset": 18, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "std::fmt::Display", "imported_name": "Display", "lang": "rust"}}
+{"from": {"offset": 5, "table": 1}, "to": {"offset": 19, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::cmp::PartialOrd", "imported_name": "PartialOrd", "lang": "rust"}}
+{"from": {"offset": 6, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 310, "alias": "", "full_import_name": "super::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 6, "table": 1}, "to": {"offset": 20, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::collections::HashMap", "imported_name": "HashMap", "lang": "rust"}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 15, "alias": "", "full_import_name": "basic_functions::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 35, "alias": "", "full_import_name": "super::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 21, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 17, "alias": "", "full_import_name": "traits::Area", "imported_name": "Area", "lang": "rust"}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 22, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 17, "alias": "", "full_import_name": "traits::Describable", "imported_name": "Describable", "lang": "rust"}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 23, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 16, "alias": "", "full_import_name": "structs_enums::Person", "imported_name": "Person", "lang": "rust"}}
+{"from": {"offset": 7, "table": 1}, "to": {"offset": 24, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 16, "alias": "", "full_import_name": "structs_enums::Status", "imported_name": "Status", "lang": "rust"}}
+{"from": {"offset": 8, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 253, "alias": "", "full_import_name": "super::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 8, "table": 1}, "to": {"offset": 18, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::fmt::Display", "imported_name": "Display", "lang": "rust"}}
+{"from": {"offset": 8, "table": 1}, "to": {"offset": 25, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 226, "alias": "", "full_import_name": "std::rc::Rc", "imported_name": "Rc", "lang": "rust"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 104, "alias": "", "full_import_name": "super::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 99, "alias": "", "full_import_name": "super::data::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 98, "alias": "", "full_import_name": "super::geometry::shapes::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 26, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 76, "alias": "", "full_import_name": "super::geometry::shapes::Circle", "imported_name": "Circle", "lang": "rust"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 26, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 37, "alias": "", "full_import_name": "super::shapes::Circle", "imported_name": "Circle", "lang": "rust"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 20, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 86, "alias": "", "full_import_name": "std::collections::HashMap", "imported_name": "HashMap", "lang": "rust"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 27, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 77, "alias": "", "full_import_name": "super::geometry::shapes::Rectangle", "imported_name": "Rectangle", "lang": "rust"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 27, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 37, "alias": "", "full_import_name": "super::shapes::Rectangle", "imported_name": "Rectangle", "lang": "rust"}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 306, "alias": "", "full_import_name": "super::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 2, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 4, "alias": "", "full_import_name": "std::sync::Arc", "imported_name": "Arc", "lang": "rust"}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 28, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::cell::Cell", "imported_name": "Cell", "lang": "rust"}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 29, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 289, "alias": "", "full_import_name": "std::borrow::Cow", "imported_name": "Cow", "lang": "rust"}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 6, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 265, "alias": "", "full_import_name": "std::sync::Mutex", "imported_name": "Mutex", "lang": "rust"}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 25, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "std::rc::Rc", "imported_name": "Rc", "lang": "rust"}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 30, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::cell::RefCell", "imported_name": "RefCell", "lang": "rust"}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 31, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "std::rc::Weak", "imported_name": "Weak", "lang": "rust"}}
+{"from": {"offset": 10, "table": 1}, "to": {"offset": 11, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 266, "alias": "", "full_import_name": "std::thread", "imported_name": "thread", "lang": "rust"}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 260, "alias": "", "full_import_name": "super::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::fmt", "imported_name": "fmt", "lang": "rust"}}
+{"from": {"offset": 12, "table": 1}, "to": {"offset": 32, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 56, "alias": "", "full_import_name": "std::ops::Deref", "imported_name": "Deref", "lang": "rust"}}
+{"from": {"offset": 12, "table": 1}, "to": {"offset": 18, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "full_import_name": "std::fmt::Display", "imported_name": "Display", "lang": "rust"}}
+{"from": {"offset": 13, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 304, "alias": "", "full_import_name": "super::*", "imported_name": "*", "lang": "rust"}}
+{"from": {"offset": 13, "table": 1}, "to": {"offset": 16, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 3, "alias": "", "full_import_name": "std::ops::Add", "imported_name": "Add", "lang": "rust"}}
+{"from": {"offset": 13, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 2, "alias": "", "full_import_name": "std::fmt", "imported_name": "fmt", "lang": "rust"}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 2, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 3, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 4, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 5, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 6, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 7, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 8, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 9, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 10, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 11, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 12, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 13, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 4, "table": 4}, "to": {"offset": 4, "table": 4}, "type": "CALLS", "properties": {"line_number": 90, "args": ["n - 1"], "full_call_name": "factorial(n - 1)", "args_key": "[\"n - 1\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 15, "table": 4}, "to": {"offset": 15, "table": 4}, "type": "CALLS", "properties": {"line_number": 99, "args": ["n - 1"], "full_call_name": "fibonacci(n - 1)", "args_key": "[\"n - 1\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 15, "table": 4}, "to": {"offset": 15, "table": 4}, "type": "CALLS", "properties": {"line_number": 99, "args": ["n - 2"], "full_call_name": "fibonacci(n - 2)", "args_key": "[\"n - 2\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 16, "table": 4}, "to": {"offset": 10, "table": 4}, "type": "CALLS", "properties": {"line_number": 159, "args": ["10", "3"], "full_call_name": "multiple_returns(10, 3)", "args_key": "[\"10\", \"3\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 26, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "CALLS", "properties": {"line_number": 91, "args": [], "full_call_name": "self.count.lock().unwrap()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 29, "table": 4}, "to": {"offset": 38, "table": 4}, "type": "CALLS", "properties": {"line_number": 348, "args": ["1"], "full_call_name": "data.add(1)", "args_key": "[\"1\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 29, "table": 4}, "to": {"offset": 38, "table": 4}, "type": "CALLS", "properties": {"line_number": 350, "args": ["3"], "full_call_name": "data.add(3)", "args_key": "[\"3\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 29, "table": 4}, "to": {"offset": 38, "table": 4}, "type": "CALLS", "properties": {"line_number": 349, "args": ["2"], "full_call_name": "data.add(2)", "args_key": "[\"2\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 30, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 81, "args": ["0"], "full_call_name": "Mutex::new(0)", "args_key": "[\"0\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 30, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 81, "args": ["Mutex::new(0)"], "full_call_name": "Arc::new(Mutex::new(0))", "args_key": "[\"Mutex::new(0)\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 31, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "CALLS", "properties": {"line_number": 86, "args": [], "full_call_name": "self.count.lock().unwrap()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 32, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 111, "args": ["RwLock::new(Vec::new())"], "full_call_name": "Arc::new(RwLock::new(Vec::new()))", "args_key": "[\"RwLock::new(Vec::new())\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 32, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 111, "args": ["Vec::new()"], "full_call_name": "RwLock::new(Vec::new())", "args_key": "[\"Vec::new()\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 36, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 50, "args": ["0"], "full_call_name": "Mutex::new(0)", "args_key": "[\"0\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 36, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 50, "args": ["Mutex::new(0)"], "full_call_name": "Arc::new(Mutex::new(0))", "args_key": "[\"Mutex::new(0)\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 38, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "CALLS", "properties": {"line_number": 116, "args": [], "full_call_name": "self.data.write().unwrap()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 39, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "CALLS", "properties": {"line_number": 121, "args": [], "full_call_name": "self.data.read().unwrap()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 40, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "CALLS", "properties": {"line_number": 126, "args": [], "full_call_name": "self.data.read().unwrap()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 41, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 253, "args": ["3"], "full_call_name": "Barrier::new(3)", "args_key": "[\"3\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 41, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 253, "args": ["Barrier::new(3)"], "full_call_name": "Arc::new(Barrier::new(3))", "args_key": "[\"Barrier::new(3)\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 42, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 281, "args": ["0"], "full_call_name": "AtomicUsize::new(0)", "args_key": "[\"0\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 45, "table": 4}, "to": {"offset": 33, "table": 4}, "type": "CALLS", "properties": {"line_number": 169, "args": ["tx"], "full_call_name": "drop(tx)", "args_key": "[\"tx\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 46, "table": 4}, "to": {"offset": 44, "table": 4}, "type": "CALLS", "properties": {"line_number": 224, "args": ["id", "Arc::clone(&receiver)"], "full_call_name": "Worker::new(id, Arc::clone(&receiver))", "args_key": "[\"id\", \"Arc::clone(&receiver)\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 46, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 220, "args": ["receiver"], "full_call_name": "Mutex::new(receiver)", "args_key": "[\"receiver\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 46, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 220, "args": ["Mutex::new(receiver)"], "full_call_name": "Arc::new(Mutex::new(receiver))", "args_key": "[\"Mutex::new(receiver)\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 49, "table": 4}, "to": {"offset": 46, "table": 4}, "type": "CALLS", "properties": {"line_number": 234, "args": ["f"], "full_call_name": "Box::new(f)", "args_key": "[\"f\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 49, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "CALLS", "properties": {"line_number": 235, "args": [], "full_call_name": "self.sender.send(job).unwrap()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 49, "table": 4}, "to": {"offset": 253, "table": 4}, "type": "CALLS", "properties": {"line_number": 235, "args": ["job"], "full_call_name": "self.sender.send(job)", "args_key": "[\"job\"]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 53, "table": 4}, "to": {"offset": 36, "table": 4}, "type": "CALLS", "properties": {"line_number": 333, "args": ["5"], "full_call_name": "shared_counter(5)", "args_key": "[\"5\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 60, "table": 4}, "to": {"offset": 55, "table": 4}, "type": "CALLS", "properties": {"line_number": 207, "args": [], "full_call_name": "Vec::new()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 60, "table": 4}, "to": {"offset": 314, "table": 4}, "type": "CALLS", "properties": {"line_number": 209, "args": [], "full_call_name": "name.is_empty()", "args_key": "[]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 66, "table": 4}, "to": {"offset": 55, "table": 4}, "type": "CALLS", "properties": {"line_number": 127, "args": [], "full_call_name": "String::new()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 67, "table": 4}, "to": {"offset": 65, "table": 4}, "type": "CALLS", "properties": {"line_number": 184, "args": ["a", "b"], "full_call_name": "divide(a, b)", "args_key": "[\"a\", \"b\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 68, "table": 4}, "to": {"offset": 55, "table": 4}, "type": "CALLS", "properties": {"line_number": 292, "args": ["400", "\"Negative number\".to_string()"], "full_call_name": "CustomError::new(400, \"Negative number\".to_string())", "args_key": "[\"400\", \"\\\"Negative number\\\".to_string()\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 68, "table": 4}, "to": {"offset": 55, "table": 4}, "type": "CALLS", "properties": {"line_number": 292, "args": ["CustomError::new(400, \"Negative number\".to_string())"], "full_call_name": "Box::new(CustomError::new(400, \"Negative number\".to_string()))", "args_key": "[\"CustomError::new(400, \\\"Negative number\\\".to_string())\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 75, "table": 4}, "to": {"offset": 55, "table": 4}, "type": "CALLS", "properties": {"line_number": 119, "args": ["400", "\"Username too long\".to_string()"], "full_call_name": "CustomError::new(400, \"Username too long\".to_string())", "args_key": "[\"400\", \"\\\"Username too long\\\".to_string()\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 75, "table": 4}, "to": {"offset": 55, "table": 4}, "type": "CALLS", "properties": {"line_number": 116, "args": ["400", "\"Username too short\".to_string()"], "full_call_name": "CustomError::new(400, \"Username too short\".to_string())", "args_key": "[\"400\", \"\\\"Username too short\\\".to_string()\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 75, "table": 4}, "to": {"offset": 55, "table": 4}, "type": "CALLS", "properties": {"line_number": 113, "args": ["400", "\"Username cannot be empty\".to_string()"], "full_call_name": "CustomError::new(400, \"Username cannot be empty\".to_string())", "args_key": "[\"400\", \"\\\"Username cannot be empty\\\".to_string()\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 76, "table": 4}, "to": {"offset": 55, "table": 4}, "type": "CALLS", "properties": {"line_number": 141, "args": [], "full_call_name": "String::new()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 81, "table": 4}, "to": {"offset": 65, "table": 4}, "type": "CALLS", "properties": {"line_number": 179, "args": ["a", "b"], "full_call_name": "divide(a, b)", "args_key": "[\"a\", \"b\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 83, "table": 4}, "to": {"offset": 82, "table": 4}, "type": "CALLS", "properties": {"line_number": 252, "args": ["id"], "full_call_name": "find_user(id)", "args_key": "[\"id\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 109, "table": 4}, "to": {"offset": 97, "table": 4}, "type": "CALLS", "properties": {"line_number": 373, "args": ["index"], "full_call_name": "self.data.get(index)", "args_key": "[\"index\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 110, "table": 4}, "to": {"offset": 110, "table": 4}, "type": "CALLS", "properties": {"line_number": 8, "args": [], "full_call_name": "list.first()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 117, "table": 4}, "to": {"offset": 110, "table": 4}, "type": "CALLS", "properties": {"line_number": 165, "args": [], "full_call_name": "self.items.first()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 126, "table": 4}, "to": {"offset": 86, "table": 4}, "type": "CALLS", "properties": {"line_number": 400, "args": ["&p2"], "full_call_name": "p1.add(&p2)", "args_key": "[\"&p2\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 140, "table": 4}, "to": {"offset": 169, "table": 4}, "type": "CALLS", "properties": {"line_number": 29, "args": ["move |x| x * factor"], "full_call_name": "Box::new(move |x| x * factor)", "args_key": "[\"move |x| x * factor\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 153, "table": 4}, "to": {"offset": 138, "table": 4}, "type": "CALLS", "properties": {"line_number": 341, "args": ["5"], "full_call_name": "make_adder(5)", "args_key": "[\"5\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 154, "table": 4}, "to": {"offset": 165, "table": 4}, "type": "CALLS", "properties": {"line_number": 347, "args": ["10"], "full_call_name": "first_n_fibonacci(10)", "args_key": "[\"10\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 156, "table": 4}, "to": {"offset": 158, "table": 4}, "type": "CALLS", "properties": {"line_number": 322, "args": ["numbers"], "full_call_name": "double_numbers(numbers)", "args_key": "[\"numbers\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 165, "table": 4}, "to": {"offset": 175, "table": 4}, "type": "CALLS", "properties": {"line_number": 284, "args": [], "full_call_name": "fibonacci_iterator()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 166, "table": 4}, "to": {"offset": 143, "table": 4}, "type": "CALLS", "properties": {"line_number": 329, "args": ["numbers"], "full_call_name": "filter_evens(numbers)", "args_key": "[\"numbers\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 177, "table": 4}, "to": {"offset": 169, "table": 4}, "type": "CALLS", "properties": {"line_number": 314, "args": ["5"], "full_call_name": "Counter::new(5)", "args_key": "[\"5\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 178, "table": 4}, "to": {"offset": 18, "table": 4}, "type": "CALLS", "properties": {"line_number": 39, "args": ["5"], "full_call_name": "simple_function(5)", "args_key": "[\"5\"]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 180, "table": 4}, "to": {"offset": 135, "table": 4}, "type": "CALLS", "properties": {"line_number": 15, "args": ["x"], "full_call_name": "x.split_whitespace().next().unwrap_or(x)", "args_key": "[\"x\"]", "confidence": 0.9, "resolution_tier": 5, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 199, "table": 4}, "to": {"offset": 195, "table": 4}, "type": "CALLS", "properties": {"line_number": 271, "args": ["\"1984\"", "\"George Orwell\"", "1949"], "full_call_name": "Book::new(\"1984\", \"George Orwell\", 1949)", "args_key": "[\"\\\"1984\\\"\", \"\\\"George Orwell\\\"\", \"1949\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 219, "table": 4}, "to": {"offset": 210, "table": 4}, "type": "CALLS", "properties": {"line_number": 80, "args": ["1.0"], "full_call_name": "Circle::new(1.0)", "args_key": "[\"1.0\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 222, "table": 4}, "to": {"offset": 210, "table": 4}, "type": "CALLS", "properties": {"line_number": 108, "args": ["5.0"], "full_call_name": "geometry::shapes::Circle::new(5.0)", "args_key": "[\"5.0\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 242, "table": 4}, "to": {"offset": 231, "table": 4}, "type": "CALLS", "properties": {"line_number": 331, "args": [], "full_call_name": "cell.increment()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 245, "table": 4}, "to": {"offset": 239, "table": 4}, "type": "CALLS", "properties": {"line_number": 167, "args": ["index"], "full_call_name": "self.data.borrow().get(index)", "args_key": "[\"index\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 256, "table": 4}, "to": {"offset": 225, "table": 4}, "type": "CALLS", "properties": {"line_number": 310, "args": ["3"], "full_call_name": "List::new().prepend(3)", "args_key": "[\"3\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 256, "table": 4}, "to": {"offset": 225, "table": 4}, "type": "CALLS", "properties": {"line_number": 310, "args": ["1"], "full_call_name": "List::new().prepend(3).prepend(2).prepend(1)", "args_key": "[\"1\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 256, "table": 4}, "to": {"offset": 225, "table": 4}, "type": "CALLS", "properties": {"line_number": 310, "args": ["2"], "full_call_name": "List::new().prepend(3).prepend(2)", "args_key": "[\"2\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 257, "table": 4}, "to": {"offset": 251, "table": 4}, "type": "CALLS", "properties": {"line_number": 317, "args": [], "full_call_name": "data.clone_ref()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 257, "table": 4}, "to": {"offset": 252, "table": 4}, "type": "CALLS", "properties": {"line_number": 320, "args": ["2"], "full_call_name": "data2.add(2)", "args_key": "[\"2\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 257, "table": 4}, "to": {"offset": 252, "table": 4}, "type": "CALLS", "properties": {"line_number": 319, "args": ["1"], "full_call_name": "data.add(1)", "args_key": "[\"1\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 258, "table": 4}, "to": {"offset": 248, "table": 4}, "type": "CALLS", "properties": {"line_number": 348, "args": ["\"hello world\""], "full_call_name": "cow_example(\"hello world\")", "args_key": "[\"\\\"hello world\\\"\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 258, "table": 4}, "to": {"offset": 248, "table": 4}, "type": "CALLS", "properties": {"line_number": 345, "args": ["\"hello\""], "full_call_name": "cow_example(\"hello\")", "args_key": "[\"\\\"hello\\\"\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 259, "table": 4}, "to": {"offset": 253, "table": 4}, "type": "CALLS", "properties": {"line_number": 338, "args": ["\"hello\""], "full_call_name": "messenger.send(\"hello\")", "args_key": "[\"\\\"hello\\\"\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 259, "table": 4}, "to": {"offset": 253, "table": 4}, "type": "CALLS", "properties": {"line_number": 339, "args": ["\"world\""], "full_call_name": "messenger.send(\"world\")", "args_key": "[\"\\\"world\\\"\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 270, "table": 4}, "to": {"offset": 266, "table": 4}, "type": "CALLS", "properties": {"line_number": 272, "args": [], "full_call_name": "person.have_birthday()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 271, "table": 4}, "to": {"offset": 285, "table": 4}, "type": "CALLS", "properties": {"line_number": 279, "args": ["msg"], "full_call_name": "process_message(msg)", "args_key": "[\"msg\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 290, "table": 4}, "to": {"offset": 288, "table": 4}, "type": "CALLS", "properties": {"line_number": 20, "args": [], "full_call_name": "s.tough_print()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 295, "table": 4}, "to": {"offset": 294, "table": 4}, "type": "CALLS", "properties": {"line_number": 74, "args": [], "full_call_name": "w.target_method()", "args_key": "[]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 298, "table": 4}, "to": {"offset": 297, "table": 4}, "type": "CALLS", "properties": {"line_number": 105, "args": [], "full_call_name": "x.specialized_action()", "args_key": "[]", "confidence": 0.72, "resolution_tier": 4, "confidence_label": "INFERRED"}}
+{"from": {"offset": 310, "table": 4}, "to": {"offset": 310, "table": 4}, "type": "CALLS", "properties": {"line_number": 254, "args": ["index"], "full_call_name": "self.items.get(index)", "args_key": "[\"index\"]", "confidence": 0.95, "resolution_tier": 2, "confidence_label": "EXTRACTED"}}
+{"from": {"offset": 7, "table": 4}, "to": {"offset": 135, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 140, "args": ["s1"], "full_call_name": "s1.split_whitespace().next().unwrap_or(s1)", "args_key": "[\"s1\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 25, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 27, "args": [], "full_call_name": "handle.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 33, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 243, "args": [], "full_call_name": "thread.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 35, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 15, "args": [], "full_call_name": "handle.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 36, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 68, "args": [], "full_call_name": "counter.lock().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 36, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 65, "args": [], "full_call_name": "handle.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 36, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 57, "args": [], "full_call_name": "counter.lock().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 37, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 43, "args": [], "full_call_name": "h.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 41, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 267, "args": [], "full_call_name": "handle.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 44, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 194, "args": [], "full_call_name": "receiver.lock().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 45, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 165, "args": [], "full_call_name": "tx_clone.send(message).unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 45, "table": 4}, "to": {"offset": 253, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 165, "args": ["message"], "full_call_name": "tx_clone.send(message)", "args_key": "[\"message\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 48, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 146, "args": [], "full_call_name": "tx.send(msg).unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 48, "table": 4}, "to": {"offset": 253, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 146, "args": ["msg"], "full_call_name": "tx.send(msg)", "args_key": "[\"msg\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 51, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 305, "args": [], "full_call_name": "SINGLETON.as_ref().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 51, "table": 4}, "to": {"offset": 139, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 302, "args": ["|| {\n            SINGLETON = Some(String::from(\"Singleton instance\"));\n        }"], "full_call_name": "INIT.call_once(|| {\n            SINGLETON = Some(String::from(\"Singleton instance\"));\n        })", "args_key": "[\"|| {\\n            SINGLETON = Some(String::from(\\\"Singleton instance\\\"));\\n        }\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 58, "table": 4}, "to": {"offset": 94, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 191, "args": ["|num| {\n            if num >= 0 {\n                Ok(num)\n            } else {\n                Err(\"Number must be non-negative\".to_string())\n            }\n        }"], "full_call_name": "s.parse::<i32>()\n        .map_err(|e| format!(\"Parse error: {}\", e))\n        .and_then(|num| {\n            if num >= 0 {\n                Ok(num)\n            } else {\n                Err(\"Number must be non-negative\".to_string())\n            }\n        })", "args_key": "[\"|num| {\\n            if num >= 0 {\\n                Ok(num)\\n            } else {\\n                Err(\\\"Number must be non-negative\\\".to_string())\\n            }\\n        }\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 59, "table": 4}, "to": {"offset": 135, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 202, "args": ["default"], "full_call_name": "s.parse().unwrap_or(default)", "args_key": "[\"default\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 81, "table": 4}, "to": {"offset": 135, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 179, "args": ["0"], "full_call_name": "divide(a, b).unwrap_or(0)", "args_key": "[\"0\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 176, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 294, "args": [], "full_call_name": "iter.next().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 178, "table": 4}, "to": {"offset": 44, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 42, "args": ["\"Alice\".to_string()", "30"], "full_call_name": "Person::new(\"Alice\".to_string(), 30)", "args_key": "[\"\\\"Alice\\\".to_string()\", \"30\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 183, "table": 4}, "to": {"offset": 135, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 136, "args": ["\"\""], "full_call_name": "s.split_whitespace().next().unwrap_or(\"\")", "args_key": "[\"\\\"\\\"\"]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 204, "table": 4}, "to": {"offset": 110, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 82, "args": [], "full_call_name": "slice.first()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 247, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 275, "args": [], "full_call_name": "data.lock().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 247, "table": 4}, "to": {"offset": 92, "table": 4}, "type": "HEURISTIC_CALLS", "properties": {"line_number": 282, "args": [], "full_call_name": "handle.join().unwrap()", "args_key": "[]", "confidence": 0.25, "resolution_tier": 8, "confidence_label": "AMBIGUOUS"}}
+{"from": {"offset": 0, "table": 4}, "to": {"offset": 0, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 1, "table": 4}, "to": {"offset": 1, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 1, "table": 4}, "to": {"offset": 2, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 2, "table": 4}, "to": {"offset": 3, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 3, "table": 4}, "to": {"offset": 4, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 4, "table": 4}, "to": {"offset": 5, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 5, "table": 4}, "to": {"offset": 6, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 6, "table": 4}, "to": {"offset": 7, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 6, "table": 4}, "to": {"offset": 8, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 7, "table": 4}, "to": {"offset": 9, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 7, "table": 4}, "to": {"offset": 10, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 8, "table": 4}, "to": {"offset": 11, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 10, "table": 4}, "to": {"offset": 12, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 10, "table": 4}, "to": {"offset": 13, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 11, "table": 4}, "to": {"offset": 14, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 12, "table": 4}, "to": {"offset": 15, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 12, "table": 4}, "to": {"offset": 16, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 14, "table": 4}, "to": {"offset": 17, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 14, "table": 4}, "to": {"offset": 18, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 15, "table": 4}, "to": {"offset": 19, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 18, "table": 4}, "to": {"offset": 20, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 19, "table": 4}, "to": {"offset": 21, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 20, "table": 4}, "to": {"offset": 22, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 21, "table": 4}, "to": {"offset": 23, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 21, "table": 4}, "to": {"offset": 24, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 22, "table": 4}, "to": {"offset": 25, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 23, "table": 4}, "to": {"offset": 26, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 24, "table": 4}, "to": {"offset": 27, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 26, "table": 4}, "to": {"offset": 28, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 27, "table": 4}, "to": {"offset": 29, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 31, "table": 4}, "to": {"offset": 30, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 33, "table": 4}, "to": {"offset": 31, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 36, "table": 4}, "to": {"offset": 32, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 37, "table": 4}, "to": {"offset": 33, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 38, "table": 4}, "to": {"offset": 34, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 38, "table": 4}, "to": {"offset": 35, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 39, "table": 4}, "to": {"offset": 36, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 39, "table": 4}, "to": {"offset": 37, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 40, "table": 4}, "to": {"offset": 38, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 43, "table": 4}, "to": {"offset": 39, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 44, "table": 4}, "to": {"offset": 40, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 44, "table": 4}, "to": {"offset": 41, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 46, "table": 4}, "to": {"offset": 42, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 47, "table": 4}, "to": {"offset": 43, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 49, "table": 4}, "to": {"offset": 44, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 49, "table": 4}, "to": {"offset": 45, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 50, "table": 4}, "to": {"offset": 46, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 54, "table": 4}, "to": {"offset": 47, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 55, "table": 4}, "to": {"offset": 48, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 55, "table": 4}, "to": {"offset": 49, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 56, "table": 4}, "to": {"offset": 50, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 57, "table": 4}, "to": {"offset": 51, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 58, "table": 4}, "to": {"offset": 52, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 59, "table": 4}, "to": {"offset": 53, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 59, "table": 4}, "to": {"offset": 54, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 60, "table": 4}, "to": {"offset": 55, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 60, "table": 4}, "to": {"offset": 56, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 60, "table": 4}, "to": {"offset": 57, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 61, "table": 4}, "to": {"offset": 58, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 62, "table": 4}, "to": {"offset": 59, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 64, "table": 4}, "to": {"offset": 60, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 64, "table": 4}, "to": {"offset": 61, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 65, "table": 4}, "to": {"offset": 62, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 65, "table": 4}, "to": {"offset": 63, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 66, "table": 4}, "to": {"offset": 64, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 67, "table": 4}, "to": {"offset": 65, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 67, "table": 4}, "to": {"offset": 66, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 67, "table": 4}, "to": {"offset": 67, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 68, "table": 4}, "to": {"offset": 68, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 72, "table": 4}, "to": {"offset": 69, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 72, "table": 4}, "to": {"offset": 70, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 73, "table": 4}, "to": {"offset": 71, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 74, "table": 4}, "to": {"offset": 72, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 75, "table": 4}, "to": {"offset": 73, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 76, "table": 4}, "to": {"offset": 74, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 77, "table": 4}, "to": {"offset": 75, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 78, "table": 4}, "to": {"offset": 76, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 79, "table": 4}, "to": {"offset": 77, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 79, "table": 4}, "to": {"offset": 78, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 80, "table": 4}, "to": {"offset": 79, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 81, "table": 4}, "to": {"offset": 80, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 81, "table": 4}, "to": {"offset": 81, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 82, "table": 4}, "to": {"offset": 82, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 83, "table": 4}, "to": {"offset": 83, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 84, "table": 4}, "to": {"offset": 84, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 85, "table": 4}, "to": {"offset": 85, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 85, "table": 4}, "to": {"offset": 86, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 86, "table": 4}, "to": {"offset": 87, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 86, "table": 4}, "to": {"offset": 88, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 87, "table": 4}, "to": {"offset": 89, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 88, "table": 4}, "to": {"offset": 90, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 89, "table": 4}, "to": {"offset": 91, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 90, "table": 4}, "to": {"offset": 92, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 90, "table": 4}, "to": {"offset": 93, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 91, "table": 4}, "to": {"offset": 94, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 92, "table": 4}, "to": {"offset": 95, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 93, "table": 4}, "to": {"offset": 96, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 94, "table": 4}, "to": {"offset": 97, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 94, "table": 4}, "to": {"offset": 98, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 97, "table": 4}, "to": {"offset": 99, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 99, "table": 4}, "to": {"offset": 100, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 99, "table": 4}, "to": {"offset": 101, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 100, "table": 4}, "to": {"offset": 102, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 101, "table": 4}, "to": {"offset": 103, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 102, "table": 4}, "to": {"offset": 104, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 103, "table": 4}, "to": {"offset": 105, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 104, "table": 4}, "to": {"offset": 106, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 105, "table": 4}, "to": {"offset": 107, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 106, "table": 4}, "to": {"offset": 108, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 106, "table": 4}, "to": {"offset": 109, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 107, "table": 4}, "to": {"offset": 110, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 107, "table": 4}, "to": {"offset": 111, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 108, "table": 4}, "to": {"offset": 112, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 109, "table": 4}, "to": {"offset": 113, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 109, "table": 4}, "to": {"offset": 114, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 110, "table": 4}, "to": {"offset": 115, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 111, "table": 4}, "to": {"offset": 116, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 112, "table": 4}, "to": {"offset": 117, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 112, "table": 4}, "to": {"offset": 118, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 113, "table": 4}, "to": {"offset": 119, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 115, "table": 4}, "to": {"offset": 120, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 117, "table": 4}, "to": {"offset": 121, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 118, "table": 4}, "to": {"offset": 122, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 118, "table": 4}, "to": {"offset": 123, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 119, "table": 4}, "to": {"offset": 124, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 119, "table": 4}, "to": {"offset": 125, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 120, "table": 4}, "to": {"offset": 126, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 120, "table": 4}, "to": {"offset": 127, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 122, "table": 4}, "to": {"offset": 128, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 122, "table": 4}, "to": {"offset": 129, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 122, "table": 4}, "to": {"offset": 130, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 123, "table": 4}, "to": {"offset": 131, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 124, "table": 4}, "to": {"offset": 132, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 124, "table": 4}, "to": {"offset": 133, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 124, "table": 4}, "to": {"offset": 134, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 125, "table": 4}, "to": {"offset": 135, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 125, "table": 4}, "to": {"offset": 136, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 127, "table": 4}, "to": {"offset": 137, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 127, "table": 4}, "to": {"offset": 138, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 128, "table": 4}, "to": {"offset": 139, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 128, "table": 4}, "to": {"offset": 140, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 129, "table": 4}, "to": {"offset": 141, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 130, "table": 4}, "to": {"offset": 142, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 131, "table": 4}, "to": {"offset": 143, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 131, "table": 4}, "to": {"offset": 144, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 132, "table": 4}, "to": {"offset": 145, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 134, "table": 4}, "to": {"offset": 146, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 135, "table": 4}, "to": {"offset": 147, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 135, "table": 4}, "to": {"offset": 148, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 136, "table": 4}, "to": {"offset": 149, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 137, "table": 4}, "to": {"offset": 150, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 137, "table": 4}, "to": {"offset": 151, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 138, "table": 4}, "to": {"offset": 152, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 139, "table": 4}, "to": {"offset": 153, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 141, "table": 4}, "to": {"offset": 154, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 141, "table": 4}, "to": {"offset": 155, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 142, "table": 4}, "to": {"offset": 156, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 143, "table": 4}, "to": {"offset": 157, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 144, "table": 4}, "to": {"offset": 158, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 145, "table": 4}, "to": {"offset": 159, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 146, "table": 4}, "to": {"offset": 160, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 147, "table": 4}, "to": {"offset": 161, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 148, "table": 4}, "to": {"offset": 162, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 148, "table": 4}, "to": {"offset": 163, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 149, "table": 4}, "to": {"offset": 164, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 150, "table": 4}, "to": {"offset": 165, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 151, "table": 4}, "to": {"offset": 166, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 152, "table": 4}, "to": {"offset": 167, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 152, "table": 4}, "to": {"offset": 168, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 157, "table": 4}, "to": {"offset": 169, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 158, "table": 4}, "to": {"offset": 170, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 159, "table": 4}, "to": {"offset": 171, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 160, "table": 4}, "to": {"offset": 172, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 161, "table": 4}, "to": {"offset": 173, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 161, "table": 4}, "to": {"offset": 174, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 162, "table": 4}, "to": {"offset": 175, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 162, "table": 4}, "to": {"offset": 176, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 163, "table": 4}, "to": {"offset": 177, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 164, "table": 4}, "to": {"offset": 178, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 165, "table": 4}, "to": {"offset": 179, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 168, "table": 4}, "to": {"offset": 180, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 169, "table": 4}, "to": {"offset": 181, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 170, "table": 4}, "to": {"offset": 182, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 170, "table": 4}, "to": {"offset": 183, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 171, "table": 4}, "to": {"offset": 184, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 172, "table": 4}, "to": {"offset": 185, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 173, "table": 4}, "to": {"offset": 186, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 174, "table": 4}, "to": {"offset": 187, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 174, "table": 4}, "to": {"offset": 188, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 176, "table": 4}, "to": {"offset": 189, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 179, "table": 4}, "to": {"offset": 190, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 179, "table": 4}, "to": {"offset": 191, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 180, "table": 4}, "to": {"offset": 192, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 180, "table": 4}, "to": {"offset": 193, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 181, "table": 4}, "to": {"offset": 194, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 182, "table": 4}, "to": {"offset": 195, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 183, "table": 4}, "to": {"offset": 196, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 184, "table": 4}, "to": {"offset": 197, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 185, "table": 4}, "to": {"offset": 198, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 186, "table": 4}, "to": {"offset": 199, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 187, "table": 4}, "to": {"offset": 200, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 187, "table": 4}, "to": {"offset": 201, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 188, "table": 4}, "to": {"offset": 202, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 188, "table": 4}, "to": {"offset": 203, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 188, "table": 4}, "to": {"offset": 204, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 189, "table": 4}, "to": {"offset": 205, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 192, "table": 4}, "to": {"offset": 206, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 193, "table": 4}, "to": {"offset": 207, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 194, "table": 4}, "to": {"offset": 208, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 195, "table": 4}, "to": {"offset": 209, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 195, "table": 4}, "to": {"offset": 210, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 195, "table": 4}, "to": {"offset": 211, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 196, "table": 4}, "to": {"offset": 212, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 196, "table": 4}, "to": {"offset": 213, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 197, "table": 4}, "to": {"offset": 214, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 198, "table": 4}, "to": {"offset": 215, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 200, "table": 4}, "to": {"offset": 216, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 201, "table": 4}, "to": {"offset": 217, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 201, "table": 4}, "to": {"offset": 218, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 202, "table": 4}, "to": {"offset": 219, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 202, "table": 4}, "to": {"offset": 220, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 204, "table": 4}, "to": {"offset": 221, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 205, "table": 4}, "to": {"offset": 222, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 206, "table": 4}, "to": {"offset": 223, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 206, "table": 4}, "to": {"offset": 224, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 207, "table": 4}, "to": {"offset": 225, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 208, "table": 4}, "to": {"offset": 226, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 208, "table": 4}, "to": {"offset": 227, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 210, "table": 4}, "to": {"offset": 228, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 211, "table": 4}, "to": {"offset": 229, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 211, "table": 4}, "to": {"offset": 230, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 212, "table": 4}, "to": {"offset": 231, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 213, "table": 4}, "to": {"offset": 232, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 213, "table": 4}, "to": {"offset": 233, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 214, "table": 4}, "to": {"offset": 234, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 215, "table": 4}, "to": {"offset": 235, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 215, "table": 4}, "to": {"offset": 236, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 216, "table": 4}, "to": {"offset": 237, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 225, "table": 4}, "to": {"offset": 238, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 225, "table": 4}, "to": {"offset": 239, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 228, "table": 4}, "to": {"offset": 240, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 229, "table": 4}, "to": {"offset": 241, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 230, "table": 4}, "to": {"offset": 242, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 231, "table": 4}, "to": {"offset": 243, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 232, "table": 4}, "to": {"offset": 244, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 233, "table": 4}, "to": {"offset": 245, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 234, "table": 4}, "to": {"offset": 246, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 235, "table": 4}, "to": {"offset": 247, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 237, "table": 4}, "to": {"offset": 248, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 239, "table": 4}, "to": {"offset": 249, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 240, "table": 4}, "to": {"offset": 250, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 240, "table": 4}, "to": {"offset": 251, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 241, "table": 4}, "to": {"offset": 252, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 243, "table": 4}, "to": {"offset": 253, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 244, "table": 4}, "to": {"offset": 254, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 244, "table": 4}, "to": {"offset": 255, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 245, "table": 4}, "to": {"offset": 256, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 245, "table": 4}, "to": {"offset": 257, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 248, "table": 4}, "to": {"offset": 258, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 249, "table": 4}, "to": {"offset": 259, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 250, "table": 4}, "to": {"offset": 260, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 251, "table": 4}, "to": {"offset": 261, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 252, "table": 4}, "to": {"offset": 262, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 252, "table": 4}, "to": {"offset": 263, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 253, "table": 4}, "to": {"offset": 264, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 253, "table": 4}, "to": {"offset": 265, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 254, "table": 4}, "to": {"offset": 266, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 255, "table": 4}, "to": {"offset": 267, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 260, "table": 4}, "to": {"offset": 268, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 261, "table": 4}, "to": {"offset": 269, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 261, "table": 4}, "to": {"offset": 270, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 262, "table": 4}, "to": {"offset": 271, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 263, "table": 4}, "to": {"offset": 272, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 264, "table": 4}, "to": {"offset": 273, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 266, "table": 4}, "to": {"offset": 274, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 267, "table": 4}, "to": {"offset": 275, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 268, "table": 4}, "to": {"offset": 276, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 268, "table": 4}, "to": {"offset": 277, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 269, "table": 4}, "to": {"offset": 278, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 269, "table": 4}, "to": {"offset": 279, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 272, "table": 4}, "to": {"offset": 280, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 273, "table": 4}, "to": {"offset": 281, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 273, "table": 4}, "to": {"offset": 282, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 274, "table": 4}, "to": {"offset": 283, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 274, "table": 4}, "to": {"offset": 284, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 275, "table": 4}, "to": {"offset": 285, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 276, "table": 4}, "to": {"offset": 286, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 277, "table": 4}, "to": {"offset": 287, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 278, "table": 4}, "to": {"offset": 288, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 278, "table": 4}, "to": {"offset": 289, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 279, "table": 4}, "to": {"offset": 290, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 281, "table": 4}, "to": {"offset": 291, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 281, "table": 4}, "to": {"offset": 292, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 282, "table": 4}, "to": {"offset": 293, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 282, "table": 4}, "to": {"offset": 294, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 282, "table": 4}, "to": {"offset": 295, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 283, "table": 4}, "to": {"offset": 296, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 283, "table": 4}, "to": {"offset": 297, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 284, "table": 4}, "to": {"offset": 298, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 285, "table": 4}, "to": {"offset": 299, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 286, "table": 4}, "to": {"offset": 300, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 287, "table": 4}, "to": {"offset": 301, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 287, "table": 4}, "to": {"offset": 302, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 288, "table": 4}, "to": {"offset": 303, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 293, "table": 4}, "to": {"offset": 304, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 294, "table": 4}, "to": {"offset": 305, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 296, "table": 4}, "to": {"offset": 306, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 297, "table": 4}, "to": {"offset": 307, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 299, "table": 4}, "to": {"offset": 308, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 299, "table": 4}, "to": {"offset": 309, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 299, "table": 4}, "to": {"offset": 310, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 299, "table": 4}, "to": {"offset": 311, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 300, "table": 4}, "to": {"offset": 312, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 301, "table": 4}, "to": {"offset": 313, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 301, "table": 4}, "to": {"offset": 314, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 302, "table": 4}, "to": {"offset": 315, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 302, "table": 4}, "to": {"offset": 316, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 303, "table": 4}, "to": {"offset": 317, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 304, "table": 4}, "to": {"offset": 318, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 307, "table": 4}, "to": {"offset": 319, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 307, "table": 4}, "to": {"offset": 320, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 308, "table": 4}, "to": {"offset": 321, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 309, "table": 4}, "to": {"offset": 322, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 309, "table": 4}, "to": {"offset": 323, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 310, "table": 4}, "to": {"offset": 324, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 310, "table": 4}, "to": {"offset": 325, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 311, "table": 4}, "to": {"offset": 326, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 312, "table": 4}, "to": {"offset": 327, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 313, "table": 4}, "to": {"offset": 328, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 314, "table": 4}, "to": {"offset": 329, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 315, "table": 4}, "to": {"offset": 330, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 316, "table": 4}, "to": {"offset": 331, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 317, "table": 4}, "to": {"offset": 332, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 318, "table": 4}, "to": {"offset": 333, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 319, "table": 4}, "to": {"offset": 334, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 320, "table": 4}, "to": {"offset": 335, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 321, "table": 4}, "to": {"offset": 336, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 321, "table": 4}, "to": {"offset": 337, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 323, "table": 4}, "to": {"offset": 338, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 324, "table": 4}, "to": {"offset": 339, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 325, "table": 4}, "to": {"offset": 340, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 326, "table": 4}, "to": {"offset": 341, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 327, "table": 4}, "to": {"offset": 342, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 328, "table": 4}, "to": {"offset": 343, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 329, "table": 4}, "to": {"offset": 344, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 330, "table": 4}, "to": {"offset": 345, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 331, "table": 4}, "to": {"offset": 346, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 332, "table": 4}, "to": {"offset": 347, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
+{"from": {"offset": 332, "table": 4}, "to": {"offset": 348, "table": 17}, "type": "HAS_PARAMETER", "properties": {}}
 {"from": {"offset": 30, "table": 10}, "to": {"offset": 0, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 34, "table": 10}, "to": {"offset": 0, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 47, "table": 10}, "to": {"offset": 10, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 47, "table": 10}, "to": {"offset": 12, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 32, "table": 10}, "to": {"offset": 0, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
 {"from": {"offset": 47, "table": 10}, "to": {"offset": 3, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 47, "table": 10}, "to": {"offset": 11, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
 {"from": {"offset": 47, "table": 10}, "to": {"offset": 9, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 48, "table": 10}, "to": {"offset": 7, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 49, "table": 10}, "to": {"offset": 10, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 49, "table": 10}, "to": {"offset": 9, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 49, "table": 10}, "to": {"offset": 3, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 50, "table": 10}, "to": {"offset": 7, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 47, "table": 10}, "to": {"offset": 10, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 47, "table": 10}, "to": {"offset": 11, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 47, "table": 10}, "to": {"offset": 12, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 48, "table": 10}, "to": {"offset": 5, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 49, "table": 10}, "to": {"offset": 5, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 50, "table": 10}, "to": {"offset": 3, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 50, "table": 10}, "to": {"offset": 9, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 50, "table": 10}, "to": {"offset": 10, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
 {"from": {"offset": 51, "table": 10}, "to": {"offset": 3, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 51, "table": 10}, "to": {"offset": 10, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
 {"from": {"offset": 51, "table": 10}, "to": {"offset": 9, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
-{"from": {"offset": 1, "table": 10}, "to": {"offset": 0, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
-{"from": {"offset": 5, "table": 10}, "to": {"offset": 1, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
-{"from": {"offset": 6, "table": 10}, "to": {"offset": 1, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
-{"from": {"offset": 16, "table": 10}, "to": {"offset": 2, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
-{"from": {"offset": 17, "table": 10}, "to": {"offset": 2, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
-{"from": {"offset": 19, "table": 10}, "to": {"offset": 2, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
-{"from": {"offset": 38, "table": 10}, "to": {"offset": 0, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
-{"from": {"offset": 54, "table": 10}, "to": {"offset": 3, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
-{"from": {"offset": 0, "table": 11}, "to": {"offset": 1, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": {"offset": 51, "table": 10}, "to": {"offset": 10, "table": 7}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 2, "table": 10}, "to": {"offset": 0, "table": 25}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": {"offset": 5, "table": 10}, "to": {"offset": 1, "table": 25}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": {"offset": 6, "table": 10}, "to": {"offset": 1, "table": 25}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": {"offset": 16, "table": 10}, "to": {"offset": 2, "table": 25}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": {"offset": 17, "table": 10}, "to": {"offset": 2, "table": 25}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": {"offset": 19, "table": 10}, "to": {"offset": 2, "table": 25}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": {"offset": 38, "table": 10}, "to": {"offset": 0, "table": 25}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": {"offset": 54, "table": 10}, "to": {"offset": 3, "table": 25}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": {"offset": 0, "table": 11}, "to": {"offset": 1, "table": 25}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
