@@ -389,17 +389,29 @@ async def run_tree_sitter_index_async(
 
     # ── Phase 4: embedding generation (optional, config-gated) ────────────────
     from ...cli.config_manager import get_config_value as _gcv
+    embed_warning: Optional[str] = None
     if (_gcv("ENABLE_VECTOR_RESOLVE") or "false").lower() == "true":
-        if job_id:
-            job_manager.update_job(job_id, status_message="Generating embeddings...")
-        try:
-            from .embeddings import EmbeddingPipeline
-            repo_path_str = path.resolve().as_posix()
-            info_logger("[EMBED] Starting embedding pipeline...")
-            EmbeddingPipeline(writer.driver).run(repo_path_str)
-            info_logger("[EMBED] Embedding pipeline complete.")
-        except Exception as _ee:
-            info_logger(f"[EMBED] Embedding pipeline failed (skipping): {_ee}")
+        # Probe first: with no backend installed the pipeline used to fail
+        # inside a swallowed except at a log level that is off by default,
+        # so 'vector resolve is working' and 'vector resolve has never run'
+        # were indistinguishable (#1597).
+        from .embeddings import probe_embedding_backend
+        _ok, _detail = probe_embedding_backend()
+        if not _ok:
+            embed_warning = f"ENABLE_VECTOR_RESOLVE=true but embeddings were NOT generated: {_detail}"
+            error_logger(f"[EMBED] {embed_warning}")
+        else:
+            if job_id:
+                job_manager.update_job(job_id, status_message="Generating embeddings...")
+            try:
+                from .embeddings import EmbeddingPipeline
+                repo_path_str = path.resolve().as_posix()
+                info_logger("[EMBED] Starting embedding pipeline...")
+                EmbeddingPipeline(writer.driver).run(repo_path_str)
+                info_logger("[EMBED] Embedding pipeline complete.")
+            except Exception as _ee:
+                embed_warning = f"ENABLE_VECTOR_RESOLVE=true but the embedding pipeline failed: {_ee}"
+                error_logger(f"[EMBED] {embed_warning}")
 
     # ── Phase 5: inheritance-aware re-resolution (optional, config-gated) ─────
     if (_gcv("ENABLE_INHERIT_RESOLVE") or "false").lower() == "true":
@@ -432,6 +444,8 @@ async def run_tree_sitter_index_async(
                 parse_failures=parse_failures,
             )
         )
+        if embed_warning:
+            index_summary.setdefault("warnings", []).append(embed_warning)
 
     if job_id:
         job_manager.update_job(job_id, status=JobStatus.COMPLETED, end_time=datetime.now())

@@ -121,6 +121,38 @@ class _FastEmbedder:
         return [vec.tolist() for vec in self._model.embed(texts)]
 
 
+def probe_embedding_backend(model_spec: Optional[str] = None):
+    """Cheaply check whether ENABLE_VECTOR_RESOLVE can actually run.
+
+    Import-level only — nothing heavy is loaded. Returns (ok, detail) where
+    *detail* names what is missing, so callers can surface a message that
+    distinguishes "vector resolve is working" from "vector resolve has never
+    run" (#1597).
+    """
+    import importlib.util as _ilu
+
+    spec = model_spec or os.environ.get("CGC_EMBEDDING_MODEL", "local")
+    if spec == "openai":
+        if _ilu.find_spec("openai") is None:
+            return False, "CGC_EMBEDDING_MODEL=openai but the 'openai' package is not installed"
+        if not os.environ.get("OPENAI_API_KEY"):
+            return False, "CGC_EMBEDDING_MODEL=openai but OPENAI_API_KEY is not set"
+        return True, "openai"
+    if spec == "fastembed":
+        if _ilu.find_spec("fastembed") is None:
+            return False, "CGC_EMBEDDING_MODEL=fastembed but the 'fastembed' package is not installed"
+        return True, "fastembed"
+    # 'local' (default) or an explicit sentence-transformers model name
+    if _ilu.find_spec("sentence_transformers") is not None:
+        return True, "sentence-transformers"
+    if spec == "local" and _ilu.find_spec("fastembed") is not None:
+        return True, "fastembed"
+    return False, (
+        "no embedding backend installed — ENABLE_VECTOR_RESOLVE needs "
+        "'sentence-transformers' or 'fastembed' (pip install fastembed)"
+    )
+
+
 def _get_embedder(model_spec: Optional[str] = None):
     """Return the appropriate embedder based on CGC_EMBEDDING_MODEL env var."""
     spec = model_spec or os.environ.get("CGC_EMBEDDING_MODEL", "local")

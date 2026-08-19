@@ -324,14 +324,26 @@ class RepositoryEventHandler(FileSystemEventHandler):
             _inherit_enabled = False
 
         if _vector_enabled:
-            try:
-                from codegraphcontext.tools.indexing.embeddings import EmbeddingPipeline
-                embed_pipeline = EmbeddingPipeline(self.graph_builder.driver)
-                embed_pipeline.invalidate_for_file(changed_path_str)
-                embed_pipeline.run(str(self.repo_path))
-                info_logger(f"[EMBED] Incremental embedding complete for {changed_path_str}")
-            except Exception as _e:
-                warning_logger(f"[EMBED] Incremental embedding failed: {_e}")
+            # Probe once per handler: with no backend installed, the old code
+            # re-attempted (and re-failed) the import on every file event and
+            # only said so at a suppressed log level (#1597).
+            if not hasattr(self, "_embed_backend_ok"):
+                from codegraphcontext.tools.indexing.embeddings import probe_embedding_backend
+                self._embed_backend_ok, _detail = probe_embedding_backend()
+                if not self._embed_backend_ok:
+                    error_logger(
+                        f"[EMBED] ENABLE_VECTOR_RESOLVE=true but incremental embeddings "
+                        f"cannot run: {_detail} (reported once; further file events skip this)"
+                    )
+            if self._embed_backend_ok:
+                try:
+                    from codegraphcontext.tools.indexing.embeddings import EmbeddingPipeline
+                    embed_pipeline = EmbeddingPipeline(self.graph_builder.driver)
+                    embed_pipeline.invalidate_for_file(changed_path_str)
+                    embed_pipeline.run(str(self.repo_path))
+                    info_logger(f"[EMBED] Incremental embedding complete for {changed_path_str}")
+                except Exception as _e:
+                    warning_logger(f"[EMBED] Incremental embedding failed: {_e}")
 
         if _inherit_enabled:
             try:

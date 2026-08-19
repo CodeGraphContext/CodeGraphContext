@@ -685,6 +685,21 @@ def set_config_value(key: str, value: str) -> bool:
     save_config(config)
     
     console.print(f"[green]✅ Set {key} = {value}[/green]")
+
+    # Surface a missing embedding backend at the moment of intent, not after
+    # an index run that silently generated nothing (#1597).
+    if key == "ENABLE_VECTOR_RESOLVE" and value.lower() == "true":
+        try:
+            from codegraphcontext.tools.indexing.embeddings import probe_embedding_backend
+            ok, detail = probe_embedding_backend()
+            if not ok:
+                console.print(
+                    f"[bold yellow]⚠ Vector resolve is enabled but cannot run yet: "
+                    f"{detail}. Indexing will proceed without embeddings until "
+                    f"this is installed.[/bold yellow]"
+                )
+        except Exception:
+            pass
     return True
 
 
