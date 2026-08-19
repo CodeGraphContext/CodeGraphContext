@@ -3087,6 +3087,7 @@ def analyze_dead_code(
     path: Optional[str] = typer.Argument(None, help="Repository path to scope the analysis to"),
     exclude_decorators: Optional[str] = typer.Option(None, "--exclude", "-e", help="Comma-separated decorators to exclude"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+    show_all: bool = typer.Option(False, "--show-all", help="Include low-confidence rows (dunders, test hooks, entry-point names) normally hidden (#1332)"),
 ):
     """
     Find potentially unused functions.
@@ -3116,7 +3117,8 @@ def analyze_dead_code(
         # of table rows. The true count comes from total_count below (#1606).
         display_limit = get_tool_result_limit("find_dead_code")
         results = code_finder.find_dead_code(
-            exclude_list, repo_path=repo_path, limit=display_limit
+            exclude_list, repo_path=repo_path, limit=display_limit,
+            include_low_confidence=show_all,
         )
 
         unused_funcs = results.get('potentially_unused_functions', [])
@@ -3128,16 +3130,22 @@ def analyze_dead_code(
         
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
         table.add_column("Function", style="cyan")
+        table.add_column("Confidence", justify="center")
         table.add_column("Location", style="dim", overflow="fold")
-        
-        for func in unused_funcs:
-            path = func.get('path', '')
-            line_str = str(func.get('line_number', ''))
-            location_str = f"{path}:{line_str}" if line_str else path
 
+        _conf_render = {
+            "high": "[red]● high[/red]",
+            "medium": "[yellow]● medium[/yellow]",
+            "low": "[dim]● low[/dim]",
+        }
+        for func in unused_funcs:
+            fpath = func.get('path', '')
+            line_str = str(func.get('line_number', ''))
+            location_str = f"{fpath}:{line_str}" if line_str else fpath
             table.add_row(
                 func.get('function_name', ''),
-                location_str
+                _conf_render.get(func.get('confidence', 'high'), func.get('confidence', '')),
+                location_str,
             )
         
         console.print("\n[bold yellow]⚠️  Potentially Unused Functions:[/bold yellow]")
@@ -3149,6 +3157,16 @@ def analyze_dead_code(
             )
         else:
             console.print(f"\n[dim]Total: {total_count} function(s)[/dim]")
+        counts = results.get('confidence_counts') or {}
+        if counts:
+            summary = (
+                f"[red]{counts.get('high', 0)} high[/red], "
+                f"[yellow]{counts.get('medium', 0)} medium[/yellow], "
+                f"[dim]{counts.get('low', 0)} low[/dim] confidence"
+            )
+            if not show_all:
+                summary += " [dim](low-confidence categories are hidden — use --show-all)[/dim]"
+            console.print(summary)
         console.print(f"[dim]Note: {results.get('note', '')}[/dim]")
     finally:
         db_manager.close_driver()

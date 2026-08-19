@@ -44,6 +44,41 @@ _ANDROID_ENTRY_POINT_NAMES = (
     "onconfigurationchanged", "onlowmemory", "ontrimmemory",
     "onbindviewholder", "oncreateviewholder", "getitemcount",
 )
+_TEST_HOOK_NAMES = {
+    "setup", "teardown", "setupclass", "teardownclass",
+    "setupmodule", "teardownmodule", "setup_method", "teardown_method",
+}
+
+
+def _classify_dead_code_confidence(row: dict) -> tuple:
+    """(confidence, reason) for a zero-caller symbol (#1332).
+
+    low    — matches a category that is almost always a false positive
+             (dunder, test hook/prefix, entry-point name, override, test file)
+    medium — decorated: decorators frequently register implicit callers
+             (@property, @app.route, @pytest.fixture, …)
+    high   — none of the above; very likely genuinely dead
+    """
+    name = (row.get("function_name") or "")
+    lname = name.lower()
+    path = (row.get("path") or "")
+    if name.startswith("__") and name.endswith("__"):
+        return "low", "dunder — called implicitly by the runtime"
+    if lname in _TEST_HOOK_NAMES or name.startswith(("test_", "_test")):
+        return "low", "test hook/prefix — invoked by the test runner"
+    if lname in {n.lower() for n in _ENTRY_POINT_NAMES}:
+        return "low", "entry-point name — typically called externally"
+    if lname in {n.lower() for n in _ANDROID_ENTRY_POINT_NAMES}:
+        return "low", "framework entry point"
+    if "override" in (row.get("modifiers") or []):
+        return "low", "override — dispatched via its base declaration"
+    if "/tests/" in path or "/test/" in path or path.endswith("conftest.py"):
+        return "low", "test-tree file — commonly runner-invoked"
+    if row.get("decorators"):
+        return "medium", "decorated — decorators often add implicit callers"
+    return "high", "no callers, no excluding signal"
+
+
 _ANDROID_ENTRY_POINT_NAMES_CYPHER = "[" + ", ".join(
     f"'{n}'" for n in _ANDROID_ENTRY_POINT_NAMES
 ) + "]"
@@ -938,7 +973,7 @@ class CodeFinder:
             
             return result.data()
     
-    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None, graph_name: str = None, limit: Optional[int] = None) -> Dict[str, Any]:
+    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None, graph_name: str = None, limit: Optional[int] = None, include_low_confidence: bool = False) -> Dict[str, Any]:
         self._active_graph = graph_name
         """Find potentially unused functions (not called by other functions in the project), optionally excluding those with specific decorators.
 
@@ -996,6 +1031,8 @@ class CodeFinder:
                     func.line_number as line_number,
                     func.docstring as docstring,
                     func.context as context,
+                    func.decorators as decorators,
+                    func.modifiers as modifiers,
                     file.name as file_name
                 ORDER BY func.path, func.line_number
             """
@@ -1014,12 +1051,69 @@ class CodeFinder:
             # exclude_decorated_with look inert: excluded rows were backfilled
             # by the next ones in path order and the count came back 50 either
             # way (#1606).
+            for row in rows:
+                confidence, reason = _classify_dead_code_confidence(row)
+                row["confidence"] = confidence
+                row["confidence_reason"] = reason
+
+            if include_low_confidence:
+                # The main query hard-excludes categories that are almost
+                # always false positives (dunders, test hooks, entry-point
+                # names, overrides). --show-all reintroduces them as
+                # low-confidence rows instead of leaving them invisible
+                # (#1332).
+                low_query = f"""
+                    MATCH (func:Function)
+                    WHERE func.is_dependency = false {repo_filter} {func_ignore}
+                      AND func.name <> '<module>'
+                      AND (
+                            toLower(func.name) IN {_ENTRY_POINT_NAMES_CYPHER}
+                            OR (func.lang IN {_JVM_LANGS_CYPHER}
+                                AND toLower(func.name) IN {_ANDROID_ENTRY_POINT_NAMES_CYPHER})
+                            OR (func.modifiers IS NOT NULL AND 'override' IN func.modifiers)
+                            OR (func.name STARTS WITH '__' AND func.name ENDS WITH '__')
+                            OR func.name STARTS WITH '_test'
+                            OR func.name STARTS WITH 'test_'
+                          )
+                      {decorator_filter}
+                    WITH func
+                    OPTIONAL MATCH (caller)-[:CALLS|HEURISTIC_CALLS]->(func)
+                    WHERE (caller.is_dependency IS NULL OR caller.is_dependency = false)
+                      {caller_ignore}
+                    WITH func, count(caller) as caller_count
+                    WHERE caller_count = 0
+                    OPTIONAL MATCH (file:File)-[:CONTAINS]->(func)
+                    RETURN
+                        func.name as function_name,
+                        func.path as path,
+                        func.line_number as line_number,
+                        func.docstring as docstring,
+                        func.context as context,
+                        func.decorators as decorators,
+                        func.modifiers as modifiers,
+                        file.name as file_name
+                    ORDER BY func.path, func.line_number
+                """
+                low_rows = session.run(low_query, **params).data()
+                for row in low_rows:
+                    confidence, reason = _classify_dead_code_confidence(row)
+                    # Everything the main query excluded is low by construction,
+                    # but reuse the classifier so the reason strings match.
+                    row["confidence"] = "low" if confidence == "high" else confidence
+                    row["confidence_reason"] = reason
+                rows = rows + low_rows
+                rows.sort(key=lambda r: (str(r.get("path") or ""), r.get("line_number") or 0))
+
             total_count = len(rows)
+            confidence_counts = {"high": 0, "medium": 0, "low": 0}
+            for row in rows:
+                confidence_counts[row.get("confidence", "high")] += 1
             page = rows[:limit] if limit else rows
 
             return {
                 "potentially_unused_functions": page,
                 "total_count": total_count,
+                "confidence_counts": confidence_counts,
                 "note": "These functions might be unused, but could be entry points, callbacks, or called dynamically"
             }
     
