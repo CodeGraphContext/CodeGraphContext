@@ -480,13 +480,18 @@ class RubyTreeSitterParser:
                         captures_by_call[call_id]['name'] = self._get_node_text(node)
                 
                 elif capture_name == 'receiver':
-                    captures_by_call[call_id]['receiver'] = self._get_node_text(node)
+                    # Field check, like the name branch: byte-range containment
+                    # alone let nested calls steal each other's receiver —
+                    # `logger.info(formatter.render(x))` recorded `info` with
+                    # full_name "formatter.info" (#1538).
+                    if node == call_node.child_by_field_name('receiver'):
+                        captures_by_call[call_id]['receiver'] = self._get_node_text(node)
                 
                 elif capture_name == 'args':
-                     # Capture arguments
-                    args_text = self._get_node_text(node)
-                    # Simple heuristic: split by comma
-                    captures_by_call[call_id]['args'] = [a.strip() for a in args_text.strip("()").split(',') if a.strip()]
+                    if node == call_node.child_by_field_name('arguments'):
+                        args_text = self._get_node_text(node)
+                        # Simple heuristic: split by comma
+                        captures_by_call[call_id]['args'] = [a.strip() for a in args_text.strip("()").split(',') if a.strip()]
 
         for call_data in captures_by_call.values():
             call_node = call_data['node']

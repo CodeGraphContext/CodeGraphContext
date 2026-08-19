@@ -465,6 +465,28 @@ class ElixirTreeSitterParser:
                     "is_dependency": False,
                 })
 
+        # A `def hello(x) do ... end` is itself a `call` node whose arguments
+        # contain the SIGNATURE as a nested call. Recursing blindly recorded
+        # every definition head as an invocation — a false self-recursive
+        # CALLS edge on every Elixir function (#1538). For definition calls,
+        # skip the signature and recurse only into the body.
+        if node.type == 'call':
+            head_identifier = next(
+                (c for c in node.children if c.type == 'identifier'), None
+            )
+            head_target = self._get_node_text(head_identifier) if head_identifier else None
+            if head_target in FUNCTION_KEYWORDS:
+                for child in node.children:
+                    if child.type == 'do_block':
+                        self._find_calls_recursive(child, calls)
+                    elif child.type == 'arguments':
+                        # Skip the signature (the first nested call) but keep
+                        # the inline `, do: body` keywords — that IS the body.
+                        for arg in child.children:
+                            if arg.type != 'call':
+                                self._find_calls_recursive(arg, calls)
+                return
+
         for child in node.children:
             self._find_calls_recursive(child, calls)
 
