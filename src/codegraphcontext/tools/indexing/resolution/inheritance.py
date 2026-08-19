@@ -6,6 +6,58 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
+
+# Child construct list -> node label: the 8 kinds that can declare inheritance.
+_INHERIT_KEY_TO_LABEL = {
+    "classes": "Class",
+    "structs": "Struct",
+    "traits": "Trait",
+    "interfaces": "Interface",
+    "mixins": "Mixin",
+    "enums": "Enum",
+    "extensions": "Extension",
+    "variables": "Variable",
+}
+
+# All construct lists whose nodes can be an INHERITS parent, mapped to their label.
+# Matches the 12 labels the writer enumerates. Used to attach exact child/parent
+# labels to rows and to detect the rare (name, path) collisions where more than one
+# node kind shares a name+path — those stay ambiguous so the writer falls back to
+# full enumeration (keeping the produced edge set identical).
+_NODE_KEY_TO_LABEL = {
+    "classes": "Class",
+    "traits": "Trait",
+    "interfaces": "Interface",
+    "structs": "Struct",
+    "enums": "Enum",
+    "unions": "Union",
+    "records": "Record",
+    "mixins": "Mixin",
+    "extensions": "Extension",
+    "modules": "Module",
+    "objects": "Object",
+    "variables": "Variable",
+}
+
+
+def _build_node_label_index(
+    all_file_data: List[Dict[str, Any]],
+) -> Dict[str, Dict[str, set]]:
+    """Map normalized path -> {name -> set(labels)} across all inheritance-eligible
+    node kinds. A (path, name) with exactly one label lets the writer target that
+    label directly; multiple labels leaves it ambiguous (writer enumerates)."""
+    index: Dict[str, Dict[str, set]] = {}
+    for file_data in all_file_data:
+        fpath = str(Path(file_data["path"]).resolve().as_posix())
+        per_file = index.setdefault(fpath, {})
+        for key, label in _NODE_KEY_TO_LABEL.items():
+            for item in file_data.get(key, []):
+                name = item.get("name")
+                if name:
+                    per_file.setdefault(name, set()).add(label)
+    return index
+
+
 def resolve_inheritance_link(
     class_item: Dict[str, Any],
     base_class_str: str,
@@ -13,6 +65,8 @@ def resolve_inheritance_link(
     local_class_names: set,
     local_imports: dict,
     imports_map: dict,
+    child_label: Optional[str] = None,
+    node_label_index: Optional[Dict[str, Dict[str, set]]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Resolve a single inheritance link. Returns row dict or None."""
     import re
@@ -55,21 +109,41 @@ def resolve_inheritance_link(
             if len(possible_paths) == 1:
                 resolved_path = possible_paths[0]
 
+    # Pin the child label only when this (path, name) is a single node kind. If more
+    # than one kind shares it, leave it off so the writer enumerates (byte-identical).
+    child_lbl = None
+    if child_label:
+        if node_label_index is None:
+            child_lbl = child_label
+        else:
+            present = node_label_index.get(caller_file_path, {}).get(class_item["name"])
+            if present and len(present) == 1 and child_label in present:
+                child_lbl = child_label
+
+    def _with_labels(row: Dict[str, Any], parent_path: str) -> Dict[str, Any]:
+        if child_lbl:
+            row["child_label"] = child_lbl
+        if node_label_index is not None:
+            plabels = node_label_index.get(parent_path, {}).get(target_class_name)
+            if plabels and len(plabels) == 1:
+                row["parent_label"] = next(iter(plabels))
+        return row
+
     if resolved_path:
-        return {
+        return _with_labels({
             "child_name": class_item["name"],
             "path": caller_file_path,
             "parent_name": target_class_name,
             "resolved_parent_file_path": resolved_path,
             "confidence_label": "EXTRACTED",
-        }
-    return {
+        }, resolved_path)
+    return _with_labels({
         "child_name": class_item["name"],
         "path": caller_file_path,
         "parent_name": target_class_name,
         "resolved_parent_file_path": "__external__",
         "confidence_label": "INFERRED",
-    }
+    }, "__external__")
 
 
 
@@ -79,6 +153,7 @@ def build_inheritance_and_csharp_files(
     """Returns (inheritance_batch_rows, csharp_file_data_list)."""
     inheritance_batch: List[Dict[str, Any]] = []
     csharp_files: List[Dict[str, Any]] = []
+    node_label_index = _build_node_label_index(all_file_data)
 
     for file_data in all_file_data:
         if file_data.get("lang") == "c_sharp":
@@ -87,7 +162,7 @@ def build_inheritance_and_csharp_files(
 
         caller_file_path = str(Path(file_data["path"]).resolve().as_posix())
         local_class_names = set()
-        for key in ["classes", "structs", "traits", "interfaces", "mixins", "enums", "extensions", "variables"]:
+        for key in _INHERIT_KEY_TO_LABEL:
             for item in file_data.get(key, []):
                 local_class_names.add(item["name"])
 
@@ -97,7 +172,7 @@ def build_inheritance_and_csharp_files(
             if imp.get("name")
         }
 
-        for key in ["classes", "structs", "traits", "interfaces", "mixins", "enums", "extensions", "variables"]:
+        for key, child_label in _INHERIT_KEY_TO_LABEL.items():
             for class_item in file_data.get(key, []):
                 if not class_item.get("bases"):
                     continue
@@ -109,6 +184,8 @@ def build_inheritance_and_csharp_files(
                         local_class_names,
                         local_imports,
                         imports_map,
+                        child_label=child_label,
+                        node_label_index=node_label_index,
                     )
                     if resolved:
                         inheritance_batch.append(resolved)

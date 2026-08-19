@@ -630,6 +630,168 @@ def test_write_inheritance_links_resolves_cross_label_hierarchy_with_empty_label
         manager.close_driver()
 
 
+def test_write_inheritance_links_groups_by_row_labels_in_kuzu(tmp_path):
+    """#1617 made the 12x12 (child, parent) grid sparse by probing each label
+    table once and skipping pairs whose table is empty. That saving is a
+    property of the repo's *label inventory*: on a polyglot repo where every
+    label table holds at least one row, the probe removes nothing and all 144
+    internal pairs plus 12 external ones still run -- each receiving the
+    entire batch.
+
+    Resolution now pins the exact child/parent label onto each row (whenever
+    the (path, name) maps to a single node kind), so the writer issues one
+    query per (child_label, parent_label) pair that actually occurs. This
+    test is the scenario that distinguishes the two fixes: it creates one
+    node under every one of the 12 enumerated labels, so all 12 probes report
+    populated and #1617's skip is a no-op.
+
+    Both halves of the contract are asserted: the labeled rows still produce
+    exactly the right INHERITS edges (and no others), and the session.run
+    count collapses to the 12 probes plus the 2 internal pairs and 1 external
+    child label the rows actually contain. Measured on this input: 468 queries
+    before, 18 after.
+    """
+    manager = _fresh_kuzu_manager(tmp_path / "inherits-grouped-db")
+    path = "/repo/Grouped.kt"
+    try:
+        driver = manager.get_driver()
+
+        # 11 of the 12 labels are keyed by `uid`; `Union` is reserved in Kuzu
+        # and must be quoted.
+        uid_keyed = [
+            ("Class", "Widget"),
+            ("Trait", "Sized"),
+            ("Interface", "Drawable"),
+            ("Struct", "Point"),
+            ("Enum", "Color"),
+            ("`Union`", "Payload"),
+            ("Record", "Row"),
+            ("Mixin", "Loggable"),
+            ("Extension", "StringExt"),
+            ("Object", "Registry"),
+            ("Variable", "CONFIG"),
+        ]
+        with driver.session() as session:
+            for line_number, (label, name) in enumerate(uid_keyed, start=1):
+                session.run(
+                    f"""
+                    MERGE (n:{label} {{uid: $uid}})
+                    SET n.name = $name, n.path = $path, n.line_number = $line_number
+                    """,
+                    uid=f"{name.lower()}-uid",
+                    name=name,
+                    path=path,
+                    line_number=line_number,
+                )
+            # Module's primary key is `name`, not `uid`.
+            session.run(
+                """
+                MERGE (m:Module {name: $name})
+                SET m.path = $path, m.line_number = $line_number
+                """,
+                name="Bundle",
+                path=path,
+                line_number=12,
+            )
+
+        writer = GraphWriter(driver)
+
+        session_cls = type(driver.session())
+        original_run = session_cls.run
+        call_count = 0
+
+        def counting_run(self, query, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return original_run(self, query, *args, **kwargs)
+
+        session_cls.run = counting_run
+        try:
+            writer.write_inheritance_links(
+                [
+                    # (Class, Interface)
+                    {
+                        "child_name": "Widget",
+                        "path": path,
+                        "parent_name": "Drawable",
+                        "resolved_parent_file_path": path,
+                        "confidence_label": "EXTRACTED",
+                        "child_label": "Class",
+                        "parent_label": "Interface",
+                    },
+                    # (Trait, Struct) -- a second, disjoint pair, so the test
+                    # cannot pass by hard-coding a single Class->Class query.
+                    {
+                        "child_name": "Sized",
+                        "path": path,
+                        "parent_name": "Point",
+                        "resolved_parent_file_path": path,
+                        "confidence_label": "EXTRACTED",
+                        "child_label": "Trait",
+                        "parent_label": "Struct",
+                    },
+                    # External parent: only the child label is ever known.
+                    {
+                        "child_name": "Widget",
+                        "path": path,
+                        "parent_name": "ThirdPartyBase",
+                        "resolved_parent_file_path": "__external__",
+                        "confidence_label": "INFERRED",
+                        "child_label": "Class",
+                    },
+                ],
+                [],
+                {},
+            )
+        finally:
+            session_cls.run = original_run
+
+        with driver.session() as session:
+            rows = session.run(
+                """
+                MATCH (child)-[r:INHERITS]->(parent)
+                RETURN labels(child) AS child_labels, child.name AS child_name,
+                       labels(parent) AS parent_labels, parent.name AS parent_name,
+                       r.confidence_label AS confidence_label
+                """
+            ).data()
+
+        def _primary(labels):
+            return labels[0] if isinstance(labels, list) else labels
+
+        # Exact edge set: the right edges, and nothing extra. Grouping by label
+        # must not drop an edge, redirect one, or invent one.
+        assert {
+            (
+                _primary(r["child_labels"]),
+                r["child_name"],
+                _primary(r["parent_labels"]),
+                r["parent_name"],
+                r["confidence_label"],
+            )
+            for r in rows
+        } == {
+            ("Class", "Widget", "Interface", "Drawable", "EXTRACTED"),
+            ("Trait", "Sized", "Struct", "Point", "EXTRACTED"),
+            ("Class", "Widget", "ExternalClass", "ThirdPartyBase", "INFERRED"),
+        }
+
+        # Expected: 12 existence probes (still issued unconditionally, for the
+        # benefit of the label-less fallback paths) + one query per pair the
+        # rows actually contain. Measured: 18.
+        assert call_count <= 20
+        # The same input issued 468 queries before this change: 144 internal
+        # pair queries + 12 external, and -- because the Kuzu adapter unrolls
+        # `UNWIND $batch` into one query per row to sidestep a relationship
+        # planner bug (database_embedded_kuzu.py) -- a further pair-times-row
+        # fan-out on top of them. #1617's empty-table skip removes none of it
+        # in this scenario, because every one of the 12 label tables is
+        # populated.
+        assert call_count < 12 + 12 * 12
+    finally:
+        manager.close_driver()
+
+
 def test_is_composable_persists_in_kuzu(tmp_path):
     """The is_composable flag must survive the writer's property allow-list.
 
