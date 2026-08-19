@@ -30,6 +30,10 @@ PHP_QUERIES = {
         (trait_declaration
             name: (name) @name
         ) @trait
+
+        (enum_declaration
+            name: (name) @name
+        ) @enum
     """,
     # A top-level `use App\Models\User;` is a `namespace_use_declaration`.
     # `use_declaration` is the *trait* use inside a class body (relied on at
@@ -153,7 +157,7 @@ class PhpTreeSitterParser:
     def _get_parent_context(self, node: Any) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
-            if curr.type in ("function_definition", "method_declaration", "class_declaration", "interface_declaration", "trait_declaration"):
+            if curr.type in ("function_definition", "method_declaration", "class_declaration", "interface_declaration", "trait_declaration", "enum_declaration"):
                 name_node = curr.child_by_field_name("name")
                 return (
                     self._get_node_text(name_node) if name_node else None,
@@ -166,7 +170,7 @@ class PhpTreeSitterParser:
     def _get_enclosing_class_name(self, node: Any) -> Optional[str]:
         curr = node.parent
         while curr:
-            if curr.type in ("class_declaration", "interface_declaration", "trait_declaration"):
+            if curr.type in ("class_declaration", "interface_declaration", "trait_declaration", "enum_declaration"):
                 name_node = curr.child_by_field_name("name")
                 return self._get_node_text(name_node) if name_node else None
             curr = curr.parent
@@ -182,7 +186,7 @@ class PhpTreeSitterParser:
         """
         curr = node.parent
         while curr:
-            if curr.type in ("class_declaration", "interface_declaration", "trait_declaration"):
+            if curr.type in ("class_declaration", "interface_declaration", "trait_declaration", "enum_declaration"):
                 name_node = curr.child_by_field_name("name")
                 name = self._get_node_text(name_node) if name_node else None
                 return (name, curr.start_point[0] + 1) if name else None
@@ -283,7 +287,7 @@ class PhpTreeSitterParser:
                             "lang": self.language_name,
                             "context": context_name,
                             "context_type": context_type,
-                            "class_context": context_name if context_type and ("class" in context_type or "interface" in context_type or "trait" in context_type) else None
+                            "class_context": context_name if context_type and ("class" in context_type or "interface" in context_type or "trait" in context_type or "enum" in context_type) else None
                         }
                         
                         if self.index_source:
@@ -304,7 +308,7 @@ class PhpTreeSitterParser:
         seen_nodes = set()
 
         for node, capture_name in captures:
-            if capture_name in ("class", "interface", "trait"):
+            if capture_name in ("class", "interface", "trait", "enum"):
                 node_id = (node.start_byte, node.end_byte, node.type)
                 if node_id in seen_nodes:
                     continue
@@ -367,6 +371,12 @@ class PhpTreeSitterParser:
                             interfaces.append(type_data)
                         elif capture_name == "trait":
                             traits.append(type_data)
+                        elif capture_name == "enum":
+                            # PHP 8.1 enums are class-likes: without this arm
+                            # the captured row was silently dropped and enum
+                            # methods became orphans (#1538).
+                            type_data["node_type"] = "enum"
+                            classes.append(type_data)
                         
                 except Exception as e:
                     error_logger(f"Error parsing type in {path}: {e}")
@@ -415,7 +425,7 @@ class PhpTreeSitterParser:
                         "path": str(path),
                         "lang": self.language_name,
                         "context": ctx_name,
-                        "class_context": ctx_name if ctx_type and ("class" in ctx_type or "interface" in ctx_type or "trait" in ctx_type) else None
+                        "class_context": ctx_name if ctx_type and ("class" in ctx_type or "interface" in ctx_type or "trait" in ctx_type or "enum" in ctx_type) else None
                      })
                 except Exception as e:
                     continue

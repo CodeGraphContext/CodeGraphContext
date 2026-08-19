@@ -201,13 +201,17 @@ class HaskellTreeSitterParser:
             "lang": self.language_name,
         }
 
-    def _apply_callee_name(self, apply_node: Any) -> Optional[str]:
+    def _apply_callee(self, apply_node: Any) -> Optional[Any]:
         fn = apply_node.child_by_field_name("function")
         while fn and fn.type == "apply":
             fn = fn.child_by_field_name("function")
         if not fn or fn.type not in ("variable", "constructor"):
             return None
-        return self._get_node_text(fn) or None
+        return fn
+
+    def _apply_callee_name(self, apply_node: Any) -> Optional[str]:
+        fn = self._apply_callee(apply_node)
+        return (self._get_node_text(fn) or None) if fn is not None else None
 
     def _parse_instances(
         self, captures: List[Tuple[Any, str]], source_code: str, path: Path
@@ -448,10 +452,15 @@ class HaskellTreeSitterParser:
         for node, cap in captures:
             if cap != "apply_node" or node.type != "apply":
                 continue
-            call_name = self._apply_callee_name(node)
+            callee = self._apply_callee(node)
+            call_name = (self._get_node_text(callee) or None) if callee is not None else None
             if not call_name:
                 continue
-            key = (node.start_byte, node.end_byte)
+            # Dedupe by the CALLEE node: curried application produces nested
+            # apply nodes with distinct spans for one call — `print (addTwo
+            # 1 2)` emitted addTwo twice at the same line (#1538). Both
+            # applies share the same callee identifier node.
+            key = (callee.start_byte, callee.end_byte)
             if key in seen_calls:
                 continue
             seen_calls.add(key)

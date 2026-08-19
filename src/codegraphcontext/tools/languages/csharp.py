@@ -230,11 +230,16 @@ class CSharpTreeSitterParser:
                             params_node = params_captures[0][0]
                             parameters = self._extract_parameters(params_node)
 
-                        # Extract attributes applied to this function
+                        # Extract attributes applied to this function.
+                        # attribute_list nodes are CHILDREN of the declaration
+                        # (never its parent), so the old parent check was
+                        # always false and attributes stayed [] (#1538).
                         attributes = []
-                        if node.parent and node.parent.type == "attribute_list":
-                            attr_text = self._get_node_text(node.parent)
-                            attributes.append(attr_text)
+                        for child in node.children:
+                            if child.type == "attribute_list":
+                                for attr in child.children:
+                                    if attr.type == "attribute":
+                                        attributes.append(self._get_node_text(attr))
 
                         # Find containing class/struct/interface
                         class_context = self._find_containing_type(node, source_code)
@@ -245,7 +250,9 @@ class CSharpTreeSitterParser:
                             "name": func_name,
                             "args": parameters,
                             "attributes": attributes,
-                            "line_number": start_line,
+                            # The declaration line, not the first attribute's
+                            # (python.py's decorated_definition convention).
+                            "line_number": name_node.start_point[0] + 1,
                             "end_line": end_line,
                             "path": str(path),
                             "lang": self.language_name,
@@ -491,8 +498,11 @@ class CSharpTreeSitterParser:
                     call_name = self._get_node_text(node)
                     line_number = node.start_point[0] + 1
                     
-                    # Avoid duplicates at the same line for the same name
-                    call_key = f"{call_name}_{line_number}"
+                    # Dedupe per CALL SITE, not per (name, line): keying on
+                    # name_line dropped distinct calls to the same function on
+                    # one line — `Math.Max(Clamp(a), Clamp(b))` recorded ONE
+                    # Clamp (#1538). The node's byte offset separates them.
+                    call_key = (call_name, line_number, node.start_byte)
                     if call_key in seen_calls:
                         continue
                     seen_calls.add(call_key)

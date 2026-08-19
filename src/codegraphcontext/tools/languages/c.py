@@ -139,9 +139,14 @@ C_QUERIES = {
         )
     """,
     "macros": """
-        (preproc_def
-            name: (identifier) @name
-        ) @macro
+        [
+            (preproc_def
+                name: (identifier) @name
+            )
+            (preproc_function_def
+                name: (identifier) @name
+            )
+        ] @macro
     """,
 }
 
@@ -512,46 +517,53 @@ class CTreeSitterParser:
         members: List[Dict[str, Any]] = []
         seen_names: set[str] = set()
 
-        for enum_cls in classes:
-            if enum_cls.get("type") != "enum":
+        # One structural pass over every enum body (#1538). The old version
+        # had two compounding bugs: the `(enumerator)*` quantifier made only
+        # the FIRST enumerator of each enum match, and the whole-file query
+        # re-ran inside a per-enum loop with a global seen set — so the first
+        # enum claimed every member (`OK` from `enum Status` was emitted with
+        # enum_name 'Color').
+        enums_by_line = {
+            enum_cls.get("line_number"): enum_cls
+            for enum_cls in classes
+            if enum_cls.get("type") == "enum" and enum_cls.get("name")
+        }
+        for match in execute_query(
+            self.language, "(enum_specifier) @enum", root_node
+        ):
+            enum_node = match[0]
+            enum_cls = enums_by_line.get(enum_node.start_point[0] + 1)
+            if not enum_cls:
                 continue
-            enum_name = enum_cls.get("name")
-            if not enum_name:
+            enum_name = enum_cls["name"]
+            body = enum_node.child_by_field_name("body")
+            if body is None:
                 continue
-
-            for match in execute_query(
-                self.language,
-                """
-                (enum_specifier
-                    body: (enumerator_list
-                        (enumerator
-                            name: (identifier) @member
-                        )*
-                    )
-                )
-                """,
-                root_node,
-            ):
-                if match[1] != "member":
+            for child in body.children:
+                if child.type != "enumerator":
                     continue
-                member_name = self._get_node_text(match[0])
-                if member_name in seen_names:
+                name_node = child.child_by_field_name("name")
+                if name_node is None:
                     continue
-                seen_names.add(member_name)
+                member_name = self._get_node_text(name_node)
+                if (enum_name, member_name) in seen_names:
+                    continue
+                seen_names.add((enum_name, member_name))
                 members.append({
                     "name": member_name,
                     "enum_name": enum_name,
                     "enum_line_number": enum_cls.get("line_number"),
-                    "line_number": match[0].start_point[0] + 1,
+                    "line_number": name_node.start_point[0] + 1,
                     "lang": self.language_name,
                     "is_dependency": False,
                 })
 
         x_macro_members = self._find_xmacro_enum_members(source_code, classes, macros)
         for member in x_macro_members:
-            if member["name"] in seen_names:
+            key = (member.get("enum_name"), member["name"])
+            if key in seen_names:
                 continue
-            seen_names.add(member["name"])
+            seen_names.add(key)
             members.append(member)
 
         return members
@@ -752,10 +764,14 @@ class CTreeSitterParser:
                 
                 context, context_type, _ = self._get_parent_context(macro_node)
                 
+                # A preproc node's end_point includes the trailing newline
+                # (lands at column 0 of the NEXT row), so +1 double-counts.
+                end_row = macro_node.end_point[0]
+                end_col = macro_node.end_point[1]
                 macro_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
-                    "end_line": macro_node.end_point[0] + 1,
+                    "end_line": end_row if end_col == 0 else end_row + 1,
                     "value": value,
                     "params": params,
                     "context": context,
