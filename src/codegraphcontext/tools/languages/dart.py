@@ -490,15 +490,22 @@ class DartTreeSitterParser:
                 if uri_node:
                     uri_text = self._get_node_text(uri_node).strip("'\"")
                     
-                    # Handle 'as' alias
+                    # Handle 'as' alias. This grammar has no 'prefix' node
+                    # (and no 'identifier' field on one): the alias is the bare
+                    # identifier child following the 'as' keyword inside
+                    # import_specification — the old lookup always came back
+                    # empty, so `math.max(...)` could never be mapped to its
+                    # import (#1538).
                     alias = None
                     for child in node.children:
                         if child.type == 'import_specification':
+                            saw_as = False
                             for sub in child.children:
-                                if sub.type == 'prefix':
-                                    alias_node = sub.child_by_field_name('identifier')
-                                    if alias_node:
-                                        alias = self._get_node_text(alias_node)
+                                if sub.type == 'as':
+                                    saw_as = True
+                                elif saw_as and sub.type == 'identifier':
+                                    alias = self._get_node_text(sub)
+                                    break
                     
                     imports.append({
                         "name": uri_text,
