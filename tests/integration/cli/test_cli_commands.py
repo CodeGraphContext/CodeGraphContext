@@ -124,6 +124,9 @@ class _FakeGraphBuilder:
 
 
 class _FakeCodeFinder:
+    def export_diagram_edges(self, *_args, **_kwargs):
+        return {"edges": [("repo/main.py", "json")], "total_count": 1, "truncated": False}
+
     def find_by_function_name(self, *_args, **_kwargs):
         return [{"name": "foo", "path": "repo/main.py", "line_number": 2, "is_dependency": False}]
 
@@ -472,6 +475,7 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs, 
         ["update", "."],
         ["clean"],
         ["stats"],
+        ["diagram"],
         ["delete", "."],
         ["visualize"],
         ["list"],
