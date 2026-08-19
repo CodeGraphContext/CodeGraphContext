@@ -127,9 +127,12 @@ class SwiftTreeSitterParser:
                 "lang": self.language_name,
             }
 
-    def _get_parent_context(self, node: Any) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+    def _get_parent_context(self, node: Any, types: Optional[Tuple[str, ...]] = None) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
+            if types is not None and curr.type not in types:
+                curr = curr.parent
+                continue
             if curr.type == "function_declaration":
                 name_node = curr.child_by_field_name("name")
                 if not name_node:
@@ -557,18 +560,39 @@ class SwiftTreeSitterParser:
                                     inferred_type = vtype
                                     break
 
+                    # Both were audit findings (#1538): class_context was
+                    # hardcoded (None, None) — dead for super/self resolution —
+                    # and args was hardcoded [].
+                    cls_name, _cls_type, cls_line = self._get_parent_context(
+                        node,
+                        types=("class_declaration", "struct_declaration",
+                               "enum_declaration", "protocol_declaration",
+                               "extension_declaration"),
+                    )
+                    args = []
+                    for child in node.children:
+                        if child.type == "call_suffix":
+                            for va in child.children:
+                                if va.type == "value_arguments":
+                                    for arg in va.children:
+                                        if arg.type == "value_argument":
+                                            args.append(self._get_node_text(arg))
+
                     calls.append({
                         "name": call_name,
                         "full_name": full_name,
                         "line_number": start_line,
-                        "args": [],
+                        "args": args,
                         "inferred_obj_type": inferred_type,
                         "context": (ctx_name, ctx_type, ctx_line),
-                        "class_context": (None, None),
+                        "class_context": (cls_name, cls_line) if cls_name else None,
                         "lang": self.language_name,
                         "is_dependency": False
                     })
                 except Exception as e:
+                    # A bare continue swallowed every extraction failure with
+                    # no trace at all (#1538); keep indexing but say so.
+                    debug_log(f"Swift call extraction failed at line {node.start_point[0] + 1}: {e}")
                     continue
         return calls
 

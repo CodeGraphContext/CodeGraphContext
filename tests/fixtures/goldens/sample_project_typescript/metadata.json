@@ -1,19 +1,19 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-08-18T19:26:30Z",
+  "exported_at": "2026-08-19T20:32:01Z",
   "format_version": "1.0.0",
   "repo": "sample_project_typescript",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "96554adc",
-  "branch": "fix/core-backlog-batch",
+  "commit": "6b7f03d6",
+  "branch": "main",
   "languages": [
     "typescript"
   ],
-  "generator": "PYv0.6.0",
+  "generator": "PYv0.6.4",
   "name": "sample_project_typescript.cgc",
   "graph_metrics": {
     "total_nodes": 918,
-    "total_edges": 1486
+    "total_edges": 1497
   }
 }

@@ -298,7 +298,7 @@ class JavascriptTreeSitterParser:
                 args = [self._get_node_text(data['single_param'])]
 
             # Context & docstring
-            context, context_type, _ = self._get_parent_context(func_node)
+            context, context_type, context_line = self._get_parent_context(func_node)
             class_context = context if context_type == 'class_declaration' else None
             docstring = self._get_jsdoc_comment(func_node)
 
@@ -314,6 +314,14 @@ class JavascriptTreeSitterParser:
                 "end_line": func_node.end_point[0] + 1,
                 "args": args,
                 "class_context": class_context,
+                # context/context_type were computed and then dropped, so a
+                # nested function never got a CONTAINS edge to its enclosing
+                # function (#1538). Function rows carry context as a BARE NAME
+                # plus separate type/line fields — the tuple shape belongs to
+                # call rows only (python.py is the reference).
+                "context": context,
+                "context_type": context_type,
+                "context_line": context_line,
                 "lang": self.language_name,
                 "is_dependency": False,
                 "cyclomatic_complexity": self._calculate_complexity(func_node),

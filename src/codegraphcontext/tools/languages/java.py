@@ -270,9 +270,28 @@ class JavaTreeSitterParser:
                 "lang": self.language_name,
             }
 
-    def _get_parent_context(self, node: Any) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+    def _get_parent_context(self, node: Any, types: Optional[Tuple[str, ...]] = None) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+        """First enclosing declaration; pass `types` to look only for those.
+
+        A call inside a method always has the method as its FIRST enclosing
+        declaration, so without `types` the class branch below can never win —
+        which left every call's class_context structurally (None, None) and
+        the super()/same-name-method resolution paths dead (#1538). Callers
+        that want the enclosing class pass types=("class_declaration", ...),
+        the same pattern cpp.py uses.
+        """
         curr = node.parent
         while curr:
+            if types is not None:
+                if curr.type in types:
+                    name_node = curr.child_by_field_name("name")
+                    return (
+                        self._get_node_text(name_node) if name_node else None,
+                        curr.type,
+                        curr.start_point[0] + 1,
+                    )
+                curr = curr.parent
+                continue
             if curr.type in ("method_declaration", "constructor_declaration"):
                 name_node = curr.child_by_field_name("name")
                 return (
@@ -941,6 +960,11 @@ class JavaTreeSitterParser:
                             full_name = self._get_node_text(type_node)
 
                     ctx_name, ctx_type, ctx_line = self._get_parent_context(node)
+                    cls_name, cls_type, cls_line = self._get_parent_context(
+                        node,
+                        types=("class_declaration", "interface_declaration",
+                               "enum_declaration", "annotation_type_declaration"),
+                    )
 
                     debug_log(f"Found call: {call_name} (full_name: {full_name}, inferred_obj_type: {inferred_obj_type}, args: {args}) in context {ctx_name}")
 
@@ -951,7 +975,7 @@ class JavaTreeSitterParser:
                         "args": args,
                         "inferred_obj_type": inferred_obj_type,
                         "context": (ctx_name, ctx_type, ctx_line),
-                        "class_context": (ctx_name, ctx_line) if ctx_type in ("class_declaration", "interface_declaration", "enum_declaration", "annotation_type_declaration") else (None, None),
+                        "class_context": (cls_name, cls_line) if cls_name else None,
                         "lang": self.language_name,
                         "is_dependency": False,
                     }
