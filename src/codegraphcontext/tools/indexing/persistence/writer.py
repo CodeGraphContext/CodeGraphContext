@@ -1137,6 +1137,8 @@ class GraphWriter:
         )
         batch_size = 500
         backend = get_backend_type(self.driver, self._db_manager)
+        labels = ("Class", "Trait", "Interface", "Struct", "Enum", "Union", "Record", "Mixin", "Extension", "Module", "Object", "Variable")
+
         def _work(session):
             # Dedupe identical rows first: parsers can emit the same
             # (child, parent) record more than once, and while Neo4j's MERGE
@@ -1156,8 +1158,6 @@ class GraphWriter:
             internal_batch = [r for r in deduped_batch if r.get("resolved_parent_file_path") != "__external__"]
             external_batch = [r for r in deduped_batch if r.get("resolved_parent_file_path") == "__external__"]
 
-            labels = ("Class", "Trait", "Interface", "Struct", "Enum", "Union", "Record", "Mixin", "Extension", "Module", "Object", "Variable")
-
             def _label_is_populated(label: str) -> bool:
                 # An empty node table can never match, so skip the pair entirely.
                 # If the existence probe itself fails for any reason, fall back to
@@ -1170,52 +1170,109 @@ class GraphWriter:
                 except Exception:
                     return True
 
+            # Probed once (~12 queries) and reused by the *fallback* enumerations
+            # further down. Deliberately NOT applied to `pair_groups`: those
+            # (child_label, parent_label) pairs are derived from the rows
+            # themselves, so they are never empty -- probing them would be pure
+            # overhead, and a stale or lazily-created label table would make the
+            # probe silently drop real INHERITS edges.
             populated_labels = {label for label in labels if _label_is_populated(label)}
 
-            for child_label in labels:
-                if child_label not in populated_labels:
-                    continue
+            def _chunks(rows):
+                for i in range(0, len(rows), batch_size):
+                    yield rows[i:i + batch_size]
+
+            def _run_internal(rows, child_label, parent_label):
                 child_cypher = _cypher_label(child_label, backend)
-                for parent_label in labels:
-                    if parent_label not in populated_labels:
-                        continue
-                    parent_cypher = _cypher_label(parent_label, backend)
+                parent_cypher = _cypher_label(parent_label, backend)
+                query = f"""
+                    UNWIND $batch AS row
+                    MATCH (child:{child_cypher} {{name: row.child_name, path: row.path}})
+                    MATCH (parent:{parent_cypher} {{name: row.parent_name, path: row.resolved_parent_file_path}})
+                    MERGE (child)-[r:INHERITS]->(parent)
+                    SET r.confidence_label = coalesce(row.confidence_label, 'EXTRACTED')
+                """
+                for chunk in _chunks(rows):
                     try:
-                        session.run(
-                            f"""
-                            UNWIND $batch AS row
-                            MATCH (child:{child_cypher} {{name: row.child_name, path: row.path}})
-                            MATCH (parent:{parent_cypher} {{name: row.parent_name, path: row.resolved_parent_file_path}})
-                            MERGE (child)-[r:INHERITS]->(parent)
-                            SET r.confidence_label = coalesce(row.confidence_label, 'EXTRACTED')
-                        """,
-                            batch=internal_batch,
-                        )
+                        session.run(query, batch=chunk)
                     except Exception as e:
+                        # A label absent in this backend fails to bind for the whole
+                        # (child,parent) group; skip it exactly like the old per-pair loop.
                         if _is_binder_exception(e):
-                            continue
+                            return
                         raise e
 
-            for child_label in labels:
-                if child_label not in populated_labels:
-                    continue
+            def _run_external(rows, child_label):
                 child_cypher = _cypher_label(child_label, backend)
-                try:
-                    session.run(
-                        f"""
-                        UNWIND $batch AS row
-                        MATCH (child:{child_cypher} {{name: row.child_name, path: row.path}})
-                        MERGE (parent:ExternalClass {{name: row.parent_name}})
-                        MERGE (child)-[r:INHERITS]->(parent)
-                        SET r.confidence_label = coalesce(row.confidence_label, 'INFERRED')
-                        """,
-                        batch=external_batch,
-                    )
-                except Exception as e:
-                    if _is_binder_exception(e):
-                        continue
-                    raise e
+                query = f"""
+                    UNWIND $batch AS row
+                    MATCH (child:{child_cypher} {{name: row.child_name, path: row.path}})
+                    MERGE (parent:ExternalClass {{name: row.parent_name}})
+                    MERGE (child)-[r:INHERITS]->(parent)
+                    SET r.confidence_label = coalesce(row.confidence_label, 'INFERRED')
+                """
+                for chunk in _chunks(rows):
+                    try:
+                        session.run(query, batch=chunk)
+                    except Exception as e:
+                        if _is_binder_exception(e):
+                            return
+                        raise e
 
+            # Group internal rows by the labels resolution pinned down, so only the
+            # (child_label, parent_label) pairs that actually occur run — instead of a
+            # 12x12 brute force that re-scans the full batch for every combination.
+            #   both labels known   -> one exact query per (child, parent) pair
+            #   child known only    -> enumerate parent labels over just those rows
+            #   neither             -> full 12x12 (rare: ambiguous (name,path) label collision)
+            # Rows never gain a label they wouldn't have matched, and unknown/ambiguous
+            # cases fall back to enumeration, so the produced edge set is unchanged.
+            pair_groups: Dict[tuple, List[Dict[str, Any]]] = {}
+            child_only_groups: Dict[str, List[Dict[str, Any]]] = {}
+            legacy_rows: List[Dict[str, Any]] = []
+            for row in internal_batch:
+                cl = row.get("child_label")
+                pl = row.get("parent_label")
+                if cl and pl:
+                    pair_groups.setdefault((cl, pl), []).append(row)
+                elif cl:
+                    child_only_groups.setdefault(cl, []).append(row)
+                else:
+                    legacy_rows.append(row)
+
+            for (cl, pl), rows in pair_groups.items():
+                _run_internal(rows, cl, pl)
+            for cl, rows in child_only_groups.items():
+                for pl in labels:
+                    if pl not in populated_labels:
+                        continue
+                    _run_internal(rows, cl, pl)
+            if legacy_rows:
+                for cl in labels:
+                    if cl not in populated_labels:
+                        continue
+                    for pl in labels:
+                        if pl not in populated_labels:
+                            continue
+                        _run_internal(legacy_rows, cl, pl)
+
+            # External parents (ExternalClass): group by known child label; fall back to
+            # enumerating child labels for any label-less rows.
+            ext_by_child: Dict[str, List[Dict[str, Any]]] = {}
+            ext_legacy: List[Dict[str, Any]] = []
+            for row in external_batch:
+                cl = row.get("child_label")
+                if cl:
+                    ext_by_child.setdefault(cl, []).append(row)
+                else:
+                    ext_legacy.append(row)
+            for cl, rows in ext_by_child.items():
+                _run_external(rows, cl)
+            if ext_legacy:
+                for cl in labels:
+                    if cl not in populated_labels:
+                        continue
+                    _run_external(ext_legacy, cl)
 
             for file_data in csharp_files:
                 self._create_csharp_inheritance_and_interfaces(session, file_data, imports_map)
