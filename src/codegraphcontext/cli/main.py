@@ -1178,14 +1178,22 @@ def diagram(
     if level not in ("file", "call"):
         console.print(f"[red]Unknown --level '{level}' (expected file or call)[/red]")
         raise typer.Exit(code=2)
+    # stdout carries only the diagram; init chatter goes to stderr for the
+    # init window only (restored after — a permanent rebind leaks a closed
+    # stream into later in-process invocations).
+    import sys as _sys
+    from . import cli_helpers as _cli_helpers
+    # NB: the .file property GETTER materializes the current (possibly
+    # transient, CliRunner-captured) stream; the dynamic state lives in
+    # ._file, which is None while the console follows sys.stdout live.
+    _prev_console_file = _cli_helpers.console._file
     if output is None:
-        # stdout carries only the diagram; init chatter goes to stderr.
-        import sys as _sys
-        from . import cli_helpers as _cli_helpers
         _cli_helpers.console.file = _sys.stderr
-
-    _load_credentials()
-    services = _initialize_services(context)
+    try:
+        _load_credentials()
+        services = _initialize_services(context)
+    finally:
+        _cli_helpers.console._file = _prev_console_file
     if not all(services[:3]):
         raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
@@ -3018,15 +3026,24 @@ def analyze_complexity(
     if output_format not in ("text", "json", "csv"):
         console.print(f"[red]Unknown --format '{output_format}' (expected text, json or csv)[/red]")
         raise typer.Exit(code=2)
+    # stdout must carry ONLY the parseable document in machine formats: the
+    # service-init chatter from cli_helpers prints to stdout, so reroute that
+    # console to stderr FOR THE INIT WINDOW ONLY (`--format json | jq .`).
+    # The rebind must be restored — a permanent one leaks a closed stream into
+    # later in-process invocations (CliRunner-based tests).
+    import sys as _sys
+    from . import cli_helpers as _cli_helpers
+    # NB: the .file property GETTER materializes the current (possibly
+    # transient, CliRunner-captured) stream; the dynamic state lives in
+    # ._file, which is None while the console follows sys.stdout live.
+    _prev_console_file = _cli_helpers.console._file
     if output_format in ("json", "csv"):
-        # stdout must carry ONLY the parseable document: the service-init
-        # chatter from cli_helpers prints to stdout, so reroute that console
-        # to stderr before initializing anything (`--format json | jq .`).
-        import sys as _sys
-        from . import cli_helpers as _cli_helpers
         _cli_helpers.console.file = _sys.stderr
-    _load_credentials()
-    services = _initialize_services(context)
+    try:
+        _load_credentials()
+        services = _initialize_services(context)
+    finally:
+        _cli_helpers.console._file = _prev_console_file
     if not all(services[:3]):
         raise typer.Exit(code=1)
     db_manager, graph_builder, code_finder = services[:3]
