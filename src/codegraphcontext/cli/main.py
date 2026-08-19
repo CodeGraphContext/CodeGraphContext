@@ -1149,6 +1149,96 @@ def export_shortcut(
         context=context,
     )
 
+@app.command("diagram")
+def diagram(
+    path: Optional[str] = typer.Argument(None, help="Repository path to scope the diagram to"),
+    output_format: str = typer.Option("mermaid", "--format", help="Diagram format: mermaid or dot (#1287)"),
+    level: str = typer.Option("file", "--level", help="Granularity: 'file' (file→module imports) or 'call' (function call graph)"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Write to a file instead of stdout"),
+    limit: int = typer.Option(300, "--limit", "-l", help="Maximum edges to include (truncation is reported in the diagram)"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+):
+    """
+    Export the context graph as a Mermaid or Graphviz DOT diagram.
+
+    Mermaid output pastes straight into GitHub Markdown / Notion; DOT renders
+    locally with graphviz. The diagram is a generated artifact of the current
+    index — regenerate it after refactors rather than committing it as
+    documentation.
+
+    Example:
+        cgc diagram . > architecture.mmd
+        cgc diagram . --format dot -o graph.dot && dot -Tsvg graph.dot -o graph.svg
+        cgc diagram . --level call --limit 100
+    """
+    output_format = output_format.lower()
+    if output_format not in ("mermaid", "dot"):
+        console.print(f"[red]Unknown --format '{output_format}' (expected mermaid or dot)[/red]")
+        raise typer.Exit(code=2)
+    if level not in ("file", "call"):
+        console.print(f"[red]Unknown --level '{level}' (expected file or call)[/red]")
+        raise typer.Exit(code=2)
+    if output is None:
+        # stdout carries only the diagram; init chatter goes to stderr.
+        import sys as _sys
+        from . import cli_helpers as _cli_helpers
+        _cli_helpers.console.file = _sys.stderr
+
+    _load_credentials()
+    services = _initialize_services(context)
+    if not all(services[:3]):
+        raise typer.Exit(code=1)
+    db_manager, graph_builder, code_finder = services[:3]
+
+    try:
+        repo_path = Path(path).resolve().as_posix() if path else None
+        result = code_finder.export_diagram_edges(level=level, repo_path=repo_path, limit=limit)
+    finally:
+        db_manager.close_driver()
+
+    edges = result["edges"]
+    ids: dict = {}
+
+    def _node_id(name: str) -> str:
+        if name not in ids:
+            ids[name] = f"n{len(ids)}"
+        return ids[name]
+
+    lines = []
+    if output_format == "mermaid":
+        lines.append("graph LR")
+        if result["truncated"]:
+            lines.append(f"    %% truncated: showing {len(edges)} of {result['total_count']} edges (raise --limit)")
+        for src, dst in edges:
+            sid, did = _node_id(src), _node_id(dst)
+            s_label = src.replace('"', "'")
+            d_label = dst.replace('"', "'")
+            lines.append(f'    {sid}["{s_label}"] --> {did}["{d_label}"]')
+        if not edges:
+            lines.append("    %% no edges found for this scope")
+    else:
+        lines.append("digraph cgc {")
+        lines.append("    rankdir=LR;")
+        if result["truncated"]:
+            lines.append(f"    // truncated: showing {len(edges)} of {result['total_count']} edges (raise --limit)")
+        for src, dst in edges:
+            sid, did = _node_id(src), _node_id(dst)
+            lines.append(f'    {sid} -> {did};')
+        for name, nid in ids.items():
+            label = name.replace('"', "'")
+            lines.append(f'    {nid} [label="{label}"];')
+        lines.append("}")
+
+    text = "\n".join(lines) + "\n"
+    if output:
+        Path(output).write_text(text, encoding="utf-8")
+        console.print(f"[green]✅ Wrote {output_format} diagram ({len(edges)} edges) to {output}[/green]")
+        if result["truncated"]:
+            console.print(f"[yellow]⚠ Truncated: {result['total_count']} total edges; raise --limit to include all[/yellow]")
+    else:
+        print(text, end="")
+
+
 @app.command("load", rich_help_panel="Bundle Shortcuts")
 def load_shortcut(
     bundle_name: str = typer.Argument(..., help="Bundle name or path to load"),

@@ -1117,6 +1117,53 @@ class CodeFinder:
                 "note": "These functions might be unused, but could be entry points, callbacks, or called dynamically"
             }
     
+    def export_diagram_edges(self, level: str = "file", repo_path: Optional[str] = None, limit: Optional[int] = 300) -> Dict[str, Any]:
+        """Edges for a Mermaid/DOT export (#1287).
+
+        level="file": File -[IMPORTS]-> Module dependencies.
+        level="call": Function -[CALLS]-> Function within the repo.
+
+        Returns {"edges": [(src, dst), ...], "total_count": n, "truncated": bool}
+        — the cap is reported, never silent.
+        """
+        repo_path = self._normalize_repo_path_filter(repo_path)
+        with self.driver.session() as session:
+            if level == "call":
+                repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
+                query = f"""
+                    MATCH (caller:Function)-[:CALLS]->(callee:Function)
+                    WHERE caller.is_dependency = false AND callee.is_dependency = false
+                      AND caller.name <> '<module>' AND callee.name <> '<module>'
+                      {repo_filter}
+                    RETURN DISTINCT caller.name AS src, callee.name AS dst
+                    ORDER BY src, dst
+                """
+            else:
+                repo_filter = "AND file.path STARTS WITH $repo_path" if repo_path else ""
+                query = f"""
+                    MATCH (file:File)-[:IMPORTS]->(module:Module)
+                    WHERE file.is_dependency = false {repo_filter}
+                    RETURN DISTINCT file.relative_path AS src_rel, file.name AS src_name,
+                                    module.name AS dst
+                    ORDER BY src_rel, dst
+                """
+            params = {"repo_path": repo_path} if repo_path else {}
+            rows = session.run(query, **params).data()
+
+        if level == "call":
+            edges = [(r["src"], r["dst"]) for r in rows if r.get("src") and r.get("dst")]
+        else:
+            edges = [
+                ((r.get("src_rel") or r.get("src_name") or ""), r["dst"])
+                for r in rows
+                if (r.get("src_rel") or r.get("src_name")) and r.get("dst")
+            ]
+        total = len(edges)
+        truncated = limit is not None and total > limit
+        if truncated:
+            edges = edges[:limit]
+        return {"edges": edges, "total_count": total, "truncated": truncated}
+
     def find_all_callers(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, depth: int = 3) -> List[Dict]:
         """Find all direct and indirect callers of a specific function, returning edges."""
         repo_path = self._normalize_repo_path_filter(repo_path)
