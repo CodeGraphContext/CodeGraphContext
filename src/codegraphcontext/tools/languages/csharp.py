@@ -504,7 +504,16 @@ class CSharpTreeSitterParser:
                     
                     # Get context
                     context_name, context_type, context_line = self._get_parent_context(node)
-                    class_context = context_name if context_type and 'class' in context_type else None
+                    # A call's first enclosing declaration is its METHOD, so
+                    # `'class' in context_type` was always false and every
+                    # call's class_context was None (#1538). Walk again for
+                    # class-like ancestors only, cpp-style.
+                    cls_name, _cls_type, cls_line = self._get_parent_context(
+                        node,
+                        types=("class_declaration", "struct_declaration",
+                               "record_declaration", "interface_declaration"),
+                    )
+                    class_context = (cls_name, cls_line) if cls_name else None
 
                     call_data = {
                         "name": call_name,

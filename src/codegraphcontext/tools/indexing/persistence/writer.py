@@ -68,6 +68,29 @@ _NAME_ONLY_MERGE_LABELS = {"Module", "DbTable", "ExternalClass"}
 # repeated mentions, and merging them is exactly the pre-#1393 behaviour.
 _COALESCE_SAME_KEY_LABELS = {"Variable"}
 
+# Node types that mean "the enclosing declaration is a FUNCTION" across the
+# tree-sitter grammars. The nested-function CONTAINS batch used to gate on the
+# literal Python type 'function_definition', which only python.py emits — every
+# other language that populated context_type (TS, and now JS) silently lost its
+# nested-function containment edges (#1538).
+_FUNCTION_CONTEXT_TYPES = {
+    "function_definition",            # python, cpp, php
+    "function_declaration",           # js/ts, go, kotlin, lua
+    "function_expression",            # js/ts
+    "arrow_function",                 # js/ts
+    "generator_function",             # js/ts
+    "generator_function_declaration", # js/ts
+    "method_definition",              # js/ts
+    "method_declaration",             # java, csharp, go
+    "constructor_declaration",        # java
+    "local_function_statement",       # csharp
+    "func_literal",                   # go
+    "function_item",                  # rust
+    "method",                         # ruby
+    "singleton_method",               # ruby
+    "lambda_expression",              # cpp, java
+}
+
 
 def _coalesce_same_key_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Fold records sharing (name, line_number) into one, in write order."""
@@ -467,7 +490,7 @@ class GraphWriter:
                                     "func_line": item["line_number"],
                                 }
                             )
-                        if item.get("context_type") == "function_definition":
+                        if item.get("context_type") in _FUNCTION_CONTEXT_TYPES:
                             outer_ctx = item.get("context")
                             is_seq = isinstance(outer_ctx, (tuple, list)) and outer_ctx
                             outer_name = outer_ctx[0] if is_seq else outer_ctx

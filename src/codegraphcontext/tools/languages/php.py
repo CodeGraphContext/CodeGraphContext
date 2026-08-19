@@ -172,6 +172,23 @@ class PhpTreeSitterParser:
             curr = curr.parent
         return None
 
+    def _get_enclosing_class(self, node: Any) -> Optional[Tuple[str, int]]:
+        """(name, line) of the enclosing class-like declaration, or None.
+
+        Calls previously emitted TWO shapes for class_context — a bare string
+        for ordinary calls and a dead (None, None) tuple for `new X()` (the
+        parent-context type is the enclosing *function*, never a class) — so
+        the tuple-consuming resolution paths never fired for PHP (#1538).
+        """
+        curr = node.parent
+        while curr:
+            if curr.type in ("class_declaration", "interface_declaration", "trait_declaration"):
+                name_node = curr.child_by_field_name("name")
+                name = self._get_node_text(name_node) if name_node else None
+                return (name, curr.start_point[0] + 1) if name else None
+            curr = curr.parent
+        return None
+
     def _get_node_text(self, node: Any) -> str:
         if not node: return ""
         return node.text.decode("utf-8")
@@ -558,7 +575,7 @@ class PhpTreeSitterParser:
                         "args": args,
                         "inferred_obj_type": inferred_obj_type,
                         "context": (ctx_name, ctx_type, ctx_line),
-                        "class_context": self._get_enclosing_class_name(node),
+                        "class_context": self._get_enclosing_class(node),
                         "lang": self.language_name,
                         "is_dependency": False,
                     }
@@ -607,7 +624,7 @@ class PhpTreeSitterParser:
                         "args": args,
                         "inferred_obj_type": None,
                         "context": (ctx_name, ctx_type, ctx_line),
-                        "class_context": (ctx_name, ctx_line) if ctx_type and ("class" in ctx_type or "interface" in ctx_type or "trait" in ctx_type) else (None, None),
+                        "class_context": self._get_enclosing_class(node),
                         "lang": self.language_name,
                         "is_dependency": False,
                     }

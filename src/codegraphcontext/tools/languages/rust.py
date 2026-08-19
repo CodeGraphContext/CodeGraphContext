@@ -150,6 +150,24 @@ class RustTreeSitterParser:
                     params.append(arg_str)
 
                 module_context = self._module_path_for_node(func_node)
+
+                # impl methods carried only module_context, so Point::new was
+                # never linked to Point and impl methods showed up as orphan
+                # functions (#1538). The impl_item's `type` field is the
+                # implementing type for both inherent (`impl Point`) and
+                # trait (`impl Draw for Point`) blocks.
+                class_context = None
+                class_context_line = None
+                curr = func_node.parent
+                while curr:
+                    if curr.type == "impl_item":
+                        type_node = curr.child_by_field_name("type")
+                        if type_node is not None:
+                            class_context = self._get_node_text(type_node)
+                            class_context_line = curr.start_point[0] + 1
+                        break
+                    curr = curr.parent
+
                 func_data = {
                     "name": name,
                     "line_number": name_node.start_point[0] + 1,
@@ -157,6 +175,8 @@ class RustTreeSitterParser:
                     "params": params,
                     "args": params,
                     "module_context": module_context,
+                    "class_context": class_context,
+                    "class_context_line": class_context_line,
                     "is_extern": False,
                     "lang": self.language_name,
                     "is_dependency": False,
@@ -374,12 +394,28 @@ class RustTreeSitterParser:
                             if child.type not in ('(', ')', ','):
                                 args.append(self._get_node_text(child))
 
+                # For `Type::method()` the scope is the receiver type — now
+                # that impl methods carry class_context (#1538), handing the
+                # scope to resolution lets it pick the RIGHT `new` among many
+                # same-named impl methods instead of guessing (or, worse,
+                # binding Arc::new/Box::new to an unrelated local `new`).
+                inferred_obj_type = None
+                if call_node and call_node.type == 'call_expression':
+                    fn_node = call_node.child_by_field_name('function')
+                    if fn_node is not None and fn_node.type == 'scoped_identifier':
+                        scope_node = fn_node.child_by_field_name('path')
+                        if scope_node is not None:
+                            scope_text = self._get_node_text(scope_node)
+                            # `Vec::<T>::new` styles: keep the last plain segment
+                            inferred_obj_type = scope_text.split('::')[-1] or None
+
                 calls.append(
                     {
                         "name": call_name,
                         "full_name": self._get_node_text(call_node) if call_node else call_name,
                         "line_number": node.start_point[0] + 1,
                         "args": args,
+                        "inferred_obj_type": inferred_obj_type,
                         "context": self._get_parent_context(node),
                         "lang": self.language_name,
                         "is_dependency": False,
