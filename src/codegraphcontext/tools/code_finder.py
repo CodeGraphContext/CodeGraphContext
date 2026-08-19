@@ -44,6 +44,41 @@ _ANDROID_ENTRY_POINT_NAMES = (
     "onconfigurationchanged", "onlowmemory", "ontrimmemory",
     "onbindviewholder", "oncreateviewholder", "getitemcount",
 )
+_TEST_HOOK_NAMES = {
+    "setup", "teardown", "setupclass", "teardownclass",
+    "setupmodule", "teardownmodule", "setup_method", "teardown_method",
+}
+
+
+def _classify_dead_code_confidence(row: dict) -> tuple:
+    """(confidence, reason) for a zero-caller symbol (#1332).
+
+    low    — matches a category that is almost always a false positive
+             (dunder, test hook/prefix, entry-point name, override, test file)
+    medium — decorated: decorators frequently register implicit callers
+             (@property, @app.route, @pytest.fixture, …)
+    high   — none of the above; very likely genuinely dead
+    """
+    name = (row.get("function_name") or "")
+    lname = name.lower()
+    path = (row.get("path") or "")
+    if name.startswith("__") and name.endswith("__"):
+        return "low", "dunder — called implicitly by the runtime"
+    if lname in _TEST_HOOK_NAMES or name.startswith(("test_", "_test")):
+        return "low", "test hook/prefix — invoked by the test runner"
+    if lname in {n.lower() for n in _ENTRY_POINT_NAMES}:
+        return "low", "entry-point name — typically called externally"
+    if lname in {n.lower() for n in _ANDROID_ENTRY_POINT_NAMES}:
+        return "low", "framework entry point"
+    if "override" in (row.get("modifiers") or []):
+        return "low", "override — dispatched via its base declaration"
+    if "/tests/" in path or "/test/" in path or path.endswith("conftest.py"):
+        return "low", "test-tree file — commonly runner-invoked"
+    if row.get("decorators"):
+        return "medium", "decorated — decorators often add implicit callers"
+    return "high", "no callers, no excluding signal"
+
+
 _ANDROID_ENTRY_POINT_NAMES_CYPHER = "[" + ", ".join(
     f"'{n}'" for n in _ANDROID_ENTRY_POINT_NAMES
 ) + "]"
@@ -938,7 +973,7 @@ class CodeFinder:
             
             return result.data()
     
-    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None, graph_name: str = None, limit: Optional[int] = None) -> Dict[str, Any]:
+    def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None, graph_name: str = None, limit: Optional[int] = None, include_low_confidence: bool = False) -> Dict[str, Any]:
         self._active_graph = graph_name
         """Find potentially unused functions (not called by other functions in the project), optionally excluding those with specific decorators.
 
@@ -996,6 +1031,8 @@ class CodeFinder:
                     func.line_number as line_number,
                     func.docstring as docstring,
                     func.context as context,
+                    func.decorators as decorators,
+                    func.modifiers as modifiers,
                     file.name as file_name
                 ORDER BY func.path, func.line_number
             """
@@ -1014,15 +1051,119 @@ class CodeFinder:
             # exclude_decorated_with look inert: excluded rows were backfilled
             # by the next ones in path order and the count came back 50 either
             # way (#1606).
+            for row in rows:
+                confidence, reason = _classify_dead_code_confidence(row)
+                row["confidence"] = confidence
+                row["confidence_reason"] = reason
+
+            if include_low_confidence:
+                # The main query hard-excludes categories that are almost
+                # always false positives (dunders, test hooks, entry-point
+                # names, overrides). --show-all reintroduces them as
+                # low-confidence rows instead of leaving them invisible
+                # (#1332).
+                low_query = f"""
+                    MATCH (func:Function)
+                    WHERE func.is_dependency = false {repo_filter} {func_ignore}
+                      AND func.name <> '<module>'
+                      AND (
+                            toLower(func.name) IN {_ENTRY_POINT_NAMES_CYPHER}
+                            OR (func.lang IN {_JVM_LANGS_CYPHER}
+                                AND toLower(func.name) IN {_ANDROID_ENTRY_POINT_NAMES_CYPHER})
+                            OR (func.modifiers IS NOT NULL AND 'override' IN func.modifiers)
+                            OR (func.name STARTS WITH '__' AND func.name ENDS WITH '__')
+                            OR func.name STARTS WITH '_test'
+                            OR func.name STARTS WITH 'test_'
+                          )
+                      {decorator_filter}
+                    WITH func
+                    OPTIONAL MATCH (caller)-[:CALLS|HEURISTIC_CALLS]->(func)
+                    WHERE (caller.is_dependency IS NULL OR caller.is_dependency = false)
+                      {caller_ignore}
+                    WITH func, count(caller) as caller_count
+                    WHERE caller_count = 0
+                    OPTIONAL MATCH (file:File)-[:CONTAINS]->(func)
+                    RETURN
+                        func.name as function_name,
+                        func.path as path,
+                        func.line_number as line_number,
+                        func.docstring as docstring,
+                        func.context as context,
+                        func.decorators as decorators,
+                        func.modifiers as modifiers,
+                        file.name as file_name
+                    ORDER BY func.path, func.line_number
+                """
+                low_rows = session.run(low_query, **params).data()
+                for row in low_rows:
+                    confidence, reason = _classify_dead_code_confidence(row)
+                    # Everything the main query excluded is low by construction,
+                    # but reuse the classifier so the reason strings match.
+                    row["confidence"] = "low" if confidence == "high" else confidence
+                    row["confidence_reason"] = reason
+                rows = rows + low_rows
+                rows.sort(key=lambda r: (str(r.get("path") or ""), r.get("line_number") or 0))
+
             total_count = len(rows)
+            confidence_counts = {"high": 0, "medium": 0, "low": 0}
+            for row in rows:
+                confidence_counts[row.get("confidence", "high")] += 1
             page = rows[:limit] if limit else rows
 
             return {
                 "potentially_unused_functions": page,
                 "total_count": total_count,
+                "confidence_counts": confidence_counts,
                 "note": "These functions might be unused, but could be entry points, callbacks, or called dynamically"
             }
     
+    def export_diagram_edges(self, level: str = "file", repo_path: Optional[str] = None, limit: Optional[int] = 300) -> Dict[str, Any]:
+        """Edges for a Mermaid/DOT export (#1287).
+
+        level="file": File -[IMPORTS]-> Module dependencies.
+        level="call": Function -[CALLS]-> Function within the repo.
+
+        Returns {"edges": [(src, dst), ...], "total_count": n, "truncated": bool}
+        — the cap is reported, never silent.
+        """
+        repo_path = self._normalize_repo_path_filter(repo_path)
+        with self.driver.session() as session:
+            if level == "call":
+                repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
+                query = f"""
+                    MATCH (caller:Function)-[:CALLS]->(callee:Function)
+                    WHERE caller.is_dependency = false AND callee.is_dependency = false
+                      AND caller.name <> '<module>' AND callee.name <> '<module>'
+                      {repo_filter}
+                    RETURN DISTINCT caller.name AS src, callee.name AS dst
+                    ORDER BY src, dst
+                """
+            else:
+                repo_filter = "AND file.path STARTS WITH $repo_path" if repo_path else ""
+                query = f"""
+                    MATCH (file:File)-[:IMPORTS]->(module:Module)
+                    WHERE file.is_dependency = false {repo_filter}
+                    RETURN DISTINCT file.relative_path AS src_rel, file.name AS src_name,
+                                    module.name AS dst
+                    ORDER BY src_rel, dst
+                """
+            params = {"repo_path": repo_path} if repo_path else {}
+            rows = session.run(query, **params).data()
+
+        if level == "call":
+            edges = [(r["src"], r["dst"]) for r in rows if r.get("src") and r.get("dst")]
+        else:
+            edges = [
+                ((r.get("src_rel") or r.get("src_name") or ""), r["dst"])
+                for r in rows
+                if (r.get("src_rel") or r.get("src_name")) and r.get("dst")
+            ]
+        total = len(edges)
+        truncated = limit is not None and total > limit
+        if truncated:
+            edges = edges[:limit]
+        return {"edges": edges, "total_count": total, "truncated": truncated}
+
     def find_all_callers(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, depth: int = 3) -> List[Dict]:
         """Find all direct and indirect callers of a specific function, returning edges."""
         repo_path = self._normalize_repo_path_filter(repo_path)
@@ -1634,28 +1775,40 @@ class CodeFinder:
                 return result_data[0]
             return None
 
-    def find_most_complex_functions(self, limit: int = 10, repo_path: Optional[str] = None, graph_name: str = None) -> List[Dict]:
+    def find_most_complex_functions(self, limit: Optional[int] = 10, repo_path: Optional[str] = None, graph_name: str = None) -> List[Dict]:
         self._active_graph = graph_name
-        """Find the most complex functions based on cyclomatic complexity."""
+        """Find the most complex functions based on cyclomatic complexity.
+
+        ``limit=None`` returns the full set — CI enforcement must not have its
+        violation count truncated by a display page (#1333).
+        """
         repo_path = self._normalize_repo_path_filter(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
             path_ignore = cypher_path_not_under_ignore_dirs("f.path")
+            limit_clause = "LIMIT $limit" if limit is not None else ""
+            params = {"repo_path": repo_path}
+            if limit is not None:
+                params["limit"] = limit
             query = f"""
                 MATCH (f:Function)
                 WHERE f.cyclomatic_complexity IS NOT NULL AND f.is_dependency = false {repo_filter} {path_ignore}
                 RETURN f.name as function_name, f.path as path, f.cyclomatic_complexity as complexity, f.line_number as line_number
                 ORDER BY f.cyclomatic_complexity DESC
-                LIMIT $limit
+                {limit_clause}
             """
-            result = session.run(query, limit=limit, repo_path=repo_path)
+            result = session.run(query, **params)
             return result.data()
 
-    def find_most_complex_functions_in_file(self, file_path: str, limit: int = 20, repo_path: Optional[str] = None) -> List[Dict]:
-        """Find the most complex functions in a specific file."""
+    def find_most_complex_functions_in_file(self, file_path: str, limit: Optional[int] = 20, repo_path: Optional[str] = None) -> List[Dict]:
+        """Find the most complex functions in a specific file (limit=None = all)."""
         repo_path = self._normalize_repo_path_filter(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
+            limit_clause = "LIMIT $limit" if limit is not None else ""
+            params = {"file_path": file_path, "repo_path": repo_path}
+            if limit is not None:
+                params["limit"] = limit
             query = f"""
                 MATCH (f:Function)
                 WHERE f.cyclomatic_complexity IS NOT NULL
@@ -1664,9 +1817,9 @@ class CodeFinder:
                 RETURN f.name as function_name, f.path as path,
                        f.cyclomatic_complexity as complexity, f.line_number as line_number
                 ORDER BY f.cyclomatic_complexity DESC
-                LIMIT $limit
+                {limit_clause}
             """
-            result = session.run(query, file_path=file_path, limit=limit, repo_path=repo_path)
+            result = session.run(query, **params)
             return result.data()
 
     def list_indexed_repositories(self, graph_name: str = None) -> List[Dict]:

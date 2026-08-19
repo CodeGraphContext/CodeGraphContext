@@ -1149,6 +1149,96 @@ def export_shortcut(
         context=context,
     )
 
+@app.command("diagram")
+def diagram(
+    path: Optional[str] = typer.Argument(None, help="Repository path to scope the diagram to"),
+    output_format: str = typer.Option("mermaid", "--format", help="Diagram format: mermaid or dot (#1287)"),
+    level: str = typer.Option("file", "--level", help="Granularity: 'file' (file→module imports) or 'call' (function call graph)"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Write to a file instead of stdout"),
+    limit: int = typer.Option(300, "--limit", "-l", help="Maximum edges to include (truncation is reported in the diagram)"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+):
+    """
+    Export the context graph as a Mermaid or Graphviz DOT diagram.
+
+    Mermaid output pastes straight into GitHub Markdown / Notion; DOT renders
+    locally with graphviz. The diagram is a generated artifact of the current
+    index — regenerate it after refactors rather than committing it as
+    documentation.
+
+    Example:
+        cgc diagram . > architecture.mmd
+        cgc diagram . --format dot -o graph.dot && dot -Tsvg graph.dot -o graph.svg
+        cgc diagram . --level call --limit 100
+    """
+    output_format = output_format.lower()
+    if output_format not in ("mermaid", "dot"):
+        console.print(f"[red]Unknown --format '{output_format}' (expected mermaid or dot)[/red]")
+        raise typer.Exit(code=2)
+    if level not in ("file", "call"):
+        console.print(f"[red]Unknown --level '{level}' (expected file or call)[/red]")
+        raise typer.Exit(code=2)
+    if output is None:
+        # stdout carries only the diagram; init chatter goes to stderr.
+        import sys as _sys
+        from . import cli_helpers as _cli_helpers
+        _cli_helpers.console.file = _sys.stderr
+
+    _load_credentials()
+    services = _initialize_services(context)
+    if not all(services[:3]):
+        raise typer.Exit(code=1)
+    db_manager, graph_builder, code_finder = services[:3]
+
+    try:
+        repo_path = Path(path).resolve().as_posix() if path else None
+        result = code_finder.export_diagram_edges(level=level, repo_path=repo_path, limit=limit)
+    finally:
+        db_manager.close_driver()
+
+    edges = result["edges"]
+    ids: dict = {}
+
+    def _node_id(name: str) -> str:
+        if name not in ids:
+            ids[name] = f"n{len(ids)}"
+        return ids[name]
+
+    lines = []
+    if output_format == "mermaid":
+        lines.append("graph LR")
+        if result["truncated"]:
+            lines.append(f"    %% truncated: showing {len(edges)} of {result['total_count']} edges (raise --limit)")
+        for src, dst in edges:
+            sid, did = _node_id(src), _node_id(dst)
+            s_label = src.replace('"', "'")
+            d_label = dst.replace('"', "'")
+            lines.append(f'    {sid}["{s_label}"] --> {did}["{d_label}"]')
+        if not edges:
+            lines.append("    %% no edges found for this scope")
+    else:
+        lines.append("digraph cgc {")
+        lines.append("    rankdir=LR;")
+        if result["truncated"]:
+            lines.append(f"    // truncated: showing {len(edges)} of {result['total_count']} edges (raise --limit)")
+        for src, dst in edges:
+            sid, did = _node_id(src), _node_id(dst)
+            lines.append(f'    {sid} -> {did};')
+        for name, nid in ids.items():
+            label = name.replace('"', "'")
+            lines.append(f'    {nid} [label="{label}"];')
+        lines.append("}")
+
+    text = "\n".join(lines) + "\n"
+    if output:
+        Path(output).write_text(text, encoding="utf-8")
+        console.print(f"[green]✅ Wrote {output_format} diagram ({len(edges)} edges) to {output}[/green]")
+        if result["truncated"]:
+            console.print(f"[yellow]⚠ Truncated: {result['total_count']} total edges; raise --limit to include all[/yellow]")
+    else:
+        print(text, end="")
+
+
 @app.command("load", rich_help_panel="Bundle Shortcuts")
 def load_shortcut(
     bundle_name: str = typer.Argument(..., help="Bundle name or path to load"),
@@ -2905,9 +2995,11 @@ def analyze_inheritance_tree(
 def analyze_complexity(
     path: Optional[str] = typer.Argument(None, help="Function name or file path to analyze"),
     threshold: Optional[int] = typer.Option(None, "--threshold", "-t", help="Complexity threshold for warnings (default: from config or 10)"),
-    limit: int = typer.Option(20, "--limit", "-l", help="Maximum results to show"),
+    limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Maximum results to show (default 20 for text; unlimited for json/csv)"),
     file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path to scope analysis"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+    output_format: str = typer.Option("text", "--format", help="Output format: text, json or csv (#1333)"),
+    fail_on_violations: bool = typer.Option(False, "--fail-on-violations", help="Exit with code 1 when any function exceeds the threshold (CI gate)"),
 ):
     """
     Show cyclomatic complexity for functions.
@@ -2920,7 +3012,19 @@ def analyze_complexity(
         cgc analyze complexity src/main.py        # Most complex functions in file
         cgc analyze complexity main.py            # Most complex functions in file
         cgc analyze complexity --file src/main.py # Alternative file syntax
+        cgc analyze complexity -t 10 --format json --fail-on-violations  # CI gate
     """
+    output_format = output_format.lower()
+    if output_format not in ("text", "json", "csv"):
+        console.print(f"[red]Unknown --format '{output_format}' (expected text, json or csv)[/red]")
+        raise typer.Exit(code=2)
+    if output_format in ("json", "csv"):
+        # stdout must carry ONLY the parseable document: the service-init
+        # chatter from cli_helpers prints to stdout, so reroute that console
+        # to stderr before initializing anything (`--format json | jq .`).
+        import sys as _sys
+        from . import cli_helpers as _cli_helpers
+        _cli_helpers.console.file = _sys.stderr
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
@@ -2937,6 +3041,47 @@ def analyze_complexity(
                 threshold = 10
         else:
             threshold = 10
+
+    machine_output = output_format in ("json", "csv")
+    # Enforcement and export need the full set: a display page must never
+    # truncate the violation count a CI gate acts on (#1333).
+    effective_limit = limit if limit is not None else (None if (machine_output or fail_on_violations) else 20)
+
+    def _violations_from(results):
+        rows = []
+        for func in results or []:
+            # The synthetic `<module>` frame is the attribution target for
+            # module-level calls, not a function anyone can refactor.
+            if func.get("function_name") == "<module>":
+                continue
+            complexity = func.get("complexity", 0) or 0
+            if complexity > threshold:
+                rows.append({
+                    "function": func.get("function_name", ""),
+                    "file": func.get("path", ""),
+                    "line": func.get("line_number"),
+                    "complexity": complexity,
+                    "exceeds_by": complexity - threshold,
+                })
+        return rows
+
+    def _emit_machine(violations):
+        import csv as _csv
+        import io as _io
+        import json as _json
+        if output_format == "json":
+            print(_json.dumps({
+                "threshold": threshold,
+                "violations_count": len(violations),
+                "violations": violations,
+            }, indent=2))
+        else:
+            buf = _io.StringIO()
+            w = _csv.writer(buf)
+            w.writerow(["function", "file", "line", "complexity", "exceeds_by"])
+            for v in violations:
+                w.writerow([v["function"], v["file"], v["line"], v["complexity"], v["exceeds_by"]])
+            print(buf.getvalue(), end="")
 
     _FILE_EXTENSIONS = ('.py', '.js', '.ts', '.jsx', '.tsx', '.go', '.rs', '.rb',
                         '.java', '.cpp', '.c', '.cs', '.swift', '.kt', '.scala',
@@ -2970,15 +3115,31 @@ def analyze_complexity(
         console.print(table)
         console.print(f"\n[dim]{len([f for f in results if f.get('complexity', 0) > threshold])} function(s) exceed threshold[/dim]")
 
+    violations = None
     try:
         if path and _is_file_path(path):
             # File path provided as positional argument
-            results = code_finder.find_most_complex_functions_in_file(path, limit)
-            _render_complexity_table(results, f"Most Complex Functions in '{path}' (threshold: {threshold}):")
+            results = code_finder.find_most_complex_functions_in_file(path, effective_limit)
+            violations = _violations_from(results)
+            if machine_output:
+                _emit_machine(violations)
+            else:
+                _render_complexity_table(results, f"Most Complex Functions in '{path}' (threshold: {threshold}):")
         elif path:
             # Specific function name
             result = code_finder.get_cyclomatic_complexity(path, file)
+            single = []
             if result:
+                single = [{
+                    "function_name": path,
+                    "path": result.get("path", ""),
+                    "line_number": result.get("line_number"),
+                    "complexity": result.get("complexity", 0) or 0,
+                }]
+            violations = _violations_from(single)
+            if machine_output:
+                _emit_machine(violations)
+            elif result:
                 console.print(f"\n[bold cyan]Complexity for '{path}':[/bold cyan]")
                 console.print(f"  Cyclomatic Complexity: [yellow]{result.get('complexity', 'N/A')}[/yellow]")
                 console.print(f"  File: [dim]{result.get('path', '')}[/dim]")
@@ -2987,20 +3148,36 @@ def analyze_complexity(
                 console.print(f"[yellow]Function '{path}' not found or has no complexity data[/yellow]")
         elif file:
             # --file option without positional arg
-            results = code_finder.find_most_complex_functions_in_file(file, limit)
-            _render_complexity_table(results, f"Most Complex Functions in '{file}' (threshold: {threshold}):")
+            results = code_finder.find_most_complex_functions_in_file(file, effective_limit)
+            violations = _violations_from(results)
+            if machine_output:
+                _emit_machine(violations)
+            else:
+                _render_complexity_table(results, f"Most Complex Functions in '{file}' (threshold: {threshold}):")
         else:
             # Global - most complex functions
-            results = code_finder.find_most_complex_functions(limit)
-            _render_complexity_table(results, f"Most Complex Functions (threshold: {threshold}):")
+            results = code_finder.find_most_complex_functions(effective_limit)
+            violations = _violations_from(results)
+            if machine_output:
+                _emit_machine(violations)
+            else:
+                _render_complexity_table(results, f"Most Complex Functions (threshold: {threshold}):")
     finally:
         db_manager.close_driver()
+
+    # CI gate (#1333): explicit opt-in keeps exploratory usage exit-0 —
+    # the config default threshold means most codebases have *some*
+    # function above it, and failing every casual invocation would break
+    # innocent `cgc analyze complexity && …` chains.
+    if fail_on_violations and violations:
+        raise typer.Exit(code=1)
 
 @analyze_app.command("dead-code")
 def analyze_dead_code(
     path: Optional[str] = typer.Argument(None, help="Repository path to scope the analysis to"),
     exclude_decorators: Optional[str] = typer.Option(None, "--exclude", "-e", help="Comma-separated decorators to exclude"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+    show_all: bool = typer.Option(False, "--show-all", help="Include low-confidence rows (dunders, test hooks, entry-point names) normally hidden (#1332)"),
 ):
     """
     Find potentially unused functions.
@@ -3030,7 +3207,8 @@ def analyze_dead_code(
         # of table rows. The true count comes from total_count below (#1606).
         display_limit = get_tool_result_limit("find_dead_code")
         results = code_finder.find_dead_code(
-            exclude_list, repo_path=repo_path, limit=display_limit
+            exclude_list, repo_path=repo_path, limit=display_limit,
+            include_low_confidence=show_all,
         )
 
         unused_funcs = results.get('potentially_unused_functions', [])
@@ -3042,16 +3220,22 @@ def analyze_dead_code(
         
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
         table.add_column("Function", style="cyan")
+        table.add_column("Confidence", justify="center")
         table.add_column("Location", style="dim", overflow="fold")
-        
-        for func in unused_funcs:
-            path = func.get('path', '')
-            line_str = str(func.get('line_number', ''))
-            location_str = f"{path}:{line_str}" if line_str else path
 
+        _conf_render = {
+            "high": "[red]● high[/red]",
+            "medium": "[yellow]● medium[/yellow]",
+            "low": "[dim]● low[/dim]",
+        }
+        for func in unused_funcs:
+            fpath = func.get('path', '')
+            line_str = str(func.get('line_number', ''))
+            location_str = f"{fpath}:{line_str}" if line_str else fpath
             table.add_row(
                 func.get('function_name', ''),
-                location_str
+                _conf_render.get(func.get('confidence', 'high'), func.get('confidence', '')),
+                location_str,
             )
         
         console.print("\n[bold yellow]⚠️  Potentially Unused Functions:[/bold yellow]")
@@ -3063,6 +3247,16 @@ def analyze_dead_code(
             )
         else:
             console.print(f"\n[dim]Total: {total_count} function(s)[/dim]")
+        counts = results.get('confidence_counts') or {}
+        if counts:
+            summary = (
+                f"[red]{counts.get('high', 0)} high[/red], "
+                f"[yellow]{counts.get('medium', 0)} medium[/yellow], "
+                f"[dim]{counts.get('low', 0)} low[/dim] confidence"
+            )
+            if not show_all:
+                summary += " [dim](low-confidence categories are hidden — use --show-all)[/dim]"
+            console.print(summary)
         console.print(f"[dim]Note: {results.get('note', '')}[/dim]")
     finally:
         db_manager.close_driver()

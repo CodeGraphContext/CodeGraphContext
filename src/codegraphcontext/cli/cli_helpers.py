@@ -123,6 +123,10 @@ def _print_index_execution_summary(graph_builder: GraphBuilder) -> None:
         f"{summary.get('serialization_seconds', 0.0):.2f}",
     )
     console.print(table)
+    # Always-visible warnings (#1597): these describe an explicitly enabled
+    # feature that did NOT run — they must not depend on the log level.
+    for warning in summary.get("warnings", []):
+        console.print(f"[bold yellow]⚠ {warning}[/bold yellow]")
 
 
 def _initialize_services(
