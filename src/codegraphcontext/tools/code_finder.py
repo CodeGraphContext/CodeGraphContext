@@ -1634,28 +1634,40 @@ class CodeFinder:
                 return result_data[0]
             return None
 
-    def find_most_complex_functions(self, limit: int = 10, repo_path: Optional[str] = None, graph_name: str = None) -> List[Dict]:
+    def find_most_complex_functions(self, limit: Optional[int] = 10, repo_path: Optional[str] = None, graph_name: str = None) -> List[Dict]:
         self._active_graph = graph_name
-        """Find the most complex functions based on cyclomatic complexity."""
+        """Find the most complex functions based on cyclomatic complexity.
+
+        ``limit=None`` returns the full set — CI enforcement must not have its
+        violation count truncated by a display page (#1333).
+        """
         repo_path = self._normalize_repo_path_filter(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
             path_ignore = cypher_path_not_under_ignore_dirs("f.path")
+            limit_clause = "LIMIT $limit" if limit is not None else ""
+            params = {"repo_path": repo_path}
+            if limit is not None:
+                params["limit"] = limit
             query = f"""
                 MATCH (f:Function)
                 WHERE f.cyclomatic_complexity IS NOT NULL AND f.is_dependency = false {repo_filter} {path_ignore}
                 RETURN f.name as function_name, f.path as path, f.cyclomatic_complexity as complexity, f.line_number as line_number
                 ORDER BY f.cyclomatic_complexity DESC
-                LIMIT $limit
+                {limit_clause}
             """
-            result = session.run(query, limit=limit, repo_path=repo_path)
+            result = session.run(query, **params)
             return result.data()
 
-    def find_most_complex_functions_in_file(self, file_path: str, limit: int = 20, repo_path: Optional[str] = None) -> List[Dict]:
-        """Find the most complex functions in a specific file."""
+    def find_most_complex_functions_in_file(self, file_path: str, limit: Optional[int] = 20, repo_path: Optional[str] = None) -> List[Dict]:
+        """Find the most complex functions in a specific file (limit=None = all)."""
         repo_path = self._normalize_repo_path_filter(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
+            limit_clause = "LIMIT $limit" if limit is not None else ""
+            params = {"file_path": file_path, "repo_path": repo_path}
+            if limit is not None:
+                params["limit"] = limit
             query = f"""
                 MATCH (f:Function)
                 WHERE f.cyclomatic_complexity IS NOT NULL
@@ -1664,9 +1676,9 @@ class CodeFinder:
                 RETURN f.name as function_name, f.path as path,
                        f.cyclomatic_complexity as complexity, f.line_number as line_number
                 ORDER BY f.cyclomatic_complexity DESC
-                LIMIT $limit
+                {limit_clause}
             """
-            result = session.run(query, file_path=file_path, limit=limit, repo_path=repo_path)
+            result = session.run(query, **params)
             return result.data()
 
     def list_indexed_repositories(self, graph_name: str = None) -> List[Dict]:

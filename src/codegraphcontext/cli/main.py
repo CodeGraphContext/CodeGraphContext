@@ -2905,9 +2905,11 @@ def analyze_inheritance_tree(
 def analyze_complexity(
     path: Optional[str] = typer.Argument(None, help="Function name or file path to analyze"),
     threshold: Optional[int] = typer.Option(None, "--threshold", "-t", help="Complexity threshold for warnings (default: from config or 10)"),
-    limit: int = typer.Option(20, "--limit", "-l", help="Maximum results to show"),
+    limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Maximum results to show (default 20 for text; unlimited for json/csv)"),
     file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path to scope analysis"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+    output_format: str = typer.Option("text", "--format", help="Output format: text, json or csv (#1333)"),
+    fail_on_violations: bool = typer.Option(False, "--fail-on-violations", help="Exit with code 1 when any function exceeds the threshold (CI gate)"),
 ):
     """
     Show cyclomatic complexity for functions.
@@ -2920,7 +2922,19 @@ def analyze_complexity(
         cgc analyze complexity src/main.py        # Most complex functions in file
         cgc analyze complexity main.py            # Most complex functions in file
         cgc analyze complexity --file src/main.py # Alternative file syntax
+        cgc analyze complexity -t 10 --format json --fail-on-violations  # CI gate
     """
+    output_format = output_format.lower()
+    if output_format not in ("text", "json", "csv"):
+        console.print(f"[red]Unknown --format '{output_format}' (expected text, json or csv)[/red]")
+        raise typer.Exit(code=2)
+    if output_format in ("json", "csv"):
+        # stdout must carry ONLY the parseable document: the service-init
+        # chatter from cli_helpers prints to stdout, so reroute that console
+        # to stderr before initializing anything (`--format json | jq .`).
+        import sys as _sys
+        from . import cli_helpers as _cli_helpers
+        _cli_helpers.console.file = _sys.stderr
     _load_credentials()
     services = _initialize_services(context)
     if not all(services[:3]):
@@ -2937,6 +2951,47 @@ def analyze_complexity(
                 threshold = 10
         else:
             threshold = 10
+
+    machine_output = output_format in ("json", "csv")
+    # Enforcement and export need the full set: a display page must never
+    # truncate the violation count a CI gate acts on (#1333).
+    effective_limit = limit if limit is not None else (None if (machine_output or fail_on_violations) else 20)
+
+    def _violations_from(results):
+        rows = []
+        for func in results or []:
+            # The synthetic `<module>` frame is the attribution target for
+            # module-level calls, not a function anyone can refactor.
+            if func.get("function_name") == "<module>":
+                continue
+            complexity = func.get("complexity", 0) or 0
+            if complexity > threshold:
+                rows.append({
+                    "function": func.get("function_name", ""),
+                    "file": func.get("path", ""),
+                    "line": func.get("line_number"),
+                    "complexity": complexity,
+                    "exceeds_by": complexity - threshold,
+                })
+        return rows
+
+    def _emit_machine(violations):
+        import csv as _csv
+        import io as _io
+        import json as _json
+        if output_format == "json":
+            print(_json.dumps({
+                "threshold": threshold,
+                "violations_count": len(violations),
+                "violations": violations,
+            }, indent=2))
+        else:
+            buf = _io.StringIO()
+            w = _csv.writer(buf)
+            w.writerow(["function", "file", "line", "complexity", "exceeds_by"])
+            for v in violations:
+                w.writerow([v["function"], v["file"], v["line"], v["complexity"], v["exceeds_by"]])
+            print(buf.getvalue(), end="")
 
     _FILE_EXTENSIONS = ('.py', '.js', '.ts', '.jsx', '.tsx', '.go', '.rs', '.rb',
                         '.java', '.cpp', '.c', '.cs', '.swift', '.kt', '.scala',
@@ -2970,15 +3025,31 @@ def analyze_complexity(
         console.print(table)
         console.print(f"\n[dim]{len([f for f in results if f.get('complexity', 0) > threshold])} function(s) exceed threshold[/dim]")
 
+    violations = None
     try:
         if path and _is_file_path(path):
             # File path provided as positional argument
-            results = code_finder.find_most_complex_functions_in_file(path, limit)
-            _render_complexity_table(results, f"Most Complex Functions in '{path}' (threshold: {threshold}):")
+            results = code_finder.find_most_complex_functions_in_file(path, effective_limit)
+            violations = _violations_from(results)
+            if machine_output:
+                _emit_machine(violations)
+            else:
+                _render_complexity_table(results, f"Most Complex Functions in '{path}' (threshold: {threshold}):")
         elif path:
             # Specific function name
             result = code_finder.get_cyclomatic_complexity(path, file)
+            single = []
             if result:
+                single = [{
+                    "function_name": path,
+                    "path": result.get("path", ""),
+                    "line_number": result.get("line_number"),
+                    "complexity": result.get("complexity", 0) or 0,
+                }]
+            violations = _violations_from(single)
+            if machine_output:
+                _emit_machine(violations)
+            elif result:
                 console.print(f"\n[bold cyan]Complexity for '{path}':[/bold cyan]")
                 console.print(f"  Cyclomatic Complexity: [yellow]{result.get('complexity', 'N/A')}[/yellow]")
                 console.print(f"  File: [dim]{result.get('path', '')}[/dim]")
@@ -2987,14 +3058,29 @@ def analyze_complexity(
                 console.print(f"[yellow]Function '{path}' not found or has no complexity data[/yellow]")
         elif file:
             # --file option without positional arg
-            results = code_finder.find_most_complex_functions_in_file(file, limit)
-            _render_complexity_table(results, f"Most Complex Functions in '{file}' (threshold: {threshold}):")
+            results = code_finder.find_most_complex_functions_in_file(file, effective_limit)
+            violations = _violations_from(results)
+            if machine_output:
+                _emit_machine(violations)
+            else:
+                _render_complexity_table(results, f"Most Complex Functions in '{file}' (threshold: {threshold}):")
         else:
             # Global - most complex functions
-            results = code_finder.find_most_complex_functions(limit)
-            _render_complexity_table(results, f"Most Complex Functions (threshold: {threshold}):")
+            results = code_finder.find_most_complex_functions(effective_limit)
+            violations = _violations_from(results)
+            if machine_output:
+                _emit_machine(violations)
+            else:
+                _render_complexity_table(results, f"Most Complex Functions (threshold: {threshold}):")
     finally:
         db_manager.close_driver()
+
+    # CI gate (#1333): explicit opt-in keeps exploratory usage exit-0 —
+    # the config default threshold means most codebases have *some*
+    # function above it, and failing every casual invocation would break
+    # innocent `cgc analyze complexity && …` chains.
+    if fail_on_violations and violations:
+        raise typer.Exit(code=1)
 
 @analyze_app.command("dead-code")
 def analyze_dead_code(
