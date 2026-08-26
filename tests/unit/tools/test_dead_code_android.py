@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("kuzu")
+pytest.importorskip("ladybug")
 
 from codegraphcontext.core.database_ladybug import LadybugDBManager
 from codegraphcontext.tools.code_finder import ANDROID_DECORATOR_PRESET, CodeFinder

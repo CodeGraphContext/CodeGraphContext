@@ -550,14 +550,16 @@ def test_get_database_manager_migrates_to_ladybug_fallback_path(
     monkeypatch,
     tmp_path,
 ):
-    """When FalkorDB is unavailable, migrate into the Ladybug fallback store."""
+    """Implicit selection migrates into LadybugDB when FalkorDB is unavailable."""
     calls = []
     created = _install_backend_module(
         monkeypatch,
         "codegraphcontext.core.database_ladybug",
         "LadybugDBManager",
     )
-    monkeypatch.setenv("CGC_RUNTIME_DB_TYPE", "falkordb")
+    monkeypatch.delenv("CGC_RUNTIME_DB_TYPE", raising=False)
+    monkeypatch.delenv("DEFAULT_DATABASE", raising=False)
+    monkeypatch.delenv("FALKORDB_HOST", raising=False)
     monkeypatch.setattr(core, "is_falkordb_usable", lambda: False)
     monkeypatch.setattr(core, "_is_ladybugdb_available", lambda: True)
     monkeypatch.setattr(core, "_is_neo4j_configured", lambda: False)

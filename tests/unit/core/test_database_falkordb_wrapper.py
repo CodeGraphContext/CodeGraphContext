@@ -93,11 +93,7 @@ def test_startup_failure_for_one_path_does_not_disable_another_path(tmp_path, mo
 
 def test_factory_retries_falkordb_for_a_different_database_path(monkeypatch):
     from codegraphcontext import core
-    from codegraphcontext.core import database_falkordb, database_ladybug
-
-    class FallbackLadybugManager:
-        def __init__(self, db_path):
-            self.db_path = db_path
+    from codegraphcontext.core import database_falkordb
 
     class PathScopedFalkorManager:
         def __init__(self, db_path):
@@ -111,9 +107,9 @@ def test_factory_retries_falkordb_for_a_different_database_path(monkeypatch):
     monkeypatch.delenv("CGC_RUNTIME_DB_TYPE", raising=False)
     monkeypatch.setattr(core, "_FALKORDB_DISABLED", False)
     monkeypatch.setattr(core, "_is_falkordb_available", lambda: True)
-    monkeypatch.setattr(core, "_is_ladybugdb_available", lambda: True)
     monkeypatch.setattr(database_falkordb, "FalkorDBManager", PathScopedFalkorManager)
-    monkeypatch.setattr(database_ladybug, "LadybugDBManager", FallbackLadybugManager)
 
-    assert isinstance(core.get_database_manager("/repo/failed/falkordb"), FallbackLadybugManager)
+    with pytest.raises(ValueError, match="strict and will not fall back"):
+        core.get_database_manager("/repo/failed/falkordb")
+
     assert isinstance(core.get_database_manager("/repo/working/falkordb"), PathScopedFalkorManager)

@@ -798,32 +798,28 @@ class EmbeddedSessionWrapper:
         translated_query, translated_params = self._translate_query(query, parameters)
         debug_log(f"Translated Query: {translated_query[:200]}")
         try:
-            # Force the per-row loop fallback ONLY for UNWIND batches containing a
-            # node-MERGE. Kùzu's MERGE pipeline mis-binds when a merged node's key
-            # value repeats NON-adjacently across the batch: in
-            # [(A,P), (B,X), (C,P)] the C row binds to X's node instead of
-            # re-matching P (reproduced on Kùzu 0.11.3; see #1605). Relationship-only
-            # MERGEs (MATCH … MATCH … MERGE (a)-[r]->(b)) do not exhibit the bug —
-            # verified with interleaved duplicate endpoint keys and duplicate pairs —
-            # so they now run batched, which removes the bulk of the per-row planner
-            # overhead (~2.4x on a full index of the Python sample project).
+            # Force the per-row loop fallback for relationship-writing UNWIND
+            # batches. Ladybug 0.11.x can silently mis-bind both node-MERGE and
+            # relationship-only batches: full parity indexing lost varying
+            # subsets of CALLS, CONTAINS, and INHERITS edges without raising an
+            # exception. Per-row execution is slower but deterministic.
             # Only `UNWIND $param AS row` shapes are guarded — that is the single
             # shape the recovery path below can rewrite into a per-row loop. Read
             # queries that unwind a bound list (`WITH relationships(p) AS rels
             # UNWIND rels AS r`) must not match, or the fabricated exception would
             # surface to the caller as a hard failure.
             # Node-only UNWIND writes (`MERGE (n:Label {…}) SET n += row`, no
-            # relationship pattern) have always batched through the SET-expansion
-            # path and the per-row rewriter cannot handle their bare `SET n += row`,
-            # so the guard additionally requires a relationship pattern.
-            _has_node_merge = re.search(r"MERGE\s*\(\s*\w+\s*:", query)
+            # relationship pattern) still batch through the SET-expansion path;
+            # the per-row rewriter cannot handle their bare `SET n += row`.
             if (
                 re.search(r"UNWIND\s+\$\w+\s+AS\s+\w+", query)
                 and ("-[" in query or "]->" in query)
-                and _has_node_merge
                 and not getattr(self, "_skip_unwind_fallback", False)
             ):
-                raise Exception("unordered_map::at (forced fallback: node-MERGE inside UNWIND mis-binds repeated keys)")
+                raise Exception(
+                    "unordered_map::at (forced fallback: relationship UNWIND "
+                    "batches can mis-bind rows)"
+                )
 
             # 2. Execute under the lock. _write_lock (name kept for backward
             # compat) now serializes ALL access, reads included: kuzu.Connection

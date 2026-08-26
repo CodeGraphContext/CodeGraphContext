@@ -14,7 +14,7 @@ from codegraphcontext.core.database_ladybug import LadybugDBManager
 from codegraphcontext.tools.code_finder import CodeFinder
 
 
-kuzu = pytest.importorskip("kuzu")
+ladybug = pytest.importorskip("ladybug")
 
 
 class _LadybugDBAdapter:

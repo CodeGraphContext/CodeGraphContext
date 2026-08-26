@@ -13,7 +13,7 @@ from codegraphcontext.core.database_ladybug import LadybugDBManager
 from codegraphcontext.core.simulator import CodeGraphTwin
 from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
-kuzu = pytest.importorskip("kuzu")
+ladybug = pytest.importorskip("ladybug")
 
 
 class _DBM:

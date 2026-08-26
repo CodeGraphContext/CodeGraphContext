@@ -13,7 +13,7 @@ import pytest
 from codegraphcontext.core.database_ladybug import LadybugDBManager
 from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
-kuzu = pytest.importorskip("kuzu")
+ladybug = pytest.importorskip("ladybug")
 
 
 def _new_kuzu_driver(tmp_path: Path):

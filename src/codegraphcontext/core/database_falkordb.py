@@ -419,6 +419,11 @@ class FalkorDBManager:
         from codegraphcontext.cli.config_manager import get_config_value
 
         env = os.environ.copy()
+        source_root = str(Path(__file__).resolve().parents[2])
+        inherited_pythonpath = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = os.pathsep.join(
+            path for path in (source_root, inherited_pythonpath) if path
+        )
         env["FALKORDB_PATH"] = self.db_path
         env["FALKORDB_SOCKET_PATH"] = self.socket_path
         configured_port = os.getenv("FALKORDB_PORT") or get_config_value("FALKORDB_PORT")

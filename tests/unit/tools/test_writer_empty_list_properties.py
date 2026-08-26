@@ -28,7 +28,7 @@ import pytest
 from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 from codegraphcontext.utils.tree_sitter_manager import get_tree_sitter_manager
 
-kuzu = pytest.importorskip("kuzu")
+ladybug = pytest.importorskip("ladybug")
 
 from codegraphcontext.core.database_ladybug import LadybugDBManager  # noqa: E402
 from codegraphcontext.tools.languages.kotlin import (  # noqa: E402

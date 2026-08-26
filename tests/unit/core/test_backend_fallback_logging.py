@@ -7,8 +7,6 @@ The user's only signal was the banner naming the backend they *asked* for, so an
 interpreter where FalkorDB Lite cannot load was indistinguishable from one where
 it loaded fine — while queries silently ran against a different, often empty, DB.
 """
-import sys
-
 import pytest
 
 import codegraphcontext.core as core
@@ -37,22 +35,16 @@ def _only_backend(monkeypatch, available):
     monkeypatch.setattr(core, "_is_nornic_configured", lambda: available == "nornic")
 
 
-def test_falkordb_to_ladybug_fallback_names_ladybug(monkeypatch, fallback_log):
-    """The Failure Mode 1 from #1331: FalkorDB unusable, LadybugDB takes over silently."""
+def test_explicit_falkordb_does_not_fallback_to_ladybug(monkeypatch, fallback_log):
+    """An unavailable explicitly selected FalkorDB must fail without switching stores."""
     monkeypatch.setenv("CGC_RUNTIME_DB_TYPE", "falkordb")
     monkeypatch.setattr(core, "is_falkordb_usable", lambda: False)
     _only_backend(monkeypatch, "ladybugdb")
 
-    sentinel = object()
-    fake = type(sys)("codegraphcontext.core.database_ladybug")
-    fake.LadybugDBManager = lambda db_path=None: sentinel
-    monkeypatch.setitem(sys.modules, "codegraphcontext.core.database_ladybug", fake)
+    with pytest.raises(ValueError, match="strict and will not fall back"):
+        core.get_database_manager()
 
-    assert core.get_database_manager() is sentinel
-
-    joined = " ".join(fallback_log)
-    assert "fallback" in joined.lower(), f"no fallback logged: {fallback_log!r}"
-    assert "LadybugDB" in joined, f"fallback did not name the backend it landed on: {fallback_log!r}"
+    assert fallback_log == []
 
 
 def test_no_backend_available_still_raises(monkeypatch, fallback_log):

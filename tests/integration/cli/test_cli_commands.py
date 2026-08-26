@@ -446,7 +446,7 @@ def test_cli_inventory_grouped_from_source():
         assert inventory["context"] == {"list", "create", "delete", "mode", "default"}
 
 
-def test_all_canonical_cli_commands_run_with_ladybugdb(ladybugdb_env, cli_test_stubs):
+def test_all_canonical_cli_commands_run_with_ladybugdb(ladybugdb_env, cli_test_stubs, tmp_path):
     bundle_file = str(cli_test_stubs["bundle_file"])
     bundle_export = str(cli_test_stubs["bundle_export"])
 
@@ -553,9 +553,6 @@ def test_all_canonical_cli_commands_run_with_ladybugdb(ladybugdb_env, cli_test_s
 
     expected_inventory = source_inventory
     expected_set = {(family, name) for family, names in expected_inventory.items() for name in names}
-    # `bundle merge` is a non-interactive git merge driver that takes file
-    # arguments; it is not exercised by this smoke matrix.
-    expected_set.discard(("bundle", "merge"))
     # `bundle verify`/`inspect`/`diff` (#1060) each require an existing .cgc
     # file (two, for diff) as a positional argument, so they cannot be invoked
     # bare the way this matrix invokes everything else. Their behaviour is
@@ -800,6 +797,11 @@ def test_load_credentials_normalizes_tilde_paths_from_mcp_json(monkeypatch, tmp_
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        cli_main.config_manager,
+        "CONFIG_FILE",
+        tmp_path / ".codegraphcontext" / ".env",
+    )
 
     mcp_data = {
         "mcpServers": {
@@ -846,7 +848,9 @@ def test_load_credentials_utf8_decoding_robustness(monkeypatch, tmp_path):
         cgcignore_path = "/path/to/cgcignore"
 
     monkeypatch.setattr(cli_main.config_manager, "CONFIG_DIR", tmp_path)
-    monkeypatch.setattr(cli_main.config_manager, "CONFIG_FILE", tmp_path / "config.json")
+    global_dir = tmp_path / ".codegraphcontext"
+    real_global_env = global_dir / ".env"
+    monkeypatch.setattr(cli_main.config_manager, "CONFIG_FILE", real_global_env)
     monkeypatch.setattr(cli_main.config_manager, "CONTEXT_CONFIG_FILE", tmp_path / "config.yaml")
     monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
     monkeypatch.chdir(tmp_path)
@@ -857,9 +861,7 @@ def test_load_credentials_utf8_decoding_robustness(monkeypatch, tmp_path):
     # We will write invalid UTF-8 bytes to the global .env file path
     monkeypatch.setenv("HOME", str(tmp_path))
     
-    global_dir = tmp_path / ".codegraphcontext"
     global_dir.mkdir(parents=True, exist_ok=True)
-    real_global_env = global_dir / ".env"
     
     # Write invalid UTF-8 bytes to the file (e.g. 0x97 invalid start byte)
     real_global_env.write_bytes(b"DEFAULT_DATABASE=ladybugdb\n# invalid byte: \x97\n")

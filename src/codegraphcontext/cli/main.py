@@ -310,6 +310,7 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
     """
     from dotenv import dotenv_values
     from codegraphcontext.cli.config_manager import (
+        CONFIG_FILE,
         ensure_config_dir,
         codegraphcontext_dotenv_at_cwd,
         normalize_config_path,
@@ -359,7 +360,7 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
             console.print(f"[yellow]Warning: Could not load mcp.json: {e}[/yellow]")
     
     # 3. Global .env file (user defaults)
-    global_env_path = Path.home() / ".codegraphcontext" / ".env"
+    global_env_path = CONFIG_FILE
     if global_env_path.exists():
         try:
             with open(global_env_path, "r", encoding="utf-8", errors="replace") as f:
