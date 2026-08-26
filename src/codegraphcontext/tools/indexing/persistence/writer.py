@@ -154,13 +154,29 @@ def _cypher_label(label: str, backend: str) -> str:
 
 
 def _called_context_clause(called_label: str) -> str:
-    """Match CALLS targets that store scope in context, class_context, or module_context."""
-    if called_label in ("Function", "Variable"):
+    """Match CALLS targets that store scope in context, class_context, or module_context.
+
+    Resolution stores the resolved scope in `called_context`, but which node
+    property carries that scope differs by parser: Python/JS use `context`,
+    C++/PHP methods use `class_context`, and Rust functions carry ONLY
+    `module_context` (#1510). Matching `context` alone filtered every
+    correctly-resolved Rust module-scoped call out at write time.
+
+    Variable is restricted to `context`: the Kùzu Variable table declares no
+    class_context/module_context columns, and referencing a missing column
+    binder-errors the whole batch on typed backends.
+    """
+    if called_label == "Function":
         return (
             'AND (row.called_context = "" OR row.called_context IS NULL '
             "OR called.context = row.called_context "
             "OR called.class_context = row.called_context "
             "OR called.module_context = row.called_context)"
+        )
+    if called_label == "Variable":
+        return (
+            'AND (row.called_context = "" OR row.called_context IS NULL '
+            "OR called.context = row.called_context)"
         )
     return ""
 
@@ -1006,10 +1022,12 @@ class GraphWriter:
                         precise_batch.append(row)
 
                 # Define which labels have a 'context' property in the schema
-                labels_with_context = {"Function", "Variable"}
-                called_context_clause = ""
-                if called_label in labels_with_context:
-                    called_context_clause = 'AND (row.called_context = "" OR called.context = row.called_context)'
+                # The label-aware helper matches context, class_context or
+                # module_context depending on what the label's parsers emit —
+                # the inline context-only predicate silently dropped Rust
+                # module-scoped calls whose functions carry only
+                # module_context (#1510).
+                called_context_clause = _called_context_clause(called_label)
 
                 # ...and which have a 'line_number'. File and Directory do not:
                 # the Kùzu File table is (path, name, relative_path, package_name,
