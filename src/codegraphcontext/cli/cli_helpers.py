@@ -351,7 +351,7 @@ def index_helper(path: str, context: Optional[str] = None, no_progress: bool = F
                 file_count = record["file_count"] if record else 0
                 
                 if file_count > 0:
-                    expected = graph_builder.estimate_processing_time(path_obj) if path_obj.is_dir() else None
+                    expected = graph_builder.estimate_processing_time(path_obj, cgcignore_path=ctx.cgcignore_path) if path_obj.is_dir() else None
                     expected_file_count = expected[0] if expected else None
                     if expected_file_count is None or file_count >= expected_file_count:
                         console.print(f"[yellow]Repository '{path}' is already indexed with {file_count} files. Skipping.[/yellow]")
@@ -361,6 +361,32 @@ def index_helper(path: str, context: Optional[str] = None, no_progress: bool = F
                     console.print(
                         f"[yellow]Repository '{path}' has only {file_count} of {expected_file_count} files indexed. Continuing.[/yellow]"
                     )
+                    # Name the gap: without this, a pipeline that can never
+                    # produce nodes for some files loops on the message above
+                    # forever with nothing actionable (#1673).
+                    try:
+                        from codegraphcontext.tools.indexing.discovery import discover_files_to_index
+                        discovered, _ = discover_files_to_index(
+                            path_obj,
+                            cgcignore_path=ctx.cgcignore_path,
+                            supported_extensions=set(graph_builder.parsers.keys()),
+                        )
+                        with db_manager.get_driver().session() as s2:
+                            res2 = s2.run(
+                                "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN DISTINCT f.path AS p",
+                                path=repo_path_str,
+                            )
+                            have = {row["p"] for row in res2 if row.get("p")}
+                        missing = [
+                            str(f) for f in discovered
+                            if str(f.resolve()) not in have and f.resolve().as_posix() not in have
+                        ]
+                        if missing:
+                            shown = ", ".join(Path(m).name for m in missing[:5])
+                            more = f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""
+                            console.print(f"[dim]Missing: {shown}{more}[/dim]")
+                    except Exception:
+                        pass
                 else:
                     console.print(f"[yellow]Repository '{path}' exists but has no files (likely interrupted). Re-indexing...[/yellow]")
         except Exception as e:
