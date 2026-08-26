@@ -38,8 +38,14 @@ def indexed_repo(tmp_path: Path):
     env["DEFAULT_DATABASE"] = "kuzudb"
     env["CGC_CONTEXT_MODE"] = "global"
     env["PYTHONPATH"] = os.pathsep.join(sys.path)
-    subprocess.run(f"{CGC} index {shlex.quote(str(repo))}", shell=True,
-                   capture_output=True, text=True, env=env, check=False)
+    r = subprocess.run(f"{CGC} index {shlex.quote(str(repo))}", shell=True,
+                       capture_output=True, text=True, env=env, check=False)
+    # Under runner load a failed index used to surface later as a cryptic
+    # csv-shape assertion in whichever test ran first; fail HERE with the
+    # index output so the cause is visible.
+    assert "Successfully finished indexing" in (r.stdout + r.stderr), (
+        f"fixture index failed (rc={r.returncode}):\n{r.stdout}\n{r.stderr}"
+    )
     return env
 
 
@@ -62,8 +68,10 @@ def test_json_output_is_pure_and_parseable(indexed_repo):
 def test_csv_output_has_header_and_rows(indexed_repo):
     r = _run(f"{CGC} analyze complexity --threshold 2 --format csv", indexed_repo)
     lines = [l for l in r.stdout.splitlines() if l.strip()]
-    assert lines[0] == "function,file,line,complexity,exceeds_by"
-    assert any(l.startswith("busy,") for l in lines[1:])
+    assert lines and lines[0] == "function,file,line,complexity,exceeds_by", (
+        f"unexpected csv stdout (rc={r.returncode}):\nSTDOUT:{r.stdout}\nSTDERR:{r.stderr}"
+    )
+    assert any(l.startswith("busy,") for l in lines[1:]), r.stdout
 
 
 def test_fail_on_violations_gates_the_exit_code(indexed_repo):
