@@ -137,6 +137,35 @@ def create_graph_schema(driver: Any, db_manager: Any) -> None:
                 ddl.run(
                     "CREATE CONSTRAINT annotation_unique IF NOT EXISTS FOR (a:Annotation) REQUIRE (a.name, a.path, a.line_number) IS UNIQUE"
                 )
+                # The relationship passes and code_finder look these nodes up
+                # by (name, path) with no line_number: write_inheritance_links
+                # matches `(child:<Label> {name: row.child_name, path:
+                # row.path})`, and the same for the parent, for every label
+                # pair it enumerates; write_function_call_groups matches the
+                # callee by (name, path) in both the batched and the single-row
+                # path; and code_finder's who_calls_function,
+                # what_does_function_call, find_class_hierarchy,
+                # find_all_callers and find_all_callees do the same.
+                #
+                # Neo4j uses a composite index only when EVERY indexed property
+                # has a predicate, so the four-property identity constraints
+                # above cannot serve those lookups -- the planner falls back to
+                # NodeByLabelScan + Filter, once per row. These plain
+                # two-property indexes restore an index seek. They do not
+                # collide with the identity constraints: a constraint's backing
+                # index covers a different property set, so the two coexist.
+                #
+                # FalkorDB is excluded (this is inside `not is_falkordb`): it
+                # indexes per attribute, not per property tuple, and the
+                # composite CREATE INDEX statements in its own branch already
+                # cover name and path. A second (name, path) index would add
+                # nothing there and only re-issue an index creation FalkorDB
+                # rejects as "already indexed".
+                for _label, _var in POSITIONAL_IDENTITY_LABELS.items():
+                    ddl.run(
+                        f"CREATE INDEX {_label.lower()}_name_path IF NOT EXISTS "
+                        f"FOR ({_var}:{_label}) ON ({_var}.name, {_var}.path)"
+                    )
 
             ddl.run("CREATE INDEX function_lang IF NOT EXISTS FOR (f:Function) ON (f.lang)")
             ddl.run("CREATE INDEX class_lang IF NOT EXISTS FOR (c:Class) ON (c.lang)")
