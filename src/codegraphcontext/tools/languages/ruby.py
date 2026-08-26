@@ -49,6 +49,14 @@ RUBY_QUERIES = {
             left: (instance_variable) @name
             right: (_) @value
         )
+        (assignment
+            left: (class_variable) @name
+            right: (_) @value
+        )
+        (assignment
+            left: (global_variable) @name
+            right: (_) @value
+        )
     """,
     "comments": """
         (comment) @comment
@@ -537,7 +545,12 @@ class RubyTreeSitterParser:
                 while current and current.type != 'assignment':
                     current = current.parent
                 if current:
-                    assignment_id = id(current)
+                    # id() of a tree-sitter node is a fresh wrapper each
+                    # access (n1 == n2 while id(n1) != id(n2)), which split
+                    # the @name/@value captures of ONE assignment into two
+                    # buckets — value was always None (#1660). Key on the
+                    # node's span instead.
+                    assignment_id = (current.start_byte, current.end_byte)
                     if assignment_id not in captures_by_assignment:
                         captures_by_assignment[assignment_id] = {'node': current, 'name': None, 'value': None}
                     captures_by_assignment[assignment_id]['name'] = self._get_node_text(node)
@@ -547,7 +560,7 @@ class RubyTreeSitterParser:
                 while current and current.type != 'assignment':
                     current = current.parent
                 if current:
-                    assignment_id = id(current)
+                    assignment_id = (current.start_byte, current.end_byte)
                     if assignment_id not in captures_by_assignment:
                         captures_by_assignment[assignment_id] = {'node': current, 'name': None, 'value': None}
                     captures_by_assignment[assignment_id]['value'] = self._get_node_text(node)
@@ -560,10 +573,12 @@ class RubyTreeSitterParser:
             if name:
                 # Determine variable type based on name prefix
                 var_type = "local"
-                if name.startswith("@"):
-                    var_type = "instance"
-                elif name.startswith("@@"):
+                # @@ must be tested before @: startswith("@") matches
+                # "@@count" too, which left the class branch dead (#1660).
+                if name.startswith("@@"):
                     var_type = "class"
+                elif name.startswith("@"):
+                    var_type = "instance"
                 elif name.startswith("$"):
                     var_type = "global"
 

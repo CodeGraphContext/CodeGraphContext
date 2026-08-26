@@ -85,7 +85,10 @@ def test_neo4j_creates_a_name_path_index_for_every_positional_label():
             f"{[s for s in statements if f'{label.lower()}_name_path' in s]}"
         )
 
-    assert len(_name_path_statements(statements)) == len(POSITIONAL_IDENTITY_LABELS)
+    # 11 positional labels + the five is_falkordb-only labels that gained
+    # Neo4j-side (name, path) indexes (EnumMember/Object/Mixin/Extension/
+    # Parameter — #1653's closing observation).
+    assert len(_name_path_statements(statements)) == len(POSITIONAL_IDENTITY_LABELS) + 5
 
 
 @pytest.mark.parametrize("backend", ["falkordb", "falkordb-remote"])
@@ -129,3 +132,20 @@ def test_name_path_property_set_differs_from_the_identity_constraint():
         ]
         assert len(identity) == 1, f"no identity constraint for {label}: {identity}"
         assert "line_number" in identity[0] and "occurrence_index" in identity[0]
+
+
+def test_falkordb_only_labels_get_neo4j_name_path_indexes():
+    """EnumMember/Object/Mixin/Extension/Parameter had indexes only in the
+    is_falkordb branch — Neo4j lookups on them were label scans (#1653's
+    closing observation)."""
+    import re
+    from pathlib import Path
+    schema_src = (Path(__file__).resolve().parents[3]
+                  / "src" / "codegraphcontext" / "tools" / "indexing" / "schema.py").read_text()
+    # The statements are f-string built, so assert on the label tuple that
+    # drives them inside the not-is_falkordb branch.
+    import re as _re
+    m = _re.search(r"for _extra_label, _extra_var in \((.*?)\):", schema_src, _re.S)
+    assert m, "extra-label loop missing"
+    for label in ("EnumMember", "Object", "Mixin", "Extension", "Parameter"):
+        assert f'"{label}"' in m.group(1), label

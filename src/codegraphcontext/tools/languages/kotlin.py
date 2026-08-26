@@ -169,7 +169,10 @@ class KotlinTreeSitterParser:
                 return (
                     self._get_node_text(name_node) if name_node else None,
                     curr.type,
-                    curr.start_point[0] + 1,
+                    # The name node's line, not the node's: an annotated
+                    # declaration starts at its annotation, and consumers join
+                    # this against the function's line_number (#1660).
+                    (name_node.start_point[0] + 1) if name_node else (curr.start_point[0] + 1),
                 )
             if curr.type in ("class_declaration", "interface_declaration", "object_declaration"):
                 for child in curr.children:
@@ -177,7 +180,7 @@ class KotlinTreeSitterParser:
                          return (
                             self._get_node_text(child),
                             curr.type,
-                            curr.start_point[0] + 1,
+                            child.start_point[0] + 1,
                         )
                 # Check for secondary constructors
                 if curr.type == "secondary_constructor":
@@ -1330,6 +1333,12 @@ class KotlinTreeSitterParser:
                             
                     if name_node:
                         func_name = self._get_node_text(name_node)
+                        # Annotations/modifiers are children of the declaration
+                        # node, so node.start_point is the ANNOTATION line for
+                        # any annotated function. The name node sits on the
+                        # declaration proper — the established convention
+                        # (python decorated_definition, csharp #1659, #1660).
+                        start_line = name_node.start_point[0] + 1
                         
                         params_node = None
                         for child in node.children:
@@ -1457,6 +1466,10 @@ class KotlinTreeSitterParser:
                         for child in node.children:
                             if child.type in ("type_identifier", "simple_identifier"):
                                 class_name = self._get_node_text(child)
+                                # Same convention as functions: an annotated
+                                # class node starts at its annotation line;
+                                # report the declaration line (#1660).
+                                start_line = child.start_point[0] + 1
                                 break
                             
                     source_text = self._get_node_text(node)

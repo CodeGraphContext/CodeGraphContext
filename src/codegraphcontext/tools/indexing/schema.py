@@ -166,6 +166,22 @@ def create_graph_schema(driver: Any, db_manager: Any) -> None:
                         f"CREATE INDEX {_label.lower()}_name_path IF NOT EXISTS "
                         f"FOR ({_var}:{_label}) ON ({_var}.name, {_var}.path)"
                     )
+                # EnumMember, Object, Mixin, Extension and Parameter had index
+                # statements only in the is_falkordb branch, so on Neo4j the
+                # writer's `MATCH (m:EnumMember {name: …, path: …})` (and the
+                # per-label CONTAINS linking generally) was an unavoidable
+                # label scan — found while auditing #1653's lookup sites.
+                for _extra_label, _extra_var in (
+                    ("EnumMember", "em"),
+                    ("Object", "o"),
+                    ("Mixin", "mx"),
+                    ("Extension", "ex"),
+                    ("Parameter", "p"),
+                ):
+                    ddl.run(
+                        f"CREATE INDEX {_extra_label.lower()}_name_path IF NOT EXISTS "
+                        f"FOR ({_extra_var}:{_extra_label}) ON ({_extra_var}.name, {_extra_var}.path)"
+                    )
 
             ddl.run("CREATE INDEX function_lang IF NOT EXISTS FOR (f:Function) ON (f.lang)")
             ddl.run("CREATE INDEX class_lang IF NOT EXISTS FOR (c:Class) ON (c.lang)")
