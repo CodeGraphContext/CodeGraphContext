@@ -119,7 +119,12 @@
 ---
 
 ## Star History
-[![Star History Chart](https://api.star-history.com/svg?repos=CodeGraphContext/CodeGraphContext&type=Date)](https://www.star-history.com/#CodeGraphContext/CodeGraphContext&Date)
+[Star History Chart ↗](https://www.star-history.com/#CodeGraphContext/CodeGraphContext&Date)
+<!-- The inline chart image is temporarily removed: api.star-history.com currently
+     renders "GitHub restricted access to star data" instead of the chart
+     (GitHub-side restriction, see PR #1642). Restore the image once the
+     official service recovers:
+     [![Star History Chart](https://api.star-history.com/svg?repos=CodeGraphContext/CodeGraphContext&type=Date)](https://www.star-history.com/#CodeGraphContext/CodeGraphContext&Date) -->
 
 ---
 
