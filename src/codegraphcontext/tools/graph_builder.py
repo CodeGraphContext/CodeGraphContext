@@ -534,7 +534,7 @@ class GraphBuilder:
             # still reports "Successfully finished indexing".
             return {"path": str(path), "error": str(e), "parse_failed": True}
 
-    def estimate_processing_time(self, path: Path) -> Optional[Tuple[int, float]]:
+    def estimate_processing_time(self, path: Path, cgcignore_path: Optional[str] = None) -> Optional[Tuple[int, float]]:
         """Estimate the time required to index a repository.
 
         Parameters
@@ -550,8 +550,13 @@ class GraphBuilder:
         try:
             from codegraphcontext.tools.indexing.discovery import discover_files_to_index
             supported_extensions = set(self.parsers.keys())
+            # cgcignore_path must match what the indexing pipelines use:
+            # counting files a context-specific ignore excludes made the
+            # resume check expect more files than indexing will ever produce
+            # ("only N of M files indexed" on every run, #1673).
             files, _ = discover_files_to_index(
                 path,
+                cgcignore_path=cgcignore_path,
                 supported_extensions=supported_extensions,
             )
             total_files = len(files)
@@ -566,6 +571,9 @@ class GraphBuilder:
     ):
         from . import scip_indexer
 
+        # Reset here too: without it a SCIP run left (and printed) the
+        # PREVIOUS Tree-sitter run's summary from the same process (#1673).
+        self.last_index_summary = {}
         await run_scip_index_async(
             path,
             is_dependency,
@@ -577,6 +585,7 @@ class GraphBuilder:
             self.get_parser,
             scip_indexer,
             cgcignore_path,
+            index_summary=self.last_index_summary,
         )
 
     def _name_from_symbol(self, symbol: str) -> str:

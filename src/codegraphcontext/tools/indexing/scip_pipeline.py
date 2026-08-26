@@ -42,6 +42,7 @@ async def run_scip_index_async(
     get_parser: Callable[[str], Any],
     scip_indexer_mod: Any,
     cgcignore_path: Optional[str] = None,
+    index_summary: Optional[dict] = None,
 ) -> None:
     """Run SCIP CLI, write graph, supplement with Tree-sitter, write SCIP CALLS edges."""
     ScipIndexer = scip_indexer_mod.ScipIndexer
@@ -171,7 +172,18 @@ async def run_scip_index_async(
                 except Exception as e:
                     debug_log(f"Tree-sitter supplement failed for {abs_path_str}: {e}")
 
-            writer.add_file_to_graph(file_data, repo_name, imports_map)
+            try:
+                writer.add_file_to_graph(file_data, repo_name, imports_map)
+            except Exception as e:
+                # One unwritable file must not abort the run, and it must
+                # still be accounted for — otherwise the graph stays short of
+                # the discovery census and `cgc index` reports "only N of M
+                # files indexed. Continuing." on every run, forever (#1673).
+                warning_logger(f"SCIP file write failed for {abs_path_str}: {e}; recording minimal node")
+                try:
+                    writer.add_minimal_file_node(Path(abs_path_str), index_root, is_dependency)
+                except Exception as e2:
+                    debug_log(f"Minimal node fallback also failed for {abs_path_str}: {e2}")
 
             processed += 1
             if job_id:
@@ -236,6 +248,14 @@ async def run_scip_index_async(
             try:
                 ts_data = ts_parser.parse(repo_file, is_dependency, index_source=True)
                 if "error" in ts_data:
+                    # Same accounting rule as the Tree-sitter pipeline: a file
+                    # that failed to parse still gets a minimal File node so
+                    # the graph count converges with discovery (#1673).
+                    await asyncio.to_thread(
+                        writer.add_minimal_file_node, repo_file, index_root, is_dependency
+                    )
+                    minimal_nodes += 1
+                    processed += 1
                     continue
                 ts_data["repo_path"] = str(index_root)
                 ts_data.setdefault("function_calls_scip", [])
@@ -251,6 +271,14 @@ async def run_scip_index_async(
                     )
             except Exception as e:
                 debug_log(f"Tree-sitter supplement (non-SCIP file) failed for {abs_str}: {e}")
+                try:
+                    await asyncio.to_thread(
+                        writer.add_minimal_file_node, repo_file, index_root, is_dependency
+                    )
+                    minimal_nodes += 1
+                    processed += 1
+                except Exception as e2:
+                    debug_log(f"Minimal node fallback also failed for {abs_str}: {e2}")
         if supplemented:
             # Re-run pre_scan with the expanded file list so imports_map is complete
             all_paths = [Path(p) for p in files_data.keys() if Path(p).exists()]
@@ -283,6 +311,30 @@ async def run_scip_index_async(
         info_logger(f"[CALLS] Tree-sitter call resolution complete in {time.time() - t_calls:.1f}s")
 
         writer.write_scip_call_edges(files_data, name_from_symbol)
+
+        # CLI-facing summary — the SCIP path never populated one, so
+        # `cgc index` finished silently with no file/function/class report
+        # at all (#1673).
+        if index_summary is not None:
+            from collections import Counter
+            extension_counts = Counter()
+            for fp in files_data.keys():
+                suffix = Path(fp).suffix or Path(fp).name
+                extension_counts[suffix] += 1
+            index_summary.clear()
+            index_summary.update({
+                "total_scanned_files": len(files_data) + minimal_nodes,
+                "files_by_extension": dict(extension_counts),
+                "function_nodes": sum(
+                    1 for fd in all_file_data for fn in fd.get("functions", [])
+                    if fn.get("name") != "<module>"
+                ),
+                "class_nodes": sum(len(fd.get("classes", [])) for fd in all_file_data),
+                "call_edges": sum(len(g) for g in resolved_calls),
+                "serialization_seconds": 0.0,
+                "failed_files": 0,
+                "minimal_file_nodes": minimal_nodes,
+            })
 
         if job_id:
             job_manager.update_job(job_id, status=JobStatus.COMPLETED, end_time=datetime.now())
