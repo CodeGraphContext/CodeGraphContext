@@ -1,16 +1,16 @@
 {
   "cgc_version": "0.1.0",
-  "exported_at": "2026-08-18T18:38:19Z",
+  "exported_at": "2026-08-26T16:44:31Z",
   "format_version": "1.0.0",
   "repo": "sample_project_kotlin",
   "repo_path": ".",
   "is_dependency": false,
-  "commit": "3e749fae",
-  "branch": "mq",
+  "commit": "9b074588",
+  "branch": "fix/1660-minor-leftovers",
   "languages": [
     "kotlin"
   ],
-  "generator": "PYv0.5.8",
+  "generator": "PYv0.6.6",
   "name": "sample_project_kotlin.cgc",
   "graph_metrics": {
     "total_nodes": 244,

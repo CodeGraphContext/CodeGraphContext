@@ -162,7 +162,10 @@ class PhpTreeSitterParser:
                 return (
                     self._get_node_text(name_node) if name_node else None,
                     curr.type,
-                    curr.start_point[0] + 1,
+                    # Name-node line: attributed declarations start at their
+                    # #[Attribute], and consumers join this against the
+                    # declaration's line_number (#1660).
+                    (name_node.start_point[0] + 1) if name_node else (curr.start_point[0] + 1),
                 )
             curr = curr.parent
         return None, None, None
@@ -189,7 +192,7 @@ class PhpTreeSitterParser:
             if curr.type in ("class_declaration", "interface_declaration", "trait_declaration", "enum_declaration"):
                 name_node = curr.child_by_field_name("name")
                 name = self._get_node_text(name_node) if name_node else None
-                return (name, curr.start_point[0] + 1) if name else None
+                return (name, name_node.start_point[0] + 1) if name else None
             curr = curr.parent
         return None
 
@@ -245,6 +248,11 @@ class PhpTreeSitterParser:
                     name_node = node.child_by_field_name("name")
                     if name_node:
                         func_name = self._get_node_text(name_node)
+                        # #[Attribute] lines are part of the declaration node,
+                        # so node.start_point is the attribute line; report the
+                        # declaration proper (python/csharp/kotlin convention,
+                        # #1660).
+                        start_line = name_node.start_point[0] + 1
                         
                         params_node = node.child_by_field_name("parameters")
                         parameters = []
@@ -321,6 +329,9 @@ class PhpTreeSitterParser:
                     name_node = node.child_by_field_name("name")
                     if name_node:
                         type_name = self._get_node_text(name_node)
+                        # Same convention as functions: attributes are children
+                        # of the declaration node (#1660).
+                        start_line = name_node.start_point[0] + 1
                         source_text = self._get_node_text(node)
                         
                         bases = []
