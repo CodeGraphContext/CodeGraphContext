@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import time
 import json
+import re
 import sys
 import shutil
 import yaml 
@@ -14,6 +15,48 @@ from codegraphcontext.core.database import DatabaseManager
 from codegraphcontext.cli.config_manager import normalize_config_path
 
 console = Console()
+
+def _strip_jsonc(text: str) -> str:
+    """Drop // and /* */ comments and trailing commas from a JSONC document.
+
+    VS Code and its forks write settings.json as JSONC. json.loads rejects both,
+    and treating that rejection as "no settings yet" discards the user's file.
+    """
+    out = []
+    i, n = 0, len(text)
+    in_string = escaped = False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if text.startswith("//", i):
+            i = text.find("\n", i)
+            if i == -1:
+                break
+            continue
+        if text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end == -1 else end + 2
+            continue
+        out.append(ch)
+        i += 1
+    stripped = "".join(out)
+    # A trailing comma before } or ] is legal JSONC, not JSON.
+    return re.sub(r",(\s*[}\]])", r"\1", stripped)
+
 
 def _check_write_access(path: Path) -> bool:
     target = path if path.exists() else path.parent
@@ -483,12 +526,26 @@ def _configure_ide(mcp_config):
 
         console.print(f"Using configuration file at: {target_path}")
         
+        had_comments = False
         try:
-            with open(target_path, "r") as f:
+            raw = target_path.read_text()
+            try:
+                settings = json.loads(raw)
+            except json.JSONDecodeError:
                 try:
-                    settings = json.load(f)
+                    settings = json.loads(_strip_jsonc(raw))
+                    had_comments = True
                 except json.JSONDecodeError:
-                    settings = {}
+                    # Never fall back to {}: this file gets written back below, so
+                    # treating an unreadable file as an empty one destroys it.
+                    console.print(
+                        f"[bold red]Could not parse {target_path}.[/bold red] "
+                        "Leaving it untouched so nothing is lost."
+                    )
+                    console.print(
+                        "Please add the MCP configuration manually from the `mcp.json` file generated above."
+                    )
+                    return
         except FileNotFoundError:
             settings = {}
 
@@ -515,6 +572,15 @@ def _configure_ide(mcp_config):
                 )
                 return
 
+            if target_path.exists():
+                backup_path = target_path.with_suffix(target_path.suffix + ".cgc-backup")
+                shutil.copy2(target_path, backup_path)
+                console.print(f"[dim]Backed up existing configuration to {backup_path}[/dim]")
+            if had_comments:
+                console.print(
+                    "[yellow]Note: this file contained comments. JSON output cannot keep them, "
+                    "so they are dropped in the rewritten file (the backup above still has them).[/yellow]"
+                )
             try:
                 with open(target_path, "w") as f:
                     json.dump(settings, f, indent=2)
