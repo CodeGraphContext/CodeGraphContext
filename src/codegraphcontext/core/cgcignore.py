@@ -64,6 +64,32 @@ def find_cgcignore(ignore_root: Path, explicit_path: Optional[str] = None) -> Op
         return explicit_candidate
     return None
 
+def find_gitignore(ignore_root: Path) -> Optional[Path]:
+    """Find a repository-local .gitignore, searched the same way as .cgcignore.
+
+    Bounded to the git worktree for the same reason find_cgcignore is: an indexed
+    path outside a repo must not pick up something like /tmp/.gitignore.
+    """
+    git_root: Optional[Path] = None
+    probe = ignore_root
+    while True:
+        if (probe / ".git").exists():
+            git_root = probe
+            break
+        if probe.parent == probe:
+            break
+        probe = probe.parent
+
+    curr = ignore_root
+    while True:
+        candidate = curr / ".gitignore"
+        if candidate.is_file():
+            return candidate
+        if git_root is None or curr == git_root:
+            return None
+        curr = curr.parent
+
+
 def ensure_default_cgcignore(path: Path, default_patterns: list[str]) -> None:
     """Create a .cgcignore file with default patterns when it does not exist."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -265,9 +291,23 @@ def build_ignore_spec(
             parse_cgcignore_lines(explicit_cgcignore_path.read_text(encoding="utf-8").splitlines())
         )
 
+    gitignore_patterns: list[str] = []
+    gitignore_path = find_gitignore(ignore_root)
+    if gitignore_path is not None:
+        try:
+            gitignore_patterns = parse_cgcignore_lines(
+                gitignore_path.read_text(encoding="utf-8").splitlines()
+            )
+        except OSError as e:
+            warning_logger(f"Failed to read {gitignore_path}: {e}")
+
     # Defaults first, user patterns last: matching is last-match-wins (see
     # CGCIgnoreMatcher.match_file), so appending the defaults would make them
     # unconditionally override the user's rules and leave `!build/` with no way
     # to re-include a directory the built-in list ignores.
-    all_patterns = list(default_patterns) + merged_user_patterns
+    #
+    # .gitignore sits between the two for the same reason: what git ignores is
+    # ignored by default, while a `!pattern` in .cgcignore can still bring a
+    # git-ignored path back into the graph.
+    all_patterns = list(default_patterns) + gitignore_patterns + merged_user_patterns
     return CGCIgnoreMatcher(all_patterns, ignore_root), local_cgcignore_path
