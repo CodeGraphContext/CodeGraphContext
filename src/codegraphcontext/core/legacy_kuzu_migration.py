@@ -12,13 +12,36 @@ bundle, and import that bundle into the backend currently selected by the user.
 """
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import time
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from codegraphcontext.utils.debug_log import debug_log, error_logger
+
+class LegacyKuzuExportError(RuntimeError):
+    """Raised when the isolated Kuzu export process cannot create a bundle."""
+
+
+class LegacyKuzuUnavailableError(LegacyKuzuExportError):
+    """Raised when the export interpreter cannot import the legacy Kuzu driver."""
+
+
+_EXPORT_RESULT_PREFIX = "CGC_KUZU_EXPORT_RESULT:"
+
+
+def _debug_log(message: str) -> None:
+    from codegraphcontext.utils.debug_log import debug_log
+
+    debug_log(message)
+
+
+def _error_log(message: str) -> None:
+    from codegraphcontext.utils.debug_log import error_logger
+
+    error_logger(message)
 
 
 def _get_config_value(key: str) -> Optional[str]:
@@ -165,7 +188,7 @@ def _has_graph_data(target_manager) -> bool:
             except (TypeError, ValueError):
                 return bool(count)
     except Exception as e:
-        debug_log(
+        _debug_log(
             "Legacy Kuzu migration preflight could not inspect graph size: "
             f"{e}"
         )
@@ -197,17 +220,6 @@ def migrate_legacy_kuzudb_to_manager(
         )
 
     try:
-        import kuzu
-    except ImportError:
-        return False, (
-            f"Legacy KuzuDB data was found at {source_path}, but the 'kuzu' "
-            "package is not installed. KuzuDB is archived upstream; install "
-            "it only in an older temporary Python environment. On Python "
-            "3.14+, pip falls back to the pyproject/setuptools build path "
-            "and fails with 'Failed building wheel for kuzu'."
-        )
-
-    try:
         from codegraphcontext.core.cgc_bundle import CGCBundle
     except Exception as e:
         return (
@@ -218,21 +230,11 @@ def migrate_legacy_kuzudb_to_manager(
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            bundle_dir = temp_path / "bundle"
-            bundle_dir.mkdir(parents=True, exist_ok=True)
             bundle_path = temp_path / "legacy-kuzudb.cgc"
 
-            node_count, edge_count = _export_legacy_kuzu_bundle(
+            node_count, edge_count = _export_legacy_kuzu_bundle_in_subprocess(
                 source_path,
-                bundle_dir,
-                kuzu,
-            )
-            _write_migration_bundle(
-                bundle_dir,
                 bundle_path,
-                source_path,
-                node_count,
-                edge_count,
             )
 
             bundle = CGCBundle(target_manager)
@@ -247,13 +249,74 @@ def migrate_legacy_kuzudb_to_manager(
                     f"Nodes: {node_count:,} | Edges: {edge_count:,}"
                 )
             return False, message
+    except LegacyKuzuUnavailableError:
+        return False, (
+            f"Legacy KuzuDB data was found at {source_path}, but the 'kuzu' "
+            "package is not installed in the migration interpreter. KuzuDB "
+            "is archived upstream; install it only in an older temporary "
+            "Python environment and set CGC_KUZU_MIGRATION_PYTHON to that "
+            "interpreter. On Python 3.14+, pip falls back to the "
+            "pyproject/setuptools build path and fails with 'Failed building "
+            "wheel for kuzu'."
+        )
     except Exception as e:
-        error_logger(f"Legacy KuzuDB migration failed: {e}")
-        debug_log(f"Legacy KuzuDB migration failed: {e}")
+        _error_log(f"Legacy KuzuDB migration failed: {e}")
+        _debug_log(f"Legacy KuzuDB migration failed: {e}")
         return (
             False,
             f"Failed to migrate legacy KuzuDB data from {source_path}: {e}",
         )
+
+
+def _export_legacy_kuzu_bundle_in_subprocess(
+    source_path: Path,
+    bundle_path: Path,
+) -> Tuple[int, int]:
+    """Export Kuzu data without loading Kuzu and Ladybug pybind modules together."""
+    migration_python = os.getenv("CGC_KUZU_MIGRATION_PYTHON") or sys.executable
+    command = [
+        migration_python,
+        str(Path(__file__).resolve()),
+        "export",
+        str(source_path),
+        str(bundle_path),
+    ]
+
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+    except OSError as e:
+        raise LegacyKuzuExportError(
+            f"Could not start Kuzu migration interpreter '{migration_python}': {e}"
+        ) from e
+
+    detail = completed.stderr.strip() or completed.stdout.strip()
+    if completed.returncode == 2:
+        raise LegacyKuzuUnavailableError(detail or "Kuzu driver is unavailable")
+    if completed.returncode != 0:
+        raise LegacyKuzuExportError(
+            detail or f"Kuzu export process exited with status {completed.returncode}"
+        )
+
+    result_line = next(
+        (
+            line.removeprefix(_EXPORT_RESULT_PREFIX)
+            for line in reversed(completed.stdout.splitlines())
+            if line.startswith(_EXPORT_RESULT_PREFIX)
+        ),
+        None,
+    )
+    try:
+        result = json.loads(result_line)
+        return int(result["node_count"]), int(result["edge_count"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as e:
+        raise LegacyKuzuExportError(
+            "Kuzu export process did not return valid migration statistics"
+        ) from e
 
 
 def _write_migration_bundle(
@@ -377,3 +440,54 @@ def _export_legacy_kuzu_bundle(
             edge_count += 1
 
     return node_count, edge_count
+
+
+def _legacy_kuzu_export_main(argv: Optional[List[str]] = None) -> int:
+    """CLI entry point used by the isolated legacy Kuzu export process."""
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if len(arguments) != 3 or arguments[0] != "export":
+        print(
+            "Usage: legacy_kuzu_migration.py export SOURCE_PATH BUNDLE_PATH",
+            file=sys.stderr,
+        )
+        return 1
+
+    source_path = Path(arguments[1])
+    bundle_path = Path(arguments[2])
+
+    try:
+        import kuzu
+    except ImportError as e:
+        print(f"The 'kuzu' package is not installed: {e}", file=sys.stderr)
+        return 2
+
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle_dir = Path(temp_dir) / "bundle"
+            bundle_dir.mkdir(parents=True, exist_ok=True)
+            node_count, edge_count = _export_legacy_kuzu_bundle(
+                source_path,
+                bundle_dir,
+                kuzu,
+            )
+            bundle_path.parent.mkdir(parents=True, exist_ok=True)
+            _write_migration_bundle(
+                bundle_dir,
+                bundle_path,
+                source_path,
+                node_count,
+                edge_count,
+            )
+    except Exception as e:
+        print(f"Legacy Kuzu export failed: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        _EXPORT_RESULT_PREFIX
+        + json.dumps({"node_count": node_count, "edge_count": edge_count})
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_legacy_kuzu_export_main())

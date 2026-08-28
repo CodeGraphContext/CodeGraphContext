@@ -58,7 +58,7 @@ dependencies = [
     "falkordblite>=0.7,<0.10; sys_platform != 'win32' and python_version >= '3.12'",
     "requests>=2.28.0",
     "protobuf>=3.20,<3.21",
-    "ladybug; sys_platform == 'win32' or (sys_platform != 'win32' and python_version >= '3.10')",
+    "ladybug>=0.19; sys_platform == 'win32' or (sys_platform != 'win32' and python_version >= '3.10')",
     # Cap below 2.0: the low-level `mcp.server.Server` dropped its `list_tools`
     # and `call_tool` decorators in 2.0.0, which api/mcp_sse.py registers its
     # handlers with. With an unbounded pin, CI resolved 2.0.0 on release day and
@@ -100,7 +100,7 @@ kuzu = [
     "kuzu; python_version < '3.14' or sys_platform == 'linux'",
 ]
 ladybug = [
-    "ladybug; sys_platform == 'win32' or (sys_platform != 'win32' and python_version >= '3.10')",
+    "ladybug>=0.19; sys_platform == 'win32' or (sys_platform != 'win32' and python_version >= '3.10')",
 ]
 neo4j = [
     "neo4j>=5.15.0",

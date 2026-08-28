@@ -17,8 +17,9 @@ error: failed-wheel-build-for-install
 ```
 
 The migration is automatic: when CGC starts, it detects a legacy KuzuDB path,
-exports it to a temporary `.cgc` bundle, and imports that bundle into the
-database backend you selected.
+exports it to a temporary `.cgc` bundle in an isolated subprocess, and imports
+that bundle into the database backend you selected. The process boundary keeps
+the Kuzu and Ladybug native modules apart, which avoids pybind type collisions.
 
 ## Before You Start
 
@@ -69,6 +70,22 @@ export CGC_TARGET_DB_ROOT="$HOME/.codegraphcontext/global/db"
 Mounting the target root matters because the Docker container has its own home
 directory. Without the mount, the migration would succeed inside the container
 and disappear when the container exits.
+
+### OPTIONAL: Use a Separate Local Python for Kuzu
+
+If CGC runs on Python 3.14 but Python 3.12 is available locally, install only
+the archived Kuzu driver in a small migration environment:
+
+```bash
+python3.12 -m venv "$HOME/.cache/cgc-kuzu-migration"
+"$HOME/.cache/cgc-kuzu-migration/bin/python" -m pip install kuzu
+export CGC_KUZU_MIGRATION_PYTHON="$HOME/.cache/cgc-kuzu-migration/bin/python"
+```
+
+CGC uses that interpreter only for the Kuzu-to-bundle export. Bundle import
+still runs in the normal CGC process with the selected target backend, so the
+legacy driver does not become a dependency of the current runtime. Docker
+remains the fallback when an older local interpreter is not available.
 
 ## 3. Run the Migration Container
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import platform
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +26,12 @@ from typing import Optional
 # FalkorDB startup failures are now tracked by FalkorDBManager per database
 # configuration, rather than disabling the backend for the whole process.
 _FALKORDB_DISABLED = False
+
+# Migration discovery checks environment, config, sibling paths, and the legacy
+# global location. Probe each resolved target once so repeated factory calls do
+# not keep touching disk or retrying a one-way migration in the same process.
+_KUZU_MIGRATION_PROBED_PATHS: set[str] = set()
+_KUZU_MIGRATION_PROBE_LOCK = threading.Lock()
 
 
 def _fallback_db_path_for(
@@ -421,6 +428,20 @@ def _maybe_migrate_legacy_kuzudb(
     # not, so fall back to the manager's resolved path to find a sibling
     # legacy `kuzudb` directory.
     target_path = db_path or getattr(target_manager, "db_path", None)
+    try:
+        probe_path = (
+            str(Path(target_path).expanduser().resolve())
+            if target_path
+            else "<default>"
+        )
+    except (OSError, RuntimeError, TypeError, ValueError):
+        probe_path = str(target_path) if target_path else "<default>"
+
+    with _KUZU_MIGRATION_PROBE_LOCK:
+        if probe_path in _KUZU_MIGRATION_PROBED_PATHS:
+            return
+        _KUZU_MIGRATION_PROBED_PATHS.add(probe_path)
+
     success, message = migrate_legacy_kuzudb_to_manager(
         target_manager,
         target_db_path=target_path,
