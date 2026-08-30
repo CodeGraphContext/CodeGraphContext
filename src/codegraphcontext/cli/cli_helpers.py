@@ -709,10 +709,19 @@ def _render_offline_visualization(
             node_id = _meta(value, "_id")
         if node_id is None:
             node_id = props.get("path") or props.get("name")
+        
+        name = props.get("name") or props.get("path") or ""
+        if name == "<module>":
+            _fpath = props.get("path") or props.get("file_path") or ""
+            if _fpath:
+                name = Path(_fpath).name
+            else:
+                name = "<module>"
+
         return {
             "id": _ident(node_id),
             "label": label,
-            "name": props.get("name") or props.get("path") or "",
+            "name": name,
             "file_path": props.get("path", ""),
             "line_number": props.get("line_number"),
         }
