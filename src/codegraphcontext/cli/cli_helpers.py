@@ -227,7 +227,14 @@ def _initialize_services(
                     _fail_services_init()
             else:
                 console.print(f"[bold red]Database Connection Error:[/bold red] {e}")
-                console.print("Please ensure your database is configured correctly or run 'cgc doctor'.")
+                if "Could not set lock on file" in str(e):
+                    console.print(
+                        "[yellow]Another CGC process already has this embedded database open. "
+                        "If a CGC Gateway or watcher is running, use its MCP/HTTP interface "
+                        "or stop it before running database-backed CLI commands.[/yellow]"
+                    )
+                else:
+                    console.print("Please ensure your database is configured correctly or run 'cgc doctor'.")
                 _fail_services_init()
     
     # The GraphBuilder requires an event loop, even for synchronous-style execution
