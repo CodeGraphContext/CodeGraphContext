@@ -98,6 +98,8 @@ def check_job_status(job_manager: JobManager, **args) -> Dict[str, Any]:
         job_dict["start_time"] = job.start_time.strftime("%Y-%m-%d %H:%M:%S")
         if job.end_time:
             job_dict["end_time"] = job.end_time.strftime("%Y-%m-%d %H:%M:%S")
+        if job.last_update_time:
+            job_dict["last_update_time"] = job.last_update_time.strftime("%Y-%m-%d %H:%M:%S")
         
         job_dict["status"] = job.status.value
         
@@ -119,6 +121,8 @@ def list_jobs(job_manager: JobManager) -> Dict[str, Any]:
             job_dict["start_time"] = job.start_time.strftime("%Y-%m-%d %H:%M:%S")
             if job.end_time:
                 job_dict["end_time"] = job.end_time.strftime("%Y-%m-%d %H:%M:%S")
+            if job.last_update_time:
+                job_dict["last_update_time"] = job.last_update_time.strftime("%Y-%m-%d %H:%M:%S")
             jobs_data.append(job_dict)
         
         jobs_data.sort(key=lambda x: x["start_time"], reverse=True)
