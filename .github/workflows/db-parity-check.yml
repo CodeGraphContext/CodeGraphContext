@@ -9,6 +9,12 @@ on:
       - main
   workflow_dispatch:
 
+# Cancel superseded runs of the SAME pull request only; pushes to main and
+# scheduled runs are never cancelled (#1326).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   db-parity:
     runs-on: ubuntu-latest
@@ -30,6 +36,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.14"
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
