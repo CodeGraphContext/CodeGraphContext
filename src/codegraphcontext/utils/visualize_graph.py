@@ -99,11 +99,15 @@ def build_graph_data(
     for node in nodes:
         node_id = node.get("id") or node.get("name", "unknown")
         label = node.get("label", "Function")
+        raw_name = node.get("name", str(node_id))
+        file_path = node.get("file_path", "")
+        if raw_name == "<module>" and file_path:
+            raw_name = os.path.splitext(os.path.basename(file_path))[0]
         serialised_nodes.append({
             "id":        str(node_id),
             "label":     label,
-            "name":      node.get("name", str(node_id)),
-            "file_path": node.get("file_path", ""),
+            "name":      raw_name,
+            "file_path": file_path,
             "line":      node.get("line_number"),
             "color":     node_color(label),
         })

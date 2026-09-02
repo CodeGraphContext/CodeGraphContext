@@ -235,7 +235,11 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
                                 
                                 # Extract name/label for frontend
                                 # Prefer 'name' property, fallback to 'label', then 'path' or 'Unknown'
-                                display_name = str(props.get('name', props.get('label', props.get('path', 'Unknown'))))
+                                raw_name = str(props.get('name', props.get('label', props.get('path', 'Unknown'))))
+                                file_prop = str(props.get('path', props.get('file', '')))
+                                if raw_name == '<module>' and file_prop:
+                                    raw_name = os.path.splitext(os.path.basename(file_prop))[0]
+                                display_name = raw_name
                                 
                                 nodes_dict[eid] = {
                                     "id": eid,
@@ -468,8 +472,12 @@ def parse_node(node, nodes_dict):
                 props = dict(node.items())
             except: pass
             
-    display_name = str(props.get('name', props.get('label', props.get('path', 'Unknown'))))
-    
+    raw_name = str(props.get('name', props.get('label', props.get('path', 'Unknown'))))
+    file_prop = str(props.get('path', props.get('file', '')))
+    if raw_name == '<module>' and file_prop:
+        raw_name = os.path.splitext(os.path.basename(file_prop))[0]
+    display_name = raw_name
+
     nodes_dict[eid] = {
         "id": eid,
         "name": display_name,
