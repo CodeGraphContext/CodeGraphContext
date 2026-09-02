@@ -13,22 +13,42 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 
-def _connect(host: str, port: int, user: str, password: str, database: str) -> Any:
+def _connect(
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    database: str,
+    ssl_verify: bool = False,
+    ssl_ca_certs: Optional[str] = None,
+) -> Any:
     """Return a DB-API 2.0 connection. Tries PyMySQL then mysql-connector-python."""
+    ssl_kwargs: Dict[str, Any] = {}
+    if ssl_verify:
+        ssl_kwargs["ssl"] = {
+            "ca": ssl_ca_certs if ssl_ca_certs else None,
+            "check_hostname": True,
+            "verify_mode": "REQUIRED",
+        }
     try:
         import pymysql
         return pymysql.connect(
             host=host, port=port, user=user, password=password, database=database,
             cursorclass=pymysql.cursors.DictCursor, connect_timeout=10,
+            **ssl_kwargs,
         )
     except ImportError:
         pass
     try:
         import mysql.connector
-        return mysql.connector.connect(
+        conn_kwargs = dict(
             host=host, port=port, user=user, password=password, database=database,
             connection_timeout=10,
         )
+        if ssl_verify:
+            conn_kwargs["ssl_ca"] = ssl_ca_certs if ssl_ca_certs else None
+            conn_kwargs["ssl_verify_cert"] = True
+        return mysql.connector.connect(**conn_kwargs)
     except ImportError:
         raise ImportError(
             "MySQL driver not found. Install with: pip install PyMySQL"
@@ -43,6 +63,8 @@ def ingest(
     database: str,
     name: Optional[str] = None,
     env: str = "production",
+    ssl_verify: bool = False,
+    ssl_ca_certs: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Fetch schema from Aurora MySQL and return a datasource graph dict.
 
@@ -54,7 +76,7 @@ def ingest(
         }
     """
     datasource_name = name or f"mysql-{database}"
-    conn = _connect(host, port, user, password, database)
+    conn = _connect(host, port, user, password, database, ssl_verify, ssl_ca_certs)
 
     try:
         tables: List[Dict[str, Any]] = []

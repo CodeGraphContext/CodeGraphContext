@@ -3636,6 +3636,8 @@ def datasource_mysql(
     database: str = typer.Option(..., "--database", "-d", help="Database / schema name"),
     name: Optional[str] = typer.Option(None, "--name", "-n", help="Logical datasource name (default: mysql-<database>)"),
     env: str = typer.Option("production", "--env", "-e", help="Deployment environment label"),
+    ssl_verify: bool = typer.Option(False, "--ssl-verify", help="Connect over TLS and verify the server certificate (#1094)"),
+    ssl_ca_certs: Optional[str] = typer.Option(None, "--ssl-ca-certs", help="CA bundle path for --ssl-verify (default: system trust store)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="CGC context to use"),
 ):
     """Ingest Aurora MySQL schema (tables + columns) and write to the code graph.
@@ -3651,7 +3653,8 @@ def datasource_mysql(
     console.print(f"[cyan]Connecting to Aurora MySQL at {host}:{port}/{database}...[/cyan]")
     try:
         result = mysql_ingest(host=host, port=port, user=user, password=password,
-                               database=database, name=name, env=env)
+                               database=database, name=name, env=env,
+                               ssl_verify=ssl_verify, ssl_ca_certs=ssl_ca_certs)
     except Exception as exc:
         console.print(f"[red]Failed to connect / ingest:[/red] {exc}")
         raise typer.Exit(1)
@@ -3673,6 +3676,8 @@ def datasource_cassandra(
     password: Optional[str] = typer.Option(None, "--password", "-P", help="Cassandra password", hide_input=True),
     name: Optional[str] = typer.Option(None, "--name", "-n", help="Logical datasource name (default: cassandra-<keyspace>)"),
     env: str = typer.Option("production", "--env", "-e", help="Deployment environment label"),
+    ssl_verify: bool = typer.Option(False, "--ssl-verify", help="Connect over TLS and verify the server certificate (#1094)"),
+    ssl_ca_certs: Optional[str] = typer.Option(None, "--ssl-ca-certs", help="CA bundle path for --ssl-verify (default: system trust store)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="CGC context to use"),
 ):
     """Ingest Cassandra keyspace schema (tables + columns) and write to the code graph.
@@ -3689,7 +3694,8 @@ def datasource_cassandra(
     console.print(f"[cyan]Connecting to Cassandra at {hosts}/{keyspace}...[/cyan]")
     try:
         result = cassandra_ingest(hosts=hosts, port=port, keyspace=keyspace,
-                                   username=username, password=password, name=name, env=env)
+                                   username=username, password=password, name=name, env=env,
+                                   ssl_verify=ssl_verify, ssl_ca_certs=ssl_ca_certs)
     except Exception as exc:
         console.print(f"[red]Failed to connect / ingest:[/red] {exc}")
         raise typer.Exit(1)
