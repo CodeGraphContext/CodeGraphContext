@@ -342,6 +342,21 @@ def index_helper(path: str, context: Optional[str] = None, no_progress: bool = F
         db_manager.close_driver()
         raise typer.Exit(code=1)
 
+    # Register the repo in its named context BEFORE the already-indexed skip
+    # guard below: the early return used to sit above this call, so a graph
+    # populated by any path that skipped registration (MCP add_code_to_graph,
+    # an interrupted run) could never reconcile config.yaml through the normal
+    # command — 'cgc context list' showed "Repos Linked: 0" forever (#1317).
+    # Registration is idempotent, so running it on every invocation is safe.
+    # The resolved context name is used so a *default* named context registers
+    # too, not only an explicit --context flag.
+    if ctx.mode == "named":
+        register_context_name = context or getattr(ctx, "context_name", None)
+        if register_context_name:
+            if not register_repo_in_context(register_context_name, str(path_obj), auto_create=False):
+                db_manager.close_driver()
+                raise typer.Exit(code=1)
+
     indexed_repos = code_finder.list_indexed_repositories()
     repo_exists = any_repo_matches_path(indexed_repos, path_obj)
 
@@ -399,11 +414,6 @@ def index_helper(path: str, context: Optional[str] = None, no_progress: bool = F
                     console.print(f"[yellow]Repository '{path}' exists but has no files (likely interrupted). Re-indexing...[/yellow]")
         except Exception as e:
             console.print(f"[yellow]Warning: Could not check file count: {e}. Proceeding with indexing...[/yellow]")
-
-    if context and ctx.mode == "named":
-        if not register_repo_in_context(context, str(path_obj), auto_create=False):
-            db_manager.close_driver()
-            raise typer.Exit(code=1)
 
     console.print(f"Starting indexing for: {path_obj}")
 
