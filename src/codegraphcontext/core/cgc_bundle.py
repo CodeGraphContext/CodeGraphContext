@@ -199,6 +199,7 @@ class CGCBundle:
         include_stats: bool = True,
         sign_key: Optional[str] = None,
         encrypt_password: Optional[str] = None,
+        exclude_labels: Optional[List[str]] = None,
     ) -> Tuple[bool, str]:
         """
         Export the current graph (or a specific repository) to a .cgc bundle.
@@ -225,6 +226,12 @@ class CGCBundle:
                 # Step 1: Extract metadata base
                 info_logger("Extracting metadata...")
                 metadata = self._extract_metadata(repo_path)
+                if exclude_labels:
+                    # Recorded for transparency: a consumer can tell a bundle
+                    # was exported without these node types (#1323).
+                    metadata["excluded_labels"] = sorted(
+                        {l.strip() for l in exclude_labels if l.strip()}
+                    )
                 
                 # Step 2: Extract schema
                 info_logger("Extracting schema...")
@@ -234,7 +241,7 @@ class CGCBundle:
                 
                 # Step 3: Extract nodes
                 info_logger("Extracting nodes...")
-                node_count = self._extract_nodes(temp_path / "nodes.jsonl", repo_path)
+                node_count = self._extract_nodes(temp_path / "nodes.jsonl", repo_path, exclude_labels=exclude_labels)
                 if node_count == 0:
                     return False, (
                         "No nodes to export. Index the repository first or verify "
@@ -244,6 +251,7 @@ class CGCBundle:
                 # Step 4: Extract edges
                 info_logger("Extracting edges...")
                 edge_count = self._extract_edges(temp_path / "edges.jsonl", repo_path)
+                # (edge filtering uses the id set _extract_nodes recorded)
                 
                 # Step 5: Generate statistics and assemble standardized metadata
                 if include_stats:
@@ -667,10 +675,19 @@ class CGCBundle:
             """,
         ]
     
-    def _extract_nodes(self, output_file: Path, repo_path: Optional[Path]) -> int:
-        """Extract all nodes to JSONL format."""
+    def _extract_nodes(self, output_file: Path, repo_path: Optional[Path], exclude_labels: Optional[List[str]] = None) -> int:
+        """Extract all nodes to JSONL format.
+
+        ``exclude_labels`` drops nodes carrying any of the given labels
+        (#1323 — e.g. DbTable/ExternalClass datasource metadata that path
+        filters can never reach). Their ids are recorded so
+        ``_extract_edges`` drops the touching edges too, keeping the bundle
+        free of dangling endpoints.
+        """
         count = 0
         seen_nodes = set()
+        excluded = {l.strip() for l in (exclude_labels or []) if l.strip()}
+        self._excluded_node_ids = set()
         
         with self.db_manager.get_driver(self._active_graph).session() as session:
             if repo_path:
@@ -691,6 +708,12 @@ class CGCBundle:
                         if node_key in seen_nodes:
                             continue
                         seen_nodes.add(node_key)
+
+                        if excluded and any(l in excluded for l in labels):
+                            self._excluded_node_ids.add(
+                                self._stable_id_key(self._export_id_of(node, node_dict))
+                            )
+                            continue
                     
                         # Clean up absolute path prefix to keep it relative
                         if repo_path:
@@ -718,6 +741,24 @@ class CGCBundle:
         
         return count
     
+    @staticmethod
+    def _stable_id_key(node_id) -> str:
+        """A hashable, backend-agnostic key for a node id (dict for Kùzu,
+        string for Neo4j/FalkorDB)."""
+        if isinstance(node_id, dict):
+            return json.dumps(node_id, sort_keys=True, default=str)
+        return str(node_id)
+
+    @staticmethod
+    def _export_id_of(node, node_dict):
+        if '_id' in node_dict:
+            return node_dict['_id']
+        if hasattr(node, 'element_id'):
+            return node.element_id
+        if hasattr(node, 'id'):
+            return str(node.id)
+        return None
+
     def _extract_edges(self, output_file: Path, repo_path: Optional[Path]) -> int:
         """Extract all relationships to JSONL format."""
         count = 0
@@ -778,6 +819,16 @@ class CGCBundle:
                                 to_id = str(target.id)
                             else:
                                 to_id = str(id(target))
+
+                        # Drop edges touching a label-excluded node (#1323):
+                        # nodes.jsonl no longer carries the endpoint, and a
+                        # dangling reference is an import failure waiting.
+                        excluded_ids = getattr(self, "_excluded_node_ids", None)
+                        if excluded_ids and (
+                            self._stable_id_key(from_id) in excluded_ids
+                            or self._stable_id_key(to_id) in excluded_ids
+                        ):
+                            continue
 
                         # Clean up absolute path prefix inside edge properties
                         if repo_path:
