@@ -2546,16 +2546,17 @@ def find_by_decorator_search(
 
 @find_app.command("argument")
 def find_by_argument_search(
-    argument: str = typer.Argument(..., help="Argument/parameter name to search for"),
+    argument: str = typer.Argument(..., help="Argument/parameter name or type to search for"),
     file: Optional[str] = typer.Option(None, "--file", "-f", help="Specific file path"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
-    Find functions that take a specific argument/parameter.
+    Find functions that take a specific argument/parameter name or type.
     
     Examples:
         cgc find argument password
         cgc find argument user_id --file src/auth.py
+        cgc find argument OrderFilter
     """
     _load_credentials()
     services = _initialize_services(context)
@@ -2571,7 +2572,7 @@ def find_by_argument_search(
             results = results[:req_limit]
         
         if not results:
-            console.print(f"[yellow]No functions found with argument '{argument}'[/yellow]")
+            console.print(f"[yellow]No functions found with argument name or type '{argument}'[/yellow]")
             return
             
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)

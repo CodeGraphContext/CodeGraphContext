@@ -110,7 +110,7 @@ TOOLS = {
                 },
                 "target": {
                     "type": "string",
-                    "description": "The primary target for the query (e.g., function name, class name, or 'start_func->end_func' for call chains)."
+                    "description": "The primary query target (for example, a function name, class name, or 'start_func->end_func' for call chains). For find_functions_by_argument, use a parameter name or type."
                 },
                 "context": {
                     "type": "string",
