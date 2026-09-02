@@ -2,51 +2,63 @@
 """
 Core database management module.
 
-Supports Neo4j, FalkorDB Lite, remote FalkorDB, and KùzuDB backends.
+Supports Neo4j, FalkorDB Lite, remote FalkorDB, LadybugDB, and Nornic backends.
 
 Explicit backend selection (see ``get_database_manager``):
-- ``CGC_RUNTIME_DB_TYPE`` — per-invocation override (CLI ``--database`` / MCP resolved context).
-- ``DEFAULT_DATABASE`` — configured default from ``cgc config db …`` / CodeGraphContext ``.env``.
+- ``CGC_RUNTIME_DB_TYPE``: per-invocation override.
+- ``DEFAULT_DATABASE``: configured default.
 
 When neither is set, implicit selection:
-- Remote FalkorDB if ``FALKORDB_HOST`` is set (explicit remote signal).
-- Else **Unix**: FalkorDB Lite when Python 3.12+ and ``falkordblite`` work; else KùzuDB if
-  installed; else Neo4j if credentials exist.
-- Else **Windows**: KùzuDB if installed; else Neo4j if credentials exist.
+- Remote FalkorDB if ``FALKORDB_HOST`` is set.
+- Else Unix: FalkorDB Lite when usable, LadybugDB, then Neo4j/Nornic.
+- Else Windows: LadybugDB, then Neo4j/Nornic.
 """
+from __future__ import annotations
+
+import importlib.util
 import os
 import platform
+import threading
 from pathlib import Path
-from typing import Union, Optional
-import importlib.util
+from typing import Optional
 
 # Retained for compatibility with callers that inspect this module attribute.
 # FalkorDB startup failures are now tracked by FalkorDBManager per database
 # configuration, rather than disabling the backend for the whole process.
 _FALKORDB_DISABLED = False
 
+# Migration discovery checks environment, config, sibling paths, and the legacy
+# global location. Probe each resolved target once so repeated factory calls do
+# not keep touching disk or retrying a one-way migration in the same process.
+_KUZU_MIGRATION_PROBED_PATHS: set[str] = set()
+_KUZU_MIGRATION_PROBE_LOCK = threading.Lock()
 
-def _fallback_db_path_for(db_path: Optional[str], target_backend: str) -> Optional[str]:
+
+def _fallback_db_path_for(
+    db_path: Optional[str],
+    target_backend: str,
+) -> Optional[str]:
     """
-    Adjust a FalkorDB-specific db_path when falling back to a different backend.
+    Adjust a FalkorDB-specific db_path when falling back to another backend.
 
-    Default DB paths embed the backend name as the last path segment
-    (e.g. ``…/db/falkordb`` or the legacy ``…/global/falkordb.db``). Reusing such
-    a path for another backend would make e.g. Kùzu open the FalkorDB data
-    directory, so swap the trailing segment for the target backend's name.
-    Paths that don't look like FalkorDB defaults are returned unchanged.
+    Default DB paths embed the backend name as the last path segment. Reusing
+    the FalkorDB directory for another embedded backend would mix storage
+    formats, so swap the trailing segment for the target backend name.
     """
     if not db_path:
         return db_path
-    p = Path(db_path)
-    if p.name.lower() in ('falkordb', 'falkordb.db'):
+
+    path = Path(db_path)
+    if path.name.lower() in ("falkordb", "falkordb.db"):
         from codegraphcontext.utils.debug_log import warning_logger
-        new_path = str(p.parent / target_backend)
+
+        new_path = str(path.parent / target_backend)
         warning_logger(
-            f"FalkorDB fallback: db_path '{db_path}' points at the FalkorDB data "
-            f"directory; using '{new_path}' for backend '{target_backend}' instead."
+            f"FalkorDB fallback: db_path '{db_path}' points at FalkorDB "
+            f"data; using '{new_path}' for '{target_backend}' instead."
         )
         return new_path
+
     return db_path
 
 
@@ -66,14 +78,6 @@ def _try_fallback_backends(db_path: Optional[str], candidates, *, reason: str):
     from codegraphcontext.utils.debug_log import warning_logger
 
     for name in candidates:
-        if name == 'kuzudb' and _is_kuzudb_available():
-            from .database_kuzu import KuzuDBManager
-            path = _fallback_db_path_for(db_path, 'kuzudb')
-            warning_logger(
-                f"Database backend fallback: {reason} "
-                f"Now using KùzuDB at {path or 'default path'}."
-            )
-            return KuzuDBManager(db_path=path)
         if name == 'ladybugdb' and _is_ladybugdb_available():
             from .database_ladybug import LadybugDBManager
             path = _fallback_db_path_for(db_path, 'ladybugdb')
@@ -101,12 +105,6 @@ def is_falkordb_usable() -> bool:
     """True when FalkorDB Lite is available on this system."""
     return _is_falkordb_available()
 
-def _is_kuzudb_available() -> bool:
-    """Check if KùzuDB is installed."""
-    try:
-        return importlib.util.find_spec("kuzu") is not None
-    except ImportError:
-        return False
 
 def _is_ladybugdb_available() -> bool:
     """Check if LadybugDB is installed."""
@@ -115,49 +113,88 @@ def _is_ladybugdb_available() -> bool:
     except ImportError:
         return False
 
+
 def _is_falkordb_available() -> bool:
     """Check if FalkorDB Lite is installed (Unix only)."""
     if platform.system() == "Windows":
         return False
 
     import sys
+
     if sys.version_info < (3, 12):
         return False
     try:
         import redislite
-        return hasattr(redislite, 'falkordb_client')
+        return hasattr(redislite, "falkordb_client")
     except ImportError:
         return False
 
+
 def _is_falkordb_remote_configured() -> bool:
     """Check if a remote FalkorDB host is configured."""
-    return bool(os.getenv('FALKORDB_HOST'))
+    return bool(os.getenv("FALKORDB_HOST"))
+
 
 def _is_neo4j_configured() -> bool:
     """Check if Neo4j is configured with credentials."""
-    return all([
-        os.getenv('NEO4J_URI'),
-        os.getenv('NEO4J_USERNAME'),
-        os.getenv('NEO4J_PASSWORD')
-    ])
+    return all(
+        [
+            os.getenv("NEO4J_URI"),
+            os.getenv("NEO4J_USERNAME"),
+            os.getenv("NEO4J_PASSWORD"),
+        ]
+    )
+
 
 def _is_nornic_configured() -> bool:
     """Check if Nornic is configured with credentials."""
-    return all([
-        os.getenv('NORNIC_URI'),
-        os.getenv('NORNIC_USERNAME'),
-        os.getenv('NORNIC_PASSWORD')
-    ])
+    return all(
+        [
+            os.getenv("NORNIC_URI"),
+            os.getenv("NORNIC_USERNAME"),
+            os.getenv("NORNIC_PASSWORD"),
+        ]
+    )
 
-def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManager', 'FalkorDBManager', 'FalkorDBRemoteManager', 'KuzuDBManager', 'NornicDBManager', 'LadybugDBManager']:
+
+def _fallback_to_available_backend(db_path: Optional[str], reason: str):
+    """Resolve the next supported backend after FalkorDB Lite cannot run."""
+    from codegraphcontext.utils.debug_log import info_logger
+
+    info_logger(reason)
+    if _is_ladybugdb_available():
+        from .database_ladybug import LadybugDBManager
+
+        ladybug_path = _fallback_db_path_for(db_path, "ladybugdb")
+        mgr = LadybugDBManager(db_path=ladybug_path)
+        _maybe_migrate_legacy_kuzudb(mgr, ladybug_path)
+        return mgr
+    if _is_neo4j_configured():
+        from .database import DatabaseManager
+
+        info_logger("Using Neo4j Server (fallback)")
+        mgr = DatabaseManager()
+        _maybe_migrate_legacy_kuzudb(mgr, db_path)
+        return mgr
+    if _is_nornic_configured():
+        from .database_nornic import NornicDBManager
+
+        mgr = NornicDBManager()
+        _maybe_migrate_legacy_kuzudb(mgr, db_path)
+        return mgr
+    return None
+
+
+def get_database_manager(
+    db_path: Optional[str] = None,
+):
     """
-    Factory function to get the appropriate database manager based on configuration.
+    Factory function to get the configured database manager.
 
     Selection logic:
-    1. Runtime override: ``CGC_RUNTIME_DB_TYPE`` (CLI ``--database``, MCP context).
-    2. Configured default: ``DEFAULT_DATABASE`` (``cgc config db …``, CodeGraphContext ``.env``).
-    3. Implicit: ``FALKORDB_HOST`` → remote FalkorDB; else Unix → FalkorDB Lite when available,
-       then KùzuDB; Windows → KùzuDB first; Neo4j if configured.
+    1. Runtime override: ``CGC_RUNTIME_DB_TYPE``.
+    2. Configured default: ``DEFAULT_DATABASE``.
+    3. Implicit fallback based on available local/remote backends.
     """
     from codegraphcontext.utils.debug_log import info_logger
 
@@ -165,168 +202,297 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
 
     if db_type:
         db_type = db_type.lower()
-        if db_type == 'kuzudb':
-            if not _is_kuzudb_available():
-                mgr = _try_fallback_backends(
-                    db_path,
-                    ('ladybugdb', 'neo4j', 'nornic'),
-                    reason="database was set to 'kuzudb' but Kùzu is not installed.",
-                )
-                if mgr is not None:
-                    return mgr
-                raise ValueError("Database set to 'kuzudb' but Kùzu is not installed.\nRun 'pip install kuzu'")
-            from .database_kuzu import KuzuDBManager
-            info_logger(f"Using KùzuDB (explicit) at {db_path or 'default path'}")
-            return KuzuDBManager(db_path=db_path)
-
-        elif db_type == 'falkordb':
+        if db_type == "falkordb":
             if not is_falkordb_usable():
-                mgr = _try_fallback_backends(
-                    db_path,
-                    ('kuzudb', 'ladybugdb', 'neo4j', 'nornic'),
-                    reason="FalkorDB Lite is not supported or not installed here.",
+                message = (
+                    "FalkorDB Lite disabled after earlier failure."
+                    if _FALKORDB_DISABLED
+                    else "FalkorDB Lite is not supported or not installed."
                 )
-                if mgr is not None:
-                    return mgr
                 raise ValueError(
-                    "Database set to 'falkordb' but FalkorDB Lite is not installed or not supported on this OS.\n"
-                    "Install 'falkordblite' or configure a supported alternative such as KùzuDB or Neo4j."
+                    f"Database set to 'falkordb' but {message}\n"
+                    "Explicit FalkorDB selection is strict and will not "
+                    "fall back to LadybugDB. Fix FalkorDB Lite or choose "
+                    "another backend explicitly."
                 )
-            
-            from .database_falkordb import FalkorDBManager, FalkorDBUnavailableError
+
+            from .database_falkordb import (
+                FalkorDBManager,
+                FalkorDBUnavailableError,
+            )
+
             try:
                 mgr = FalkorDBManager(db_path=db_path)
                 mgr.get_driver()
-                info_logger(f"Using FalkorDB Lite (explicit) at {db_path or 'default path'}")
+                info_logger(
+                    "Using FalkorDB Lite (explicit) at "
+                    f"{db_path or 'default path'}"
+                )
+
+                # Migration runs after backend resolution so a configured
+                # FalkorDB target stays the target. Users who never chose a DB
+                # still land on the normal implicit default before any data
+                # moves.
+                _maybe_migrate_legacy_kuzudb(mgr, db_path)
                 return mgr
             except FalkorDBUnavailableError as falkor_err:
                 mark_falkordb_unavailable()
-                mgr = _try_fallback_backends(
-                    db_path,
-                    ('kuzudb', 'ladybugdb', 'neo4j', 'nornic'),
-                    reason=f"FalkorDB Lite was requested but is not functional ({falkor_err}).",
-                )
-                if mgr is not None:
-                    return mgr
-                raise
+                raise ValueError(
+                    "Database set to 'falkordb' but FalkorDB Lite is not "
+                    f"functional: {falkor_err}.\n"
+                    "Explicit FalkorDB selection is strict and will not "
+                    "fall back to LadybugDB. Fix FalkorDB Lite or choose "
+                    "another backend explicitly."
+                ) from falkor_err
 
-        elif db_type == 'falkordb-remote':
+        if db_type == "falkordb-remote":
             if not _is_falkordb_remote_configured():
                 raise ValueError(
-                    "Database set to 'falkordb-remote' but FALKORDB_HOST is not set.\n"
-                    "Set the FALKORDB_HOST environment variable to your remote FalkorDB host."
+                    "Database set to 'falkordb-remote' but FALKORDB_HOST is "
+                    "not set.\nSet FALKORDB_HOST to your remote FalkorDB host."
                 )
             from .database_falkordb_remote import FalkorDBRemoteManager
+
             info_logger("Using remote FalkorDB (explicit)")
-            return FalkorDBRemoteManager()
+            mgr = FalkorDBRemoteManager()
 
-        elif db_type == 'neo4j':
+            # Keep Kuzu migration tied to the selected backend, not to a
+            # replacement engine. That preserves explicit remote deployments.
+            _maybe_migrate_legacy_kuzudb(mgr, db_path)
+            return mgr
+
+        if db_type == "neo4j":
             if not _is_neo4j_configured():
-                raise ValueError("Database set to 'neo4j' but it is not configured.\nRun 'cgc neo4j setup' to configure Neo4j.")
+                raise ValueError(
+                    "Database set to 'neo4j' but it is not configured.\n"
+                    "Run 'cgc neo4j setup' to configure Neo4j."
+                )
             from .database import DatabaseManager
+
             info_logger("Using Neo4j Server (explicit)")
-            return DatabaseManager()
+            mgr = DatabaseManager()
 
-        elif db_type == 'nornic':
+            # Server-backed targets are valid migration destinations too. The
+            # bundle importer handles the write shape for each backend.
+            _maybe_migrate_legacy_kuzudb(mgr, db_path)
+            return mgr
+
+        if db_type == "nornic":
             if not _is_nornic_configured():
-                raise ValueError("Database set to 'nornic' but it is not configured.")
+                raise ValueError(
+                    "Database set to 'nornic' but it is not configured."
+                )
             from .database_nornic import NornicDBManager
-            info_logger("Using Nornic DB (explicit)")
-            return NornicDBManager()
-        elif db_type == 'ladybugdb':
-            if not _is_ladybugdb_available():
-                raise ValueError("Database set to 'ladybugdb' but LadybugDB is not installed.\nRun 'pip install ladybug'")
-            from .database_ladybug import LadybugDBManager
-            info_logger(f"Using LadybugDB (explicit) at {db_path or 'default path'}")
-            return LadybugDBManager(db_path=db_path)
-        else:
-            raise ValueError(f"Unknown database type: '{db_type}'. Use 'kuzudb', 'ladybugdb', 'falkordb', 'falkordb-remote', 'neo4j', or 'nornic'.")
 
-    # Implicit: remote FalkorDB when FALKORDB_HOST is set (explicit infra signal)
+            info_logger("Using Nornic DB (explicit)")
+            mgr = NornicDBManager()
+
+            # Server-backed targets are valid migration destinations too. The
+            # bundle importer handles the write shape for each backend.
+            _maybe_migrate_legacy_kuzudb(mgr, db_path)
+            return mgr
+
+        if db_type == "ladybugdb":
+            if not _is_ladybugdb_available():
+                raise ValueError(
+                    "Database set to 'ladybugdb' but LadybugDB is not "
+                    "installed.\nRun 'pip install ladybug'"
+                )
+            from .database_ladybug import LadybugDBManager
+
+            info_logger(
+                f"Using LadybugDB (explicit) at {db_path or 'default path'}"
+            )
+            mgr = LadybugDBManager(db_path=db_path)
+
+            # Ladybug is one possible destination, not a hard-coded migration
+            # target. The factory decides first, then migration follows.
+            _maybe_migrate_legacy_kuzudb(mgr, db_path)
+            return mgr
+
+        raise ValueError(
+            f"Unknown database type: '{db_type}'. Use 'ladybugdb', "
+            "'falkordb', 'falkordb-remote', 'neo4j', or 'nornic'."
+        )
+
     if _is_falkordb_remote_configured():
         from .database_falkordb_remote import FalkorDBRemoteManager
-        info_logger("Using remote FalkorDB (auto-detected via FALKORDB_HOST)")
-        return FalkorDBRemoteManager()
 
-    # Implicit: FalkorDB Lite on Unix when available (typical embedded default there)
+        info_logger("Using remote FalkorDB (auto-detected via FALKORDB_HOST)")
+        mgr = FalkorDBRemoteManager()
+
+        # FALKORDB_HOST is an explicit infra signal even without
+        # DEFAULT_DATABASE, so migration follows the remote backend.
+        _maybe_migrate_legacy_kuzudb(mgr, db_path)
+        return mgr
+
     if is_falkordb_usable():
-        from .database_falkordb import FalkorDBManager, FalkorDBUnavailableError
+        from .database_falkordb import (
+            FalkorDBManager,
+            FalkorDBUnavailableError,
+        )
+
         try:
             mgr = FalkorDBManager(db_path=db_path)
             mgr.get_driver()
-            info_logger(f"Using FalkorDB Lite (default) at {db_path or 'default path'}")
+            info_logger(
+                f"Using FalkorDB Lite (default) at "
+                f"{db_path or 'default path'}"
+            )
+
+            # FalkorDB Lite is the Unix default when available, so legacy data
+            # should land here unless config says otherwise.
+            _maybe_migrate_legacy_kuzudb(mgr, db_path)
             return mgr
         except FalkorDBUnavailableError as falkor_err:
             mark_falkordb_unavailable()
             info_logger(
-                f"FalkorDB Lite not functional in this environment ({falkor_err}). "
-                "Falling back to KùzuDB."
+                "FalkorDB Lite not functional in this environment "
+                f"({falkor_err}). Falling back to LadybugDB."
             )
-            # fall through to KùzuDB below
 
-    # Implicit: KùzuDB (typical on Windows; Unix fallback when Falkor Lite unavailable)
-    if _is_kuzudb_available():
-        from .database_kuzu import KuzuDBManager
-        kuzu_path = _fallback_db_path_for(db_path, 'kuzudb')
-        info_logger(f"Using KùzuDB (default) at {kuzu_path or 'default path'}")
-        return KuzuDBManager(db_path=kuzu_path)
+            # fall through to LadybugDB below
 
-    # Implicit: LadybugDB when available
     if _is_ladybugdb_available():
         from .database_ladybug import LadybugDBManager
-        ladybug_path = _fallback_db_path_for(db_path, 'ladybugdb')
-        info_logger(f"Using LadybugDB (default) at {ladybug_path or 'default path'}")
-        return LadybugDBManager(db_path=ladybug_path)
 
-    # Implicit: Neo4j when configured
+        ladybug_path = _fallback_db_path_for(db_path, "ladybugdb")
+        info_logger(
+            f"Using LadybugDB (default) at {ladybug_path or 'default path'}"
+        )
+        mgr = LadybugDBManager(db_path=ladybug_path)
+
+        # Ladybug receives migration only when it is the resolved default or
+        # explicit selection.
+        _maybe_migrate_legacy_kuzudb(mgr, ladybug_path)
+        return mgr
+
     if _is_neo4j_configured():
         from .database import DatabaseManager
-        info_logger("Using Neo4j Server (auto-detected)")
-        return DatabaseManager()
 
-    # Implicit: Nornic when configured
+        info_logger("Using Neo4j Server (auto-detected)")
+        mgr = DatabaseManager()
+
+        # Neo4j can be the implicit fallback when credentials exist, so it must
+        # participate in migration rather than forcing a local embedded target.
+        _maybe_migrate_legacy_kuzudb(mgr, db_path)
+        return mgr
+
     if _is_nornic_configured():
         from .database_nornic import NornicDBManager
+
         info_logger("Using Nornic DB (auto-detected)")
-        return NornicDBManager()
+        mgr = NornicDBManager()
+
+        # Nornic follows the same server-backed import path as Neo4j.
+        _maybe_migrate_legacy_kuzudb(mgr, db_path)
+        return mgr
 
     error_msg = "No database backend available.\n"
-    error_msg += "Recommended: Install KùzuDB for zero-config ('pip install kuzu')\n"
+    error_msg += (
+        "Recommended: Install LadybugDB for zero-config ('pip install "
+        "ladybug')\n"
+    )
 
     if platform.system() != "Windows":
-        error_msg += "Alternative: Install FalkorDB Lite ('pip install falkordblite')\n"
+        error_msg += (
+            "Alternative: Install FalkorDB Lite ('pip install falkordblite')\n"
+        )
 
     error_msg += "Alternative: Run 'cgc neo4j setup' to configure Neo4j."
 
     raise ValueError(error_msg)
 
-# Lazy backward-compatibility exports — avoids crashing when optional
-# database drivers (neo4j, falkordb, real_ladybug, …) are not installed.
-# Uses PEP 562 module-level __getattr__ so that:
-#   from codegraphcontext.core import DatabaseManager
-# still works, but only triggers the real import when actually accessed.
+
+def _maybe_migrate_legacy_kuzudb(
+    target_manager,
+    db_path: Optional[str],
+) -> None:
+    """Migrate an archived KuzuDB legacy store into the selected backend."""
+    try:
+        from .legacy_kuzu_migration import migrate_legacy_kuzudb_to_manager
+    except Exception as e:
+        from codegraphcontext.utils.debug_log import warning_logger
+
+        warning_logger(
+            "Legacy KuzuDB migration helper could not be loaded: "
+            f"{e}"
+        )
+        return
+
+    # KuzuDB is archived upstream and fails to install on Python 3.14+ (pip
+    # falls back to pyproject/setuptools and cannot build the wheel), so this
+    # is intentionally migration-only: keep the user's selected replacement
+    # backend and only look for old data.
+    # Context resolution may pass db_path explicitly. Auto-detected defaults do
+    # not, so fall back to the manager's resolved path to find a sibling
+    # legacy `kuzudb` directory.
+    target_path = db_path or getattr(target_manager, "db_path", None)
+    try:
+        probe_path = (
+            str(Path(target_path).expanduser().resolve())
+            if target_path
+            else "<default>"
+        )
+    except (OSError, RuntimeError, TypeError, ValueError):
+        probe_path = str(target_path) if target_path else "<default>"
+
+    with _KUZU_MIGRATION_PROBE_LOCK:
+        if probe_path in _KUZU_MIGRATION_PROBED_PATHS:
+            return
+        _KUZU_MIGRATION_PROBED_PATHS.add(probe_path)
+
+    success, message = migrate_legacy_kuzudb_to_manager(
+        target_manager,
+        target_db_path=target_path,
+    )
+    if message and not success:
+        from codegraphcontext.utils.debug_log import (
+            warning_logger as _warning_logger,
+        )
+
+        # Missing legacy data and non-empty targets are normal startup states.
+        # Warn only when a user has old Kuzu data and action is needed.
+        if (
+            "No legacy KuzuDB store found" not in message
+            and "Target database already contains data" not in message
+        ):
+            _warning_logger(message)
+    elif success:
+        from codegraphcontext.utils.debug_log import (
+            info_logger as _info_logger,
+        )
+
+        _info_logger(message)
+
+
+# Lazy backward-compatible exports avoid importing optional drivers at import
+# time. Accessing a manager still imports the concrete module when needed.
 _LAZY_IMPORTS = {
-    'DatabaseManager': '.database',
-    'FalkorDBManager': '.database_falkordb',
-    'FalkorDBRemoteManager': '.database_falkordb_remote',
-    'KuzuDBManager': '.database_kuzu',
-    'LadybugDBManager': '.database_ladybug',
-    'NornicDBManager': '.database_nornic',
+    "DatabaseManager": ".database",
+    "FalkorDBManager": ".database_falkordb",
+    "FalkorDBRemoteManager": ".database_falkordb_remote",
+    "LadybugDBManager": ".database_ladybug",
+    "NornicDBManager": ".database_nornic",
 }
+
 
 def __getattr__(name: str):
     if name in _LAZY_IMPORTS:
         import importlib
+
         module = importlib.import_module(_LAZY_IMPORTS[name], __package__)
         return getattr(module, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
+
 __all__ = [
-    'DatabaseManager',
-    'FalkorDBManager',
-    'FalkorDBRemoteManager',
-    'KuzuDBManager',
-    'LadybugDBManager',
-    'NornicDBManager',
-    'get_database_manager',
+    "DatabaseManager",
+    "FalkorDBManager",
+    "FalkorDBRemoteManager",
+    "LadybugDBManager",
+    "NornicDBManager",
+    "get_database_manager",
+    "is_falkordb_usable",
+    "mark_falkordb_unavailable",
 ]

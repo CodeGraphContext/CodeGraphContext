@@ -178,7 +178,7 @@ class CGCBundle:
 
     def _uses_pk_edge_matching(self) -> bool:
         """Kùzu/Ladybug internal IDs are not comparable via id() in MATCH."""
-        return self.db_manager.get_backend_type() in {'kuzudb', 'ladybugdb'}
+        return self.db_manager.get_backend_type() == 'ladybugdb'
 
     def _node_lookup_key(self, labels, properties: Dict) -> Optional[tuple]:
         if not labels:
@@ -535,7 +535,7 @@ class CGCBundle:
 
         with self.db_manager.get_driver(self._active_graph).session() as session:
             try:
-                if backend in ("kuzudb", "ladybugdb"):
+                if backend == "ladybugdb":
                     result = session.run("MATCH (n) RETURN DISTINCT label(n) AS lbl")
                     labels = sorted({record[0] for record in result if record[0] is not None})
                 elif backend == "neo4j":
@@ -557,7 +557,7 @@ class CGCBundle:
                 schema["node_labels"] = []
 
             try:
-                if backend in ("kuzudb", "ladybugdb"):
+                if backend == "ladybugdb":
                     result = session.run("MATCH ()-[r]->() RETURN DISTINCT label(r) AS rel")
                     rel_types = sorted({record[0] for record in result if record[0] is not None})
                 elif backend == "neo4j":
@@ -1490,17 +1490,24 @@ cgc import <bundle-file>.cgc
                 for line in f:
                     node_data = json.loads(line)
                     
-                    # Extract labels and old ID (handle both Neo4j and KuzuDB formats)
-                    labels = node_data.pop('_labels', None) or node_data.pop('_label', None) or []
+                    # Extract labels and old ID (handle both Neo4j and embedded DB formats)
+                    labels = (
+                        node_data.pop('_labels', None)
+                        or node_data.pop('_label', None)
+                        or node_data.pop('_LABEL', None)
+                        or []
+                    )
                     if isinstance(labels, str):
                         labels = [labels]
                     old_id = node_data.pop('_id', None)
+                    if old_id is None:
+                        old_id = node_data.pop('_ID', None)
                     # Convert dict IDs to hashable tuples for mapping
                     if isinstance(old_id, dict):
                         old_id = (old_id.get('table', 0), old_id.get('offset', 0))
                     
-                    # Remove internal properties
-                    node_data.pop('_element_id', None)
+                    # Remove backend-internal properties before writing into the target.
+                    node_data = self._clean_import_properties(node_data)
                     
                     batch.append((labels, node_data, old_id))
                     
@@ -1563,6 +1570,22 @@ cgc import <bundle-file>.cgc
         'MavenModule': ['group_id', 'artifact_id'],
         'ExternalLibrary': ['group_id', 'artifact_id'],
     }
+
+    @staticmethod
+    def _is_primitive_import_value(value: Any) -> bool:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return True
+        if isinstance(value, list):
+            return all(CGCBundle._is_primitive_import_value(item) for item in value)
+        return False
+
+    @classmethod
+    def _clean_import_properties(cls, properties: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            key: value
+            for key, value in properties.items()
+            if not key.startswith('_') and cls._is_primitive_import_value(value)
+        }
 
     def _import_node_batch(
         self,
@@ -1653,15 +1676,16 @@ cgc import <bundle-file>.cgc
         id_function = self._get_id_function()
         
         for edge in batch:
-            old_from = edge.get('from')
-            old_to = edge.get('to')
+            properties = edge.get('properties', {}) or {}
+            old_from = properties.get('_SRC') or edge.get('from')
+            old_to = properties.get('_DST') or edge.get('to')
             # Convert dict IDs to hashable tuples (matches node import conversion)
             if isinstance(old_from, dict):
                 old_from = (old_from.get('table', 0), old_from.get('offset', 0))
             if isinstance(old_to, dict):
                 old_to = (old_to.get('table', 0), old_to.get('offset', 0))
             rel_type = _validate_cypher_identifier(edge.get('type'), "relationship type")
-            properties = edge.get('properties', {}) or {}
+            properties = self._clean_import_properties(properties)
             if dest_root:
                 properties = _rebase_property_map(properties, dest_root)
             

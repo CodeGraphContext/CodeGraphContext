@@ -19,7 +19,7 @@ def indexed(tmp_path: Path):
         encoding="utf-8",
     )
     env = os.environ.copy()
-    env.update({"HOME": str(home), "DEFAULT_DATABASE": "kuzudb",
+    env.update({"HOME": str(home), "DEFAULT_DATABASE": "ladybugdb",
                 "CGC_CONTEXT_MODE": "global",
                 "PYTHONPATH": os.pathsep.join(sys.path)})
     subprocess.run(f"{CGC} index {shlex.quote(str(repo))}", shell=True,

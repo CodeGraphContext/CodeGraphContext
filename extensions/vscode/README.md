@@ -38,5 +38,5 @@ The CGC extension brings powerful code graph intelligence directly into your VS 
 
 Settings available under `CGC`:
 - `cgc.executable`: Path to your `cgc` binary.
-- `cgc.databaseMode`: Backend choice (`kuzudb`, `falkordb`).
+- `cgc.databaseMode`: Backend choice (`falkordb`, `ladybugdb`, `neo4j`).
 - `cgc.complexityWarningThreshold`: Set limit for complexity alerts.

@@ -26,7 +26,6 @@ jobs:
         run: |
           ruff check \
             src/codegraphcontext/core/graph_query.py \
-            src/codegraphcontext/core/database_kuzu.py \
             src/codegraphcontext/core/database_ladybug.py \
             src/codegraphcontext/core/database_embedded_kuzu.py \
             src/codegraphcontext/tools/indexing/embeddings.py \
@@ -37,7 +36,6 @@ jobs:
         run: |
           ruff format --check \
             src/codegraphcontext/core/graph_query.py \
-            src/codegraphcontext/core/database_kuzu.py \
             src/codegraphcontext/core/database_ladybug.py \
             src/codegraphcontext/tools/indexing/embeddings.py \
             src/codegraphcontext/tools/indexing/vector_resolver.py

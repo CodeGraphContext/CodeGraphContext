@@ -108,9 +108,9 @@ def test_execute_write_other_backend():
     driver, session = _make_driver_with_execute_methods()
     work_fn = MagicMock(return_value="result")
     
-    res = execute_write_operation(driver, "kuzudb", work_fn)
+    res = execute_write_operation(driver, "ladybugdb", work_fn)
     
-    # execute_write should NOT be called for kuzudb even if present
+    # execute_write should NOT be called for ladybugdb even if present
     session.execute_write.assert_not_called()
     work_fn.assert_called_once_with(session)
     assert res == "result"

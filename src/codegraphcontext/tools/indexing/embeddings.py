@@ -44,11 +44,11 @@ def detect_graph_backend(driver: Any) -> str:
         return "neo4j"
     if cls in ("FalkorDBDriverWrapper", "FalkorDBRemoteDriverWrapper"):
         return "falkordb"
-    if cls in ("KuzuDriverWrapper", "LadybugDriverWrapper", "EmbeddedDriverWrapper"):
+    if cls in ("LadybugDriverWrapper", "EmbeddedDriverWrapper"):
         backend_id = getattr(driver, "_backend_id", None)
         if backend_id:
             return backend_id
-        return "kuzudb"
+        return "ladybugdb"
     return "unknown"
 
 
@@ -202,7 +202,7 @@ class EmbeddingPipeline:
                 warning_logger(f"[EMBED] Could not create vector index: {e}")
 
     def _unembedded_predicate(self) -> str:
-        if self._backend in ("kuzudb", "ladybugdb"):
+        if self._backend == "ladybugdb":
             return "(f.embedding IS NULL OR size(f.embedding) = 0)"
         return "f.embedding IS NULL"
 

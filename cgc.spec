@@ -49,7 +49,6 @@ hidden_imports = [
     'codegraphcontext.core.database',
     'codegraphcontext.core.database_falkordb',
     'codegraphcontext.core.database_falkordb_remote',
-    'codegraphcontext.core.database_kuzu',
     'codegraphcontext.core.falkor_worker',
     'codegraphcontext.core.jobs',
     'codegraphcontext.core.watcher',

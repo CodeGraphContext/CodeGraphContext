@@ -37,3 +37,18 @@ def test_tree_sitter_language_pack_matches_pyproject_pin():
         f"differ from CI's — recreate the venv (pip install -e .[dev]) before "
         f"trusting any parser test outcome (#1625)."
     )
+
+
+def test_ladybug_matches_safe_schema_ddl_floor():
+    """Reject Ladybug versions that can crash while creating the CGC schema."""
+    req = _pinned_requirement("ladybug")
+    installed = Version(metadata.version("ladybug"))
+
+    assert Version("0.19") in req.specifier, (
+        "The Ladybug dependency must retain a >=0.19 floor because older "
+        "releases can crash in _execute_with_pybind during schema DDL."
+    )
+    assert installed in req.specifier, (
+        f"Installed Ladybug {installed} violates the pyproject requirement "
+        f"'{req.specifier}'. Recreate the venv before running backend tests."
+    )

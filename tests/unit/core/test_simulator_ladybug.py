@@ -1,19 +1,19 @@
 """#1512: the simulator's load queries must execute on the embedded backends.
 
 Previously the relationship query used a bare pattern predicate in WHERE and
-labels(n1)[0]/labels(n2)[0], neither of which the Kùzu engine (or the
+labels(n1)[0]/labels(n2)[0], neither of which the Ladybug engine (or the
 translator's literal labels(n)[0] rewrite) could handle — simulate_metrics
-failed on every KùzuDB/LadybugDB database.
+failed on every LadybugDB/LadybugDB database.
 """
 from pathlib import Path
 
 import pytest
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager
+from codegraphcontext.core.database_ladybug import LadybugDBManager
 from codegraphcontext.core.simulator import CodeGraphTwin
 from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
-kuzu = pytest.importorskip("kuzu")
+ladybug = pytest.importorskip("ladybug")
 
 
 class _DBM:
@@ -24,7 +24,7 @@ class _DBM:
         return self._driver
 
     def get_backend_type(self):
-        return "kuzudb"
+        return "ladybugdb"
 
 
 def test_twin_loads_nodes_and_edges_from_kuzu(tmp_path: Path):
@@ -33,7 +33,7 @@ def test_twin_loads_nodes_and_edges_from_kuzu(tmp_path: Path):
     f = repo / "a.py"
     f.write_text("def x():\n    y()\n\ndef y():\n    pass\n", encoding="utf-8")
 
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     driver = manager.get_driver()
     try:
         w = GraphWriter(driver)

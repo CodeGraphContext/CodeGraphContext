@@ -9,7 +9,7 @@ from codegraphcontext.cli import cli_helpers
 
 def _services():
     db_manager = MagicMock()
-    db_manager.get_backend_type = lambda: "kuzudb"
+    db_manager.get_backend_type = lambda: "ladybugdb"
     ctx = SimpleNamespace(mode="global")
     return db_manager, MagicMock(), MagicMock(), ctx
 
@@ -22,7 +22,7 @@ class TestPrintQueryException:
     """Verify _print_query_exception surfaces the right message per backend."""
 
     def test_kuzu_parser_error_no_traceback(self, capsys):
-        """KuzuDB RuntimeError with 'Parser exception' should print cleanly."""
+        """LadybugDB RuntimeError with 'Parser exception' should print cleanly."""
         e = RuntimeError(
             "Parser exception: Invalid input <MATCH (n:Bad RETURN>: "
             "expected rule oC_SingleQuery (line: 1, offset: 21)"

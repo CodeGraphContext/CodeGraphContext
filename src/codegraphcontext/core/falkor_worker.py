@@ -130,7 +130,7 @@ def run_worker():
                     "Searched: " + str(potential_paths)
                 )
                 # Exit with a distinct code so the parent can detect FalkorDB is
-                # unavailable in this environment and fall back to KùzuDB.
+                # unavailable in this environment and fall back to LadybugDB.
                 sys.exit(2)
 
         # Start Embedded DB
@@ -141,7 +141,16 @@ def run_worker():
                 pass
 
         server_config.setdefault("port", str(port))
-        db_instance = FalkorDB(db_path, unix_socket_path=socket_path, serverconfig=server_config)
+
+        # protocol=2 forces RESP2, which skips redis-py's maintenance-notifications
+        # handshake. That handshake requires a TCP host attribute and always fails
+        # on Unix-socket connections (redis-py ≥ 8.0 raises ValueError otherwise).
+        db_instance = FalkorDB(
+            db_path,
+            unix_socket_path=socket_path,
+            serverconfig=server_config,
+            protocol=2,
+        )
         logger.info("FalkorDB Lite is running.")
         logger.info(f"Using FalkorDB port: {port}")
         
@@ -157,7 +166,7 @@ def run_worker():
                     f"FalkorDB module not loaded — GRAPH.QUERY unavailable: {health_err}. "
                     "The Redis server started but the FalkorDB .so module was not loaded."
                 )
-                sys.exit(2)  # same exit code: parent will fall back to KùzuDB
+                sys.exit(2)  # same exit code: parent will fall back to LadybugDB
             else:
                 logger.warning(f"FalkorDB health-check warning (non-fatal): {health_err}")
         

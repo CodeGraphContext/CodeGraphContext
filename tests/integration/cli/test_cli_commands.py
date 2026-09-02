@@ -226,10 +226,11 @@ class _FakeCodeFinder:
 
 
 @pytest.fixture
-def kuzudb_env():
+def ladybugdb_env():
     env = {
-        "DEFAULT_DATABASE": "kuzudb",
-        "CGC_RUNTIME_DB_TYPE": "kuzudb",
+        "ALLOW_DB_DELETION": "true",
+        "DEFAULT_DATABASE": "ladybugdb",
+        "CGC_RUNTIME_DB_TYPE": "ladybugdb",
     }
     with patch.dict(os.environ, env, clear=False):
         yield
@@ -445,7 +446,7 @@ def test_cli_inventory_grouped_from_source():
         assert inventory["context"] == {"list", "create", "delete", "mode", "default"}
 
 
-def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs, tmp_path):
+def test_all_canonical_cli_commands_run_with_ladybugdb(ladybugdb_env, cli_test_stubs, tmp_path):
     bundle_file = str(cli_test_stubs["bundle_file"])
     bundle_export = str(cli_test_stubs["bundle_export"])
 
@@ -457,10 +458,11 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs, 
         ["config", "show"],
         ["config", "set", "MAX_FILE_SIZE_MB", "11"],
         ["config", "reset"],
-        ["config", "db", "kuzudb"],
+        ["config", "db", "ladybugdb"],
         ["bundle", "export", bundle_export],
         ["bundle", "import", bundle_file],
         ["bundle", "load", bundle_file],
+        ["bundle", "merge", bundle_file, bundle_file, bundle_file],
         ["hook", "install"],
         ["hook", "uninstall"],
         ["hook", "status"],
@@ -551,9 +553,6 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs, 
 
     expected_inventory = source_inventory
     expected_set = {(family, name) for family, names in expected_inventory.items() for name in names}
-    # `bundle merge` is a non-interactive git merge driver that takes file
-    # arguments; it is not exercised by this smoke matrix.
-    expected_set.discard(("bundle", "merge"))
     # `bundle verify`/`inspect`/`diff` (#1060) each require an existing .cgc
     # file (two, for diff) as a positional argument, so they cannot be invoked
     # bare the way this matrix invokes everything else. Their behaviour is
@@ -564,18 +563,18 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs, 
     assert _matrix_command_set(command_matrix) == expected_set
 
     for args in command_matrix:
-        result = runner.invoke(app, ["--database", "kuzudb", *args])
+        result = runner.invoke(app, ["--database", "ladybugdb", *args])
         assert result.exit_code == 0, f"command failed: {' '.join(args)}\n{result.output}"
         assert result.exception is None, f"exception raised for {' '.join(args)}"
         assert "Traceback" not in result.output
 
 
-def test_config_db_rejects_invalid_backend_with_clear_error(kuzudb_env):
+def test_config_db_rejects_invalid_backend_with_clear_error(ladybugdb_env):
     result = runner.invoke(app, ["config", "db", "invalid-backend"])
 
     assert result.exit_code == 1
     assert "Invalid backend" in result.output
-    assert "kuzudb" in result.output
+    assert "ladybugdb" in result.output
 
 
 def test_config_show_with_empty_config_does_not_crash(monkeypatch, tmp_path):
@@ -610,7 +609,7 @@ def test_find_content_surfaces_query_errors(monkeypatch):
     assert "Full-text search is not supported on FalkorDB" not in result.output
 
 
-def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):
+def test_db_flag_ladybugdb_not_overwritten_by_context_database(monkeypatch):
     class _Ctx:
         mode = "named"
         context_name = "test"
@@ -651,8 +650,8 @@ def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):
     monkeypatch.setattr(cli_helpers, "ensure_first_run_bootstrap", lambda *_args, **_kwargs: None)
 
     def _fake_get_database_manager(*_args, **_kwargs):
-        # --db kuzudb must remain effective, even when context prefers neo4j.
-        assert os.environ.get("CGC_RUNTIME_DB_TYPE") == "kuzudb"
+        # --db ladybugdb must remain effective, even when context prefers neo4j.
+        assert os.environ.get("CGC_RUNTIME_DB_TYPE") == "ladybugdb"
         return _FakeManager()
 
     monkeypatch.setattr(cli_helpers, "get_database_manager", _fake_get_database_manager)
@@ -660,7 +659,7 @@ def test_db_flag_kuzudb_not_overwritten_by_context_database(monkeypatch):
     # Use a clean environment so the command path is deterministic.
     clean_env = {k: v for k, v in os.environ.items() if k not in {"CGC_RUNTIME_DB_TYPE", "DEFAULT_DATABASE", "DATABASE_TYPE"}}
     with patch.dict(os.environ, clean_env, clear=True):
-        result = runner.invoke(app, ["--db", "kuzudb", "list"])
+        result = runner.invoke(app, ["--db", "ladybugdb", "list"])
 
     assert result.exit_code == 0, result.output
     assert "Database Connection Error" not in result.output
@@ -766,7 +765,7 @@ class TestNeo4jDatabaseNameCLI:
             assert "(database:" not in lowered
 
 
-def test_load_credentials_displays_kuzudb_backend(monkeypatch, tmp_path):
+def test_load_credentials_displays_ladybugdb_backend(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
 
     monkeypatch.chdir(tmp_path)
@@ -781,14 +780,14 @@ def test_load_credentials_displays_kuzudb_backend(monkeypatch, tmp_path):
             "NEO4J_DATABASE",
         }
     }
-    clean_env["DEFAULT_DATABASE"] = "kuzudb"
+    clean_env["DEFAULT_DATABASE"] = "ladybugdb"
     with patch.dict(os.environ, clean_env, clear=True):
         output = StringIO()
         with patch("codegraphcontext.cli.main.console", Console(file=output, force_terminal=False)):
             _load_credentials()
 
         lowered = output.getvalue().lower()
-        assert "using database: kuzudb" in lowered
+        assert "using database: ladybugdb" in lowered
         assert "source:" in lowered
 
 
@@ -798,6 +797,11 @@ def test_load_credentials_normalizes_tilde_paths_from_mcp_json(monkeypatch, tmp_
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        cli_main.config_manager,
+        "CONFIG_FILE",
+        tmp_path / ".codegraphcontext" / ".env",
+    )
 
     mcp_data = {
         "mcpServers": {
@@ -844,7 +848,9 @@ def test_load_credentials_utf8_decoding_robustness(monkeypatch, tmp_path):
         cgcignore_path = "/path/to/cgcignore"
 
     monkeypatch.setattr(cli_main.config_manager, "CONFIG_DIR", tmp_path)
-    monkeypatch.setattr(cli_main.config_manager, "CONFIG_FILE", tmp_path / "config.json")
+    global_dir = tmp_path / ".codegraphcontext"
+    real_global_env = global_dir / ".env"
+    monkeypatch.setattr(cli_main.config_manager, "CONFIG_FILE", real_global_env)
     monkeypatch.setattr(cli_main.config_manager, "CONTEXT_CONFIG_FILE", tmp_path / "config.yaml")
     monkeypatch.setattr(cli_main.config_manager, "ensure_config_dir", lambda *_args, **_kwargs: None)
     monkeypatch.chdir(tmp_path)
@@ -855,9 +861,7 @@ def test_load_credentials_utf8_decoding_robustness(monkeypatch, tmp_path):
     # We will write invalid UTF-8 bytes to the global .env file path
     monkeypatch.setenv("HOME", str(tmp_path))
     
-    global_dir = tmp_path / ".codegraphcontext"
     global_dir.mkdir(parents=True, exist_ok=True)
-    real_global_env = global_dir / ".env"
     
     # Write invalid UTF-8 bytes to the file (e.g. 0x97 invalid start byte)
     real_global_env.write_bytes(b"DEFAULT_DATABASE=ladybugdb\n# invalid byte: \x97\n")

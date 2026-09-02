@@ -100,7 +100,7 @@ def test_per_repo_mode_uses_local_dotenv(tmp_path, monkeypatch):
     repo_cgc.mkdir()
     
     repo_env = repo_cgc / ".env"
-    repo_env.write_text("DEFAULT_DATABASE=kuzudb\n")
+    repo_env.write_text("DEFAULT_DATABASE=ladybugdb\n")
     
     # Create config.yaml in PER-REPO mode
     config_yaml = global_cgc_dir / "config.yaml"
@@ -114,7 +114,7 @@ def test_per_repo_mode_uses_local_dotenv(tmp_path, monkeypatch):
                     config = config_manager.load_config()
     
     # ASSERTION: In per-repo mode, local config should win
-    assert config["DEFAULT_DATABASE"] == "kuzudb", \
+    assert config["DEFAULT_DATABASE"] == "ladybugdb", \
         "Per-repo mode should use local .codegraphcontext/.env config"
 
 
@@ -165,7 +165,7 @@ def test_cgc_load_project_env_forces_load(tmp_path, monkeypatch):
     repo_cgc.mkdir()
     
     repo_env = repo_cgc / ".env"
-    repo_env.write_text("DEFAULT_DATABASE=kuzudb\n")
+    repo_env.write_text("DEFAULT_DATABASE=ladybugdb\n")
     
     config_yaml = global_cgc_dir / "config.yaml"
     config_yaml.write_text("version: 1\nmode: global\n")
@@ -180,7 +180,7 @@ def test_cgc_load_project_env_forces_load(tmp_path, monkeypatch):
     
     # With force flag, repo config should be loaded
     # But DB_PATH_ENV_KEYS should still be protected
-    assert config["DEFAULT_DATABASE"] == "kuzudb", \
+    assert config["DEFAULT_DATABASE"] == "ladybugdb", \
         "CGC_LOAD_PROJECT_ENV=1 should allow project config to override"
 
 
@@ -201,7 +201,7 @@ def test_db_path_keys_never_override_in_global_mode(tmp_path, monkeypatch):
     global_env = global_cgc_dir / ".env"
     global_env.write_text(
         "FALKORDB_PATH=/home/user/.codegraphcontext/global/db/falkordb\n"
-        "KUZUDB_PATH=/home/user/.codegraphcontext/global/db/kuzudb\n"
+        "KUZUDB_PATH=/home/user/.codegraphcontext/global/db/ladybugdb\n"
     )
     
     repo_dir = tmp_path / "repo"

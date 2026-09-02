@@ -32,7 +32,7 @@ class GraphQueryInterface(ABC):
 
     @abstractmethod
     def get_backend_type(self) -> str:
-        """Stable backend identifier (e.g. ``neo4j``, ``kuzudb``, ``falkordb``)."""
+        """Stable backend identifier (e.g. ``neo4j``, ``ladybugdb``, ``falkordb``)."""
 
     @classmethod
     @abstractmethod

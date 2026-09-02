@@ -18,13 +18,13 @@ def _base_builder(backend: str):
 
 
 def test_graph_name_refused_on_single_graph_backend(tmp_path: Path):
-    gb = _base_builder("kuzudb")
+    gb = _base_builder("ladybugdb")
     result = add_code_to_graph(
         gb, MagicMock(), MagicMock(), lambda: {"repositories": []},
         path=str(tmp_path), graph_name="service-a",
     )
     assert result.get("unsupported_argument") == "graph_name"
-    assert "kuzudb" in result["error"]
+    assert "ladybugdb" in result["error"]
     gb.estimate_processing_time.assert_not_called()
 
 
@@ -56,7 +56,7 @@ def test_graph_name_builds_scoped_builder_on_falkordb(tmp_path: Path, monkeypatc
 
 def test_no_graph_name_keeps_default_builder(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CGC_ALLOWED_ROOTS", str(tmp_path))
-    gb = _base_builder("kuzudb")
+    gb = _base_builder("ladybugdb")
     gb.build_graph_from_path_async.return_value = MagicMock()
     job_manager = MagicMock()
     job_manager.create_job.return_value = "job-2"

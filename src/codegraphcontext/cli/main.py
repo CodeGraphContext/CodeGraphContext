@@ -310,6 +310,7 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
     """
     from dotenv import dotenv_values
     from codegraphcontext.cli.config_manager import (
+        CONFIG_FILE,
         ensure_config_dir,
         codegraphcontext_dotenv_at_cwd,
         normalize_config_path,
@@ -359,7 +360,7 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
             console.print(f"[yellow]Warning: Could not load mcp.json: {e}[/yellow]")
     
     # 3. Global .env file (user defaults)
-    global_env_path = Path.home() / ".codegraphcontext" / ".env"
+    global_env_path = CONFIG_FILE
     if global_env_path.exists():
         try:
             with open(global_env_path, "r", encoding="utf-8", errors="replace") as f:
@@ -489,11 +490,11 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
         try:
             from codegraphcontext.core import get_database_manager
             _mgr = get_database_manager()
-            default_db = _mgr.get_backend_type()   # e.g. 'falkordb' / 'kuzudb'
+            default_db = _mgr.get_backend_type()
         except Exception:
             # Factory failed entirely — still show a best-guess
             from codegraphcontext.core import _is_falkordb_available
-            default_db = "falkordb" if _is_falkordb_available() else "kuzudb"
+            default_db = "falkordb" if _is_falkordb_available() else "ladybugdb"
         db_source = "auto-detect"
 
     # Print selection banner
@@ -513,8 +514,6 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
             console.print("[yellow]⚠ DEFAULT_DATABASE=neo4j but credentials not found. Falling back to default.[/yellow]")
     elif default_db == "falkordb":
         console.print(f"[cyan]Using database: falkordb (source: {db_source})[/cyan]")
-    elif default_db == "kuzudb":
-        console.print(f"[cyan]Using database: kuzudb (source: {db_source})[/cyan]")
     elif default_db == "ladybugdb":
         console.print(f"[cyan]Using database: ladybugdb (source: {db_source})[/cyan]")
     elif default_db == "falkordb-remote":
@@ -580,21 +579,21 @@ def config_reset():
         console.print("[yellow]Reset cancelled[/yellow]")
 
 @config_app.command("db")
-def config_db(backend: str = typer.Argument(..., help="Database backend: 'neo4j', 'falkordb', 'falkordb-remote', 'kuzudb', 'nornic', or 'ladybugdb'")):
+def config_db(backend: str = typer.Argument(..., help="Database backend: 'neo4j', 'falkordb', 'falkordb-remote', 'nornic', or 'ladybugdb'")):
     """
     Quickly switch the default database backend.
-    
+
     Shortcut for 'cgc config set DEFAULT_DATABASE <backend>'.
-    
+
     Examples:
         cgc config db neo4j
         cgc config db falkordb
-        cgc config db kuzudb
+        cgc config db ladybugdb
     """
     backend = backend.lower()
-    if backend not in ['falkordb', 'falkordb-remote', 'neo4j', 'kuzudb', 'nornic', 'ladybugdb']:
+    if backend not in ['falkordb', 'falkordb-remote', 'neo4j', 'nornic', 'ladybugdb']:
         console.print(f"[bold red]Invalid backend: {backend}[/bold red]")
-        console.print("Must be 'falkordb', 'falkordb-remote', 'neo4j', 'kuzudb', 'nornic', or 'ladybugdb'")
+        console.print("Must be 'falkordb', 'falkordb-remote', 'neo4j', 'nornic', or 'ladybugdb'")
         raise typer.Exit(code=1)
     
     updated = config_manager.set_config_value("DEFAULT_DATABASE", backend)
@@ -1487,15 +1486,6 @@ def doctor():
                     console.print(f"   [red]✗[/red] Neo4j connection failed (source: {db_source})")
                     console.print(f"       Reason: {error_msg}")
                     all_checks_passed = False
-        elif default_db == "kuzudb":
-            from importlib.util import find_spec
-
-            if find_spec("kuzu") is not None:
-                console.print("   [green]✓[/green] KuzuDB is installed")
-            else:
-                console.print("   [red]✗[/red] KuzuDB is not installed")
-                console.print("       Run: pip install kuzu")
-                all_checks_passed = False
         elif default_db == "ladybugdb":
             from importlib.util import find_spec
 
@@ -3574,7 +3564,7 @@ def main(
         None,
         "--path",
         "--db-path",
-        help="[Global] Temporarily override database path (for local DBs like KuzuDB)"
+        help="[Global] Temporarily override database path (for local DBs like LadybugDB)"
     ),
 ):
     """

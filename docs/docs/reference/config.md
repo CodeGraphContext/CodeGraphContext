@@ -13,10 +13,10 @@ These three points are the most common sources of confusion in older docs and is
 | Platform | What CGC uses by default |
 | :--- | :--- |
 | **Unix (Linux/macOS), Python 3.12+** | **FalkorDB Lite** when `falkordblite` is installed (`DEFAULT_DATABASE=falkordb`) |
-| **Windows**, or FalkorDB Lite unavailable | **KuzuDB** as the automatic fallback |
+| **Windows**, or FalkorDB Lite unavailable | **LadybugDB** as the automatic fallback |
 | **Any platform** | Override anytime with `cgc config db <backend>` |
 
-KuzuDB is **not** the universal default—it is the cross-platform fallback when FalkorDB Lite cannot run.
+KuzuDB is not a supported runtime backend. It is archived upstream, cannot be installed on Python 3.14+, and is used only as a legacy migration source.
 
 ### Neo4j username key
 
@@ -65,7 +65,9 @@ Quickly updates the `DEFAULT_DATABASE` key:
 cgc config db falkordb
 ```
 
-Valid database backend identifiers: `kuzudb`, `ladybugdb`, `falkordb` (Lite/embedded), `falkordb-remote`, `neo4j`, and `nornic`.
+Valid database backend identifiers: `ladybugdb`, `falkordb` (Lite/embedded), `falkordb-remote`, `neo4j`, and `nornic`.
+
+KuzuDB is archived upstream and fails to install on Python 3.14+ because pip falls back to the `pyproject.toml`/setuptools build path and cannot build the wheel. It is legacy migration-only. If you still have a KuzuDB store, migrate it into a supported backend using the [KuzuDB migration guide](../guides/migrate-from-kuzudb.md).
 
 ### 4. Reset to Defaults
 Restores all keys to factory configurations:
@@ -100,7 +102,7 @@ cgc config set ALLOW_DB_DELETION false
 
 | Config Key | Default | Description |
 | :--- | :--- | :--- |
-| **`DEFAULT_DATABASE`** | `falkordb` | Active database engine. Options: `kuzudb`, `ladybugdb`, `falkordb`, `falkordb-remote`, `neo4j`. |
+| **`DEFAULT_DATABASE`** | `falkordb` | Active database engine. Options: `ladybugdb`, `falkordb`, `falkordb-remote`, `neo4j`, `nornic`. |
 | **`ENABLE_AUTO_WATCH`** | `false` | When `true`, indexing a project automatically initializes a directory watcher. |
 | **`PARALLEL_WORKERS`** | `4` | Max thread pool size for parsing code files concurrently. |
 | **`CACHE_ENABLED`** | `true` | Caches file hashes to support fast incremental scans. |
@@ -159,12 +161,12 @@ Required when `DEFAULT_DATABASE` is set to `falkordb-remote`.
 | **`FALKORDB_SSL`** | `false` | Enables SSL/TLS connection socket. |
 | **`FALKORDB_GRAPH_NAME`** | `codegraph` | Target graph namespace. |
 
-### Embedded Database Directories (KuzuDB / LadybugDB / FalkorDB Lite)
+### Embedded Database Directories (Legacy KuzuDB / LadybugDB / FalkorDB Lite)
 Local embedded database instances are stored on disk. Use the settings below to redirect them:
 
 | Config Key | Default | Description |
 | :--- | :--- | :--- |
-| **`KUZUDB_PATH`** | `~/.codegraphcontext/global/db/kuzudb/` | Root storage directory for KuzuDB files. |
+| **`KUZUDB_PATH`** | `~/.codegraphcontext/global/db/kuzudb/` | Archived KuzuDB source directory used only during legacy migration. |
 | **`LADYBUGDB_PATH`** | `~/.codegraphcontext/global/db/ladybugdb/` | Root storage directory for LadybugDB files. |
 | **`FALKORDB_PATH`** | `~/.codegraphcontext/global/db/falkordb/` | Storage path for FalkorDB Lite database. |
 

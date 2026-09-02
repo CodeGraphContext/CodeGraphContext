@@ -33,6 +33,7 @@ class TestFalkorDBRemoteManager:
         env = {
             'FALKORDB_HOST': 'myhost.example.com',
         }
+
         # Clear all FALKORDB_ env vars first
         clean_env = {k: v for k, v in os.environ.items() if not k.startswith('FALKORDB_')}
         clean_env.update(env)
@@ -334,6 +335,7 @@ class TestFactoryFalkorDBRemote:
             'DEFAULT_DATABASE': 'falkordb-remote',
             'FALKORDB_HOST': 'myhost',
         }
+
         # Clear conflicting vars
         clean_env = {k: v for k, v in os.environ.items()
                      if k not in ('DEFAULT_DATABASE', 'CGC_RUNTIME_DB_TYPE')
@@ -384,6 +386,26 @@ class TestFactoryFalkorDBRemote:
             with pytest.raises(ValueError, match="falkordb-remote"):
                 get_database_manager()
 
+    def test_kuzudb_is_not_a_supported_database_type(self):
+        """Archived KuzuDB remains migration-only, not a runtime backend."""
+        clean_env = {k: v for k, v in os.environ.items()
+                     if k not in ('DEFAULT_DATABASE', 'CGC_RUNTIME_DB_TYPE')}
+        clean_env.update({'DEFAULT_DATABASE': 'kuzudb'})
+
+        with patch.dict(os.environ, clean_env, clear=True):
+            from codegraphcontext.core import get_database_manager
+            with pytest.raises(ValueError) as exc_info:
+                get_database_manager()
+
+        message = str(exc_info.value)
+
+        # KuzuDB data may be migrated, but selecting KuzuDB as the live backend
+        # should keep failing because the upstream dependency is archived.
+        assert "Unknown database type: 'kuzudb'" in message
+        assert "falkordb" in message
+        assert "ladybugdb" in message
+        assert "Use 'kuzudb'" not in message
+
     def test_runtime_db_type_overrides_default_database(self):
         """CGC_RUNTIME_DB_TYPE wins over DEFAULT_DATABASE."""
         clean_env = {k: v for k, v in os.environ.items()
@@ -391,7 +413,7 @@ class TestFactoryFalkorDBRemote:
                      and not k.startswith('FALKORDB_')
                      and not k.startswith('NEO4J_')}
         clean_env.update({
-            'DEFAULT_DATABASE': 'kuzudb',
+            'DEFAULT_DATABASE': 'ladybugdb',
             'CGC_RUNTIME_DB_TYPE': 'falkordb-remote',
             'FALKORDB_HOST': 'override-host',
         })

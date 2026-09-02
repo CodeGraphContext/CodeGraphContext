@@ -1,6 +1,6 @@
-"""#1393 on the embedded backends: colliding symbols must stay distinct on KuzuDB.
+"""#1393 on the embedded backends: colliding symbols must stay distinct on LadybugDB.
 
-The writer-side fix alone was not enough here — Kùzu keys these node tables on
+The writer-side fix alone was not enough here — Ladybug keys these node tables on
 a computed ``uid``, and the compat layer built that uid from
 ``(name, path, line_number)``, so two symbols sharing a name and a line still
 collapsed onto one row no matter what the MERGE pattern said. The uid must
@@ -10,14 +10,14 @@ from pathlib import Path
 
 import pytest
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager
+from codegraphcontext.core.database_ladybug import LadybugDBManager
 from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
-kuzu = pytest.importorskip("kuzu")
+ladybug = pytest.importorskip("ladybug")
 
 
 def _new_kuzu_driver(tmp_path: Path):
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     return manager, manager.get_driver()
 
 
@@ -101,8 +101,8 @@ def test_kuzu_rewrite_is_idempotent_for_colliding_symbols(tmp_path):
 def test_inheritance_batch_rows_are_deduped(tmp_path):
     """Identical (child, parent) records emitted twice by a parser must land
     as one INHERITS edge on the embedded backends too (#1605 follow-on)."""
-    from codegraphcontext.core.database_kuzu import KuzuDBManager
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    from codegraphcontext.core.database_ladybug import LadybugDBManager
+    manager = LadybugDBManager(str(tmp_path / "db"))
     driver = manager.get_driver()
     try:
         writer = GraphWriter(driver)

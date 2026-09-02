@@ -42,9 +42,9 @@ from codegraphcontext.tools.indexing.resolution.inheritance import (
 )
 from codegraphcontext.utils.tree_sitter_manager import get_tree_sitter_manager
 
-kuzu = pytest.importorskip("kuzu")
+ladybug = pytest.importorskip("ladybug")
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager  # noqa: E402
+from codegraphcontext.core.database_ladybug import LadybugDBManager  # noqa: E402
 from codegraphcontext.tools.languages.kotlin import (  # noqa: E402
     KotlinTreeSitterParser,
 )
@@ -83,7 +83,7 @@ def _parse(tmp_path):
 @pytest.fixture
 def decorated_by_edges(tmp_path):
     """Run the full chain and yield the set of (decorated, decorator) pairs."""
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     try:
         driver = manager.get_driver()
         writer = GraphWriter(driver)

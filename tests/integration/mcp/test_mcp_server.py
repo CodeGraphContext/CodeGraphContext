@@ -274,7 +274,7 @@ class TestMCPServer:
         mock_server.resolved_context = ResolvedContext(
             mode="per-repo",
             context_name="",
-            database="kuzudb",
+            database="ladybugdb",
             db_path="/tmp/old-db",
             cgcignore_path="/tmp/.cgcignore",
             is_local=True,
@@ -289,7 +289,7 @@ class TestMCPServer:
              patch("codegraphcontext.server.CodeFinder"), \
              patch("codegraphcontext.server.CodeWatcher"), \
              patch("codegraphcontext.server._default_global_db_path", return_value="/tmp/global-db"), \
-             patch("codegraphcontext.server.load_config", return_value={"DEFAULT_DATABASE": "kuzudb"}):
+             patch("codegraphcontext.server.load_config", return_value={"DEFAULT_DATABASE": "ladybugdb"}):
             result = mock_server.switch_context_tool(context_path="global")
 
         assert result.get("status") == "ok", result

@@ -1,24 +1,22 @@
-"""#1605: relationship-only UNWIND MERGEs batch; node-MERGE shapes fall back.
+"""#1605: relationship-writing UNWIND MERGEs use the deterministic row fallback.
 
-Kùzu 0.11.3's MERGE pipeline mis-binds when a merged node's key repeats
-non-adjacently in one UNWIND batch: in [(A,P), (B,X), (C,P)] the C row binds
-to X's node instead of re-matching P. Relationship-only MERGEs do not exhibit
-the bug, so the forced per-row fallback is now scoped to queries that MERGE a
-node inside the UNWIND — everything else batches, which removes most of the
-per-row planner overhead.
+Ladybug 0.11.x's MERGE pipeline can mis-bind rows without raising an exception.
+This affects both node-MERGE and relationship-only batches, including CALLS,
+CONTAINS, and INHERITS writes. Execute those batches per row for correctness.
 """
 from pathlib import Path
 
 import pytest
 
-from codegraphcontext.core.database_kuzu import KuzuDBManager
+from codegraphcontext.core.database_ladybug import LadybugDBManager
+from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
 
-kuzu = pytest.importorskip("kuzu")
+ladybug = pytest.importorskip("ladybug")
 
 
 @pytest.fixture()
 def driver(tmp_path: Path):
-    manager = KuzuDBManager(str(tmp_path / "db"))
+    manager = LadybugDBManager(str(tmp_path / "db"))
     yield manager.get_driver()
     manager.close_driver()
 
@@ -59,12 +57,8 @@ def test_node_merge_with_interleaved_repeated_key_stays_correct(driver):
     assert got == [("A", "P"), ("B", "X"), ("C", "P")], got
 
 
-def test_relationship_only_merge_batches_in_one_execution(driver):
-    """A MATCH…MATCH…MERGE-rel UNWIND must reach the engine once for the whole
-    batch (not once per row) and still bind every endpoint correctly, even
-    with interleaved repeated endpoint keys and duplicate pairs."""
-    import codegraphcontext.core.database_embedded_kuzu as dek
-
+def test_relationship_only_merge_uses_per_row_fallback(driver):
+    """Relationship-only batches must avoid Ladybug's silent row mis-binding."""
     batch = [
         {"c": "A", "p": "P"},
         {"c": "B", "p": "X"},
@@ -77,13 +71,13 @@ def test_relationship_only_merge_batches_in_one_execution(driver):
             s.run("MERGE (e:ExternalClass {name: $n})", n=n)
 
         executions = []
-        orig = kuzu.Connection.execute
+        orig = ladybug.Connection.execute
 
         def counting_execute(self, query, *a, **k):
             executions.append(str(query)[:60])
             return orig(self, query, *a, **k)
 
-        kuzu.Connection.execute = counting_execute
+        ladybug.Connection.execute = counting_execute
         try:
             s.run(
                 """
@@ -95,7 +89,7 @@ def test_relationship_only_merge_batches_in_one_execution(driver):
                 batch=batch,
             )
         finally:
-            kuzu.Connection.execute = orig
+            ladybug.Connection.execute = orig
 
         got = sorted(
             (r["c"], r["p"]) for r in s.run(
@@ -105,7 +99,55 @@ def test_relationship_only_merge_batches_in_one_execution(driver):
         )
 
     assert got == [("A", "P"), ("B", "X"), ("C", "P")], got
-    assert len(executions) == 1, (
-        f"relationship-only UNWIND should execute once for the whole batch, "
-        f"ran {len(executions)}: {executions}"
+    unique_pairs = {(row["c"], row["p"]) for row in batch}
+    assert len(executions) == len(unique_pairs), (
+        f"relationship-only UNWIND should execute once per unique input row, "
+        f"ran {len(executions)} times for {len(unique_pairs)} unique rows: "
+        f"{executions}"
     )
+
+
+def test_file_to_function_calls_are_persisted(driver):
+    with driver.session() as session:
+        session.run(
+            "MERGE (f:File {path: $path, name: $name})",
+            path="/repo/caller.py",
+            name="caller.py",
+        )
+        session.run(
+            "MERGE (f:Function {name: $name, path: $path, line_number: $line, "
+            "occurrence_index: 0, uid: $uid})",
+            name="target",
+            path="/repo/target.py",
+            line=3,
+            uid="/repo/target.py:target:3:0",
+        )
+
+    GraphWriter(driver).write_function_call_groups(
+        file_to_fn=[
+            {
+                "type": "file",
+                "caller_file_path": "/repo/caller.py",
+                "called_name": "target",
+                "called_file_path": "/repo/target.py",
+                "called_line_number": 3,
+                "called_context": "",
+                "line_number": 8,
+                "full_call_name": "target",
+                "args": [],
+                "confidence": 1.0,
+                "resolution_tier": 1,
+                "confidence_label": "EXACT",
+            }
+        ]
+    )
+
+    with driver.session() as session:
+        assert (
+            session.run(
+                "MATCH (:File {path: '/repo/caller.py'})-[r:CALLS]->"
+                "(:Function {name: 'target', path: '/repo/target.py'}) "
+                "RETURN count(r) AS c"
+            ).data()[0]["c"]
+            == 1
+        )

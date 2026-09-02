@@ -33,7 +33,7 @@ def test_per_repo_mode_loads_project_dotenv(isolated_home):
     repo = isolated_home / "myrepo"
     cgc_dir = repo / ".codegraphcontext"
     cgc_dir.mkdir(parents=True)
-    (cgc_dir / ".env").write_text("DEFAULT_DATABASE=kuzudb\n", encoding="utf-8")
+    (cgc_dir / ".env").write_text("DEFAULT_DATABASE=ladybugdb\n", encoding="utf-8")
 
     with patch.object(config_manager, "load_context_config") as mock_cfg:
         mock_cfg.return_value = config_manager.ContextConfig(mode="per-repo")

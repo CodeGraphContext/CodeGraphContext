@@ -1395,40 +1395,6 @@ class CodeFinder:
             repo_filter = "AND file.path STARTS WITH $repo_path" if repo_path else ""
             backend = getattr(self.db_manager, "get_backend_type", lambda: "")()
 
-            # KuzuDB is stricter about OPTIONAL MATCH variable scoping, and nested
-            # repository ownership is already represented in the file path.
-            if backend == "kuzudb":
-                importers_result = session.run(f"""
-                    MATCH (file:File)-[imp:IMPORTS]->(module:Module)
-                    WHERE (module.name = $module_name OR module.full_import_name CONTAINS $module_name) {repo_filter}
-                    RETURN DISTINCT
-                        file.path as importer_file_path,
-                        imp.line_number as import_line_number,
-                        file.is_dependency as file_is_dependency,
-                        '' as repository_name
-                    ORDER BY file_is_dependency ASC, importer_file_path
-                    LIMIT 50
-                """, module_name=module_name, repo_path=repo_path)
-
-                imports_result = session.run(f"""
-                    MATCH (file:File)-[:IMPORTS]->(target_module:Module)
-                    WHERE (target_module.name = $module_name OR target_module.full_import_name CONTAINS $module_name) {repo_filter}
-                    WITH file, target_module
-                    MATCH (file)-[imp:IMPORTS]->(other_module:Module)
-                    WHERE other_module.name <> target_module.name
-                    RETURN DISTINCT
-                        other_module.name as imported_module,
-                        imp.alias as import_alias
-                    ORDER BY imported_module
-                    LIMIT 50
-                """, module_name=module_name, repo_path=repo_path)
-
-                return {
-                    "module_name": module_name,
-                    "importers": importers_result.data(),
-                    "imports": imports_result.data()
-                }
-
             # Find files that import this module (who imports this module)
             importers_result = session.run(f"""
                 MATCH (file:File)-[imp:IMPORTS]->(module:Module {{name: $module_name}})
@@ -1469,8 +1435,6 @@ class CodeFinder:
             repo_filter = "AND var.path STARTS WITH $repo_path" if repo_path else ""
             path_filter = "(var.path ENDS WITH $path OR var.path = $path)" if path else "1=1"
 
-            # Two-pass approach for KuzuDB compatibility (doesn't support
-            # OPTIONAL MATCH referencing variables bound in a prior MATCH).
             # Pass 1: variables WITH a container
             contained = session.run(f"""
                 MATCH (container)-[:CONTAINS]->(var:Variable {{name: $variable_name}})

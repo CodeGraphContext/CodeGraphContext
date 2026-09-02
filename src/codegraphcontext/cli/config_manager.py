@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, List
 try:
     from rich.console import Console
     from rich.table import Table
-    console = Console()
+    console = Console(stderr=True)
 except Exception:
     # Lightweight fallback when 'rich' is not installed (tests or minimal envs)
     class _TableFallback:
@@ -52,7 +52,6 @@ except Exception:
 import os
 import yaml
 
-
 def _atomic_write_text(path: Path, content: str, *, secure: bool = False) -> None:
     """Write *content* to *path* atomically (temp file + replace)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,7 +65,19 @@ def _atomic_write_text(path: Path, content: str, *, secure: bool = False) -> Non
         os.chmod(path, 0o600)
 
 # Configuration file location
-CONFIG_DIR = Path.home() / ".codegraphcontext"
+def _xdg_home(env_name: str, xdg_name: str, fallback: str) -> Path:
+    explicit = os.getenv(env_name)
+    if explicit:
+        return Path(explicit).expanduser()
+    xdg_base = os.getenv(xdg_name)
+    if xdg_base:
+        return Path(xdg_base).expanduser() / "codegraphcontext"
+    return Path.home() / fallback / "codegraphcontext"
+
+
+CONFIG_DIR = _xdg_home("CGC_CONFIG_DIR", "XDG_CONFIG_HOME", ".config")
+DATA_DIR = _xdg_home("CGC_DATA_DIR", "XDG_DATA_HOME", ".local/share")
+CACHE_DIR = _xdg_home("CGC_CACHE_DIR", "XDG_CACHE_HOME", ".cache")
 CONFIG_FILE = CONFIG_DIR / ".env"
 
 # Keys that pin embedded DB directories; must not bleed across profiles via local .env
@@ -85,19 +96,18 @@ DATABASE_CREDENTIAL_KEYS = {
 # Default configuration values
 DEFAULT_CONFIG = {
     "DEFAULT_DATABASE": "falkordb",
-    "FALKORDB_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb"),
-    "FALKORDB_SOCKET_PATH": str(CONFIG_DIR / "global" / "db" / "falkordb.sock"),
+    "FALKORDB_PATH": str(DATA_DIR / "global" / "db" / "falkordb"),
+    "FALKORDB_SOCKET_PATH": str(DATA_DIR / "global" / "db" / "falkordb.sock"),
     # Empty selects a deterministic port derived from each embedded DB socket.
     "FALKORDB_PORT": "",
-    "LADYBUGDB_PATH": str(CONFIG_DIR / "global" / "db" / "ladybugdb"),
-    "KUZUDB_PATH": str(CONFIG_DIR / "global" / "db" / "kuzudb"),
+    "LADYBUGDB_PATH": str(DATA_DIR / "global" / "db" / "ladybugdb"),
     "INDEX_VARIABLES": "true",
     "ALLOW_DB_DELETION": "false",
     "DEBUG_LOGS": "false",
-    "DEBUG_LOG_PATH": str(Path.home() / "mcp_debug.log"),
+    "DEBUG_LOG_PATH": str(CACHE_DIR / "logs" / "debug.log"),
     "ENABLE_APP_LOGS": "CRITICAL",
     "LIBRARY_LOG_LEVEL": "WARNING",
-    "LOG_FILE_PATH": str(CONFIG_DIR / "logs" / "cgc.log"),
+    "LOG_FILE_PATH": str(CACHE_DIR / "logs" / "cgc.log"),
     "MAX_FILE_SIZE_MB": "10",
     "IGNORE_TEST_FILES": "false",
     "IGNORE_HIDDEN_FILES": "true",
@@ -142,12 +152,11 @@ DEFAULT_CONFIG = {
 
 # Configuration key descriptions
 CONFIG_DESCRIPTIONS = {
-    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|falkordb-remote|kuzudb|nornic|ladybugdb)",
+    "DEFAULT_DATABASE": "Default database backend (neo4j|falkordb|falkordb-remote|nornic|ladybugdb)",
     "FALKORDB_PATH": "Path to FalkorDB database file",
     "FALKORDB_SOCKET_PATH": "Path to FalkorDB Unix socket",
     "FALKORDB_PORT": "Optional FalkorDB port override (empty = per-database port)",
     "LADYBUGDB_PATH": "Path to LadybugDB database directory",
-    "KUZUDB_PATH": "Path to KuzuDB database directory",
     "INDEX_VARIABLES": "Index variable nodes in the graph (lighter graph if false)",
     "ALLOW_DB_DELETION": "Allow full database deletion commands",
     "DEBUG_LOGS": "Enable debug logging (for development/troubleshooting)",
@@ -188,7 +197,7 @@ CONFIG_DESCRIPTIONS = {
         "WHEN TO ENABLE: large codebases (>10K functions) where inheritance alone leaves many ambiguous calls "
         "(tier-7 fallbacks still high after ENABLE_INHERIT_RESOLVE). Also useful for cross-language repos. "
         "PREREQUISITES: (1) fastembed must be installed — run 'pip install fastembed'. "
-        "(2) Neo4j must be the active database (vector index not supported on FalkorDB/KuzuDB). "
+        "(2) Neo4j must be the active database (vector index not supported on FalkorDB/LadybugDB). "
         "(3) ENABLE_INHERIT_RESOLVE should also be true — vector is a tiebreaker for Phase 5, not a replacement. "
         "COST: Phase 4 takes ~15 min per 50K functions on CPU (first run only; incremental updates are fast). "
         "Embedding model (~40 MB) is downloaded automatically on first use from HuggingFace."
@@ -233,7 +242,7 @@ CONFIG_DESCRIPTIONS = {
 
 # Valid values for each config key
 CONFIG_VALIDATORS = {
-    "DEFAULT_DATABASE": ["neo4j", "falkordb", "falkordb-remote", "kuzudb", "nornic", "ladybugdb"],
+    "DEFAULT_DATABASE": ["neo4j", "falkordb", "falkordb-remote", "nornic", "ladybugdb"],
     "INDEX_VARIABLES": ["true", "false"],
     "ALLOW_DB_DELETION": ["true", "false"],
     "DEBUG_LOGS": ["true", "false"],
@@ -844,7 +853,7 @@ VALID_MODES = ["global", "per-repo", "named"]
 class ContextInfo:
     """Metadata for a single named context."""
     name: str
-    database: str = "falkordb"          # neo4j | falkordb | kuzudb
+    database: str = "falkordb"          # neo4j | falkordb | ladybugdb
     db_path: str = ""                    # resolved at init if empty
     repos: List[str] = field(default_factory=list)
     cgcignore_path: str = ""            # resolved at init if empty
@@ -861,7 +870,7 @@ class ContextConfig:
 
 def _default_db_path(context_name: str, database: str) -> str:
     """Return the canonical DB path for a named context."""
-    return str(CONFIG_DIR / "contexts" / context_name / "db" / database)
+    return str(DATA_DIR / "contexts" / context_name / "db" / database)
 
 
 _LEGACY_FALKORDB_PATH = CONFIG_DIR / "global" / "falkordb.db"
@@ -888,11 +897,14 @@ def _default_global_db_path(database: str) -> str:
         if custom_path:
             resolved = Path(custom_path).resolve()
             # Ignore paths from another profile/repo that leaked via local .env
-            if str(resolved).startswith(str(CONFIG_DIR.resolve())):
+            if (
+                str(resolved).startswith(str(CONFIG_DIR.resolve()))
+                or str(resolved).startswith(str(DATA_DIR.resolve()))
+            ):
                 return str(resolved)
         if _LEGACY_FALKORDB_PATH.exists():
             return str(_LEGACY_FALKORDB_PATH)
-    return str(CONFIG_DIR / "global" / "db" / database)
+    return str(DATA_DIR / "global" / "db" / database)
 
 
 def _migrate_legacy_config_yaml() -> None:
@@ -991,7 +1003,7 @@ class ResolvedContext:
     """Result of resolve_context() — everything needed to instantiate the DB."""
     mode: str             # global | per-repo | named
     context_name: str     # empty for global / per-repo
-    database: str         # neo4j | falkordb | kuzudb
+    database: str         # neo4j | falkordb | ladybugdb
     db_path: str          # absolute path to the DB directory
     cgcignore_path: str   # path to the applicable .cgcignore
     is_local: bool = False  # True when a local .codegraphcontext/ was found

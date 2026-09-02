@@ -91,29 +91,32 @@ def test_startup_failure_for_one_path_does_not_disable_another_path(tmp_path, mo
     assert available.get_driver().graph is graph
 
 
-def test_factory_retries_falkordb_for_a_different_database_path(monkeypatch):
+def test_factory_keeps_explicit_falkordb_strict_for_each_path(
+    monkeypatch,
+    tmp_path,
+):
     from codegraphcontext import core
-    from codegraphcontext.core import database_falkordb, database_kuzu
+    from codegraphcontext.core import database_falkordb
 
-    class FallbackKuzuManager:
-        def __init__(self, db_path):
-            self.db_path = db_path
+    failed_path = str(tmp_path / "failed" / "falkordb")
+    working_path = str(tmp_path / "working" / "falkordb")
 
     class PathScopedFalkorManager:
         def __init__(self, db_path):
             self.db_path = db_path
 
         def get_driver(self):
-            if self.db_path == "/repo/failed/falkordb":
+            if self.db_path == failed_path:
                 raise FalkorDBUnavailableError("test startup failure")
 
     monkeypatch.setenv("DEFAULT_DATABASE", "falkordb")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.delenv("CGC_RUNTIME_DB_TYPE", raising=False)
     monkeypatch.setattr(core, "_FALKORDB_DISABLED", False)
     monkeypatch.setattr(core, "_is_falkordb_available", lambda: True)
-    monkeypatch.setattr(core, "_is_kuzudb_available", lambda: True)
     monkeypatch.setattr(database_falkordb, "FalkorDBManager", PathScopedFalkorManager)
-    monkeypatch.setattr(database_kuzu, "KuzuDBManager", FallbackKuzuManager)
 
-    assert isinstance(core.get_database_manager("/repo/failed/falkordb"), FallbackKuzuManager)
-    assert isinstance(core.get_database_manager("/repo/working/falkordb"), PathScopedFalkorManager)
+    with pytest.raises(ValueError, match="strict and will not fall back"):
+        core.get_database_manager(failed_path)
+
+    assert isinstance(core.get_database_manager(working_path), PathScopedFalkorManager)
