@@ -239,7 +239,10 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
                                 if display_name == "<module>":
                                     _fpath = str(props.get('path', props.get('file', '')))
                                     if _fpath:
-                                        display_name = f"<module: {os.path.basename(_fpath)}>"
+                                        # Same plain-filename label as the payload builders in
+                                        # cli_helpers/visualize_graph, so one node cannot
+                                        # render two different names in different views.
+                                        display_name = os.path.basename(_fpath)
                                         props['name'] = display_name
                                         props['label'] = display_name
                                 
@@ -478,7 +481,7 @@ def parse_node(node, nodes_dict):
     if display_name == "<module>":
         _fpath = str(props.get('path', props.get('file', '')))
         if _fpath:
-            display_name = f"<module: {os.path.basename(_fpath)}>"
+            display_name = os.path.basename(_fpath)
             props['name'] = display_name
             props['label'] = display_name
     
