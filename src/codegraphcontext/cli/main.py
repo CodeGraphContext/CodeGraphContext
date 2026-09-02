@@ -761,7 +761,14 @@ def bundle_export(
             include_stats=not no_stats,
             sign_key=sign_key,
             encrypt_password=encrypt_password,
-            exclude_labels=[l for l in (exclude_labels or "").split(",") if l.strip()],
+            # bundle_export is also called programmatically (the golden
+            # harness does), where unpassed Typer options arrive as OptionInfo
+            # objects rather than their defaults — same trap the CLI meta-test
+            # documents for other commands.
+            exclude_labels=[
+                l for l in (exclude_labels if isinstance(exclude_labels, str) else "").split(",")
+                if l.strip()
+            ],
         )
         
         if success:
