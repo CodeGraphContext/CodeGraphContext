@@ -774,6 +774,14 @@ Once the server is running, you can interact with it through your AI assistant u
 
 ---
 
+## Troubleshooting
+
+Hitting a lock error, a "never finishes indexing" loop, or a silent feature?
+See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — every entry maps a
+real reported issue to its fix or workaround.
+
+---
+
 ## Contributing
 
 Contributions are welcome! 🎉  
