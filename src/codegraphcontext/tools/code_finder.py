@@ -635,19 +635,34 @@ class CodeFinder:
         return results
     
     def find_functions_by_argument(self, argument_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
-        """Find functions that take a specific argument name."""
+        """Find functions that take a specific argument type or name.
+
+        Matches against Function.arg_types (typed languages like Java) first; falls back
+        to Parameter.name for untyped languages when no arg_types match is found.
+        """
         repo_path = self._normalize_repo_path_filter(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
             limit_clause = "LIMIT $limit" if limit is not None else ""
-            params = {"argument_name": argument_name, "repo_path": repo_path}
+            params = {"arg_type": argument_name, "argument_name": argument_name, "repo_path": repo_path}
             if limit is not None:
                 params["limit"] = limit
             if path:
                 params["path"] = path
                 query = f"""
-                    MATCH (f:Function)-[:HAS_PARAMETER]->(p:Parameter)
-                    WHERE p.name = $argument_name AND f.path = $path {repo_filter}
+                    MATCH (f:Function)
+                    WHERE f.path = $path {repo_filter}
+                      AND (
+                        (f.arg_types IS NOT NULL AND any(t IN f.arg_types WHERE t CONTAINS $arg_type))
+                        OR
+                        (
+                          (f.arg_types IS NULL OR size(f.arg_types) = 0)
+                          AND EXISTS {{
+                            MATCH (f)-[:HAS_PARAMETER]->(p:Parameter)
+                            WHERE p.name = $argument_name
+                          }}
+                        )
+                      )
                     RETURN f.name AS function_name, f.path AS path, f.line_number AS line_number,
                            f.docstring AS docstring, f.is_dependency AS is_dependency
                     ORDER BY f.is_dependency ASC, f.path, f.line_number
@@ -656,8 +671,19 @@ class CodeFinder:
                 result = session.run(query, **params)
             else:
                 query = f"""
-                    MATCH (f:Function)-[:HAS_PARAMETER]->(p:Parameter)
-                    WHERE p.name = $argument_name {repo_filter}
+                    MATCH (f:Function)
+                    WHERE {repo_filter[4:] if repo_filter else "true"}
+                      AND (
+                        (f.arg_types IS NOT NULL AND any(t IN f.arg_types WHERE t CONTAINS $arg_type))
+                        OR
+                        (
+                          (f.arg_types IS NULL OR size(f.arg_types) = 0)
+                          AND EXISTS {{
+                            MATCH (f)-[:HAS_PARAMETER]->(p:Parameter)
+                            WHERE p.name = $argument_name
+                          }}
+                        )
+                      )
                     RETURN f.name AS function_name, f.path AS path, f.line_number AS line_number,
                            f.docstring AS docstring, f.is_dependency AS is_dependency
                     ORDER BY f.is_dependency ASC, f.path, f.line_number
