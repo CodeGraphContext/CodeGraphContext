@@ -647,11 +647,17 @@ class CodeFinder:
             if limit is not None:
                 params["limit"] = limit
 
+            # A WHERE attached to an OPTIONAL MATCH only constrains the
+            # optional part — it can never filter f, so the original form
+            # returned EVERY function for any search term. Filter f itself
+            # after materializing the optional parameter match.
             query = f"""
                 MATCH (f:Function)
-                OPTIONAL MATCH (f)-[:HAS_PARAMETER]->(p:Parameter)
-                WHERE (p.name = $argument_name OR $argument_name IN f.arg_types)
-                      {path_filter} {repo_filter}
+                WHERE 1=1 {path_filter} {repo_filter}
+                OPTIONAL MATCH (f)-[:HAS_PARAMETER]->(p:Parameter {{name: $argument_name}})
+                WITH DISTINCT f, p
+                WHERE p IS NOT NULL
+                   OR (f.arg_types IS NOT NULL AND $argument_name IN f.arg_types)
                 RETURN DISTINCT f.name AS function_name, f.path AS path,
                        f.line_number AS line_number, f.docstring AS docstring,
                        f.is_dependency AS is_dependency
