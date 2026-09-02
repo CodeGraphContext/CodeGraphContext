@@ -88,9 +88,9 @@ The primary tool for traversing structural relationships in the graph.
     - `module_deps`: Identifies dependencies between modules.
     - `variable_scope`: Tracks variable bindings.
     - `find_complexity`: Returns cyclomatic complexity score.
-    - `find_functions_by_argument`: Searches for functions declaring target parameter.
+    - `find_functions_by_argument`: Searches for functions declaring the target parameter name or type.
     - `find_functions_by_decorator`: Searches for functions decorated with target.
-  - `target` (string, required): The identifier name to analyze.
+  - `target` (string, required): The identifier to analyze. For `find_functions_by_argument`, this may be a parameter name or type.
   - `context` (string, optional): Specific file path to resolve target namespace conflicts.
   - `repo_path` (string, optional): Restricts search scope.
 
