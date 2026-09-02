@@ -68,7 +68,7 @@
 | `cgc find variable` | `<name>` | Find variables by name across the codebase. |
 | `cgc find content` | `<text>` | Search for text content within code (docstrings, comments). |
 | `cgc find decorator` | `<name>` | Find all functions/classes with a specific decorator. |
-| `cgc find argument` | `<name>` | Find all functions that have a specific argument name. |
+| `cgc find argument` | `<name-or-type>` | Find all functions that have a specific argument name or type. |
 
 ---
 
@@ -212,5 +212,5 @@ cgc doctor                           # Check system health
 - `cgc find variable` - Find variables by name
 - `cgc find content` - Search text in code
 - `cgc find decorator` - Find by decorator
-- `cgc find argument` - Find by argument name
+- `cgc find argument` - Find by argument name or type
 - Hidden: `cgc cypher` (deprecated, use `cgc query`)

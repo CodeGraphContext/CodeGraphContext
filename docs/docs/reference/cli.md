@@ -51,7 +51,7 @@ cgc find <subcommand> [args] [options]
 | `find type <node_type>` | List nodes of a given label (e.g. `Function`, `Class`). |
 | `find content <text>` | Full-text / substring search in source and docstrings. Neo4j uses Lucene; embedded backends use portable substring matching. |
 | `find decorator <name>` | Functions with a given decorator. |
-| `find argument <name>` | Functions declaring a parameter name. |
+| `find argument <name-or-type>` | Functions declaring a parameter with the given name or type. |
 | `find variable <name>` | Variable references and assignments. |
 
 ---

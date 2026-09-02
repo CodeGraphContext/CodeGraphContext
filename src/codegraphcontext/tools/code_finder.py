@@ -635,35 +635,36 @@ class CodeFinder:
         return results
     
     def find_functions_by_argument(self, argument_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
-        """Find functions that take a specific argument name."""
+        """Find functions that take a specific argument name or type."""
         repo_path = self._normalize_repo_path_filter(repo_path)
         with self.driver.session() as session:
+            path_filter = "AND f.path = $path" if path else ""
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
             limit_clause = "LIMIT $limit" if limit is not None else ""
             params = {"argument_name": argument_name, "repo_path": repo_path}
-            if limit is not None:
-                params["limit"] = limit
             if path:
                 params["path"] = path
-                query = f"""
-                    MATCH (f:Function)-[:HAS_PARAMETER]->(p:Parameter)
-                    WHERE p.name = $argument_name AND f.path = $path {repo_filter}
-                    RETURN f.name AS function_name, f.path AS path, f.line_number AS line_number,
-                           f.docstring AS docstring, f.is_dependency AS is_dependency
-                    ORDER BY f.is_dependency ASC, f.path, f.line_number
-                    {limit_clause}
-                """
-                result = session.run(query, **params)
-            else:
-                query = f"""
-                    MATCH (f:Function)-[:HAS_PARAMETER]->(p:Parameter)
-                    WHERE p.name = $argument_name {repo_filter}
-                    RETURN f.name AS function_name, f.path AS path, f.line_number AS line_number,
-                           f.docstring AS docstring, f.is_dependency AS is_dependency
-                    ORDER BY f.is_dependency ASC, f.path, f.line_number
-                    {limit_clause}
-                """
-                result = session.run(query, **params)
+            if limit is not None:
+                params["limit"] = limit
+
+            # A WHERE attached to an OPTIONAL MATCH only constrains the
+            # optional part — it can never filter f, so the original form
+            # returned EVERY function for any search term. Filter f itself
+            # after materializing the optional parameter match.
+            query = f"""
+                MATCH (f:Function)
+                WHERE 1=1 {path_filter} {repo_filter}
+                OPTIONAL MATCH (f)-[:HAS_PARAMETER]->(p:Parameter {{name: $argument_name}})
+                WITH DISTINCT f, p
+                WHERE p IS NOT NULL
+                   OR (f.arg_types IS NOT NULL AND $argument_name IN f.arg_types)
+                RETURN DISTINCT f.name AS function_name, f.path AS path,
+                       f.line_number AS line_number, f.docstring AS docstring,
+                       f.is_dependency AS is_dependency
+                ORDER BY is_dependency ASC, path, line_number
+                {limit_clause}
+            """
+            result = session.run(query, **params)
             return result.data()
 
     def find_functions_by_decorator(self, decorator_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
