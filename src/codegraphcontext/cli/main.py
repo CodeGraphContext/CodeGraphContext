@@ -711,6 +711,7 @@ def bundle_export(
     no_stats: bool = typer.Option(False, "--no-stats", help="Skip statistics generation"),
     sign_key: Optional[str] = typer.Option(None, "--sign-key", envvar="CGC_BUNDLE_SIGN_KEY", help="HMAC signing key (or set CGC_BUNDLE_SIGN_KEY)"),
     encrypt_password: Optional[str] = typer.Option(None, "--encrypt-password", envvar="CGC_BUNDLE_PASSWORD", help="Encrypt bundle with this password (or set CGC_BUNDLE_PASSWORD)", hide_input=True),
+    exclude_labels: Optional[str] = typer.Option(None, "--exclude-labels", help="Comma-separated node labels to leave out of the bundle, with their edges (e.g. DbTable,ExternalClass) (#1323)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """
@@ -760,6 +761,7 @@ def bundle_export(
             include_stats=not no_stats,
             sign_key=sign_key,
             encrypt_password=encrypt_password,
+            exclude_labels=[l for l in (exclude_labels or "").split(",") if l.strip()],
         )
         
         if success:
@@ -1137,6 +1139,7 @@ def export_shortcut(
     no_stats: bool = typer.Option(False, "--no-stats", help="Skip generating statistics in the bundle"),
     sign_key: Optional[str] = typer.Option(None, "--sign-key", envvar="CGC_BUNDLE_SIGN_KEY", help="HMAC signing key (or set CGC_BUNDLE_SIGN_KEY)"),
     encrypt_password: Optional[str] = typer.Option(None, "--encrypt-password", envvar="CGC_BUNDLE_PASSWORD", help="Encrypt bundle with this password (or set CGC_BUNDLE_PASSWORD)", hide_input=True),
+    exclude_labels: Optional[str] = typer.Option(None, "--exclude-labels", help="Comma-separated node labels to leave out of the bundle, with their edges (e.g. DbTable,ExternalClass) (#1323)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
 ):
     """Shortcut for 'cgc bundle export'"""
@@ -1146,6 +1149,7 @@ def export_shortcut(
         no_stats=no_stats,
         sign_key=sign_key,
         encrypt_password=encrypt_password,
+        exclude_labels=exclude_labels,
         context=context,
     )
 
