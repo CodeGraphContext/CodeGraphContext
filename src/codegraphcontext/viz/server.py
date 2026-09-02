@@ -236,6 +236,15 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
                                 # Extract name/label for frontend
                                 # Prefer 'name' property, fallback to 'label', then 'path' or 'Unknown'
                                 display_name = str(props.get('name', props.get('label', props.get('path', 'Unknown'))))
+                                if display_name == "<module>":
+                                    _fpath = str(props.get('path', props.get('file', '')))
+                                    if _fpath:
+                                        # Same plain-filename label as the payload builders in
+                                        # cli_helpers/visualize_graph, so one node cannot
+                                        # render two different names in different views.
+                                        display_name = os.path.basename(_fpath)
+                                        props['name'] = display_name
+                                        props['label'] = display_name
                                 
                                 nodes_dict[eid] = {
                                     "id": eid,
@@ -469,6 +478,12 @@ def parse_node(node, nodes_dict):
             except: pass
             
     display_name = str(props.get('name', props.get('label', props.get('path', 'Unknown'))))
+    if display_name == "<module>":
+        _fpath = str(props.get('path', props.get('file', '')))
+        if _fpath:
+            display_name = os.path.basename(_fpath)
+            props['name'] = display_name
+            props['label'] = display_name
     
     nodes_dict[eid] = {
         "id": eid,

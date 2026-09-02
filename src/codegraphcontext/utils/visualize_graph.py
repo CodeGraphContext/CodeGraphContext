@@ -99,11 +99,15 @@ def build_graph_data(
     for node in nodes:
         node_id = node.get("id") or node.get("name", "unknown")
         label = node.get("label", "Function")
+        name = node.get("name", str(node_id))
+        file_path = node.get("file_path", "")
+        if name == "<module>" and file_path:
+            name = Path(file_path).name
         serialised_nodes.append({
             "id":        str(node_id),
             "label":     label,
-            "name":      node.get("name", str(node_id)),
-            "file_path": node.get("file_path", ""),
+            "name":      name,
+            "file_path": file_path,
             "line":      node.get("line_number"),
             "color":     node_color(label),
         })
@@ -362,7 +366,11 @@ def render_html(
         ctx.fillStyle = '#e2e8f0';
         ctx.font = '10px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(n.name.length > 16 ? n.name.slice(0,14)+'…' : n.name, p.x, p.y + 24);
+        let displayName = n.name;
+        if (displayName === '<module>' && n.file_path) {{
+          displayName = n.file_path.split('/').pop();
+        }}
+        ctx.fillText(displayName.length > 16 ? displayName.slice(0,14)+'…' : displayName, p.x, p.y + 24);
       }});
     }}
 
