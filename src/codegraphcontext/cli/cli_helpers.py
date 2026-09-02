@@ -26,6 +26,7 @@ from ..core import get_database_manager
 from ..core.jobs import JobManager
 from ..tools.code_finder import CodeFinder
 from ..tools.graph_builder import GraphBuilder
+from ..utils import graph_shapes
 from ..tools.package_resolver import get_local_package_path
 from ..utils.debug_log import info_logger, warning_logger
 from ..core.database import Neo4jConnectionError
@@ -664,44 +665,13 @@ def _render_offline_visualization(
     def _ident(value) -> Optional[str]:
         return None if value is None else str(value)
 
-    # Kùzu spells the internal record keys in lowercase (_label/_src/_dst/_id);
-    # Ladybug returns the same fields uppercased (_LABEL/_SRC/_DST/_ID). Look
-    # up both spellings so either backend reaches the offline renderer (#1458).
-    def _meta(d: dict, key: str, default=None):
-        if key in d:
-            return d[key]
-        return d.get(key.upper(), default)
-
-    def _has_meta(d: dict, key: str) -> bool:
-        return key in d or key.upper() in d
-
-    # Neo4j returns driver objects carrying .labels / .type that support
-    # dict()/Mapping access. FalkorDB's own driver objects also carry
-    # .labels on nodes, but are NOT dict-convertible — their properties live
-    # in a plain `.properties` dict, and its Edge exposes `.relation` /
-    # `.src_node` / `.dest_node` instead of `.type` / `.start_node` /
-    # `.end_node`. Kùzu and Ladybug return plain dicts carrying _label plus
-    # _src/_dst. Check the driver attributes first — a driver object may
-    # also be dict-like.
-    def _is_relationship(value) -> bool:
-        if hasattr(value, "labels"):
-            return False
-        if hasattr(value, "type"):
-            return True
-        if hasattr(value, "relation") and hasattr(value, "src_node"):
-            return True
-        return isinstance(value, dict) and _has_meta(value, "_src") and _has_meta(value, "_dst")
-
-    def _is_node(value) -> bool:
-        if hasattr(value, "labels"):
-            return True
-        if hasattr(value, "type"):
-            return False
-        if hasattr(value, "relation") and hasattr(value, "src_node"):
-            return False
-        # Kùzu relationships also carry _label, so _src/_dst is what
-        # distinguishes them from nodes.
-        return isinstance(value, dict) and _has_meta(value, "_label") and not _has_meta(value, "_src")
+    # Backend shape handling — which driver returns what, and why each spelling
+    # has to be accepted — lives in utils/graph_shapes, shared with the live
+    # web renderer in viz/server.py so the two cannot drift apart again.
+    _meta = graph_shapes.meta
+    _has_meta = graph_shapes.has_meta
+    _is_relationship = graph_shapes.is_relationship
+    _is_node = graph_shapes.is_node
 
     def _node_payload(value) -> Dict[str, Any]:
         if hasattr(value, "labels"):
