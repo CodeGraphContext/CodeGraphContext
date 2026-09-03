@@ -242,11 +242,26 @@ class ElispTreeSitterParser:
         return None
 
     def _first_symbol_in_quote(self, node: Any) -> Optional[str]:
-        if node.type != "quote":
+        # (quote symbol) -> symbol
+        if node.type == "quote":
+            for child in self._named_children(node):
+                if child.type == "symbol":
+                    return self._get_node_text(child)
             return None
-        for child in self._named_children(node):
-            if child.type == "symbol":
-                return self._get_node_text(child)
+        # #'symbol (function quote): tree-sitter-elisp parses `(funcall #'fn ...)`
+        # as (special_form (symbol "function") (symbol "fn")). Without this branch
+        # funcall/apply targets are dropped, so function_calls never records them
+        # and elisp call tests fail (KeyError / missing call edges).
+        if node.type == "special_form" and self._form_head(node) == "function":
+            named = self._named_children(node)
+            if len(named) >= 2 and named[1].type == "symbol":
+                return self._get_node_text(named[1])
+            return None
+        # Some grammar builds expose #'/quote as a `quoted_symbol` node wrapping a
+        # single symbol child; cover that variant too.
+        named = self._named_children(node)
+        if len(named) == 1 and named[0].type == "symbol":
+            return self._get_node_text(named[0])
         return None
 
     def _quoted_symbol_argument(self, node: Any, index: int = 1) -> Optional[str]:
