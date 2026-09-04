@@ -23,6 +23,40 @@ from codegraphcontext.core.graph_query import GraphQueryInterface
 from ..utils.cypher_ddl import is_schema_ddl
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 
+# Default cap for ladybug/kuzu buffer pools (bytes). Both libraries otherwise
+# default to ~80% of system RAM, which lets long-running gateways grow huge.
+DEFAULT_EMBEDDED_BUFFER_POOL_BYTES = 4 * 1024**3
+
+
+def resolve_embedded_buffer_pool_size() -> int:
+    """
+    Resolve ``buffer_pool_size`` for embedded ``Database(...)`` constructors.
+
+    Reads ``CGC_EMBEDDED_BUFFER_POOL_MB`` (integer MiB). Unset uses a 4 GiB
+    default. ``0`` opts back into the library default (~80% of system memory).
+    Invalid values log a warning and fall back to 4 GiB.
+    """
+    raw = os.getenv("CGC_EMBEDDED_BUFFER_POOL_MB")
+    if raw is None or str(raw).strip() == "":
+        return DEFAULT_EMBEDDED_BUFFER_POOL_BYTES
+    try:
+        mb = int(str(raw).strip())
+    except ValueError:
+        warning_logger(
+            f"Invalid CGC_EMBEDDED_BUFFER_POOL_MB={raw!r}; "
+            f"using default {DEFAULT_EMBEDDED_BUFFER_POOL_BYTES} bytes"
+        )
+        return DEFAULT_EMBEDDED_BUFFER_POOL_BYTES
+    if mb < 0:
+        warning_logger(
+            f"Invalid CGC_EMBEDDED_BUFFER_POOL_MB={raw!r}; "
+            f"using default {DEFAULT_EMBEDDED_BUFFER_POOL_BYTES} bytes"
+        )
+        return DEFAULT_EMBEDDED_BUFFER_POOL_BYTES
+    if mb == 0:
+        return 0
+    return mb * 1024**2
+
 
 @dataclass(frozen=True)
 class EmbeddedBackendSpec:
@@ -117,8 +151,18 @@ class EmbeddedGraphManager(GraphQueryInterface):
                     max_retries = 5
                     for attempt in range(max_retries):
                         try:
-                            info_logger(f"Initializing {spec.display_name} at {self.db_path}")
-                            self._db = backend.Database(self.db_path)
+                            buffer_pool_size = resolve_embedded_buffer_pool_size()
+                            if buffer_pool_size == 0:
+                                pool_msg = "library default (~80% of system memory)"
+                            else:
+                                pool_msg = f"{buffer_pool_size} bytes"
+                            info_logger(
+                                f"Initializing {spec.display_name} at {self.db_path} "
+                                f"(buffer_pool_size={pool_msg})"
+                            )
+                            self._db = backend.Database(
+                                self.db_path, buffer_pool_size=buffer_pool_size
+                            )
 
                             # Initialise connection pool
                             self._pool = queue.Queue()
