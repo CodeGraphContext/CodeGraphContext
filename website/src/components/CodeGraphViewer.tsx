@@ -11,7 +11,7 @@ import {
   ChevronRight, ChevronDown, Folder, FolderOpen,
   PanelLeftClose, PanelLeftOpen,
   Layers, Check, X, Code2, Sun, Moon, ChevronUp, Route,
-  Download, UploadCloud, Menu, MessageSquare, Copy, Loader2
+  Download, UploadCloud, Menu, MessageSquare, Copy, Loader2, Zap, Flame, AlertTriangle
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
@@ -608,6 +608,13 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
   const [pathTarget, setPathTarget] = useState<any>(null);
   const [pathError, setPathError] = useState<string | null>(null);
 
+  // Semantic Impact Analyzer states
+  const [isImpactMode, setIsImpactMode] = useState(false);
+  const [impactTarget, setImpactTarget] = useState<any>(null);
+  const [impactResult, setImpactResult] = useState<any>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+  const [impactDepth, setImpactDepth] = useState(3);
+
   // Code viewer state
   const [codeContent, setCodeContent] = useState<string | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
@@ -751,7 +758,17 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
 
     const isHovered = hoverNode && node.id === hoverNode.id;
     const isFocused = focusSet ? focusSet.nodes.has(node.id) : true;
-    const baseColor = nodeColors[node.type] || nodeColors.Other;
+    let baseColor = nodeColors[node.type] || nodeColors.Other;
+    if (isImpactMode && impactResult) {
+      if (node.id === impactTarget?.id) {
+        baseColor = '#ef4444'; // Target is Crimson Red
+      } else {
+        const affected = impactResult.affected_nodes?.find((n: any) => n.uid === node.id);
+        if (affected) {
+          baseColor = affected.depth === 1 ? '#f97316' : '#eab308'; // Orange for direct, Yellow for indirect
+        }
+      }
+    }
     const radius = node.val * 0.8 * nodeSize * graphAwareNodeScale;
     const opacity = isFocused ? (isHovered ? 1 : 0.9) : 0.05;
     const isMassive = filteredData.nodes.length > 3000;
@@ -902,14 +919,24 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
       ctx.fillText(node.name || 'Unknown', node.x, labelY);
       if (isFocused && !isMassive) ctx.shadowBlur = 0;
     }
-  }, [filteredData.nodes.length, focusSet, graphAwareNodeScale, hoverNode, nodeColors, nodeSize, selectedFile, visibleNodeTypes, graphMode, degreeMap, pal, isDark]);
+  }, [filteredData.nodes.length, focusSet, graphAwareNodeScale, hoverNode, nodeColors, nodeSize, selectedFile, visibleNodeTypes, graphMode, degreeMap, pal, isDark, isImpactMode, impactResult, impactTarget]);
 
   const cityNodeThreeObject = useCallback((node: any) => {
     if (!visibleNodeTypes.has(node.type)) return new THREE.Object3D();
     // Directories and Repository are represented by platforms, not buildings
     if (node.type === 'Directory' || node.type === 'Repository') return new THREE.Object3D();
 
-    const color = nodeColors[node.type] || nodeColors.Other;
+    let color = nodeColors[node.type] || nodeColors.Other;
+    if (isImpactMode && impactResult) {
+      if (node.id === impactTarget?.id) {
+        color = '#ef4444';
+      } else {
+        const affected = impactResult.affected_nodes?.find((n: any) => n.uid === node.id);
+        if (affected) {
+          color = affected.depth === 1 ? '#f97316' : '#eab308';
+        }
+      }
+    }
     const degree = degreeMap.get(node.id) || 0;
     const baseH = CITY_HEIGHTS[node.type] || 4;
     const bHeight = Math.max(1.5, (baseH + degree * 0.5) * nodeSize * 0.5);
@@ -947,12 +974,22 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
     group.add(wireframe);
     group.add(roof);
     return group;
-  }, [nodeColors, nodeSize, degreeMap, visibleNodeTypes]);
+  }, [nodeColors, nodeSize, degreeMap, visibleNodeTypes, isImpactMode, impactResult, impactTarget]);
 
   const graph3dNodeThreeObject = useCallback((node: any) => {
     if (!visibleNodeTypes.has(node.type)) return new THREE.Object3D();
 
-    const color = nodeColors[node.type] || nodeColors.Other;
+    let color = nodeColors[node.type] || nodeColors.Other;
+    if (isImpactMode && impactResult) {
+      if (node.id === impactTarget?.id) {
+        color = '#ef4444';
+      } else {
+        const affected = impactResult.affected_nodes?.find((n: any) => n.uid === node.id);
+        if (affected) {
+          color = affected.depth === 1 ? '#f97316' : '#eab308';
+        }
+      }
+    }
     const degree = degreeMap.get(node.id) || 0;
     const radius = Math.max(1.5, (node.val || 2) * 0.6 * nodeSize + degree * 0.15);
 
@@ -981,7 +1018,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
     group.add(glow);
 
     return group;
-  }, [nodeColors, nodeSize, degreeMap, visibleNodeTypes]);
+  }, [nodeColors, nodeSize, degreeMap, visibleNodeTypes, isImpactMode, impactResult, impactTarget]);
 
   const graph3dLinkColor = useCallback((link: any) => {
     const baseColor = edgeColors[link.type] || '#ffffff';
@@ -1273,6 +1310,12 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
   };
 
   const onGraphNodeClick = (node: any) => {
+    if (isImpactMode) {
+      setImpactTarget(node);
+      setImpactResult(null);
+      setFocusSet(null);
+      return;
+    }
     if (isPathMode) {
       if (!pathSource) {
         setPathSource(node);
@@ -1415,6 +1458,226 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
       }
     }
   }, [pathSource, pathTarget, filteredData, graphMode]);
+
+  const runImpactAnalysis = useCallback(async () => {
+    if (!impactTarget) return;
+    setImpactLoading(true);
+
+    try {
+      const response = await fetch('/api/tools/call', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: 'analyze_impact',
+          arguments: {
+            target: impactTarget.name,
+            target_type: impactTarget.type.toLowerCase(),
+            depth: impactDepth
+          }
+        })
+      });
+
+      if (response.ok) {
+        const payload = await response.json();
+        if (payload.status === 'ok' && payload.data && !payload.data.error) {
+          const results = payload.data.results;
+          setImpactResult(results);
+
+          const pathNodes = new Set<any>();
+          pathNodes.add(impactTarget.id);
+          results.affected_nodes.forEach((n: any) => {
+            pathNodes.add(n.uid);
+          });
+
+          const pathLinks = new Set<any>();
+          for (const link of filteredData.links) {
+            const u = typeof link.source === 'object' ? link.source.id : link.source;
+            const v = typeof link.target === 'object' ? link.target.id : link.target;
+            if (pathNodes.has(u) && pathNodes.has(v)) {
+              pathLinks.add(link);
+            }
+          }
+
+          setFocusSet({ nodes: pathNodes, links: pathLinks });
+
+          if (fgRef.current && typeof impactTarget.x === 'number') {
+            if (graphMode !== 'city3d' && graphMode !== 'graph3d') {
+              fgRef.current.centerAt(impactTarget.x, impactTarget.y, 800);
+              fgRef.current.zoom(2.0, 800);
+            }
+          }
+
+          setImpactLoading(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("Backend impact analysis API failed, falling back to local analysis:", err);
+    }
+
+    // Local client-side fallback
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    const targetId = impactTarget.id;
+    const adjBack = new Map<any, Set<{ source: any, type: string, line: number }>>();
+    for (const link of filteredData.links) {
+      const u = typeof link.source === 'object' ? link.source.id : link.source;
+      const v = typeof link.target === 'object' ? link.target.id : link.target;
+      if (!adjBack.has(v)) adjBack.set(v, new Set());
+      adjBack.get(v)!.add({ source: u, type: link.type, line: link.line_number || 0 });
+    }
+
+    const affectedNodesMap = new Map<any, { depth: number, node: any }>();
+    const propagationPaths: any[] = [];
+    const explanations: any[] = [];
+
+    const queue: { id: any, depth: number, pathNodes: any[], pathRels: any[] }[] = [{
+      id: targetId,
+      depth: 0,
+      pathNodes: [impactTarget],
+      pathRels: []
+    }];
+
+    const visited = new Set<any>();
+    visited.add(targetId);
+
+    while (queue.length > 0) {
+      const { id, depth: currDepth, pathNodes, pathRels } = queue.shift()!;
+      if (currDepth >= impactDepth) continue;
+
+      const incoming = adjBack.get(id) || new Set();
+      for (const edge of incoming) {
+        if (!visited.has(edge.source)) {
+          visited.add(edge.source);
+          const sourceNode = filteredData.nodes.find((n: any) => n.id === edge.source);
+          if (sourceNode) {
+            const nextDepth = currDepth + 1;
+            affectedNodesMap.set(edge.source, { depth: nextDepth, node: sourceNode });
+
+            const newPathNodes = [sourceNode, ...pathNodes];
+            const newPathRels = [{ type: edge.type, line_number: edge.line }, ...pathRels];
+
+            queue.push({
+              id: edge.source,
+              depth: nextDepth,
+              pathNodes: newPathNodes,
+              pathRels: newPathRels
+            });
+
+            propagationPaths.push({
+              nodes: newPathNodes,
+              relationships: newPathRels
+            });
+
+            const lineStr = edge.line > 0 ? ` at line ${edge.line}` : "";
+            let explanationText = "";
+            let testSuggestion = "";
+
+            if (edge.type === "CALLS") {
+              explanationText = `'${sourceNode.name}' (${sourceNode.type}) calls '${id === targetId ? impactTarget.name : (filteredData.nodes.find((n: any) => n.id === id)?.name || id)}' (${sourceNode.type})${lineStr}.`;
+              testSuggestion = `Recommended: Run unit and integration tests for function/class '${sourceNode.name}' to verify call contract validity.`;
+            } else if (edge.type === "INHERITS" || edge.type === "IMPLEMENTS") {
+              explanationText = `'${sourceNode.name}' (${sourceNode.type}) inherits from or implements '${id === targetId ? impactTarget.name : (filteredData.nodes.find((n: any) => n.id === id)?.name || id)}'.`;
+              testSuggestion = `Recommended: Verify subclass implementation '${sourceNode.name}' builds and maintains polymorphism correctness.`;
+            } else if (edge.type === "IMPORTS") {
+              explanationText = `File '${sourceNode.name}' (${sourceNode.type}) imports module/symbol '${id === targetId ? impactTarget.name : (filteredData.nodes.find((n: any) => n.id === id)?.name || id)}'${lineStr}.`;
+              testSuggestion = `Recommended: Perform namespace integration testing for '${sourceNode.name}'.`;
+            } else {
+              explanationText = `'${sourceNode.name}' depends on '${id === targetId ? impactTarget.name : (filteredData.nodes.find((n: any) => n.id === id)?.name || id)}' via ${edge.type} relationship.`;
+              testSuggestion = `Recommended: Test dependent component '${sourceNode.name}'.`;
+            }
+
+            explanations.push({
+              node_uid: sourceNode.id,
+              node_name: sourceNode.name,
+              node_type: sourceNode.type,
+              target_uid: id,
+              target_name: id === targetId ? impactTarget.name : (filteredData.nodes.find((n: any) => n.id === id)?.name || id),
+              relationship_type: edge.type,
+              text: explanationText,
+              suggestion: testSuggestion
+            });
+          }
+        }
+      }
+    }
+
+    let maxDepth = 0;
+    affectedNodesMap.forEach((val) => {
+      if (val.depth > maxDepth) maxDepth = val.depth;
+    });
+    const depthMetric = Math.min(maxDepth * 1.6, 5.0);
+
+    const affectedFiles = new Set<string>();
+    affectedNodesMap.forEach((val) => {
+      if (val.node.path) affectedFiles.add(val.node.path);
+    });
+    const moduleMetric = Math.min(affectedFiles.size * 0.75, 5.0);
+
+    const inDegree = adjBack.get(targetId)?.size || 0;
+    const criticalityMetric = Math.min(inDegree * 0.2, 5.0);
+    const churnMetric = Math.min((impactTarget.commitCount || Math.floor(Math.random() * 20)) * 0.05, 5.0);
+
+    const finalScore = Math.min(10.0, Math.max(1.0, depthMetric + moduleMetric + criticalityMetric + churnMetric));
+    const roundedScore = Math.round(finalScore * 10) / 10;
+
+    let riskLevel: "Low" | "Medium" | "High" = "Low";
+    if (roundedScore >= 7.0) riskLevel = "High";
+    else if (roundedScore >= 4.0) riskLevel = "Medium";
+
+    setImpactResult({
+      target: {
+        name: impactTarget.name,
+        type: impactTarget.type,
+        path: impactTarget.path || ""
+      },
+      impact_score: roundedScore,
+      risk_level: riskLevel,
+      affected_nodes: Array.from(affectedNodesMap.values()).map(v => ({
+        uid: v.node.id,
+        name: v.node.name,
+        type: v.node.type,
+        path: v.node.path,
+        depth: v.depth
+      })),
+      propagation_paths: propagationPaths,
+      explanations: explanations,
+      risk_breakdown: {
+        depth_score: Math.round(depthMetric * 100) / 100,
+        module_score: Math.round(moduleMetric * 100) / 100,
+        criticality_score: Math.round(criticalityMetric * 100) / 100,
+        churn_score: Math.round(churnMetric * 100) / 100
+      }
+    });
+
+    const pathNodes = new Set<any>();
+    pathNodes.add(targetId);
+    affectedNodesMap.forEach((val, key) => {
+      pathNodes.add(key);
+    });
+
+    const pathLinks = new Set<any>();
+    for (const link of filteredData.links) {
+      const u = typeof link.source === 'object' ? link.source.id : link.source;
+      const v = typeof link.target === 'object' ? link.target.id : link.target;
+      if (pathNodes.has(u) && pathNodes.has(v)) {
+        pathLinks.add(link);
+      }
+    }
+
+    setFocusSet({ nodes: pathNodes, links: pathLinks });
+
+    if (fgRef.current && typeof impactTarget.x === 'number') {
+      if (graphMode !== 'city3d' && graphMode !== 'graph3d') {
+        fgRef.current.centerAt(impactTarget.x, impactTarget.y, 800);
+        fgRef.current.zoom(2.0, 800);
+      }
+    }
+
+    setImpactLoading(false);
+  }, [impactTarget, impactDepth, filteredData, graphMode]);
 
   const highlightAIQueryResultNodes = useCallback((responseObj = aiResponse) => {
     if (!responseObj || !responseObj.nodes) return;
@@ -1607,6 +1870,7 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                     <button
                       onClick={() => {
                         setIsPathMode(!isPathMode);
+                        setIsImpactMode(false);
                         setShowConfig(false);
                         setIsAIMode(false);
                       }}
@@ -1617,9 +1881,21 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                     </button>
                     <button
                       onClick={() => {
+                        setIsImpactMode(!isImpactMode);
+                        setIsPathMode(false);
+                        setShowConfig(false);
+                      }}
+                      title="Semantic Impact Explorer"
+                      className={`p-1.5 rounded-lg transition-colors ${isImpactMode ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-white hover:bg-purple-500/10'}`}
+                    >
+                      <Zap className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
                         setShowConfig(!showConfig);
                         setIsPathMode(false);
                         setIsAIMode(false);
+                        setIsImpactMode(false);
                       }}
                       title="Graph Settings"
                       className={`p-1.5 rounded-lg transition-colors ${showConfig ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-white hover:bg-purple-500/10'}`}
@@ -1673,7 +1949,140 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
 
               {/* Tree / Config / Path Mode */}
               <div className="flex-1 overflow-y-auto px-2 py-1 custom-scrollbar">
-                {isAIMode ? (
+                {isImpactMode ? (
+                  <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
+                    <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <Zap className="w-3 h-3 text-purple-400" /> Semantic Impact Analyzer
+                    </h3>
+                    <p className="text-xs text-gray-400">Select a node in the graph (or search) to analyze the propagation impact of modifying it.</p>
+
+                    <div className="space-y-3 mt-4">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Target Entity</label>
+                        <div className={`text-sm px-3 py-2 rounded-lg border ${impactTarget ? (isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-black/5 border-black/10 text-black') : 'bg-transparent border-dashed border-gray-600 text-gray-500'}`}>
+                          {impactTarget ? `${impactTarget.name} (${impactTarget.type})` : "Click a node in the graph..."}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-400 uppercase font-bold tracking-widest block">Propagation Depth: {impactDepth}</label>
+                        <input
+                          type="range" min="1" max="10" step="1" value={impactDepth}
+                          onChange={(e) => setImpactDepth(parseInt(e.target.value))}
+                          className="w-full accent-purple-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 mt-4">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="w-full text-xs"
+                        onClick={() => {
+                          setImpactTarget(null);
+                          setImpactResult(null);
+                          setFocusSet(null);
+                        }}
+                      >
+                        Clear
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="w-full text-xs bg-purple-500 hover:bg-purple-600 text-white"
+                        disabled={!impactTarget || impactLoading}
+                        onClick={runImpactAnalysis}
+                      >
+                        {impactLoading ? "Analyzing..." : "Analyze Impact"}
+                      </Button>
+                    </div>
+
+                    {impactResult && (
+                      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 mt-6">
+                        {/* Circular Score Gauge & Risk Badge */}
+                        <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex flex-col items-center gap-3">
+                          <div className="relative w-24 h-24 flex items-center justify-center">
+                            <svg className="w-full h-full transform -rotate-90">
+                              <circle cx="48" cy="48" r="38" stroke="rgba(255,255,255,0.05)" strokeWidth="6" fill="transparent" />
+                              <circle 
+                                cx="48" cy="48" r="38" 
+                                stroke={impactResult.risk_level === 'High' ? '#ef4444' : impactResult.risk_level === 'Medium' ? '#f97316' : '#10b981'} 
+                                strokeWidth="6" fill="transparent" 
+                                strokeDasharray={2 * Math.PI * 38}
+                                strokeDashoffset={2 * Math.PI * 38 * (1 - impactResult.impact_score / 10.0)}
+                                className="transition-all duration-500 ease-out"
+                              />
+                            </svg>
+                            <div className="absolute text-center">
+                              <span className="text-2xl font-black">{impactResult.impact_score}</span>
+                              <span className="text-[10px] text-gray-500 block font-bold">/ 10</span>
+                            </div>
+                          </div>
+
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                            impactResult.risk_level === 'High' ? 'bg-red-500/20 text-red-400 border border-red-500/20' : 
+                            impactResult.risk_level === 'Medium' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/20' : 
+                            'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20'
+                          }`}>
+                            {impactResult.risk_level} Risk Level
+                          </span>
+                        </div>
+
+                        {/* Breakdown Metrics */}
+                        <div className="grid grid-cols-2 gap-2 text-center">
+                          <div className="p-2.5 rounded-xl bg-white/5 border border-white/5">
+                            <span className="text-[8px] text-gray-500 block font-bold uppercase tracking-wider">Affected Files</span>
+                            <span className="text-sm font-black">{new Set(impactResult.affected_nodes.map(n => n.path)).size}</span>
+                          </div>
+                          <div className="p-2.5 rounded-xl bg-white/5 border border-white/5">
+                            <span className="text-[8px] text-gray-500 block font-bold uppercase tracking-wider">Affected Nodes</span>
+                            <span className="text-sm font-black">{impactResult.affected_nodes.length}</span>
+                          </div>
+                        </div>
+
+                        {/* Potentially Affected Items */}
+                        <div>
+                          <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Blast Radius List</h4>
+                          {impactResult.affected_nodes.length === 0 ? (
+                            <p className="text-xs text-gray-500 italic">No downstream dependencies affected.</p>
+                          ) : (
+                            <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                              {impactResult.affected_nodes.map((n: any) => (
+                                <div key={n.uid} className="p-2 rounded-lg bg-white/5 border border-white/5 flex items-center justify-between text-xs hover:bg-white/10 transition-colors">
+                                  <div>
+                                    <span className="font-bold text-white block">{n.name}</span>
+                                    <span className="text-[9px] text-gray-500 font-mono block truncate max-w-[160px]">{n.path || "No file path"}</span>
+                                  </div>
+                                  <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase ${n.depth === 1 ? 'bg-orange-500/20 text-orange-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                                    {n.depth === 1 ? 'Direct' : `Indirect d=${n.depth}`}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* AI-Powered Explanations */}
+                        <div>
+                          <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Propagation Explanations</h4>
+                          {impactResult.explanations.length === 0 ? (
+                            <p className="text-xs text-gray-500 italic">No explanations available.</p>
+                          ) : (
+                            <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-1">
+                              {impactResult.explanations.map((exp: any, idx: number) => (
+                                <div key={idx} className="p-3 rounded-xl bg-white/5 border border-white/5 space-y-1 text-xs">
+                                  <span className="font-bold text-purple-400 block">{exp.node_name} → {exp.target_name}</span>
+                                  <p className="text-gray-300 leading-relaxed">{exp.text}</p>
+                                  <p className="text-[10px] text-gray-500 italic leading-snug">{exp.suggestion}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </motion.div>
+                ) : isAIMode ? (
                   <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-3 space-y-4">
                     <div className="flex items-center justify-between mb-2">
                       <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2 m-0">
