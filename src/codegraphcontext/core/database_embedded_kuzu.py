@@ -953,10 +953,29 @@ class EmbeddedSessionWrapper:
                     _u = re.search(r"UNWIND\s+\$(\w+)\s+AS\s+\w+", translated_query)
                     _rows = _u and translated_params.get(_u.group(1))
                     if isinstance(_rows, list) and len(_rows) > 1:
+                        # Best-effort only: the batched pass above already
+                        # wrote what it could, so a failing single must NEVER
+                        # propagate — the first singles attempt let one raise
+                        # and the escaping exception aborted the writer's
+                        # remaining batches, costing ~51 CONTAINS edges (the
+                        # union of idempotent MERGEs cannot otherwise shrink).
+                        _single_failures = 0
+                        _first_single_error = None
                         for _row in _rows:
                             single = dict(translated_params)
                             single[_u.group(1)] = [_row]
-                            result = self.conn.execute(translated_query, single)
+                            try:
+                                self.conn.execute(translated_query, single)
+                            except Exception as _se:
+                                _single_failures += 1
+                                if _first_single_error is None:
+                                    _first_single_error = str(_se)[:160]
+                        if _single_failures:
+                            debug_log(
+                                f"Ladybug single-row replay: {_single_failures}/{len(_rows)} "
+                                f"rows errored (first: {_first_single_error}) — batched pass "
+                                f"result stands — query: {query[:90]}"
+                            )
                         if os.environ.get("CGC_LBG_DIAG") and "helpers.go" in str(translated_params):
                             try:
                                 _mq = re.sub(r"MERGE\s.*", "RETURN count(*)", translated_query, flags=re.S)

@@ -140,6 +140,27 @@ class TestLadybugRowReplay:
         execute = self._run_counting("ladybugdb", q, self.THREE_ROWS)
         assert execute.call_count == 1
 
+    def test_failing_single_row_never_propagates(self):
+        """A raising single-row replay must be swallowed: the batched pass
+        already wrote its edges, and an escaping exception aborts the
+        writer's remaining batches (that cost ~51 CONTAINS edges on CI)."""
+        from unittest.mock import MagicMock
+        from codegraphcontext.core.database_embedded_kuzu import EmbeddedSessionWrapper
+
+        conn = MagicMock()
+        calls = {"n": 0}
+
+        def _explode_on_singles(*a, **k):
+            calls["n"] += 1
+            if calls["n"] > 1:  # batched pass succeeds, every single fails
+                raise RuntimeError("transient engine error")
+            return MagicMock()
+
+        conn.execute.side_effect = _explode_on_singles
+        session = EmbeddedSessionWrapper(conn, backend_id="ladybugdb")
+        session.run(self.REL_MERGE, batch=self.THREE_ROWS)  # must not raise
+        assert calls["n"] == 1 + len(self.THREE_ROWS)
+
 
 def test_merged_form_still_binds_rows_on_kuzu(driver):
     """End-to-end on the real engine: the rewritten comma-form must produce
