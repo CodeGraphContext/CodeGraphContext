@@ -15,9 +15,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Small fixtures; a large pool made LadybugDB fault on constrained runners
+# Deterministic pool for CI. 2 GiB: ladybug 0.20.x exhausts a 1 GiB pool on
+  # the parity fixture, while the unconstrained 4 GiB default faulted natively
+  # on runners sharing memory with the Neo4j container.
 env:
-  CGC_EMBEDDED_BUFFER_POOL_MB: "1024"
+  CGC_EMBEDDED_BUFFER_POOL_MB: "2048"
 
 jobs:
   db-parity:

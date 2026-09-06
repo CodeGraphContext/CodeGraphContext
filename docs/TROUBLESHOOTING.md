@@ -39,6 +39,11 @@ embedded database open — KùzuDB/LadybugDB are single-process. Use the
 running process's interface, or stop it first (#1683). This is not a
 configuration problem; `cgc doctor` won't help.
 
+### LadybugDB: "Buffer manager exception: unable to allocate memory" (or a crash)
+The buffer pool is too small for the workload — ladybug 0.20.x needs more
+pool than 0.19.x for the same graph. Raise `CGC_EMBEDDED_BUFFER_POOL_MB`
+(2048 is a good floor); the unset default adapts to available memory.
+
 ### Which backend am I actually using?
 `cgc config show` prints the resolved backend and its source. FalkorDB is
 the default where its native library loads; environments where it cannot
