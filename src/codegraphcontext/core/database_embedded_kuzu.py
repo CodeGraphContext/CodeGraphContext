@@ -670,16 +670,19 @@ class EmbeddedDriverWrapper:
         compat_state = getattr(self, "_compat_state", None)
         pool = getattr(self, "_pool", None)
         display_name = getattr(self, "_display_name", "Embedded")
+        backend_id = getattr(self, "_backend_id", "embedded")
         if pool is not None:
             return EmbeddedSessionWrapper(
                 pool, getattr(self, "_write_lock", None),
                 compat_state=compat_state, display_name=display_name,
+                backend_id=backend_id,
             )
         else:
             db = getattr(self, "db", None) or getattr(self, "conn", None)
             write_lock = getattr(self, "_write_lock", None) or getattr(self, "_query_lock", None)
             return EmbeddedSessionWrapper(
                 db, write_lock, compat_state=compat_state, display_name=display_name,
+                backend_id=backend_id,
             )
     def close(self):
         pass
@@ -689,10 +692,12 @@ class EmbeddedDriverWrapper:
 
 
 class EmbeddedSessionWrapper:
-    def __init__(self, pool_or_conn, write_lock=None, compat_state=None, display_name: str = "Embedded"):
+    def __init__(self, pool_or_conn, write_lock=None, compat_state=None, display_name: str = "Embedded",
+                 backend_id: str = "embedded"):
         self._write_lock = write_lock or threading.Lock()
         self._query_lock = self._write_lock
         self._display_name = display_name
+        self._backend_id = backend_id
         # Disabled-query-type state is shared via the manager's compat_state so
         # fail-fast disabling persists across sessions. A standalone session
         # (tests / legacy callers) gets its own private state.
@@ -928,6 +933,22 @@ class EmbeddedSessionWrapper:
             with self._write_lock:
                 result = self.conn.execute(translated_query, translated_params)
 
+                # LadybugDB (0.19.x) state-dependently drops SOME rows of a
+                # batched relationship-only UNWIND MERGE on first execution —
+                # no error, the same batch replayed immediately in the same
+                # session binds the stragglers (reproduced: a 17-row
+                # Struct-CONTAINS batch wrote 12, the identical re-run wrote
+                # the remaining 5; that was the last piece of the parity gap
+                # in #1710). MERGE is idempotent, so a second pass is safe and
+                # only ladybug pays it. Kùzu binds these batches correctly.
+                if (
+                    getattr(self, "_backend_id", "") == "ladybugdb"
+                    and "MERGE" in query
+                    and ("-[" in query or "]->" in query)
+                    and re.search(r"UNWIND\s+\$\w+\s+AS\s+\w+", query)
+                ):
+                    result = self.conn.execute(translated_query, translated_params)
+
             return EmbeddedResultWrapper(result)
         except Exception as e:
             if self._should_fail_fast(query_type, e):
@@ -1104,6 +1125,26 @@ class EmbeddedSessionWrapper:
         #   b) MERGE uid injection from row fields (row.name, row.line_number, …)
         unwind_m = re.search(r'UNWIND\s+\$(\w+)\s+AS\s+(\w+)', query)
         if unwind_m:
+            # 1.5-pre: Collapse consecutive MATCH clauses into one comma-joined
+            # MATCH. LadybugDB's planner silently yields ZERO rows for
+            # UNWIND → MATCH (a {…}) → MATCH (b {…}) when the first MATCH is an
+            # index-map lookup (File-by-path being the everyday case): each
+            # MATCH works alone, chained they produce nothing — no error is
+            # raised, so downstream MERGEs quietly write no edges. That was the
+            # exact signature of the parity gap (all File-sourced CALLS edges
+            # and a handful of Struct CONTAINS edges missing on ladybug only).
+            # The comma form `MATCH (a {…}), (b {…})` is semantically identical
+            # for non-optional patterns and both engines plan it correctly.
+            # Only simple node patterns (no relationship arrows, no parens
+            # inside the pattern) directly adjacent to the next MATCH are
+            # merged, and never across OPTIONAL MATCH.
+            _match_merge_re = re.compile(
+                r'(?<!OPTIONAL )\bMATCH\s*(\([^()]*\)(?:\s*,\s*\([^()]*\))*)\s+MATCH\s*(?=\()'
+            )
+            _prev = None
+            while _prev != query:
+                _prev = query
+                query = _match_merge_re.sub(r'MATCH \1, ', query, count=1)
             batch_param = unwind_m.group(1)
             row_var = unwind_m.group(2)
             batch_data = parameters.get(batch_param)
