@@ -144,3 +144,83 @@ def test_explicit_value_is_honored_verbatim(monkeypatch):
     monkeypatch.setattr(dek, "_available_memory_bytes", lambda: 1 * 1024**3)
     # explicit values are never second-guessed by the availability heuristic
     assert dek.resolve_embedded_buffer_pool_size() == 8192 * 1024**2
+
+
+class TestCgroupAwareness:
+    """Inside a container /proc/meminfo shows the HOST's memory; the pool
+    must respect the tighter cgroup limit or the process is OOM-killed
+    natively when the reservation is first touched."""
+
+    def _patch_files(self, monkeypatch, contents):
+        import builtins
+        real_open = builtins.open
+
+        def fake_open(path, *a, **k):
+            if path in contents:
+                raw = contents[path]
+                if isinstance(raw, OSError):
+                    raise raw
+                import io
+                return io.StringIO(raw)
+            return real_open(path, *a, **k)
+
+        monkeypatch.setattr(builtins, "open", fake_open)
+
+    def test_cgroup_v2_limit_caps_host_available(self, monkeypatch):
+        from codegraphcontext.core import database_embedded_kuzu as dek
+        self._patch_files(monkeypatch, {
+            "/proc/meminfo": "MemTotal: 67108864 kB\nMemAvailable: 33554432 kB\n",  # 32 GiB avail
+            "/sys/fs/cgroup/memory.max": str(1 * 1024**3),   # 1 GiB pod limit
+            "/sys/fs/cgroup/memory.current": str(256 * 1024**2),
+        })
+        # headroom = 1 GiB - 256 MiB = 768 MiB, far below host's 32 GiB
+        assert dek._available_memory_bytes() == 768 * 1024**2
+
+    def test_cgroup_v2_unlimited_uses_host_value(self, monkeypatch):
+        from codegraphcontext.core import database_embedded_kuzu as dek
+        self._patch_files(monkeypatch, {
+            "/proc/meminfo": "MemAvailable: 8388608 kB\n",  # 8 GiB
+            "/sys/fs/cgroup/memory.max": "max",
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes": OSError("no v1"),
+        })
+        assert dek._available_memory_bytes() == 8 * 1024**3
+
+    def test_cgroup_v1_limit_caps_host_available(self, monkeypatch):
+        from codegraphcontext.core import database_embedded_kuzu as dek
+        self._patch_files(monkeypatch, {
+            "/proc/meminfo": "MemAvailable: 33554432 kB\n",
+            "/sys/fs/cgroup/memory.max": OSError("no v2"),
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes": str(2 * 1024**3),
+            "/sys/fs/cgroup/memory/memory.usage_in_bytes": str(1 * 1024**3),
+        })
+        assert dek._available_memory_bytes() == 1 * 1024**3
+
+    def test_cgroup_v1_unlimited_sentinel_ignored(self, monkeypatch):
+        from codegraphcontext.core import database_embedded_kuzu as dek
+        self._patch_files(monkeypatch, {
+            "/proc/meminfo": "MemAvailable: 4194304 kB\n",  # 4 GiB
+            "/sys/fs/cgroup/memory.max": OSError("no v2"),
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes": str(1 << 62),  # "unlimited"
+        })
+        assert dek._available_memory_bytes() == 4 * 1024**3
+
+    def test_no_meminfo_falls_back_to_cgroup_alone(self, monkeypatch):
+        from codegraphcontext.core import database_embedded_kuzu as dek
+        self._patch_files(monkeypatch, {
+            "/proc/meminfo": OSError("macOS-in-container"),
+            "/sys/fs/cgroup/memory.max": str(1 * 1024**3),
+            "/sys/fs/cgroup/memory.current": OSError("unreadable"),
+        })
+        assert dek._available_memory_bytes() == 1 * 1024**3
+
+    def test_pod_limit_shrinks_the_default_pool(self, monkeypatch):
+        """End-to-end: a 1 GiB pod on a 64 GiB host gets a ~384 MiB pool
+        (half of headroom), not the 4 GiB that would OOM-kill it."""
+        from codegraphcontext.core import database_embedded_kuzu as dek
+        monkeypatch.delenv("CGC_EMBEDDED_BUFFER_POOL_MB", raising=False)
+        self._patch_files(monkeypatch, {
+            "/proc/meminfo": "MemAvailable: 67108864 kB\n",  # 64 GiB host
+            "/sys/fs/cgroup/memory.max": str(1 * 1024**3),
+            "/sys/fs/cgroup/memory.current": str(256 * 1024**2),
+        })
+        assert dek.resolve_embedded_buffer_pool_size() == 384 * 1024**2
