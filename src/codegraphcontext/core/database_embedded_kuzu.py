@@ -590,7 +590,15 @@ class EmbeddedGraphManager(GraphQueryInterface):
                 # Without this call the process hangs on exit because the
                 # embedded Kùzu engine keeps background threads alive.
                 try:
-                    if not self._db.is_closed():
+                    # kuzu exposes is_closed as a METHOD on some builds and a
+                    # bool ATTRIBUTE on others (0.11.x). Calling the attribute
+                    # raised "'bool' object is not callable" — which this
+                    # except swallowed, so the close NEVER ran and the
+                    # background threads it exists to stop stayed alive.
+                    closed = self._db.is_closed
+                    if callable(closed):
+                        closed = closed()
+                    if not closed:
                         self._db.close()
                         info_logger(f"{self.BACKEND_SPEC.display_name} database closed successfully")
                 except Exception as e:
@@ -697,7 +705,20 @@ class EmbeddedSessionWrapper:
         # Backward compatibility check: check if it's a pool or connection
         if hasattr(pool_or_conn, "get") and not hasattr(pool_or_conn, "execute"):
             self._pool = pool_or_conn
-            self.conn = self._pool.get()
+            try:
+                # The embedded manager is a per-subclass singleton: switching
+                # db_path closes the old database and drains its pool. A caller
+                # holding a STALE driver reference then blocked here forever
+                # with no diagnostic. Fail loudly instead.
+                self.conn = self._pool.get(timeout=30)
+            except queue.Empty:
+                raise RuntimeError(
+                    "No database connection available after 30s — this driver's "
+                    "connection pool is exhausted or its database manager was "
+                    "closed/switched to another path. Re-acquire the driver via "
+                    "get_database_manager().get_driver() instead of holding a "
+                    "stale reference."
+                )
         else:
             self._pool = None
             self.conn = pool_or_conn
