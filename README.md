@@ -289,6 +289,8 @@ CodeGraphContext supports multiple graph database backends to suit your environm
 | **Speed** | ⚡ Extremely Fast | ⚡ Fast | 🚀 Scalable | 🌐 Network-dependent |
 | **Persistence**| Yes (to disk) | Yes (to disk) | Yes (to disk) | Yes (server-side) |
 
+Embedded KuzuDB/LadybugDB default to a **4 GiB** buffer pool (`CGC_EMBEDDED_BUFFER_POOL_MB`). Set that env var to another MiB value, or `0` for the library default (~80% of system RAM).
+
 ---
 
 ## SCIP indexing (optional)

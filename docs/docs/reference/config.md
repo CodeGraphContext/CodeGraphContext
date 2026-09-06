@@ -167,6 +167,7 @@ Local embedded database instances are stored on disk. Use the settings below to 
 | **`KUZUDB_PATH`** | `~/.codegraphcontext/global/db/kuzudb/` | Root storage directory for KuzuDB files. |
 | **`LADYBUGDB_PATH`** | `~/.codegraphcontext/global/db/ladybugdb/` | Root storage directory for LadybugDB files. |
 | **`FALKORDB_PATH`** | `~/.codegraphcontext/global/db/falkordb/` | Storage path for FalkorDB Lite database. |
+| **`CGC_EMBEDDED_BUFFER_POOL_MB`** | `4096` | Max buffer pool size in MiB for LadybugDB/Kuzu. Set `0` to use the library default (~80% of system RAM). |
 
 ---
 
