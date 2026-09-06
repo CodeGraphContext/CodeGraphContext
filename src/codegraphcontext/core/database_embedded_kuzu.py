@@ -974,6 +974,8 @@ class EmbeddedSessionWrapper:
                         )
                         
                         last_result = None
+                        dropped = 0
+                        first_drop_error = None
                         for item in batch_data:
                             loop_params = parameters.copy()
                             loop_params.pop(batch_param, None)
@@ -986,8 +988,34 @@ class EmbeddedSessionWrapper:
                             except Exception as nested_e:
                                 nested_err_str = str(nested_e).lower()
                                 if "binder" in nested_err_str or "cannot find a valid label" in nested_err_str:
+                                    # Expected: label-pair probing legitimately
+                                    # misses on schemaless shapes.
                                     continue
-                                raise nested_e
+                                # Transient failure (lock contention, buffer
+                                # pressure): retry the ROW once before dropping
+                                # it — writes are MERGE-idempotent. Silent
+                                # drops here were LadybugDB's missing-edge
+                                # signature in the parity run (#1612).
+                                try:
+                                    last_result = self.run(loop_query, **loop_params)
+                                except Exception as retry_e:
+                                    dropped += 1
+                                    if first_drop_error is None:
+                                        first_drop_error = str(retry_e)[:160]
+                        if dropped:
+                            if dropped == len(batch_data) and dropped > 0:
+                                # Every row failing is systematic breakage, not
+                                # transient pressure — raise so the caller's
+                                # own retry/failure accounting still engages.
+                                raise RuntimeError(
+                                    f"Per-row fallback failed for ALL {dropped} rows "
+                                    f"(first error: {first_drop_error}) — query: {query[:90]}"
+                                )
+                            warning_logger(
+                                f"Per-row fallback dropped {dropped}/{len(batch_data)} "
+                                f"rows after retry (first error: {first_drop_error}) — "
+                                f"query: {query[:90]}"
+                            )
                         return last_result or EmbeddedResultWrapper(None)
 
 
