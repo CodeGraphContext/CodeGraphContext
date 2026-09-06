@@ -27,18 +27,42 @@ from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logge
 # default to ~80% of system RAM, which lets long-running gateways grow huge.
 DEFAULT_EMBEDDED_BUFFER_POOL_BYTES = 4 * 1024**3
 
+# Floor for the availability-derived default, so a briefly-busy machine does
+# not shrink the pool into pathological territory.
+MIN_DEFAULT_BUFFER_POOL_BYTES = 256 * 1024**2
+
+
+def _available_memory_bytes():
+    """MemAvailable from /proc/meminfo, or None where unavailable (macOS…)."""
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) * 1024
+    except OSError:
+        pass
+    return None
+
 
 def resolve_embedded_buffer_pool_size() -> int:
     """
     Resolve ``buffer_pool_size`` for embedded ``Database(...)`` constructors.
 
-    Reads ``CGC_EMBEDDED_BUFFER_POOL_MB`` (integer MiB). Unset uses a 4 GiB
-    default. ``0`` opts back into the library default (~80% of system memory).
-    Invalid values log a warning and fall back to 4 GiB.
+    Reads ``CGC_EMBEDDED_BUFFER_POOL_MB`` (integer MiB). Unset uses an
+    adaptive default: 4 GiB, capped at half of currently-available memory
+    (floored at 256 MiB) — on a memory-constrained host (CI runners sharing
+    RAM with a Neo4j container, small VMs) a fixed 4 GiB pool made LadybugDB
+    fault natively (SIGSEGV, parity run exit -11) when the reservation could
+    not be backed. An explicit env value is always honored as-is; ``0`` opts
+    back into the library default (~80% of system memory).
     """
     raw = os.getenv("CGC_EMBEDDED_BUFFER_POOL_MB")
     if raw is None or str(raw).strip() == "":
-        return DEFAULT_EMBEDDED_BUFFER_POOL_BYTES
+        available = _available_memory_bytes()
+        if available is None:
+            return DEFAULT_EMBEDDED_BUFFER_POOL_BYTES
+        adaptive = max(MIN_DEFAULT_BUFFER_POOL_BYTES, available // 2)
+        return min(DEFAULT_EMBEDDED_BUFFER_POOL_BYTES, adaptive)
     try:
         mb = int(str(raw).strip())
     except ValueError:
@@ -160,9 +184,15 @@ class EmbeddedGraphManager(GraphQueryInterface):
                                 f"Initializing {spec.display_name} at {self.db_path} "
                                 f"(buffer_pool_size={pool_msg})"
                             )
-                            self._db = backend.Database(
-                                self.db_path, buffer_pool_size=buffer_pool_size
-                            )
+                            if buffer_pool_size == 0:
+                                # 0 means "library default": omit the kwarg
+                                # rather than trusting every backend to treat
+                                # a literal 0 that way.
+                                self._db = backend.Database(self.db_path)
+                            else:
+                                self._db = backend.Database(
+                                    self.db_path, buffer_pool_size=buffer_pool_size
+                                )
 
                             # Initialise connection pool
                             self._pool = queue.Queue()
