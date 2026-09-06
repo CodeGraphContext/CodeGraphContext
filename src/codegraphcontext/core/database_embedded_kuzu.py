@@ -32,16 +32,59 @@ DEFAULT_EMBEDDED_BUFFER_POOL_BYTES = 4 * 1024**3
 MIN_DEFAULT_BUFFER_POOL_BYTES = 256 * 1024**2
 
 
+def _cgroup_available_bytes():
+    """Memory headroom under the container's cgroup limit, or None when
+    unconfined. /proc/meminfo shows the HOST inside a container, so a pod
+    capped at 1 GiB on a 64 GiB host would otherwise size a 4 GiB pool and
+    be OOM-killed natively at first touch."""
+    # cgroup v2 (unified hierarchy)
+    try:
+        with open("/sys/fs/cgroup/memory.max") as f:
+            raw = f.read().strip()
+        if raw != "max":
+            limit = int(raw)
+            usage = 0
+            try:
+                with open("/sys/fs/cgroup/memory.current") as f:
+                    usage = int(f.read().strip())
+            except (OSError, ValueError):
+                pass
+            return max(limit - usage, 0)
+    except (OSError, ValueError):
+        pass
+    # cgroup v1
+    try:
+        with open("/sys/fs/cgroup/memory/memory.limit_in_bytes") as f:
+            limit = int(f.read().strip())
+        if limit < 1 << 60:  # v1 reports ~8 EiB when unlimited
+            usage = 0
+            try:
+                with open("/sys/fs/cgroup/memory/memory.usage_in_bytes") as f:
+                    usage = int(f.read().strip())
+            except (OSError, ValueError):
+                pass
+            return max(limit - usage, 0)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def _available_memory_bytes():
-    """MemAvailable from /proc/meminfo, or None where unavailable (macOS…)."""
+    """The tighter of host MemAvailable (/proc/meminfo) and the cgroup
+    memory headroom, or None where neither is readable (macOS…)."""
+    host = None
     try:
         with open("/proc/meminfo") as f:
             for line in f:
                 if line.startswith("MemAvailable:"):
-                    return int(line.split()[1]) * 1024
+                    host = int(line.split()[1]) * 1024
+                    break
     except OSError:
         pass
-    return None
+    cgroup = _cgroup_available_bytes()
+    if host is not None and cgroup is not None:
+        return min(host, cgroup)
+    return host if host is not None else cgroup
 
 
 def resolve_embedded_buffer_pool_size() -> int:
