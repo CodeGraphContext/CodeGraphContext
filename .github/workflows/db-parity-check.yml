@@ -20,6 +20,8 @@ concurrency:
   # on runners sharing memory with the Neo4j container.
 env:
   CGC_EMBEDDED_BUFFER_POOL_MB: "2048"
+  # Temporary #1710 diagnostic: prints LBG_DIAG match counts for the helpers.go batch
+  CGC_LBG_DIAG: "1"
 
 jobs:
   db-parity:

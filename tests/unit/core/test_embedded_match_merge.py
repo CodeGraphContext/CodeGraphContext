@@ -96,11 +96,12 @@ def test_non_unwind_queries_stay_untouched(driver):
     assert translated.count("MATCH") == 2, translated
 
 
-class TestLadybugDoubleExecution:
+class TestLadybugRowReplay:
     """LadybugDB state-dependently drops SOME rows of a batched rel-only
-    UNWIND MERGE on first execution (no error raised); replaying the same
-    idempotent batch immediately binds the stragglers. The compat layer
-    therefore executes such batches twice on ladybug only."""
+    UNWIND MERGE (no error raised), and on CI the drop survives identical
+    re-execution. The compat layer therefore replays every row of such
+    batches as a single-row batch after the batched pass — idempotent MERGE
+    makes the union safe — on ladybug only."""
 
     REL_MERGE = (
         "UNWIND $batch AS row "
@@ -108,25 +109,57 @@ class TestLadybugDoubleExecution:
         "MATCH (b:ExternalClass {name: row.p}) "
         "MERGE (a)-[r:INHERITS]->(b)"
     )
+    THREE_ROWS = [{"c": "A", "p": "P"}, {"c": "B", "p": "X"}, {"c": "C", "p": "P"}]
 
-    def _run_counting(self, backend_id, query):
+    def _run_counting(self, backend_id, query, batch):
         from unittest.mock import MagicMock
         from codegraphcontext.core.database_embedded_kuzu import EmbeddedSessionWrapper
 
         conn = MagicMock()
         session = EmbeddedSessionWrapper(conn, backend_id=backend_id)
-        session.run(query, batch=[{"c": "A", "p": "P"}])
-        return conn.execute.call_count
+        session.run(query, batch=batch)
+        return conn.execute
 
-    def test_ladybug_executes_rel_merge_batch_twice(self):
-        assert self._run_counting("ladybugdb", self.REL_MERGE) == 2
+    def test_ladybug_replays_each_row_after_the_batch(self):
+        execute = self._run_counting("ladybugdb", self.REL_MERGE, self.THREE_ROWS)
+        # one batched pass + one single-row pass per row
+        assert execute.call_count == 1 + len(self.THREE_ROWS)
+        single_batches = [c.args[1]["batch"] for c in execute.call_args_list[1:]]
+        assert single_batches == [[r] for r in self.THREE_ROWS]
 
     def test_kuzu_executes_rel_merge_batch_once(self):
-        assert self._run_counting("kuzudb", self.REL_MERGE) == 1
+        execute = self._run_counting("kuzudb", self.REL_MERGE, self.THREE_ROWS)
+        assert execute.call_count == 1
+
+    def test_ladybug_single_row_batches_execute_once(self):
+        execute = self._run_counting("ladybugdb", self.REL_MERGE, [self.THREE_ROWS[0]])
+        assert execute.call_count == 1
 
     def test_ladybug_read_queries_execute_once(self):
         q = "UNWIND $batch AS row MATCH (a:Class {name: row.c}) RETURN count(a)"
-        assert self._run_counting("ladybugdb", q) == 1
+        execute = self._run_counting("ladybugdb", q, self.THREE_ROWS)
+        assert execute.call_count == 1
+
+    def test_failing_single_row_never_propagates(self):
+        """A raising single-row replay must be swallowed: the batched pass
+        already wrote its edges, and an escaping exception aborts the
+        writer's remaining batches (that cost ~51 CONTAINS edges on CI)."""
+        from unittest.mock import MagicMock
+        from codegraphcontext.core.database_embedded_kuzu import EmbeddedSessionWrapper
+
+        conn = MagicMock()
+        calls = {"n": 0}
+
+        def _explode_on_singles(*a, **k):
+            calls["n"] += 1
+            if calls["n"] > 1:  # batched pass succeeds, every single fails
+                raise RuntimeError("transient engine error")
+            return MagicMock()
+
+        conn.execute.side_effect = _explode_on_singles
+        session = EmbeddedSessionWrapper(conn, backend_id="ladybugdb")
+        session.run(self.REL_MERGE, batch=self.THREE_ROWS)  # must not raise
+        assert calls["n"] == 1 + len(self.THREE_ROWS)
 
 
 def test_merged_form_still_binds_rows_on_kuzu(driver):
