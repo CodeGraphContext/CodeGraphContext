@@ -83,3 +83,30 @@ def test_full_stdio_session(mcp_session):
     r = _read_response(proc, 3)
     assert r is not None and "result" in r, f"tools/call failed: {r}"
     assert "greet" in json.dumps(r["result"]), "indexed function not found over MCP"
+
+
+def test_parse_errors_never_reuse_a_previous_request_id(mcp_session):
+    """A malformed line must answer with id null / -32700 — NOT the id of
+    the previous request. The old handler read the stale `request` variable
+    from the prior loop iteration, emitting a SECOND response for an
+    already-answered id, which desyncs clients that match responses by id."""
+    proc = mcp_session
+
+    _send(proc, {"jsonrpc": "2.0", "id": 7, "method": "initialize",
+                 "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                            "clientInfo": {"name": "test", "version": "0"}}})
+    r = _read_response(proc, 7)
+    assert r is not None and "result" in r
+
+    # raw garbage after a valid exchange — the trigger for the stale-id bug
+    proc.stdin.write("this is not json\n")
+    proc.stdin.flush()
+    r = _read_response(proc, None)
+    assert r is not None, "no response to malformed input"
+    assert r["id"] is None, f"parse error reused a stale id: {r}"
+    assert r["error"]["code"] == -32700, f"expected -32700 parse error: {r}"
+
+    # the session must still work afterwards, with ids intact
+    _send(proc, {"jsonrpc": "2.0", "id": 8, "method": "tools/list"})
+    r = _read_response(proc, 8)
+    assert r is not None and "result" in r, f"session broken after parse error: {r}"

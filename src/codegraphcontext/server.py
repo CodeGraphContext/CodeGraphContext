@@ -803,6 +803,11 @@ class MCPServer:
     async def _run_loop(self, loop):
         request_count = 0
         while True:
+            # Reset per iteration: on a parse error `request` would otherwise
+            # still hold the PREVIOUS request, and the error response would
+            # reuse its id — a second response for an already-answered id,
+            # which desyncs clients that match responses by id.
+            request = None
             try:
                 if request_count and request_count % 50 == 0:
                     self.job_manager.cleanup_old_jobs(max_age_hours=24)
@@ -880,15 +885,19 @@ class MCPServer:
 
             except Exception as e:
                 error_logger(f"Error processing request: {e}\n{traceback.format_exc()}")
-                request_id = "unknown"
-                if 'request' in locals() and isinstance(request, dict):
-                    request_id = request.get('id', "unknown")
+                # JSON-RPC: parse errors respond with id null and -32700;
+                # errors while handling a parsed request keep that request's id.
+                request_id = request.get('id') if isinstance(request, dict) else None
+                is_parse_error = not isinstance(request, dict)
 
                 error_response = {
                     "jsonrpc": "2.0", "id": request_id,
                     "error": {
-                        "code": -32603,
-                        "message": f"Internal error: {str(e)}",
+                        "code": -32700 if is_parse_error else -32603,
+                        "message": (
+                            f"Parse error: {str(e)}" if is_parse_error
+                            else f"Internal error: {str(e)}"
+                        ),
                     },
                 }
                 print(json.dumps(error_response), flush=True)
