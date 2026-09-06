@@ -934,20 +934,39 @@ class EmbeddedSessionWrapper:
                 result = self.conn.execute(translated_query, translated_params)
 
                 # LadybugDB (0.19.x) state-dependently drops SOME rows of a
-                # batched relationship-only UNWIND MERGE on first execution —
-                # no error, the same batch replayed immediately in the same
-                # session binds the stragglers (reproduced: a 17-row
-                # Struct-CONTAINS batch wrote 12, the identical re-run wrote
-                # the remaining 5; that was the last piece of the parity gap
-                # in #1710). MERGE is idempotent, so a second pass is safe and
-                # only ladybug pays it. Kùzu binds these batches correctly.
+                # batched relationship-only UNWIND MERGE — no error is raised,
+                # the MERGE just writes nothing for those rows (a 17-row
+                # Struct-CONTAINS batch wrote 12; #1710). Locally an immediate
+                # identical re-run bound the stragglers, but on CI the drop
+                # survives re-execution, so after the batched pass every row
+                # is replayed as a single-row batch through the SAME translated
+                # query. MERGE is idempotent, so the union is safe; only
+                # ladybug pays the cost. The generic per-row rewrite path is
+                # deliberately NOT used here — its query surgery loses ~51
+                # CONTAINS edges (the #1612 signature).
                 if (
                     getattr(self, "_backend_id", "") == "ladybugdb"
                     and "MERGE" in query
                     and ("-[" in query or "]->" in query)
-                    and re.search(r"UNWIND\s+\$\w+\s+AS\s+\w+", query)
+                    and "RETURN" not in query.upper()
                 ):
-                    result = self.conn.execute(translated_query, translated_params)
+                    _u = re.search(r"UNWIND\s+\$(\w+)\s+AS\s+\w+", translated_query)
+                    _rows = _u and translated_params.get(_u.group(1))
+                    if isinstance(_rows, list) and len(_rows) > 1:
+                        for _row in _rows:
+                            single = dict(translated_params)
+                            single[_u.group(1)] = [_row]
+                            result = self.conn.execute(translated_query, single)
+                        if os.environ.get("CGC_LBG_DIAG") and "helpers.go" in str(translated_params):
+                            try:
+                                _mq = re.sub(r"MERGE\s.*", "RETURN count(*)", translated_query, flags=re.S)
+                                _mr = self.conn.execute(_mq, translated_params)
+                                _matched = _mr.get_next()[0]
+                                import sys as _sys
+                                print(f"LBG_DIAG matched={_matched} batch={len(_rows)} q={translated_query[:110].strip()!r}", file=_sys.stderr, flush=True)
+                            except Exception as _de:
+                                import sys as _sys
+                                print(f"LBG_DIAG count-err {str(_de)[:120]}", file=_sys.stderr, flush=True)
 
             return EmbeddedResultWrapper(result)
         except Exception as e:
