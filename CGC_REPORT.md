@@ -1,6 +1,6 @@
 # CGC Report
 
-_Generated: 2026-09-02 21:30 UTC_
+_Generated: 2026-09-06 09:56 UTC_
 
 
 ## God Nodes — Highest Fan-In
