@@ -12,6 +12,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Small fixtures; a large pool made LadybugDB fault on constrained runners
+env:
+  CGC_EMBEDDED_BUFFER_POOL_MB: "1024"
+
 jobs:
   test:
     strategy:
