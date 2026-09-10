@@ -184,9 +184,19 @@ async def _run_database_parity_e2e(temp_test_dir):
     db_types_to_run = []
     pkg_map = {"kuzudb": "kuzu", "ladybugdb": "ladybug", "falkordb": "falkordb", "neo4j": "neo4j"}
     for db in ["kuzudb", "ladybugdb", "falkordb", "neo4j"]:
-        if importlib.util.find_spec(pkg_map[db]) is None:
-            print(f"Skipping {db}: {pkg_map[db]} driver not installed.")
+        try:
+            if importlib.util.find_spec(pkg_map[db]) is None:
+                print(f"Skipping {db}: {pkg_map[db]} driver not installed.")
+                continue
+        except Exception:
+            print(f"Skipping {db}: {pkg_map[db]} driver not importable.")
             continue
+        if db == "ladybugdb":
+            try:
+                import ladybug._lbug_capi
+            except (RuntimeError, OSError) as e:
+                print(f"Skipping {db}: C API shared library not available ({e}).")
+                continue
         db_types_to_run.append(db)
         
     db_types = db_types_to_run
