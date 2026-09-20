@@ -711,7 +711,7 @@ class CodeFinder:
             if path:
                 params["path"] = path
                 result = session.run(f"""
-                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name, path: $path}})
+                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name, path: $path}})
                     WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
@@ -730,7 +730,7 @@ class CodeFinder:
                 if not results:
                     params_no_path = {k: v for k, v in params.items() if k != "path"}
                     result = session.run(f"""
-                        MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name}})
+                        MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name}})
                         WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
                         OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                         RETURN DISTINCT
@@ -747,7 +747,7 @@ class CodeFinder:
                     results = result.data()
             else:
                 result = session.run(f"""
-                    MATCH (caller:Function)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name}})
+                    MATCH (caller:Function)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name}})
                     WHERE 1=1 {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
@@ -1178,7 +1178,7 @@ class CodeFinder:
             # on the end node of variable-length paths.
             if path:
                 query = f"""
-                    MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(target:Function)
+                    MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(target)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE last_node.name = $function_name AND last_node.path = $path
@@ -1193,7 +1193,7 @@ class CodeFinder:
                 result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
             else:
                 query = f"""
-                    MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(target:Function)
+                    MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(target)
                     WITH p, nodes(p) as path_nodes, relationships(p) as rels
                     WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
                     WHERE last_node.name = $function_name
@@ -1875,21 +1875,15 @@ def _kalshi_annotate(self, function_name, path, result):
     if _files <= 1:
         return result
     # NB: annotate EVEN WHEN result is empty. An empty result on an overloaded
-    # name is the worst case, not the benign one: find_all_callers matches
-    # (target:Function) only, so class instantiations (GateDecision etc.) are
-    # invisible entirely — "no callers" here can mean "wrong label", and the
-    # name still matched multiple definitions. Say both things.
+    # name is the worst case, not the benign one — "no callers" and "wrong
+    # attribution" are indistinguishable to the caller without the warning.
     _note = (
         f"'{function_name}' matched definitions in {_files} files; "
         "caller/callee edges are name-matched, not import-scoped. Verify the "
         "caller's imports before trusting attribution."
     )
     if not result:
-        _note += (
-            " This lookup ALSO returned zero edges while the name has multiple "
-            "definitions — note the query matches (target:Function) only, so "
-            "class-instantiation edges do not appear here at all."
-        )
+        _note += " This lookup also returned zero edges (no Function declares a call to any definition of this name)." 
     return [{
         "OVERLOAD_WARNING": _note,
         "definition_files": _files,
