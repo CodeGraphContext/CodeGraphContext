@@ -1891,6 +1891,7 @@ def _kalshi_annotate(self, function_name, path, result):
 
 
 if not getattr(CodeFinder, "_kalshi_guard_installed", False):
+    # find_all_callers / find_all_callees — the query_type="find_all_*" surface
     _kalshi_orig_find_all_callers = CodeFinder.find_all_callers
     def find_all_callers(self, function_name, path=None, repo_path=None, depth=3):
         return _kalshi_annotate(
@@ -1906,5 +1907,24 @@ if not getattr(CodeFinder, "_kalshi_guard_installed", False):
             _kalshi_orig_find_all_callees(self, function_name, path, repo_path, depth),
         )
     CodeFinder.find_all_callees = find_all_callees
+
+    # who_calls_function / what_does_function_call — the DEFAULT MCP surface:
+    # analyze_code_relationships(query_type="find_callers"/"find_callees")
+    # routes here, not to the find_all_* methods.
+    _kalshi_orig_who_calls = CodeFinder.who_calls_function
+    def who_calls_function(self, function_name, path=None, repo_path=None, limit=None):
+        return _kalshi_annotate(
+            self, function_name, path,
+            _kalshi_orig_who_calls(self, function_name, path, repo_path, limit),
+        )
+    CodeFinder.who_calls_function = who_calls_function
+
+    _kalshi_orig_what_calls = CodeFinder.what_does_function_call
+    def what_does_function_call(self, function_name, path=None, repo_path=None, limit=None):
+        return _kalshi_annotate(
+            self, function_name, path,
+            _kalshi_orig_what_calls(self, function_name, path, repo_path, limit),
+        )
+    CodeFinder.what_does_function_call = what_does_function_call
     CodeFinder._kalshi_guard_installed = True
 # === end kalshi overload guard ===
