@@ -1843,3 +1843,74 @@ class CodeFinder:
                     len(bad),
                 )
             return rows
+
+
+# === kalshi overload guard (repo-managed patch) ===
+# Added by kalshi-trader docs/codegraph/pipeline/patch_cgc_overload_guard.py.
+# CGC matches CALLS edges by bare callee name; on an overloaded name every
+# cross-file caller is bound to one canonical node regardless of imports
+# (2026-09-19 GateDecision: 13/14 edges to the wrong class). These wrappers
+# prefix an OVERLOAD_WARNING record on by-name lookups that match definitions
+# in more than one file. By-path lookups are exact and pass through untouched.
+# Re-apply after `uv tool upgrade codegraphcontext` (this block is removed).
+def _kalshi_count_definition_files(self, function_name: str) -> int:
+    """Distinct files defining this name, via the same driver CGC already holds."""
+    try:
+        with self.driver.session() as _s:
+            _r = _s.run(
+                "MATCH (n) WHERE n.name = $n "
+                "RETURN count(DISTINCT n.path) AS c",
+                n=function_name,
+            )
+            _d = _r.data()
+            return int(_d[0]["c"]) if _d else 1
+    except Exception:
+        return 1  # never degrade the underlying result over a guard failure
+
+
+def _kalshi_annotate(self, function_name, path, result):
+    if path is not None or not isinstance(result, list):
+        return result
+    _files = _kalshi_count_definition_files(self, function_name)
+    if _files <= 1:
+        return result
+    # NB: annotate EVEN WHEN result is empty. An empty result on an overloaded
+    # name is the worst case, not the benign one: find_all_callers matches
+    # (target:Function) only, so class instantiations (GateDecision etc.) are
+    # invisible entirely — "no callers" here can mean "wrong label", and the
+    # name still matched multiple definitions. Say both things.
+    _note = (
+        f"'{function_name}' matched definitions in {_files} files; "
+        "caller/callee edges are name-matched, not import-scoped. Verify the "
+        "caller's imports before trusting attribution."
+    )
+    if not result:
+        _note += (
+            " This lookup ALSO returned zero edges while the name has multiple "
+            "definitions — note the query matches (target:Function) only, so "
+            "class-instantiation edges do not appear here at all."
+        )
+    return [{
+        "OVERLOAD_WARNING": _note,
+        "definition_files": _files,
+    }] + result
+
+
+if not getattr(CodeFinder, "_kalshi_guard_installed", False):
+    _kalshi_orig_find_all_callers = CodeFinder.find_all_callers
+    def find_all_callers(self, function_name, path=None, repo_path=None, depth=3):
+        return _kalshi_annotate(
+            self, function_name, path,
+            _kalshi_orig_find_all_callers(self, function_name, path, repo_path, depth),
+        )
+    CodeFinder.find_all_callers = find_all_callers
+
+    _kalshi_orig_find_all_callees = CodeFinder.find_all_callees
+    def find_all_callees(self, function_name, path=None, repo_path=None, depth=3):
+        return _kalshi_annotate(
+            self, function_name, path,
+            _kalshi_orig_find_all_callees(self, function_name, path, repo_path, depth),
+        )
+    CodeFinder.find_all_callees = find_all_callees
+    CodeFinder._kalshi_guard_installed = True
+# === end kalshi overload guard ===
