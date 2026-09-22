@@ -1320,6 +1320,83 @@ def wire_show(
     _wire_flag_notice()
 
 
+# ── cgc wire config: inspect Spring-style ConfigValue store ─────────────────
+
+wire_config_app = typer.Typer(help="Inspect Spring-style config values (application.properties / .yml)")
+wire_app.add_typer(wire_config_app, name="config")
+
+
+@wire_config_app.command("list")
+def wire_config_list(
+    repo: str = typer.Option(".", "--repo", "-r", help="Repo root to scan"),
+    profile: Optional[str] = typer.Option(
+        None, "--profile", "-p", help="Show only entries for this profile (default: all)"
+    ),
+    key_filter: Optional[str] = typer.Option(
+        None, "--key", "-k", help="Substring filter on the config key"
+    ),
+    limit: int = typer.Option(50, "--limit", "-n", help="Cap on rows printed"),
+):
+    """List parsed config values grouped by profile."""
+    from codegraphcontext.wire import scan_repo_config
+
+    store = scan_repo_config(Path(repo))
+    entries = list(store.all_entries())
+    if profile is not None:
+        entries = [e for e in entries if e.profile == profile]
+    if key_filter:
+        entries = [e for e in entries if key_filter in e.key]
+    entries.sort(key=lambda e: (e.profile, e.key))
+
+    table = Table(
+        title=f"Config values under {Path(repo).resolve()}",
+        box=box.SIMPLE_HEAVY,
+    )
+    table.add_column("Profile", style="cyan")
+    table.add_column("Key", style="green")
+    table.add_column("Value", style="white", overflow="fold")
+    table.add_column("Source", style="dim", overflow="fold")
+
+    for e in entries[:limit]:
+        table.add_row(e.profile or "(base)", e.key, e.value, e.source_file)
+    console.print(table)
+    total = len(entries)
+    if total > limit:
+        console.print(f"[dim]… {total - limit} more entries (raise --limit)[/dim]")
+    console.print(
+        f"\n[bold]{total}[/bold] entries across profiles: "
+        f"{store.known_profiles() or ['(base)']}"
+    )
+    _wire_flag_notice()
+
+
+@wire_config_app.command("resolve")
+def wire_config_resolve(
+    text: str = typer.Argument(..., help="Text containing ${...} placeholders, e.g. '${kafka.topic.orders}'"),
+    repo: str = typer.Option(".", "--repo", "-r", help="Repo root to scan"),
+    profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Active profile"),
+):
+    """Resolve Spring-style ${...} placeholders against the repo's config values."""
+    from codegraphcontext.wire import scan_repo_config
+
+    store = scan_repo_config(Path(repo))
+    resolution = store.resolve_placeholders(text, active_profile=profile or "")
+
+    console.print(f"[bold]input:[/bold]  {resolution.input}")
+    console.print(f"[bold]output:[/bold] {resolution.output}")
+    if resolution.used:
+        console.print("[bold]resolved keys:[/bold]")
+        for key, src in resolution.used:
+            console.print(f"  - {key}  [dim]({src})[/dim]")
+    if resolution.unresolved:
+        console.print(
+            f"[yellow]unresolved keys:[/yellow] {resolution.unresolved} "
+            "(edges will be SYMBOLIC-tier and match on the placeholder string)"
+        )
+    if not resolution.fully_resolved():
+        raise typer.Exit(code=1)
+
+
 # Shortcut commands at root level
 @app.command("export", rich_help_panel="Bundle Shortcuts")
 def export_shortcut(

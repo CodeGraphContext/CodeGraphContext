@@ -3,6 +3,19 @@
 See docs/multi-repo-links.md (added in a later PR) for the full model.
 """
 
+from codegraphcontext.wire.config_scanner import (
+    DEFAULT_CONFIG_DIRS,
+    parse_properties,
+    parse_yaml_kv,
+    scan_repo_config,
+)
+from codegraphcontext.wire.config_values import (
+    BASE_PROFILE,
+    ConfigValue,
+    ConfigValueStore,
+    PlaceholderResolution,
+    flatten_yaml,
+)
 from codegraphcontext.wire.hints import (
     LoadedHintSet,
     SUPPORTED_ALIAS_KINDS,
@@ -26,9 +39,14 @@ from codegraphcontext.wire.loader import (
 )
 
 __all__ = [
+    "BASE_PROFILE",
+    "ConfigValue",
+    "ConfigValueStore",
+    "DEFAULT_CONFIG_DIRS",
     "ENV_VAR_NAME",
     "LoadedHintSet",
     "LoaderInputs",
+    "PlaceholderResolution",
     "REPO_HINT_SUBDIR",
     "SUPPORTED_ALIAS_KINDS",
     "SUPPORTED_ENDPOINT_PROTOCOLS",
@@ -43,4 +61,8 @@ __all__ = [
     "WireHintValidationError",
     "WireProvenance",
     "WireTopicHint",
+    "flatten_yaml",
+    "parse_properties",
+    "parse_yaml_kv",
+    "scan_repo_config",
 ]
