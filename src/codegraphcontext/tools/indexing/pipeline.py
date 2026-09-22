@@ -450,10 +450,20 @@ async def run_tree_sitter_index_async(
             )
             repo_root = path.resolve()
             include_ambiguous = (_gcv("MULTI_REPO_LINKS_INCLUDE_AMBIGUOUS") or "false").lower() == "true"
+            warning_logger(
+                f"[WIRE] Starting extraction on {repo_root} "
+                f"(include_ambiguous={include_ambiguous})"
+            )
             store = scan_repo_config(repo_root)
             kafka_scan = scan_repo_kafka(repo_root, store=store)
             http_scan = scan_repo_http(repo_root, store=store)
             grpc_scan = scan_repo_grpc(repo_root, store=store)
+            warning_logger(
+                f"[WIRE] Scan complete — "
+                f"kafka p/c={len(kafka_scan.producers)}/{len(kafka_scan.consumers)} "
+                f"http s/c={len(http_scan.servers)}/{len(http_scan.clients)} "
+                f"grpc s/c={len(grpc_scan.servers)}/{len(grpc_scan.clients)}"
+            )
             wire_stats = write_wire_edges(
                 writer,
                 kafka_scan=kafka_scan,
@@ -461,8 +471,8 @@ async def run_tree_sitter_index_async(
                 grpc_scan=grpc_scan,
                 include_ambiguous=include_ambiguous,
             )
-            info_logger(
-                f"[WIRE] Coupling extraction complete — topics={wire_stats.topics_merged} "
+            warning_logger(
+                f"[WIRE] Persist complete — topics={wire_stats.topics_merged} "
                 f"endpoints={wire_stats.endpoints_merged} "
                 f"PRODUCES_TO={wire_stats.produces_edges} "
                 f"CONSUMES_FROM={wire_stats.consumes_edges} "
@@ -472,7 +482,11 @@ async def run_tree_sitter_index_async(
                 f"dropped_bad_fqn={wire_stats.dropped_bad_fqn}"
             )
         except Exception as _we:
-            info_logger(f"[WIRE] Coupling extraction failed (skipping): {_we}")
+            import traceback
+            error_logger(
+                f"[WIRE] Coupling extraction failed (skipping): {_we}\n"
+                f"{traceback.format_exc()}"
+            )
 
     if index_summary is not None:
         index_summary.clear()

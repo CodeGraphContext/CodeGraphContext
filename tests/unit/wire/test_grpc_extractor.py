@@ -121,3 +121,49 @@ def test_multiple_impl_classes_in_same_file():
     svcs = {(s.service, s.rpc) for s in r.servers}
     assert ("OrdersService", "createOrder") in svcs
     assert ("PaymentService", "charge") in svcs
+
+
+def test_varstub_stub_decorators_are_not_emitted_as_rpcs():
+    # withDeadlineAfter/withInterceptors/withCallCredentials return a new stub —
+    # they must not be recorded as gRPC calls.
+    src = """
+        package com.acme;
+        class C {
+            OrdersServiceGrpc.OrdersServiceBlockingStub stub = OrdersServiceGrpc.newBlockingStub(chan);
+            void a() {
+                stub.withDeadlineAfter(5, TimeUnit.SECONDS).createOrder(req);
+                stub.withInterceptors(i).getOrder(req);
+                stub.withCallCredentials(cc).cancelOrder(req);
+            }
+        }
+    """
+    r = _extract(src)
+    rpcs = {c.rpc for c in r.clients}
+    assert "withDeadlineAfter" not in rpcs
+    assert "withInterceptors" not in rpcs
+    assert "withCallCredentials" not in rpcs
+
+
+def test_inline_stub_call_filters_stub_decorator_as_rpc():
+    # Inline path must also refuse to treat withDeadlineAfter as an RPC.
+    src = """
+        package com.acme;
+        class C {
+            void a() { OrdersServiceGrpc.newBlockingStub(chan).withDeadlineAfter(5, TimeUnit.SECONDS); }
+        }
+    """
+    r = _extract(src)
+    assert all(c.rpc != "withDeadlineAfter" for c in r.clients)
+
+
+def test_varstub_stub_accessors_are_not_emitted_as_rpcs():
+    src = """
+        package com.acme;
+        class C {
+            OrdersServiceGrpc.OrdersServiceBlockingStub stub = OrdersServiceGrpc.newBlockingStub(chan);
+            void a() { stub.getCallOptions(); }
+            void b() { stub.getChannel(); }
+        }
+    """
+    r = _extract(src)
+    assert not any(c.rpc in {"getCallOptions", "getChannel"} for c in r.clients)

@@ -57,6 +57,16 @@ class GrpcExtractionResult:
 
 _GRPC_TRIGGERS = ("ImplBase", "newBlockingStub", "newStub", "newFutureStub", "io.grpc")
 
+# io.grpc.stub.AbstractStub decorator + accessor methods that MUST NOT be treated
+# as RPCs (they return a re-decorated stub or a channel/options accessor).
+_STUB_NON_RPC_METHODS = frozenset({
+    "withDeadline", "withDeadlineAfter", "withInterceptors", "withCallCredentials",
+    "withCompression", "withMaxInboundMessageSize", "withMaxOutboundMessageSize",
+    "withOption", "withWaitForReady", "withChannel", "withExecutor",
+    "withOnReadyThreshold",
+    "getCallOptions", "getChannel",
+})
+
 
 def looks_like_grpc_source(source: str) -> bool:
     return any(t in source for t in _GRPC_TRIGGERS)
@@ -263,6 +273,8 @@ def extract_from_source(
         rpc_m = re.match(r"\s*\.\s*([A-Za-z_]\w*)\s*\(", after)
         if rpc_m is None: continue
         rpc = rpc_m.group(1)
+        if rpc in _STUB_NON_RPC_METHODS:
+            continue
         result.clients.append(GrpcClientRecord(
             fqn=_fqn(span, method_name),
             service=svc,
@@ -287,8 +299,8 @@ def extract_from_source(
                 method_name = _find_enclosing_method(source, span, cm.start())
                 if method_name is None: continue
                 rpc = cm.group(1)
-                if rpc in {"withDeadline", "withInterceptors", "withCallCredentials"}:
-                    continue  # stub decorators, not RPCs
+                if rpc in _STUB_NON_RPC_METHODS:
+                    continue
                 result.clients.append(GrpcClientRecord(
                     fqn=_fqn(span, method_name),
                     service=svc,
