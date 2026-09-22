@@ -1,7 +1,10 @@
+from pathlib import Path
+
 import pytest
 
 from codegraphcontext.utils.path_sandbox import (
     clamp_discovery_depth,
+    is_path_allowed,
     is_safe_download_url,
     sanitize_bundle_filename,
 )
@@ -50,3 +53,33 @@ def test_clamp_discovery_depth():
     assert clamp_discovery_depth(1000) == 10
     assert clamp_discovery_depth(-3) == 0
     assert clamp_discovery_depth("2") == 2
+
+
+def test_is_path_allowed_rejects_outside_root_by_default(tmp_path, monkeypatch):
+    monkeypatch.delenv("CGC_ALLOW_ALL_PATHS", raising=False)
+    monkeypatch.delenv("CGC_ALLOWED_ROOTS", raising=False)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    assert not is_path_allowed(outside)
+
+
+def test_is_path_allowed_bypasses_sandbox_with_allow_all_paths(tmp_path, monkeypatch):
+    monkeypatch.delenv("CGC_ALLOWED_ROOTS", raising=False)
+    monkeypatch.setenv("CGC_ALLOW_ALL_PATHS", "true")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    assert is_path_allowed(outside)
+
+
+def test_is_path_allowed_bypasses_sandbox_with_wildcard_allowed_roots(tmp_path, monkeypatch):
+    monkeypatch.delenv("CGC_ALLOW_ALL_PATHS", raising=False)
+    monkeypatch.setenv("CGC_ALLOWED_ROOTS", "*")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    assert is_path_allowed(outside)
+
+
+def test_is_path_allowed_still_allows_cwd_by_default(monkeypatch):
+    monkeypatch.delenv("CGC_ALLOW_ALL_PATHS", raising=False)
+    monkeypatch.delenv("CGC_ALLOWED_ROOTS", raising=False)
+    assert is_path_allowed(Path.cwd())
