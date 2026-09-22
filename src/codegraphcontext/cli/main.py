@@ -1840,6 +1840,130 @@ def wire_discover(
     _wire_flag_notice()
 
 
+@wire_app.command("links")
+def wire_links(
+    output_format: str = typer.Option("table", "--format", "-f", help="Output format: 'table' or 'json'"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Row cap per table"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to query"),
+):
+    """Query the graph for materialized wire couplings (requires MULTI_REPO_LINKS=true at index time)."""
+    _load_credentials()
+    db_manager, _, _, _ = _initialize_services(context)
+    try:
+        results: Dict[str, list] = {"matched_topics": [], "orphan_producers": [], "orphan_consumers": [],
+                                    "matched_endpoints": [], "orphan_servers": [], "orphan_clients": []}
+        with db_manager.get_driver().session() as session:
+            # Matched Kafka topics: at least one producer AND one consumer
+            res = session.run(
+                """
+                MATCH (fn_p:Function)-[:PRODUCES_TO]->(t:Topic)<-[:CONSUMES_FROM]-(fn_c:Function)
+                RETURN t.system AS system, t.name AS name,
+                       collect(DISTINCT fn_p.path + ':' + fn_p.name)[..10] AS producers,
+                       collect(DISTINCT fn_c.path + ':' + fn_c.name)[..10] AS consumers
+                LIMIT $lim
+                """, lim=limit)
+            for r in res: results["matched_topics"].append(dict(r))
+
+            # Orphan producers (no consumer)
+            res = session.run(
+                """
+                MATCH (fn:Function)-[:PRODUCES_TO]->(t:Topic)
+                WHERE NOT (t)<-[:CONSUMES_FROM]-(:Function)
+                RETURN t.system AS system, t.name AS name,
+                       collect(DISTINCT fn.path + ':' + fn.name)[..10] AS producers
+                LIMIT $lim
+                """, lim=limit)
+            for r in res: results["orphan_producers"].append(dict(r))
+
+            # Orphan consumers (no producer)
+            res = session.run(
+                """
+                MATCH (fn:Function)-[:CONSUMES_FROM]->(t:Topic)
+                WHERE NOT (t)<-[:PRODUCES_TO]-(:Function)
+                RETURN t.system AS system, t.name AS name,
+                       collect(DISTINCT fn.path + ':' + fn.name)[..10] AS consumers
+                LIMIT $lim
+                """, lim=limit)
+            for r in res: results["orphan_consumers"].append(dict(r))
+
+            # Matched endpoints
+            res = session.run(
+                """
+                MATCH (fn_s:Function)-[:SERVES]->(ep:Endpoint)<-[:INVOKES]-(fn_c:Function)
+                RETURN ep.protocol AS protocol, ep.method AS method, ep.path AS path,
+                       collect(DISTINCT fn_s.path + ':' + fn_s.name)[..10] AS servers,
+                       collect(DISTINCT fn_c.path + ':' + fn_c.name)[..10] AS clients
+                LIMIT $lim
+                """, lim=limit)
+            for r in res: results["matched_endpoints"].append(dict(r))
+
+            # Orphan servers
+            res = session.run(
+                """
+                MATCH (fn:Function)-[:SERVES]->(ep:Endpoint)
+                WHERE NOT (ep)<-[:INVOKES]-(:Function)
+                RETURN ep.protocol AS protocol, ep.method AS method, ep.path AS path,
+                       collect(DISTINCT fn.path + ':' + fn.name)[..10] AS servers
+                LIMIT $lim
+                """, lim=limit)
+            for r in res: results["orphan_servers"].append(dict(r))
+
+            # Orphan clients
+            res = session.run(
+                """
+                MATCH (fn:Function)-[:INVOKES]->(ep:Endpoint)
+                WHERE NOT (ep)<-[:SERVES]-(:Function)
+                RETURN ep.protocol AS protocol, ep.method AS method, ep.path AS path,
+                       collect(DISTINCT fn.path + ':' + fn.name)[..10] AS clients
+                LIMIT $lim
+                """, lim=limit)
+            for r in res: results["orphan_clients"].append(dict(r))
+
+        fmt = output_format.lower()
+        if fmt == "json":
+            sys.stdout.write(json.dumps(results, indent=2)); sys.stdout.write("\n")
+            _wire_flag_notice(); return
+        if fmt != "table":
+            console.print(f"[bold red]Unknown --format {output_format!r}[/bold red]")
+            raise typer.Exit(code=2)
+
+        # Matched Kafka topics table
+        tbl = Table(title=f"Matched Kafka topics ({len(results['matched_topics'])})", box=box.SIMPLE_HEAVY)
+        for col in ("Topic", "Producers", "Consumers"):
+            tbl.add_column(col, overflow="fold")
+        for row in results["matched_topics"]:
+            tbl.add_row(f"{row['system']}:{row['name']}",
+                        "\n".join(row.get("producers", []) or []),
+                        "\n".join(row.get("consumers", []) or []))
+        console.print(tbl)
+
+        # Matched endpoints table
+        etbl = Table(title=f"Matched endpoints ({len(results['matched_endpoints'])})", box=box.SIMPLE_HEAVY)
+        for col in ("Endpoint", "Servers", "Clients"):
+            etbl.add_column(col, overflow="fold")
+        for row in results["matched_endpoints"]:
+            etbl.add_row(
+                f"{row['protocol']} {row['method']} {row['path']}",
+                "\n".join(row.get("servers", []) or []),
+                "\n".join(row.get("clients", []) or []),
+            )
+        console.print(etbl)
+
+        console.print(
+            f"\n[bold]matched Kafka topics:[/bold] {len(results['matched_topics'])}   "
+            f"[bold]orphan producers:[/bold] {len(results['orphan_producers'])}   "
+            f"[bold]orphan consumers:[/bold] {len(results['orphan_consumers'])}"
+        )
+        console.print(
+            f"[bold]matched endpoints:[/bold] {len(results['matched_endpoints'])}   "
+            f"[bold]orphan servers:[/bold] {len(results['orphan_servers'])}   "
+            f"[bold]orphan clients:[/bold] {len(results['orphan_clients'])}"
+        )
+        _wire_flag_notice()
+    finally:
+        db_manager.close_driver()
+
+
 # Shortcut commands at root level
 @app.command("export", rich_help_panel="Bundle Shortcuts")
 def export_shortcut(

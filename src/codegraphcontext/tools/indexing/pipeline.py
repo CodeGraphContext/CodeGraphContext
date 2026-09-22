@@ -432,6 +432,48 @@ async def run_tree_sitter_index_async(
         except Exception as _ie:
             info_logger(f"[INHERIT-RESOLVE] Post-resolution failed (skipping): {_ie}")
 
+    # -------------------------------------------------------------- Phase 6:
+    # MULTI_REPO_LINKS wire coupling extraction. Runs only when the flag is
+    # true. Extracts Kafka/HTTP/gRPC producer|consumer records from source,
+    # then MERGEs Topic / Endpoint nodes and PRODUCES_TO / CONSUMES_FROM /
+    # SERVES / INVOKES edges. Failure never aborts the index.
+    if (_gcv("MULTI_REPO_LINKS") or "false").lower() == "true":
+        if job_id:
+            job_manager.update_job(job_id, status_message="Extracting wire couplings (MULTI_REPO_LINKS)...")
+        try:
+            from ...wire import (
+                scan_repo_config,
+                scan_repo_grpc,
+                scan_repo_http,
+                scan_repo_kafka,
+                write_wire_edges,
+            )
+            repo_root = path.resolve()
+            include_ambiguous = (_gcv("MULTI_REPO_LINKS_INCLUDE_AMBIGUOUS") or "false").lower() == "true"
+            store = scan_repo_config(repo_root)
+            kafka_scan = scan_repo_kafka(repo_root, store=store)
+            http_scan = scan_repo_http(repo_root, store=store)
+            grpc_scan = scan_repo_grpc(repo_root, store=store)
+            wire_stats = write_wire_edges(
+                writer,
+                kafka_scan=kafka_scan,
+                http_scan=http_scan,
+                grpc_scan=grpc_scan,
+                include_ambiguous=include_ambiguous,
+            )
+            info_logger(
+                f"[WIRE] Coupling extraction complete — topics={wire_stats.topics_merged} "
+                f"endpoints={wire_stats.endpoints_merged} "
+                f"PRODUCES_TO={wire_stats.produces_edges} "
+                f"CONSUMES_FROM={wire_stats.consumes_edges} "
+                f"SERVES={wire_stats.serves_edges} "
+                f"INVOKES={wire_stats.invokes_edges} "
+                f"skipped_ambiguous={wire_stats.skipped_ambiguous} "
+                f"dropped_bad_fqn={wire_stats.dropped_bad_fqn}"
+            )
+        except Exception as _we:
+            info_logger(f"[WIRE] Coupling extraction failed (skipping): {_we}")
+
     if index_summary is not None:
         index_summary.clear()
         index_summary.update(

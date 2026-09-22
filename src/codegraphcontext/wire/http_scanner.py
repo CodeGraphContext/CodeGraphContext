@@ -13,7 +13,11 @@ from codegraphcontext.wire.http_extractor import (
     extract_from_source,
     looks_like_http_source,
 )
-from codegraphcontext.wire.kafka_scanner import DEFAULT_JAVA_SOURCE_DIRS
+from codegraphcontext.wire.kafka_scanner import (
+    DEFAULT_JAVA_EXCLUDE_PATH_PARTS,
+    DEFAULT_JAVA_SOURCE_DIRS,
+    _is_excluded_java_path,
+)
 
 
 @dataclass
@@ -36,6 +40,7 @@ def scan_repo_http(
     store: Optional[ConfigValueStore] = None,
     active_profile: str = BASE_PROFILE,
     include_dirs: Sequence[str] = DEFAULT_JAVA_SOURCE_DIRS,
+    exclude_path_parts: Sequence[str] = DEFAULT_JAVA_EXCLUDE_PATH_PARTS,
     max_file_kb: int = 512,
 ) -> HttpScanResult:
     root = Path(repo_root).resolve()
@@ -50,6 +55,8 @@ def scan_repo_http(
             resolved = path.resolve()
             if resolved in seen: continue
             seen.add(resolved)
+            if _is_excluded_java_path(resolved, exclude_path_parts):
+                result.files_skipped += 1; continue
             try:
                 size = path.stat().st_size
             except OSError:

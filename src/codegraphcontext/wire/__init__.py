@@ -99,6 +99,11 @@ from codegraphcontext.wire.python_extractor import (
     looks_like_python_http_source,
 )
 
+from codegraphcontext.wire.writer import (
+    WireWriteStats,
+    write_wire_edges,
+)
+
 __all__ = [
     "BASE_PROFILE",
     "ConfigValue",
@@ -146,6 +151,7 @@ __all__ = [
     "WireProvenance",
     "WireTopicGroup",
     "WireTopicHint",
+    "WireWriteStats",
     "discover",
     "extract_go_from_source",
     "extract_grpc_from_source",
@@ -166,4 +172,5 @@ __all__ = [
     "scan_repo_http",
     "scan_repo_kafka",
     "scan_repo_python_http",
+    "write_wire_edges",
 ]

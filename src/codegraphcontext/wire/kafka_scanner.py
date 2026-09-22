@@ -39,6 +39,22 @@ DEFAULT_JAVA_SOURCE_DIRS: tuple = (
     ".",                  # last resort — top-level standalone .java files
 )
 
+# Path substrings that mark files we never want to treat as production wire
+# evidence. Test files pollute the extractor output with Mockito matchers,
+# hard-coded fixture topic names, and stub RestTemplate calls that are not
+# actual production couplings.
+DEFAULT_JAVA_EXCLUDE_PATH_PARTS: tuple = (
+    "/src/test/",
+    "/src/testFixtures/",
+    "/src/integrationTest/",
+    "/src/it/",
+)
+
+
+def _is_excluded_java_path(path: Path, exclude_parts: Sequence[str]) -> bool:
+    p = path.as_posix()
+    return any(part in p for part in exclude_parts)
+
 
 @dataclass
 class KafkaScanResult:
@@ -60,6 +76,7 @@ def scan_repo_kafka(
     store: Optional[ConfigValueStore] = None,
     active_profile: str = BASE_PROFILE,
     include_dirs: Sequence[str] = DEFAULT_JAVA_SOURCE_DIRS,
+    exclude_path_parts: Sequence[str] = DEFAULT_JAVA_EXCLUDE_PATH_PARTS,
     max_file_kb: int = 512,
 ) -> KafkaScanResult:
     """Walk ``repo_root`` and extract Kafka producer/consumer records from every ``.java`` file."""
@@ -80,6 +97,9 @@ def scan_repo_kafka(
             if resolved in seen:
                 continue
             seen.add(resolved)
+            if _is_excluded_java_path(resolved, exclude_path_parts):
+                result.files_skipped += 1
+                continue
             try:
                 size = path.stat().st_size
             except OSError:
@@ -116,6 +136,7 @@ def scan_repo_kafka(
 
 
 __all__ = [
+    "DEFAULT_JAVA_EXCLUDE_PATH_PARTS",
     "DEFAULT_JAVA_SOURCE_DIRS",
     "KafkaScanResult",
     "scan_repo_kafka",
