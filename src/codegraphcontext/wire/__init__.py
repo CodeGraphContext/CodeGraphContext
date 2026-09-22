@@ -30,6 +30,18 @@ from codegraphcontext.wire.hints import (
     WireProvenance,
     WireTopicHint,
 )
+from codegraphcontext.wire.kafka_extractor import (
+    KafkaConsumerRecord,
+    KafkaExtractionResult,
+    KafkaProducerRecord,
+    extract_from_source as extract_kafka_from_source,
+    looks_like_kafka_source,
+)
+from codegraphcontext.wire.kafka_scanner import (
+    DEFAULT_JAVA_SOURCE_DIRS,
+    KafkaScanResult,
+    scan_repo_kafka,
+)
 from codegraphcontext.wire.loader import (
     ENV_VAR_NAME,
     LoaderInputs,
@@ -43,7 +55,12 @@ __all__ = [
     "ConfigValue",
     "ConfigValueStore",
     "DEFAULT_CONFIG_DIRS",
+    "DEFAULT_JAVA_SOURCE_DIRS",
     "ENV_VAR_NAME",
+    "KafkaConsumerRecord",
+    "KafkaExtractionResult",
+    "KafkaProducerRecord",
+    "KafkaScanResult",
     "LoadedHintSet",
     "LoaderInputs",
     "PlaceholderResolution",
@@ -61,8 +78,11 @@ __all__ = [
     "WireHintValidationError",
     "WireProvenance",
     "WireTopicHint",
+    "extract_kafka_from_source",
     "flatten_yaml",
+    "looks_like_kafka_source",
     "parse_properties",
     "parse_yaml_kv",
     "scan_repo_config",
+    "scan_repo_kafka",
 ]

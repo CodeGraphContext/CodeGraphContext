@@ -1397,6 +1397,124 @@ def wire_config_resolve(
         raise typer.Exit(code=1)
 
 
+# ── cgc wire extract: preview extractors before pipeline integration ────────
+
+wire_extract_app = typer.Typer(help="Preview wire extractors on a repo (Kafka / HTTP / gRPC)")
+wire_app.add_typer(wire_extract_app, name="extract")
+
+
+@wire_extract_app.command("kafka")
+def wire_extract_kafka(
+    repo: str = typer.Option(".", "--repo", "-r", help="Repo root to scan"),
+    profile: Optional[str] = typer.Option(
+        None, "--profile", "-p", help="Active Spring profile for placeholder resolution"
+    ),
+    output_format: str = typer.Option(
+        "table", "--format", "-f", help="Output format: 'table' or 'json'"
+    ),
+    limit: int = typer.Option(200, "--limit", "-n", help="Cap on rows printed"),
+):
+    """Extract Kafka producer/consumer records from Java sources under --repo.
+
+    This is a preview command — nothing is written to the graph. It reads the
+    repo's ``application.properties`` / ``application.yml`` family to resolve
+    Spring-style ``${...}`` placeholders before classifying each hit's
+    confidence tier.
+    """
+    from codegraphcontext.wire import scan_repo_config, scan_repo_kafka
+
+    repo_path = Path(repo)
+    store = scan_repo_config(repo_path)
+    scan = scan_repo_kafka(repo_path, store=store, active_profile=profile or "")
+
+    fmt = output_format.lower()
+    if fmt == "json":
+        payload = {
+            "repo": str(repo_path.resolve()),
+            "profile": profile or "",
+            "files_scanned": scan.files_scanned,
+            "files_skipped": scan.files_skipped,
+            "producers": [
+                {
+                    "fqn": p.fqn,
+                    "topic_raw": p.topic_raw,
+                    "topic_resolved": p.topic_resolved,
+                    "confidence": p.confidence,
+                    "provenance": p.provenance,
+                    "source_file": p.source_file,
+                    "line": p.line,
+                    "call_shape": p.call_shape,
+                } for p in scan.producers
+            ],
+            "consumers": [
+                {
+                    "fqn": c.fqn,
+                    "topic_raw": c.topic_raw,
+                    "topic_resolved": c.topic_resolved,
+                    "confidence": c.confidence,
+                    "provenance": c.provenance,
+                    "source_file": c.source_file,
+                    "line": c.line,
+                    "is_pattern": c.is_pattern,
+                } for c in scan.consumers
+            ],
+            "warnings": scan.warnings,
+        }
+        sys.stdout.write(json.dumps(payload, indent=2))
+        sys.stdout.write("\n")
+        _wire_flag_notice()
+        return
+
+    if fmt != "table":
+        console.print(f"[bold red]Unknown --format {output_format!r}[/bold red]")
+        raise typer.Exit(code=2)
+
+    prod_table = Table(
+        title=f"Kafka producers ({len(scan.producers)})",
+        box=box.SIMPLE_HEAVY,
+    )
+    prod_table.add_column("FQN", style="green")
+    prod_table.add_column("Topic (resolved)", style="white")
+    prod_table.add_column("Conf", style="cyan")
+    prod_table.add_column("Provenance", style="dim")
+    prod_table.add_column("Location", style="dim", overflow="fold")
+    for p in scan.producers[:limit]:
+        prod_table.add_row(
+            p.fqn, p.topic_resolved, p.confidence, p.provenance,
+            f"{p.source_file}:{p.line}",
+        )
+    console.print(prod_table)
+
+    cons_table = Table(
+        title=f"Kafka consumers ({len(scan.consumers)})",
+        box=box.SIMPLE_HEAVY,
+    )
+    cons_table.add_column("FQN", style="green")
+    cons_table.add_column("Topic (resolved)", style="white")
+    cons_table.add_column("Conf", style="cyan")
+    cons_table.add_column("Provenance", style="dim")
+    cons_table.add_column("Location", style="dim", overflow="fold")
+    for c in scan.consumers[:limit]:
+        label = c.topic_resolved + (" [pattern]" if c.is_pattern else "")
+        cons_table.add_row(
+            c.fqn, label, c.confidence, c.provenance,
+            f"{c.source_file}:{c.line}",
+        )
+    console.print(cons_table)
+
+    console.print(
+        f"\n[bold]scanned:[/bold] {scan.files_scanned} files   "
+        f"[bold]skipped:[/bold] {scan.files_skipped}   "
+        f"[bold]warnings:[/bold] {len(scan.warnings)}"
+    )
+    for w in scan.warnings[:10]:
+        console.print(f"  [yellow]warning:[/yellow] {w}")
+    if len(scan.warnings) > 10:
+        console.print(f"  [dim]… {len(scan.warnings) - 10} more warnings[/dim]")
+
+    _wire_flag_notice()
+
+
 # Shortcut commands at root level
 @app.command("export", rich_help_panel="Bundle Shortcuts")
 def export_shortcut(
