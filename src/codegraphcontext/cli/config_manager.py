@@ -138,6 +138,13 @@ DEFAULT_CONFIG = {
     # `Authorization: Bearer <key>` or `X-API-Key`. May also be set via the
     # CGC_API_KEY environment variable (which takes priority).
     "CGC_API_KEY": "",
+    # Multi-repo wire-coupling (PR #1: schema-only; extractors ship in later PRs).
+    # When "false" (default), the graph output is byte-identical to CGC 0.6.13
+    # for every existing user. When "true", downstream PRs will emit new
+    # Topic/Endpoint/ConfigValue nodes plus PRODUCES_TO/CONSUMES_FROM/SERVES/
+    # INVOKES/ALIAS_OF edges wiring services together across repositories.
+    # Backwards-compatible on/off toggle for the lifetime of the feature.
+    "MULTI_REPO_LINKS": "false",
 }
 
 # Configuration key descriptions
@@ -229,6 +236,21 @@ CONFIG_DESCRIPTIONS = {
         "require it via `Authorization: Bearer <key>` or the `X-API-Key` "
         "header. The CGC_API_KEY environment variable overrides this value."
     ),
+    "MULTI_REPO_LINKS": (
+        "Enable multi-repository wire-coupling extraction — Kafka topics, HTTP "
+        "endpoints, gRPC services — so services indexed across separate repos "
+        "become traversable through PRODUCES_TO/CONSUMES_FROM/SERVES/INVOKES "
+        "edges keyed on wire identity (topic name, HTTP path, gRPC FQN). "
+        "WHEN TO ENABLE: multi-service codebases where the dependency graph "
+        "between repos matters (event-driven architectures, microservice "
+        "meshes, distributed systems). "
+        "PREREQUISITES: none for PR #1 (schema-only). Later PRs add extractors "
+        "and language shims for Java/Python/Go. "
+        "COST when false (default): zero — pipeline is byte-identical to "
+        "CGC 0.6.13. Wire-coupling schema entries stay reserved but unused. "
+        "COST when true: one additional walk over parsed source per index run "
+        "(typically <5% of CALLS resolution time)."
+    ),
 }
 
 # Valid values for each config key
@@ -251,6 +273,7 @@ CONFIG_VALIDATORS = {
     "CGC_EMBEDDING_MODEL": ["local", "openai"],
     "FUZZY_SEARCH": ["true", "false"],
     "REDACT_SECRETS": ["true", "false"],
+    "MULTI_REPO_LINKS": ["true", "false"],
 }
 
 SUPPORTED_DATABASES: List[str] = CONFIG_VALIDATORS["DEFAULT_DATABASE"]
