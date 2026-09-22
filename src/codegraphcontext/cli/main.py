@@ -1138,6 +1138,188 @@ def hook_status(
     table.add_row(".gitattributes", "installed" if status.has_gitattributes_entry else "missing")
     console.print(table)
 
+# ============================================================================
+# WIRE COMMAND GROUP - Multi-repo wire-coupling hints (MULTI_REPO_LINKS)
+# ============================================================================
+
+wire_app = typer.Typer(help="Manage cross-repo wire-coupling hints (MULTI_REPO_LINKS)")
+app.add_typer(wire_app, name="wire")
+
+
+def _wire_flag_notice() -> None:
+    """Print a one-line notice when the MULTI_REPO_LINKS flag is off."""
+    if (config_manager.get_config_value("MULTI_REPO_LINKS") or "false").lower() != "true":
+        console.print(
+            "[yellow]Note:[/yellow] MULTI_REPO_LINKS is off — hints are readable but "
+            "will not affect indexing until you enable it "
+            "([bold]cgc config set MULTI_REPO_LINKS true[/bold])."
+        )
+
+
+def _resolve_context_hint_file(context_flag: Optional[str]) -> Optional[Path]:
+    """Return path to the context-scoped wire.yml if the context exists on disk."""
+    from codegraphcontext.wire import WIRE_HINT_FILENAME
+    if not context_flag:
+        return None
+    ctx_dir = config_manager.CONFIG_DIR / "contexts" / context_flag
+    candidate = ctx_dir / WIRE_HINT_FILENAME
+    return candidate
+
+
+@wire_app.command("example")
+def wire_example():
+    """Print a fully-annotated example wire.yml to stdout."""
+    from codegraphcontext.wire.example import EXAMPLE_WIRE_YML
+    # Write raw so the output is safe to pipe into `> .cgc/wire.yml`.
+    sys.stdout.write(EXAMPLE_WIRE_YML)
+
+
+@wire_app.command("validate")
+def wire_validate(
+    path: str = typer.Argument(..., help="Path to a wire.yml file"),
+):
+    """Parse a wire.yml, report errors and non-fatal warnings, exit non-zero on hard errors."""
+    from codegraphcontext.wire import WireHintSource, WireHintValidationError
+    from codegraphcontext.wire.parser import parse_wire_file
+
+    file_path = Path(path)
+    if not file_path.is_file():
+        console.print(f"[bold red]File not found:[/bold red] {file_path}")
+        raise typer.Exit(code=2)
+    try:
+        parsed = parse_wire_file(file_path, source=WireHintSource.REPO)
+    except WireHintValidationError as e:
+        console.print(f"[bold red]Invalid wire.yml:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    console.print(f"[green]✔[/green] {file_path} is valid (version {parsed.version})")
+    console.print(
+        f"  topics: {len(parsed.topics)}   "
+        f"endpoints: {len(parsed.endpoints)}   "
+        f"aliases: {len(parsed.aliases)}"
+    )
+    for w in parsed.warnings:
+        console.print(f"  [yellow]warning:[/yellow] {w}")
+
+
+@wire_app.command("list")
+def wire_list(
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Named context to inspect"),
+    repo: Optional[list[str]] = typer.Option(
+        None, "--repo", "-r", help="Repo root to scan for .cgc/wire.yml (repeatable)"
+    ),
+):
+    """Show wire-hint counts by source (CLI/ENV/CONTEXT/REPO) with provenance."""
+    from codegraphcontext.wire import LoaderInputs, WireHintLoader
+
+    repo_paths = [Path(r) for r in (repo or ["."])]
+    inputs = LoaderInputs(
+        cli_hints=None,
+        env_var=None,
+        context_hint_file=_resolve_context_hint_file(context),
+        repo_paths=repo_paths,
+    )
+    loaded = WireHintLoader().load(inputs)
+
+    table = Table(title="Wire hint sources", box=box.SIMPLE_HEAVY)
+    table.add_column("Source", style="cyan")
+    table.add_column("Location", style="dim")
+    table.add_column("Hints", justify="right", style="green")
+    table.add_row("cli", "<--wire arguments>", str(loaded.counts_by_source.get("cli", 0)))
+    env_present = "set" if os.environ.get("CGC_WIRE") else "unset"
+    table.add_row("env", f"CGC_WIRE ({env_present})", str(loaded.counts_by_source.get("env", 0)))
+    ctx_path = _resolve_context_hint_file(context)
+    table.add_row(
+        "context",
+        str(ctx_path) if ctx_path else "<no --context>",
+        str(loaded.counts_by_source.get("context", 0)),
+    )
+    table.add_row(
+        "repo",
+        ", ".join(str(p / ".cgc" / "wire.yml") for p in repo_paths),
+        str(loaded.counts_by_source.get("repo", 0)),
+    )
+    console.print(table)
+
+    console.print(
+        f"\n[bold]Merged:[/bold] {len(loaded.topics)} topics, "
+        f"{len(loaded.endpoints)} endpoints, {len(loaded.aliases)} aliases"
+    )
+    for w in loaded.warnings:
+        console.print(f"  [yellow]warning:[/yellow] {w}")
+    _wire_flag_notice()
+
+
+@wire_app.command("show")
+def wire_show(
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Named context to inspect"),
+    repo: Optional[list[str]] = typer.Option(
+        None, "--repo", "-r", help="Repo root to scan for .cgc/wire.yml (repeatable)"
+    ),
+    output_format: str = typer.Option(
+        "json", "--format", "-f", help="Output format: 'json' or 'yaml'"
+    ),
+):
+    """Dump merged effective hints to stdout, useful for piping into review tools."""
+    from codegraphcontext.wire import LoaderInputs, WireHintLoader
+
+    repo_paths = [Path(r) for r in (repo or ["."])]
+    inputs = LoaderInputs(
+        cli_hints=None,
+        env_var=None,
+        context_hint_file=_resolve_context_hint_file(context),
+        repo_paths=repo_paths,
+    )
+    loaded = WireHintLoader().load(inputs)
+
+    payload = {
+        "topics": [
+            {
+                "system": t.system, "name": t.name,
+                "produced_by": t.produced_by, "consumed_by": t.consumed_by,
+                "provenance": [
+                    {"source": p.source.value, "path": p.path} for p in t.provenance
+                ],
+            } for t in loaded.topics
+        ],
+        "endpoints": [
+            {
+                "protocol": e.protocol, "method": e.method, "path": e.path,
+                "served_by": e.served_by, "invoked_by": e.invoked_by,
+                "provenance": [
+                    {"source": p.source.value, "path": p.path} for p in e.provenance
+                ],
+            } for e in loaded.endpoints
+        ],
+        "aliases": [
+            {
+                "kind": a.kind, "canonical": a.canonical, "names": a.aliases,
+                "provenance": [
+                    {"source": p.source.value, "path": p.path} for p in a.provenance
+                ],
+            } for a in loaded.aliases
+        ],
+        "counts_by_source": loaded.counts_by_source,
+    }
+
+    fmt = output_format.lower()
+    if fmt == "yaml":
+        import yaml
+        # sys.stdout keeps this pipeable, unlike console.print which wraps.
+        sys.stdout.write(yaml.safe_dump(payload, sort_keys=False))
+    elif fmt == "json":
+        sys.stdout.write(json.dumps(payload, indent=2))
+        sys.stdout.write("\n")
+    else:
+        console.print(f"[bold red]Unknown --format {output_format!r}[/bold red]")
+        raise typer.Exit(code=2)
+
+    if loaded.warnings:
+        for w in loaded.warnings:
+            console.print(f"[yellow]warning:[/yellow] {w}", stderr=True)
+    _wire_flag_notice()
+
+
 # Shortcut commands at root level
 @app.command("export", rich_help_panel="Bundle Shortcuts")
 def export_shortcut(
