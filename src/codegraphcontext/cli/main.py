@@ -14,7 +14,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 from rich import box
-from typing import Optional
+from typing import List, Optional
 import asyncio
 import logging
 import json
@@ -1512,6 +1512,331 @@ def wire_extract_kafka(
     if len(scan.warnings) > 10:
         console.print(f"  [dim]… {len(scan.warnings) - 10} more warnings[/dim]")
 
+    _wire_flag_notice()
+
+
+@wire_extract_app.command("http")
+def wire_extract_http(
+    repo: str = typer.Option(".", "--repo", "-r", help="Repo root to scan"),
+    profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Active Spring profile for placeholder resolution"),
+    output_format: str = typer.Option("table", "--format", "-f", help="Output format: 'table' or 'json'"),
+    limit: int = typer.Option(200, "--limit", "-n", help="Cap on rows printed"),
+):
+    """Extract HTTP server/client records from Java sources under --repo (preview only)."""
+    from codegraphcontext.wire import scan_repo_config, scan_repo_http
+
+    repo_path = Path(repo)
+    store = scan_repo_config(repo_path)
+    scan = scan_repo_http(repo_path, store=store, active_profile=profile or "")
+
+    fmt = output_format.lower()
+    if fmt == "json":
+        payload = {
+            "repo": str(repo_path.resolve()),
+            "profile": profile or "",
+            "files_scanned": scan.files_scanned,
+            "files_skipped": scan.files_skipped,
+            "servers": [
+                {
+                    "fqn": s.fqn, "method": s.method, "path": s.path, "path_raw": s.path_raw,
+                    "confidence": s.confidence, "provenance": s.provenance,
+                    "source_file": s.source_file, "line": s.line, "framework": s.framework,
+                } for s in scan.servers
+            ],
+            "clients": [
+                {
+                    "fqn": c.fqn, "method": c.method, "path": c.path, "path_raw": c.path_raw,
+                    "confidence": c.confidence, "provenance": c.provenance,
+                    "source_file": c.source_file, "line": c.line, "framework": c.framework,
+                } for c in scan.clients
+            ],
+            "warnings": scan.warnings,
+        }
+        sys.stdout.write(json.dumps(payload, indent=2)); sys.stdout.write("\n")
+        _wire_flag_notice(); return
+
+    if fmt != "table":
+        console.print(f"[bold red]Unknown --format {output_format!r}[/bold red]")
+        raise typer.Exit(code=2)
+
+    srv_table = Table(title=f"HTTP servers ({len(scan.servers)})", box=box.SIMPLE_HEAVY)
+    for col in ("FQN", "Method", "Path", "Conf", "Provenance", "Location"):
+        srv_table.add_column(col, style="dim" if col in {"Provenance", "Location"} else None, overflow="fold")
+    for s in scan.servers[:limit]:
+        srv_table.add_row(s.fqn, s.method, s.path, s.confidence, s.provenance, f"{s.source_file}:{s.line}")
+    console.print(srv_table)
+
+    cli_table = Table(title=f"HTTP clients ({len(scan.clients)})", box=box.SIMPLE_HEAVY)
+    for col in ("FQN", "Method", "Path", "Framework", "Conf", "Provenance", "Location"):
+        cli_table.add_column(col, style="dim" if col in {"Provenance", "Location"} else None, overflow="fold")
+    for c in scan.clients[:limit]:
+        cli_table.add_row(c.fqn, c.method, c.path, c.framework, c.confidence, c.provenance, f"{c.source_file}:{c.line}")
+    console.print(cli_table)
+
+    console.print(
+        f"\n[bold]scanned:[/bold] {scan.files_scanned} files   "
+        f"[bold]skipped:[/bold] {scan.files_skipped}   "
+        f"[bold]warnings:[/bold] {len(scan.warnings)}"
+    )
+    for w in scan.warnings[:10]:
+        console.print(f"  [yellow]warning:[/yellow] {w}")
+    if len(scan.warnings) > 10:
+        console.print(f"  [dim]… {len(scan.warnings) - 10} more warnings[/dim]")
+
+    _wire_flag_notice()
+
+
+@wire_extract_app.command("grpc")
+def wire_extract_grpc(
+    repo: str = typer.Option(".", "--repo", "-r", help="Repo root to scan"),
+    profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Active profile (reserved)"),
+    output_format: str = typer.Option("table", "--format", "-f", help="Output format: 'table' or 'json'"),
+    limit: int = typer.Option(200, "--limit", "-n", help="Cap on rows printed"),
+):
+    """Extract gRPC ImplBase servers and stub clients from Java sources (preview only)."""
+    from codegraphcontext.wire import scan_repo_config, scan_repo_grpc
+
+    repo_path = Path(repo)
+    store = scan_repo_config(repo_path)
+    scan = scan_repo_grpc(repo_path, store=store, active_profile=profile or "")
+
+    fmt = output_format.lower()
+    if fmt == "json":
+        payload = {
+            "repo": str(repo_path.resolve()),
+            "profile": profile or "",
+            "files_scanned": scan.files_scanned,
+            "files_skipped": scan.files_skipped,
+            "servers": [
+                {
+                    "fqn": s.fqn, "service": s.service, "rpc": s.rpc, "path": s.path,
+                    "confidence": s.confidence, "provenance": s.provenance,
+                    "source_file": s.source_file, "line": s.line,
+                } for s in scan.servers
+            ],
+            "clients": [
+                {
+                    "fqn": c.fqn, "service": c.service, "rpc": c.rpc, "path": c.path,
+                    "stub_kind": c.stub_kind,
+                    "confidence": c.confidence, "provenance": c.provenance,
+                    "source_file": c.source_file, "line": c.line,
+                } for c in scan.clients
+            ],
+            "warnings": scan.warnings,
+        }
+        sys.stdout.write(json.dumps(payload, indent=2)); sys.stdout.write("\n")
+        _wire_flag_notice(); return
+
+    if fmt != "table":
+        console.print(f"[bold red]Unknown --format {output_format!r}[/bold red]")
+        raise typer.Exit(code=2)
+
+    srv_table = Table(title=f"gRPC servers ({len(scan.servers)})", box=box.SIMPLE_HEAVY)
+    for col in ("FQN", "Service", "RPC", "Conf", "Provenance", "Location"):
+        srv_table.add_column(col, style="dim" if col in {"Provenance", "Location"} else None, overflow="fold")
+    for s in scan.servers[:limit]:
+        srv_table.add_row(s.fqn, s.service, s.rpc, s.confidence, s.provenance, f"{s.source_file}:{s.line}")
+    console.print(srv_table)
+
+    cli_table = Table(title=f"gRPC clients ({len(scan.clients)})", box=box.SIMPLE_HEAVY)
+    for col in ("FQN", "Service", "RPC", "Stub", "Conf", "Provenance", "Location"):
+        cli_table.add_column(col, style="dim" if col in {"Provenance", "Location"} else None, overflow="fold")
+    for c in scan.clients[:limit]:
+        cli_table.add_row(c.fqn, c.service, c.rpc, c.stub_kind, c.confidence, c.provenance, f"{c.source_file}:{c.line}")
+    console.print(cli_table)
+
+    console.print(
+        f"\n[bold]scanned:[/bold] {scan.files_scanned} files   "
+        f"[bold]skipped:[/bold] {scan.files_skipped}   "
+        f"[bold]warnings:[/bold] {len(scan.warnings)}"
+    )
+    for w in scan.warnings[:10]:
+        console.print(f"  [yellow]warning:[/yellow] {w}")
+    if len(scan.warnings) > 10:
+        console.print(f"  [dim]… {len(scan.warnings) - 10} more warnings[/dim]")
+
+    _wire_flag_notice()
+
+
+@wire_extract_app.command("python")
+def wire_extract_python(
+    repo: str = typer.Option(".", "--repo", "-r", help="Repo root to scan"),
+    profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Active profile (reserved)"),
+    output_format: str = typer.Option("table", "--format", "-f", help="Output format: 'table' or 'json'"),
+    limit: int = typer.Option(200, "--limit", "-n", help="Cap on rows printed"),
+):
+    """Extract Python HTTP server routes (Flask, FastAPI) — preview only."""
+    from codegraphcontext.wire import scan_repo_config, scan_repo_python_http
+
+    repo_path = Path(repo)
+    store = scan_repo_config(repo_path)
+    scan = scan_repo_python_http(repo_path, store=store, active_profile=profile or "")
+
+    fmt = output_format.lower()
+    if fmt == "json":
+        payload = {
+            "repo": str(repo_path.resolve()),
+            "profile": profile or "",
+            "files_scanned": scan.files_scanned,
+            "files_skipped": scan.files_skipped,
+            "servers": [
+                {
+                    "fqn": s.fqn, "method": s.method, "path": s.path, "path_raw": s.path_raw,
+                    "confidence": s.confidence, "provenance": s.provenance,
+                    "source_file": s.source_file, "line": s.line, "framework": s.framework,
+                } for s in scan.servers
+            ],
+            "warnings": scan.warnings,
+        }
+        sys.stdout.write(json.dumps(payload, indent=2)); sys.stdout.write("\n")
+        _wire_flag_notice(); return
+
+    if fmt != "table":
+        console.print(f"[bold red]Unknown --format {output_format!r}[/bold red]")
+        raise typer.Exit(code=2)
+
+    srv_table = Table(title=f"Python HTTP servers ({len(scan.servers)})", box=box.SIMPLE_HEAVY)
+    for col in ("FQN", "Method", "Path", "Framework", "Conf", "Provenance", "Location"):
+        srv_table.add_column(col, style="dim" if col in {"Provenance", "Location"} else None, overflow="fold")
+    for s in scan.servers[:limit]:
+        srv_table.add_row(s.fqn, s.method, s.path, s.framework, s.confidence, s.provenance, f"{s.source_file}:{s.line}")
+    console.print(srv_table)
+
+    console.print(
+        f"\n[bold]scanned:[/bold] {scan.files_scanned} files   "
+        f"[bold]skipped:[/bold] {scan.files_skipped}   "
+        f"[bold]warnings:[/bold] {len(scan.warnings)}"
+    )
+    _wire_flag_notice()
+
+
+@wire_extract_app.command("go")
+def wire_extract_go(
+    repo: str = typer.Option(".", "--repo", "-r", help="Repo root to scan"),
+    profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Active profile (reserved)"),
+    output_format: str = typer.Option("table", "--format", "-f", help="Output format: 'table' or 'json'"),
+    limit: int = typer.Option(200, "--limit", "-n", help="Cap on rows printed"),
+):
+    """Extract Go HTTP server routes (net/http, gin, echo, chi, gorilla) — preview only."""
+    from codegraphcontext.wire import scan_repo_config, scan_repo_go_http
+
+    repo_path = Path(repo)
+    store = scan_repo_config(repo_path)
+    scan = scan_repo_go_http(repo_path, store=store, active_profile=profile or "")
+
+    fmt = output_format.lower()
+    if fmt == "json":
+        payload = {
+            "repo": str(repo_path.resolve()),
+            "profile": profile or "",
+            "files_scanned": scan.files_scanned,
+            "files_skipped": scan.files_skipped,
+            "servers": [
+                {
+                    "fqn": s.fqn, "method": s.method, "path": s.path, "path_raw": s.path_raw,
+                    "confidence": s.confidence, "provenance": s.provenance,
+                    "source_file": s.source_file, "line": s.line, "framework": s.framework,
+                } for s in scan.servers
+            ],
+            "warnings": scan.warnings,
+        }
+        sys.stdout.write(json.dumps(payload, indent=2)); sys.stdout.write("\n")
+        _wire_flag_notice(); return
+
+    if fmt != "table":
+        console.print(f"[bold red]Unknown --format {output_format!r}[/bold red]")
+        raise typer.Exit(code=2)
+
+    srv_table = Table(title=f"Go HTTP servers ({len(scan.servers)})", box=box.SIMPLE_HEAVY)
+    for col in ("FQN", "Method", "Path", "Framework", "Conf", "Provenance", "Location"):
+        srv_table.add_column(col, style="dim" if col in {"Provenance", "Location"} else None, overflow="fold")
+    for s in scan.servers[:limit]:
+        srv_table.add_row(s.fqn, s.method, s.path, s.framework, s.confidence, s.provenance, f"{s.source_file}:{s.line}")
+    console.print(srv_table)
+
+    console.print(
+        f"\n[bold]scanned:[/bold] {scan.files_scanned} files   "
+        f"[bold]skipped:[/bold] {scan.files_skipped}   "
+        f"[bold]warnings:[/bold] {len(scan.warnings)}"
+    )
+    _wire_flag_notice()
+
+
+@wire_app.command("discover")
+def wire_discover(
+    repos: List[str] = typer.Option(..., "--repo", "-r", help="One or more repo roots (pass --repo multiple times)"),
+    profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Active Spring profile for placeholder resolution"),
+    output_format: str = typer.Option("table", "--format", "-f", help="Output format: 'table' or 'json'"),
+):
+    """Aggregate wire couplings across --repo A --repo B [...] and report matched/orphan pairs (preview only)."""
+    from codegraphcontext.wire import discover as run_discover
+
+    repo_paths = [Path(r) for r in repos]
+    result = run_discover(repo_paths, active_profile=profile or "")
+
+    fmt = output_format.lower()
+    if fmt == "json":
+        payload = {
+            "repos": [str(p.resolve()) for p in repo_paths],
+            "profile": profile or "",
+            "per_repo_stats": result.per_repo_stats,
+            "topics": [
+                {
+                    "system": g.identity.system, "name": g.identity.name,
+                    "matched": g.is_matched(),
+                    "producers": g.producers, "consumers": g.consumers,
+                } for g in result.topics.values()
+            ],
+            "endpoints": [
+                {
+                    "protocol": g.identity.protocol, "method": g.identity.method, "path": g.identity.path,
+                    "matched": g.is_matched(),
+                    "servers": g.servers, "clients": g.clients,
+                } for g in result.endpoints.values()
+            ],
+            "warnings": result.warnings,
+        }
+        sys.stdout.write(json.dumps(payload, indent=2)); sys.stdout.write("\n")
+        _wire_flag_notice(); return
+
+    if fmt != "table":
+        console.print(f"[bold red]Unknown --format {output_format!r}[/bold red]")
+        raise typer.Exit(code=2)
+
+    m_topics = result.matched_topics()
+    m_endpoints = result.matched_endpoints()
+    tbl = Table(title=f"Matched Kafka topics ({len(m_topics)})", box=box.SIMPLE_HEAVY)
+    for col in ("Topic", "Producers", "Consumers"):
+        tbl.add_column(col, overflow="fold")
+    for g in m_topics:
+        tbl.add_row(
+            g.identity.name,
+            "\n".join(f"{p['fqn']} @ {p['repo']}" for p in g.producers),
+            "\n".join(f"{c['fqn']} @ {c['repo']}" for c in g.consumers),
+        )
+    console.print(tbl)
+
+    etbl = Table(title=f"Matched endpoints ({len(m_endpoints)})", box=box.SIMPLE_HEAVY)
+    for col in ("Endpoint", "Servers", "Clients"):
+        etbl.add_column(col, overflow="fold")
+    for g in m_endpoints:
+        etbl.add_row(
+            f"{g.identity.protocol} {g.identity.method} {g.identity.path}",
+            "\n".join(f"{s['fqn']} @ {s['repo']}" for s in g.servers),
+            "\n".join(f"{c['fqn']} @ {c['repo']}" for c in g.clients),
+        )
+    console.print(etbl)
+
+    console.print(
+        f"\n[bold]matched topics:[/bold] {len(m_topics)}   "
+        f"[bold]orphan producers:[/bold] {len(result.orphan_producers())}   "
+        f"[bold]orphan consumers:[/bold] {len(result.orphan_consumers())}"
+    )
+    console.print(
+        f"[bold]matched endpoints:[/bold] {len(m_endpoints)}   "
+        f"[bold]orphan servers:[/bold] {len(result.orphan_servers())}   "
+        f"[bold]orphan clients:[/bold] {len(result.orphan_clients())}"
+    )
     _wire_flag_notice()
 
 
