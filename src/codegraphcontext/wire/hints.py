@@ -41,8 +41,8 @@ class WireProvenance:
 class WireTopicHint:
     """One asynchronous channel identity and the symbols wired to it."""
     system: str            # e.g. "kafka", "sqs", "rabbit", "pubsub"
-    name: str              # e.g. "group-chat-notifications"
-    produced_by: List[str] = field(default_factory=list)   # FQNs, e.g. "groups.KafkaAccessorImpl.publish"
+    name: str              # e.g. "order-events"
+    produced_by: List[str] = field(default_factory=list)   # FQNs, e.g. "orders.KafkaPublisherImpl.publish"
     consumed_by: List[str] = field(default_factory=list)
     provenance: List[WireProvenance] = field(default_factory=list)
 

@@ -31,6 +31,7 @@ from codegraphcontext.wire.kafka_extractor import (
     KafkaProducerRecord,
     extract_from_source,
     looks_like_kafka_source,
+    scan_config_kafka_bindings,
 )
 
 DEFAULT_JAVA_SOURCE_DIRS: tuple = (
@@ -131,6 +132,12 @@ def scan_repo_kafka(
             )
             result.files_scanned += 1
             result.extend(per_file)
+
+    # Config-driven registrations (no Java call site at all) — see
+    # kafka_extractor.scan_config_kafka_bindings for the shape this covers.
+    if store is not None:
+        config_result = scan_config_kafka_bindings(store)
+        result.extend(config_result)
 
     return result
 

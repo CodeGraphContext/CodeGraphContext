@@ -177,6 +177,49 @@ def test_bad_fqn_dropped():
     assert stats.dropped_bad_fqn == 1
 
 
+def test_config_anchored_producer_writes_file_edge_not_dropped():
+    """Records from scan_config_kafka_bindings (fqn='config:...') have no backing
+    Function node — they must anchor on :File, not be dropped as bad_fqn."""
+    writer = _FakeWriter()
+    scan = KafkaScanResult(producers=[
+        _mk_kafka_producer("config:clusterConfigs[0]", "order-events", confidence="INFERRED"),
+    ])
+    stats = write_wire_edges(writer, kafka_scan=scan)
+    assert stats.produces_edges == 1
+    assert stats.dropped_bad_fqn == 0
+
+    edge_call = next(c for c in writer.driver.calls if ":PRODUCES_TO" in c["cypher"])
+    assert "MATCH (f:File {path: row.path})" in edge_call["cypher"]
+    assert "method_name" not in edge_call["params"]["rows"][0]
+
+
+def test_config_anchored_consumer_writes_file_edge_not_dropped():
+    writer = _FakeWriter()
+    scan = KafkaScanResult(consumers=[
+        _mk_kafka_consumer("config:clusterConfigs[0]", "order-events", confidence="INFERRED"),
+    ])
+    stats = write_wire_edges(writer, kafka_scan=scan)
+    assert stats.consumes_edges == 1
+    assert stats.dropped_bad_fqn == 0
+
+    edge_call = next(c for c in writer.driver.calls if ":CONSUMES_FROM" in c["cypher"])
+    assert "MATCH (f:File {path: row.path})" in edge_call["cypher"]
+
+
+def test_config_anchored_producer_and_function_anchored_consumer_share_topic():
+    """A config-driven producer in one repo and a real @KafkaListener consumer in
+    another must MERGE onto the same Topic node (the cross-repo match case)."""
+    writer = _FakeWriter()
+    scan = KafkaScanResult(
+        producers=[_mk_kafka_producer("config:clusterConfigs[0]", "order-events", confidence="INFERRED")],
+        consumers=[_mk_kafka_consumer("com.a.Cons.on", "order-events")],
+    )
+    stats = write_wire_edges(writer, kafka_scan=scan)
+    assert stats.topics_merged == 1
+    assert stats.produces_edges == 1
+    assert stats.consumes_edges == 1
+
+
 def test_http_server_and_client_write_serves_and_invokes():
     writer = _FakeWriter()
     scan = HttpScanResult(

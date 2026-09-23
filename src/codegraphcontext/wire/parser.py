@@ -179,9 +179,9 @@ def _string_list(v: object, ctx: str) -> List[str]:
 
 # ── CLI shorthand parser ─────────────────────────────────────────────────────
 # Shape:   <scheme>:<identity>=<role>:<fqn>
-# Kafka:   kafka:group-chat-notifications=produced_by:groups.KafkaAccessorImpl.publish
-# HTTP:    http:POST:/v1/players/{id}/invitations=served_by:pkg.Controller.invite
-# gRPC:    grpc:GetPresence:com.ea.eadp.presence.v1.PresenceService/GetPresence=served_by:pkg.Impl.getPresence
+# Kafka:   kafka:order-events=produced_by:orders.KafkaPublisherImpl.publish
+# HTTP:    http:POST:/v1/users/{id}/orders=served_by:pkg.Controller.create
+# gRPC:    grpc:GetStatus:com.example.status.v1.StatusService/GetStatus=served_by:pkg.Impl.getStatus
 
 _TOPIC_ROLES = {"produced_by", "consumed_by"}
 _ENDPOINT_ROLES = {"served_by", "invoked_by"}

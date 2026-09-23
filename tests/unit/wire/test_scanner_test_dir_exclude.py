@@ -1,8 +1,9 @@
 """MULTI_REPO_LINKS PR #9: verify Java scanners skip src/test/** by default.
 
 Test files were the dominant source of noisy topic literals (e.g. Mockito's
-``anyString()``) in the eadp-social pre-flight smoke run. The default exclude
-now filters them out; passing ``exclude_path_parts=()`` restores full scan.
+``anyString()``) during a pre-flight smoke run on a large multi-service
+codebase. The default exclude now filters them out; passing
+``exclude_path_parts=()`` restores full scan.
 """
 from __future__ import annotations
 

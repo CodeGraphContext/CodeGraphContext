@@ -16,37 +16,37 @@ version: 1
 
 topics:
   - system: kafka
-    name: group-chat-notifications
+    name: order-events
     # Fully-qualified symbol names, matching the FQN CGC stores on Function nodes.
     produced_by:
-      - groups.impl.KafkaAccessorImpl.publish
+      - orders.impl.KafkaPublisherImpl.publish
     consumed_by:
-      - presence_event_processor.RtmGroupChatEventRequestHandler.handle
-      - antelope_notification_worker.KafkaMessageConsumer.consume
+      - event_processor.OrderEventHandler.handle
+      - notification_worker.KafkaMessageConsumer.consume
 
 endpoints:
   - protocol: grpc
-    method: GetPresence
+    method: GetStatus
     # For gRPC, `path` is the service-qualified FQN of the RPC.
-    path: com.ea.eadp.presence.v1.PresenceService/GetPresence
+    path: com.example.status.v1.StatusService/GetStatus
     served_by:
-      - presence_frontend_grpc.PresenceServiceGRPC.getPresence
+      - status_gateway.StatusServiceGRPC.getStatus
     invoked_by:
-      - groups.client.PresenceClient.getPresence
+      - orders.client.StatusClient.getStatus
 
   - protocol: http
     method: POST
-    path: /v1/players/{playerId}/invitations
+    path: /v1/users/{userId}/orders
     served_by:
-      - groups.rest.InvitationController.create
+      - orders.rest.OrderController.create
     invoked_by:
-      - presence_frontend_grpc.gateway.InvitationSender.send
+      - status_gateway.gateway.OrderEventSender.send
 
 aliases:
   topics:
-    - canonical: group-chat-notifications
+    - canonical: order-events
       names:
-        - group-chat.notifications
-        - group_chat_notifications_v2
+        - order.events
+        - order_events_v2
   endpoints: []
 """

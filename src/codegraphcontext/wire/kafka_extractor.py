@@ -656,10 +656,82 @@ def extract_from_source(
     return result
 
 
+# ── Config-driven producer/consumer detection ───────────────────────────────
+#
+# Some services (Guice/Dropwizard-style, no Spring annotations) register
+# Kafka producers/consumers entirely through YAML config: a `topicName` key
+# sitting alongside a sibling `consumingEnabled` / `producingEnabled` /
+# `publishingEnabled: true` flag, read generically at runtime by a queue
+# manager. There is no Java-level literal or call site for the source-based
+# extractor above to find — not "low confidence", but zero candidates.
+#
+# This walks the already-flattened ConfigValueStore (see config_scanner.py)
+# for that shape directly, independent of any Java parsing.
+
+_TOPIC_KEY_LEAVES = ("topicname", "topic")
+_ENABLED_KEY_LEAVES = ("consumingenabled", "producingenabled", "publishingenabled")
+
+
+def scan_config_kafka_bindings(store: ConfigValueStore) -> KafkaExtractionResult:
+    """Detect `topicName` + `<...>Enabled: true` sibling pairs in config.
+
+    Groups every flattened config entry by (source_file, parent_path) — the
+    dotted/indexed key with its last segment stripped, e.g.
+    ``clusterConfigs[1]`` for the key ``clusterConfigs[1].topicName`` — so
+    that only genuine siblings (same YAML object) are matched together.
+    """
+    result = KafkaExtractionResult()
+    groups: dict = {}
+    for entry in store.all_entries():
+        parent, sep, leaf = entry.key.rpartition(".")
+        if not sep:
+            continue
+        groups.setdefault((entry.source_file, parent), {})[leaf.lower()] = entry
+
+    for (source_file, parent), leaves in groups.items():
+        topic_entry = next(
+            (leaves[k] for k in _TOPIC_KEY_LEAVES if k in leaves), None
+        )
+        if topic_entry is None or not topic_entry.value:
+            continue
+        for enabled_leaf in _ENABLED_KEY_LEAVES:
+            flag_entry = leaves.get(enabled_leaf)
+            if flag_entry is None or flag_entry.value.strip().lower() != "true":
+                continue
+            # "config:" prefix marks a record with no backing Function node —
+            # writer.py (CONFIG_ANCHOR_PREFIX) anchors its edge on :File instead.
+            fqn = f"config:{parent}"
+            provenance = f"config-pattern:{enabled_leaf}+{topic_entry.key}"
+            if enabled_leaf == "consumingenabled":
+                result.consumers.append(KafkaConsumerRecord(
+                    fqn=fqn,
+                    topic_raw=topic_entry.value,
+                    topic_resolved=topic_entry.value,
+                    confidence="INFERRED",
+                    provenance=provenance,
+                    source_file=source_file,
+                    line=0,
+                    is_pattern=False,
+                ))
+            else:
+                result.producers.append(KafkaProducerRecord(
+                    fqn=fqn,
+                    topic_raw=topic_entry.value,
+                    topic_resolved=topic_entry.value,
+                    confidence="INFERRED",
+                    provenance=provenance,
+                    source_file=source_file,
+                    line=0,
+                    call_shape="config-binding",
+                ))
+    return result
+
+
 __all__ = [
     "KafkaConsumerRecord",
     "KafkaExtractionResult",
     "KafkaProducerRecord",
     "extract_from_source",
     "looks_like_kafka_source",
+    "scan_config_kafka_bindings",
 ]

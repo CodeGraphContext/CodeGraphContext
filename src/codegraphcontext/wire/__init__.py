@@ -72,6 +72,7 @@ from codegraphcontext.wire.kafka_extractor import (
     KafkaProducerRecord,
     extract_from_source as extract_kafka_from_source,
     looks_like_kafka_source,
+    scan_config_kafka_bindings,
 )
 from codegraphcontext.wire.kafka_scanner import (
     DEFAULT_JAVA_SOURCE_DIRS,
@@ -99,6 +100,16 @@ from codegraphcontext.wire.python_extractor import (
     looks_like_python_http_source,
 )
 
+from codegraphcontext.wire.suggest import (
+    DEFAULT_MIN_SCORE,
+    WireCandidate,
+    normalize_identifier,
+    repo_for_path,
+    similarity,
+    suggest_endpoint_pairs,
+    suggest_topic_pairs,
+)
+
 from codegraphcontext.wire.writer import (
     WireWriteStats,
     write_wire_edges,
@@ -111,6 +122,7 @@ __all__ = [
     "DEFAULT_CONFIG_DIRS",
     "DEFAULT_GO_DIRS",
     "DEFAULT_JAVA_SOURCE_DIRS",
+    "DEFAULT_MIN_SCORE",
     "DEFAULT_PYTHON_DIRS",
     "DiscoveryResult",
     "ENV_VAR_NAME",
@@ -129,6 +141,7 @@ __all__ = [
     "KafkaExtractionResult",
     "KafkaProducerRecord",
     "KafkaScanResult",
+    "scan_config_kafka_bindings",
     "LanguageScanResult",
     "LoadedHintSet",
     "LoaderInputs",
@@ -142,6 +155,7 @@ __all__ = [
     "TopicIdentity",
     "WIRE_HINT_FILENAME",
     "WireAlias",
+    "WireCandidate",
     "WireEndpointGroup",
     "WireEndpointHint",
     "WireHintFile",
@@ -164,13 +178,18 @@ __all__ = [
     "looks_like_http_source",
     "looks_like_kafka_source",
     "looks_like_python_http_source",
+    "normalize_identifier",
     "parse_properties",
     "parse_yaml_kv",
+    "repo_for_path",
     "scan_repo_config",
     "scan_repo_go_http",
     "scan_repo_grpc",
     "scan_repo_http",
     "scan_repo_kafka",
     "scan_repo_python_http",
+    "similarity",
+    "suggest_endpoint_pairs",
+    "suggest_topic_pairs",
     "write_wire_edges",
 ]

@@ -58,6 +58,16 @@ def _fqn_method_name(fqn: str) -> Optional[str]:
     return last
 
 
+# Records with no backing Java call site (see kafka_extractor.scan_config_kafka_bindings)
+# carry this fqn prefix. They anchor their edge to the config file's `:File` node
+# instead of a `:Function` node, since no method exists to match on.
+CONFIG_ANCHOR_PREFIX = "config:"
+
+
+def _is_config_anchor(fqn: str) -> bool:
+    return bool(fqn) and fqn.startswith(CONFIG_ANCHOR_PREFIX)
+
+
 def _accept(confidence: str, include_ambiguous: bool) -> bool:
     if confidence in HIGH_CONFIDENCE_TIERS:
         return True
@@ -65,54 +75,67 @@ def _accept(confidence: str, include_ambiguous: bool) -> bool:
 
 
 def _kafka_producer_rows(scan: KafkaScanResult, include_ambiguous: bool) -> tuple:
-    """Return (topic_rows, edge_rows, dropped_ambiguous, dropped_bad_fqn)."""
+    """Return (topic_rows, function_edge_rows, file_edge_rows, dropped_ambiguous, dropped_bad_fqn)."""
     topic_rows: Dict[tuple, dict] = {}
     edge_rows: List[dict] = []
+    file_edge_rows: List[dict] = []
     ambig = 0; bad_fqn = 0
     for p in scan.producers:
         if not _accept(p.confidence, include_ambiguous):
             ambig += 1; continue
-        method = _fqn_method_name(p.fqn)
-        if method is None:
-            bad_fqn += 1; continue
         name = p.topic_resolved or p.topic_raw
         key = ("kafka", name)
         topic_rows[key] = {"system": "kafka", "name": name}
-        edge_rows.append({
+        row = {
             "system": "kafka", "topic_name": name,
-            "path": p.source_file, "method_name": method,
+            "path": p.source_file,
             "match_confidence": p.confidence,
             "provenance": p.provenance,
             "call_shape": p.call_shape,
             "call_line": p.line,
             "topic_raw": p.topic_raw,
-        })
-    return list(topic_rows.values()), edge_rows, ambig, bad_fqn
+        }
+        if _is_config_anchor(p.fqn):
+            file_edge_rows.append(row)
+            continue
+        method = _fqn_method_name(p.fqn)
+        if method is None:
+            bad_fqn += 1; continue
+        row["method_name"] = method
+        edge_rows.append(row)
+    return list(topic_rows.values()), edge_rows, file_edge_rows, ambig, bad_fqn
 
 
 def _kafka_consumer_rows(scan: KafkaScanResult, include_ambiguous: bool) -> tuple:
+    """Return (topic_rows, function_edge_rows, file_edge_rows, dropped_ambiguous, dropped_bad_fqn)."""
     topic_rows: Dict[tuple, dict] = {}
     edge_rows: List[dict] = []
+    file_edge_rows: List[dict] = []
     ambig = 0; bad_fqn = 0
     for c in scan.consumers:
         if not _accept(c.confidence, include_ambiguous):
             ambig += 1; continue
-        method = _fqn_method_name(c.fqn)
-        if method is None:
-            bad_fqn += 1; continue
         name = c.topic_resolved or c.topic_raw
         key = ("kafka", name)
         topic_rows[key] = {"system": "kafka", "name": name}
-        edge_rows.append({
+        row = {
             "system": "kafka", "topic_name": name,
-            "path": c.source_file, "method_name": method,
+            "path": c.source_file,
             "match_confidence": c.confidence,
             "provenance": c.provenance,
             "is_pattern": c.is_pattern,
             "call_line": c.line,
             "topic_raw": c.topic_raw,
-        })
-    return list(topic_rows.values()), edge_rows, ambig, bad_fqn
+        }
+        if _is_config_anchor(c.fqn):
+            file_edge_rows.append(row)
+            continue
+        method = _fqn_method_name(c.fqn)
+        if method is None:
+            bad_fqn += 1; continue
+        row["method_name"] = method
+        edge_rows.append(row)
+    return list(topic_rows.values()), edge_rows, file_edge_rows, ambig, bad_fqn
 
 
 def _http_server_rows(scan: HttpScanResult, include_ambiguous: bool) -> tuple:
@@ -247,6 +270,34 @@ SET e.match_confidence = row.match_confidence,
     e.source_file      = row.path
 """
 
+# Config-anchored variants — no Function node exists (see CONFIG_ANCHOR_PREFIX),
+# so the edge originates from the config file's own `:File` node instead.
+_MERGE_PRODUCES_TO_FILE = """
+UNWIND $rows AS row
+MATCH (f:File {path: row.path})
+MERGE (t:Topic {system: row.system, name: row.topic_name})
+MERGE (f)-[e:PRODUCES_TO {call_line: row.call_line}]->(t)
+SET e.match_confidence = row.match_confidence,
+    e.provenance       = row.provenance,
+    e.call_shape       = row.call_shape,
+    e.topic_raw        = row.topic_raw,
+    e.source_file      = row.path,
+    e.anchor           = 'file'
+"""
+
+_MERGE_CONSUMES_FROM_FILE = """
+UNWIND $rows AS row
+MATCH (f:File {path: row.path})
+MERGE (t:Topic {system: row.system, name: row.topic_name})
+MERGE (f)-[e:CONSUMES_FROM {call_line: row.call_line}]->(t)
+SET e.match_confidence = row.match_confidence,
+    e.provenance       = row.provenance,
+    e.is_pattern       = row.is_pattern,
+    e.topic_raw        = row.topic_raw,
+    e.source_file      = row.path,
+    e.anchor           = 'file'
+"""
+
 _MERGE_SERVES = """
 UNWIND $rows AS row
 MATCH (fn:Function {path: row.path, name: row.method_name})
@@ -302,15 +353,17 @@ def write_wire_edges(
 
     # Kafka → Topic + PRODUCES_TO / CONSUMES_FROM
     if kafka_scan is not None:
-        p_topics, p_edges, p_amb, p_bad = _kafka_producer_rows(kafka_scan, include_ambiguous)
-        c_topics, c_edges, c_amb, c_bad = _kafka_consumer_rows(kafka_scan, include_ambiguous)
+        p_topics, p_edges, p_file_edges, p_amb, p_bad = _kafka_producer_rows(kafka_scan, include_ambiguous)
+        c_topics, c_edges, c_file_edges, c_amb, c_bad = _kafka_consumer_rows(kafka_scan, include_ambiguous)
         all_topics = list({(r["system"], r["name"]): r for r in p_topics + c_topics}.values())
         _run(_MERGE_TOPICS, all_topics)
         _run(_MERGE_PRODUCES_TO, p_edges)
         _run(_MERGE_CONSUMES_FROM, c_edges)
+        _run(_MERGE_PRODUCES_TO_FILE, p_file_edges)
+        _run(_MERGE_CONSUMES_FROM_FILE, c_file_edges)
         stats.topics_merged += len(all_topics)
-        stats.produces_edges += len(p_edges)
-        stats.consumes_edges += len(c_edges)
+        stats.produces_edges += len(p_edges) + len(p_file_edges)
+        stats.consumes_edges += len(c_edges) + len(c_file_edges)
         stats.skipped_ambiguous += p_amb + c_amb
         stats.dropped_bad_fqn += p_bad + c_bad
 

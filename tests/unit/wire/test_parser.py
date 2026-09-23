@@ -50,8 +50,8 @@ def test_yaml_endpoint_and_alias():
 version: 1
 endpoints:
   - protocol: grpc
-    method: GetPresence
-    path: com.ea.presence.v1.PresenceService/GetPresence
+    method: GetStatus
+    path: com.example.status.v1.StatusService/GetStatus
     served_by: [srv.Impl.get]
     invoked_by: [cli.Stub.get]
 aliases:
@@ -62,7 +62,7 @@ aliases:
     parsed = parse_wire_yaml(text)
     assert len(parsed.endpoints) == 1
     e = parsed.endpoints[0]
-    assert e.merge_key() == ("grpc", "GetPresence", "com.ea.presence.v1.PresenceService/GetPresence")
+    assert e.merge_key() == ("grpc", "GetStatus", "com.example.status.v1.StatusService/GetStatus")
     assert e.served_by == ["srv.Impl.get"]
     assert e.invoked_by == ["cli.Stub.get"]
 

@@ -1853,13 +1853,16 @@ def wire_links(
         results: Dict[str, list] = {"matched_topics": [], "orphan_producers": [], "orphan_consumers": [],
                                     "matched_endpoints": [], "orphan_servers": [], "orphan_clients": []}
         with db_manager.get_driver().session() as session:
-            # Matched Kafka topics: at least one producer AND one consumer
+            # Matched Kafka topics: at least one producer AND one consumer.
+            # Producer/consumer nodes are :Function for code call sites, or :File
+            # for config-driven registrations with no backing method (see
+            # wire.writer.CONFIG_ANCHOR_PREFIX).
             res = session.run(
                 """
-                MATCH (fn_p:Function)-[:PRODUCES_TO]->(t:Topic)<-[:CONSUMES_FROM]-(fn_c:Function)
+                MATCH (fn_p)-[:PRODUCES_TO]->(t:Topic)<-[:CONSUMES_FROM]-(fn_c)
                 RETURN t.system AS system, t.name AS name,
-                       collect(DISTINCT fn_p.path + ':' + fn_p.name)[..10] AS producers,
-                       collect(DISTINCT fn_c.path + ':' + fn_c.name)[..10] AS consumers
+                       collect(DISTINCT fn_p.path + ':' + coalesce(fn_p.name, '(config)'))[..10] AS producers,
+                       collect(DISTINCT fn_c.path + ':' + coalesce(fn_c.name, '(config)'))[..10] AS consumers
                 LIMIT $lim
                 """, lim=limit)
             for r in res: results["matched_topics"].append(dict(r))
@@ -1867,10 +1870,10 @@ def wire_links(
             # Orphan producers (no consumer)
             res = session.run(
                 """
-                MATCH (fn:Function)-[:PRODUCES_TO]->(t:Topic)
-                WHERE NOT (t)<-[:CONSUMES_FROM]-(:Function)
+                MATCH (fn)-[:PRODUCES_TO]->(t:Topic)
+                WHERE NOT (t)<-[:CONSUMES_FROM]-()
                 RETURN t.system AS system, t.name AS name,
-                       collect(DISTINCT fn.path + ':' + fn.name)[..10] AS producers
+                       collect(DISTINCT fn.path + ':' + coalesce(fn.name, '(config)'))[..10] AS producers
                 LIMIT $lim
                 """, lim=limit)
             for r in res: results["orphan_producers"].append(dict(r))
@@ -1878,10 +1881,10 @@ def wire_links(
             # Orphan consumers (no producer)
             res = session.run(
                 """
-                MATCH (fn:Function)-[:CONSUMES_FROM]->(t:Topic)
-                WHERE NOT (t)<-[:PRODUCES_TO]-(:Function)
+                MATCH (fn)-[:CONSUMES_FROM]->(t:Topic)
+                WHERE NOT (t)<-[:PRODUCES_TO]-()
                 RETURN t.system AS system, t.name AS name,
-                       collect(DISTINCT fn.path + ':' + fn.name)[..10] AS consumers
+                       collect(DISTINCT fn.path + ':' + coalesce(fn.name, '(config)'))[..10] AS consumers
                 LIMIT $lim
                 """, lim=limit)
             for r in res: results["orphan_consumers"].append(dict(r))
@@ -1959,6 +1962,159 @@ def wire_links(
             f"[bold]orphan servers:[/bold] {len(results['orphan_servers'])}   "
             f"[bold]orphan clients:[/bold] {len(results['orphan_clients'])}"
         )
+        _wire_flag_notice()
+    finally:
+        db_manager.close_driver()
+
+
+def _emit_suggested_topic_hints(candidates: list, output_dir: str) -> None:
+    """Write one draft ``<repo>.suggested-wire.yml`` per repo touched by ``candidates``.
+
+    Drafts only — never written into a repo's own ``.cgc/wire.yml`` automatically.
+    A human reviews, fills in real ``produced_by``/``consumed_by`` FQNs, and moves
+    the file into place.
+    """
+    import yaml as _yaml
+
+    # Dedupe by (repo, topic name, role) — a topic can appear in several
+    # candidate rows (one per counterpart repo); keep only its best score.
+    best: dict = {}
+    for c in candidates:
+        for repo, name, role in (
+            (c.left_repo, c.left_name, "produced_by"),
+            (c.right_repo, c.right_name, "consumed_by"),
+        ):
+            if repo == "?":
+                continue
+            key = (repo, name, role)
+            if key not in best or c.score > best[key].score:
+                best[key] = c
+
+    by_repo: dict = {}
+    for (repo, name, role), c in best.items():
+        doc = by_repo.setdefault(repo, {"version": 1, "topics": []})
+        doc["topics"].append({
+            "system": "kafka",
+            "name": name,
+            role: [
+                f"TODO: replace with a real FQN (suggested match, "
+                f"score={c.score:.2f}, reason={c.reason})"
+            ],
+        })
+
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    for repo, doc in by_repo.items():
+        repo_name = Path(repo).name or "repo"
+        dest = out_path / f"{repo_name}.suggested-wire.yml"
+        dest.write_text(_yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+
+
+@wire_app.command("suggest")
+def wire_suggest(
+    output_format: str = typer.Option("table", "--format", "-f", help="Output format: 'table' or 'json'"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Row cap per candidate list"),
+    min_score: float = typer.Option(0.6, "--min-score", help="Minimum similarity score (0-1) to report a candidate"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to query"),
+    emit_hints_dir: Optional[str] = typer.Option(
+        None, "--emit-hints-dir",
+        help="Write draft per-repo wire.yml hint files (for human review, not auto-applied) to this directory",
+    ),
+):
+    """Suggest likely cross-repo wire couplings among today's orphan producers/consumers/servers/clients.
+
+    `cgc wire links` only reports a match on exact literal equality. Two repos
+    routinely couple through near-identical identifiers instead (an environment
+    suffix like `_e2e`/`_prod`, a stray prefix, minor drift) and show up as two
+    disconnected orphans. This re-ranks every orphan pair by string similarity
+    after stripping common environment suffixes, across different repos only,
+    so a human confirms a short list instead of already knowing the coupling
+    exists.
+    """
+    from codegraphcontext.wire import suggest_endpoint_pairs, suggest_topic_pairs
+
+    _load_credentials()
+    db_manager, _, _, _ = _initialize_services(context)
+    try:
+        ctx_obj = None
+        try:
+            resolved = config_manager.resolve_context(context)
+            cfg = config_manager.load_context_config()
+            ctx_obj = cfg.contexts.get(resolved.context_name)
+        except Exception:
+            ctx_obj = None
+        repo_roots: list = list(getattr(ctx_obj, "repos", None) or [])
+        if not repo_roots:
+            console.print(
+                "[yellow]No repo list found for this context — candidates will show '?' "
+                "instead of a repo name.[/yellow]"
+            )
+
+        with db_manager.get_driver().session() as session:
+            producers = [dict(r) for r in session.run(
+                """
+                MATCH (fn)-[:PRODUCES_TO]->(t:Topic)
+                WHERE NOT (t)<-[:CONSUMES_FROM]-()
+                RETURN t.name AS name, collect(DISTINCT fn.path)[..10] AS locations
+                """)]
+            consumers = [dict(r) for r in session.run(
+                """
+                MATCH (fn)-[:CONSUMES_FROM]->(t:Topic)
+                WHERE NOT (t)<-[:PRODUCES_TO]-()
+                RETURN t.name AS name, collect(DISTINCT fn.path)[..10] AS locations
+                """)]
+            servers = [dict(r) for r in session.run(
+                """
+                MATCH (fn)-[:SERVES]->(ep:Endpoint)
+                WHERE NOT (ep)<-[:INVOKES]-()
+                RETURN ep.protocol AS protocol, ep.method AS method, ep.path AS path,
+                       collect(DISTINCT fn.path)[..10] AS locations
+                """)]
+            clients = [dict(r) for r in session.run(
+                """
+                MATCH (fn)-[:INVOKES]->(ep:Endpoint)
+                WHERE NOT (ep)<-[:SERVES]-()
+                RETURN ep.protocol AS protocol, ep.method AS method, ep.path AS path,
+                       collect(DISTINCT fn.path)[..10] AS locations
+                """)]
+
+        topic_candidates = suggest_topic_pairs(producers, consumers, repo_roots, min_score=min_score)[:limit]
+        endpoint_candidates = suggest_endpoint_pairs(servers, clients, repo_roots, min_score=min_score)[:limit]
+
+        fmt = output_format.lower()
+        if fmt == "json":
+            payload = {
+                "topic_candidates": [vars(c) for c in topic_candidates],
+                "endpoint_candidates": [vars(c) for c in endpoint_candidates],
+            }
+            sys.stdout.write(json.dumps(payload, indent=2)); sys.stdout.write("\n")
+        elif fmt == "table":
+            tbl = Table(title=f"Suggested cross-repo Kafka couplings ({len(topic_candidates)})", box=box.SIMPLE_HEAVY)
+            for col in ("Score", "Reason", "Producer repo", "Producer topic", "Consumer repo", "Consumer topic"):
+                tbl.add_column(col, overflow="fold")
+            for c in topic_candidates:
+                tbl.add_row(f"{c.score:.2f}", c.reason, c.left_repo, c.left_name, c.right_repo, c.right_name)
+            console.print(tbl)
+
+            etbl = Table(title=f"Suggested cross-repo endpoint couplings ({len(endpoint_candidates)})", box=box.SIMPLE_HEAVY)
+            for col in ("Score", "Reason", "Server repo", "Server endpoint", "Client repo", "Client endpoint"):
+                etbl.add_column(col, overflow="fold")
+            for c in endpoint_candidates:
+                etbl.add_row(f"{c.score:.2f}", c.reason, c.left_repo, c.left_name, c.right_repo, c.right_name)
+            console.print(etbl)
+
+            console.print(
+                f"\n[bold]topic candidates:[/bold] {len(topic_candidates)}   "
+                f"[bold]endpoint candidates:[/bold] {len(endpoint_candidates)}"
+            )
+        else:
+            console.print(f"[bold red]Unknown --format {output_format!r}[/bold red]")
+            raise typer.Exit(code=2)
+
+        if emit_hints_dir and topic_candidates:
+            _emit_suggested_topic_hints(topic_candidates, emit_hints_dir)
+            console.print(f"[green]Draft wire.yml hint(s) written to {emit_hints_dir}[/green]")
+
         _wire_flag_notice()
     finally:
         db_manager.close_driver()
