@@ -25,12 +25,12 @@ def test_wire_config_list_shows_all_entries(tmp_path: Path):
     _make_repo(tmp_path)
     result = runner.invoke(app, ["wire", "config", "list", "--repo", str(tmp_path)])
     assert result.exit_code == 0
-    assert "kafka.topic.orders" in result.stdout
-    assert "orders-base" in result.stdout
-    assert "orders-prod" in result.stdout
+    assert "kafka.topic.orders" in result.output
+    assert "orders-base" in result.output
+    assert "orders-prod" in result.output
     # Profile column shows both (base) and prod.
-    assert "(base)" in result.stdout
-    assert "prod" in result.stdout
+    assert "(base)" in result.output
+    assert "prod" in result.output
 
 
 def test_wire_config_list_filters_by_profile(tmp_path: Path):
@@ -39,8 +39,8 @@ def test_wire_config_list_filters_by_profile(tmp_path: Path):
         app, ["wire", "config", "list", "--repo", str(tmp_path), "--profile", "prod"]
     )
     assert result.exit_code == 0
-    assert "orders-prod" in result.stdout
-    assert "orders-base" not in result.stdout
+    assert "orders-prod" in result.output
+    assert "orders-base" not in result.output
 
 
 def test_wire_config_list_filters_by_key(tmp_path: Path):
@@ -49,8 +49,8 @@ def test_wire_config_list_filters_by_key(tmp_path: Path):
         app, ["wire", "config", "list", "--repo", str(tmp_path), "--key", "kafka"]
     )
     assert result.exit_code == 0
-    assert "kafka.topic.orders" in result.stdout
-    assert "grpc.host" not in result.stdout
+    assert "kafka.topic.orders" in result.output
+    assert "grpc.host" not in result.output
 
 
 def test_wire_config_resolve_success(tmp_path: Path):
@@ -59,7 +59,7 @@ def test_wire_config_resolve_success(tmp_path: Path):
         app, ["wire", "config", "resolve", "${kafka.topic.orders}", "--repo", str(tmp_path)]
     )
     assert result.exit_code == 0
-    assert "orders-base" in result.stdout
+    assert "orders-base" in result.output
 
 
 def test_wire_config_resolve_profile_wins(tmp_path: Path):
@@ -69,7 +69,7 @@ def test_wire_config_resolve_profile_wins(tmp_path: Path):
               "--repo", str(tmp_path), "--profile", "prod"],
     )
     assert result.exit_code == 0
-    assert "orders-prod" in result.stdout
+    assert "orders-prod" in result.output
 
 
 def test_wire_config_resolve_unresolved_exits_nonzero(tmp_path: Path):
@@ -78,7 +78,7 @@ def test_wire_config_resolve_unresolved_exits_nonzero(tmp_path: Path):
         app, ["wire", "config", "resolve", "${no.such.key}", "--repo", str(tmp_path)]
     )
     assert result.exit_code == 1
-    assert "unresolved" in result.stdout.lower()
+    assert "unresolved" in result.output.lower()
 
 
 def test_wire_config_resolve_default_used_when_key_missing(tmp_path: Path):
@@ -87,4 +87,4 @@ def test_wire_config_resolve_default_used_when_key_missing(tmp_path: Path):
         app, ["wire", "config", "resolve", "${no.such.key:fallback}", "--repo", str(tmp_path)]
     )
     assert result.exit_code == 0
-    assert "fallback" in result.stdout
+    assert "fallback" in result.output

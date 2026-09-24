@@ -33,7 +33,7 @@ def test_extract_http_json(tmp_path: Path):
     """)
     result = runner.invoke(app, ["wire", "extract", "http", "--repo", str(tmp_path), "--format", "json"])
     assert result.exit_code == 0
-    payload = _parse_json_before_notice(result.stdout)
+    payload = _parse_json_before_notice(result.output)
     assert len(payload["servers"]) == 1
     assert payload["servers"][0]["path"] == "/x"
 
@@ -41,8 +41,8 @@ def test_extract_http_json(tmp_path: Path):
 def test_extract_http_table_runs_cleanly(tmp_path: Path):
     result = runner.invoke(app, ["wire", "extract", "http", "--repo", str(tmp_path)])
     assert result.exit_code == 0
-    assert "HTTP servers" in result.stdout
-    assert "MULTI_REPO_LINKS" in result.stdout
+    assert "HTTP servers" in result.output
+    assert "MULTI_REPO_LINKS" in result.output
 
 
 def test_extract_http_unknown_format_exits_nonzero(tmp_path: Path):
@@ -62,7 +62,7 @@ def test_extract_grpc_json(tmp_path: Path):
     """)
     result = runner.invoke(app, ["wire", "extract", "grpc", "--repo", str(tmp_path), "--format", "json"])
     assert result.exit_code == 0
-    payload = _parse_json_before_notice(result.stdout)
+    payload = _parse_json_before_notice(result.output)
     assert len(payload["servers"]) == 1
     assert payload["servers"][0]["service"] == "OrdersService"
 
@@ -70,7 +70,7 @@ def test_extract_grpc_json(tmp_path: Path):
 def test_extract_grpc_table_runs_cleanly(tmp_path: Path):
     result = runner.invoke(app, ["wire", "extract", "grpc", "--repo", str(tmp_path)])
     assert result.exit_code == 0
-    assert "gRPC servers" in result.stdout
+    assert "gRPC servers" in result.output
 
 
 # ── extract python ──────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ def x(): return "hi"
 """)
     result = runner.invoke(app, ["wire", "extract", "python", "--repo", str(tmp_path), "--format", "json"])
     assert result.exit_code == 0
-    payload = _parse_json_before_notice(result.stdout)
+    payload = _parse_json_before_notice(result.output)
     assert len(payload["servers"]) == 1
     assert payload["servers"][0]["framework"] == "flask"
 
@@ -99,7 +99,7 @@ func main() { r := gin.Default(); r.GET("/x", h) }
 """)
     result = runner.invoke(app, ["wire", "extract", "go", "--repo", str(tmp_path), "--format", "json"])
     assert result.exit_code == 0
-    payload = _parse_json_before_notice(result.stdout)
+    payload = _parse_json_before_notice(result.output)
     assert len(payload["servers"]) == 1
     assert payload["servers"][0]["method"] == "GET"
 
@@ -120,7 +120,7 @@ def test_discover_json_finds_matched_topic(tmp_path: Path):
     """)
     result = runner.invoke(app, ["wire", "discover", "--repo", str(a), "--repo", str(b), "--format", "json"])
     assert result.exit_code == 0
-    payload = _parse_json_before_notice(result.stdout)
+    payload = _parse_json_before_notice(result.output)
     matched = [t for t in payload["topics"] if t["matched"]]
     assert len(matched) == 1
     assert matched[0]["name"] == "orders"
@@ -129,8 +129,8 @@ def test_discover_json_finds_matched_topic(tmp_path: Path):
 def test_discover_table_runs_cleanly(tmp_path: Path):
     result = runner.invoke(app, ["wire", "discover", "--repo", str(tmp_path)])
     assert result.exit_code == 0
-    assert "Matched" in result.stdout
-    assert "MULTI_REPO_LINKS" in result.stdout
+    assert "Matched" in result.output
+    assert "MULTI_REPO_LINKS" in result.output
 
 
 def test_discover_unknown_format_exits_nonzero(tmp_path: Path):

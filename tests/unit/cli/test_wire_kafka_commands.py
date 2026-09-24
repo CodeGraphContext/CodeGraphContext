@@ -55,8 +55,8 @@ def test_extract_kafka_table_runs_without_error(tmp_path: Path):
         app, ["wire", "extract", "kafka", "--repo", str(tmp_path)]
     )
     assert result.exit_code == 0
-    assert "Kafka producers (1)" in result.stdout
-    assert "MULTI_REPO_LINKS" in result.stdout
+    assert "Kafka producers (1)" in result.output
+    assert "MULTI_REPO_LINKS" in result.output
 
 
 def test_extract_kafka_json_output_is_machine_readable(tmp_path: Path):
@@ -65,7 +65,7 @@ def test_extract_kafka_json_output_is_machine_readable(tmp_path: Path):
         app, ["wire", "extract", "kafka", "--repo", str(tmp_path), "--format", "json"]
     )
     assert result.exit_code == 0
-    payload = _parse_json_before_notice(result.stdout)
+    payload = _parse_json_before_notice(result.output)
     assert payload["profile"] == ""
     assert len(payload["producers"]) == 1
     assert payload["producers"][0]["topic_resolved"] == "orders-resolved"
@@ -84,7 +84,7 @@ def test_extract_kafka_active_profile_wins_over_base(tmp_path: Path):
               "--profile", "prod", "--format", "json"]
     )
     assert result.exit_code == 0
-    payload = _parse_json_before_notice(result.stdout)
+    payload = _parse_json_before_notice(result.output)
     assert payload["profile"] == "prod"
     assert payload["producers"][0]["topic_resolved"] == "orders-prod"
 
@@ -94,7 +94,7 @@ def test_extract_kafka_empty_repo_is_ok(tmp_path: Path):
         app, ["wire", "extract", "kafka", "--repo", str(tmp_path), "--format", "json"]
     )
     assert result.exit_code == 0
-    payload = _parse_json_before_notice(result.stdout)
+    payload = _parse_json_before_notice(result.output)
     assert payload["producers"] == []
     assert payload["consumers"] == []
 
@@ -105,7 +105,7 @@ def test_extract_kafka_unknown_format_exits_nonzero(tmp_path: Path):
         app, ["wire", "extract", "kafka", "--repo", str(tmp_path), "--format", "yaml"]
     )
     assert result.exit_code != 0
-    assert "Unknown --format" in result.stdout
+    assert "Unknown --format" in result.output
 
 
 def test_extract_kafka_json_payload_records_files_scanned(tmp_path: Path):
@@ -114,7 +114,7 @@ def test_extract_kafka_json_payload_records_files_scanned(tmp_path: Path):
         app, ["wire", "extract", "kafka", "--repo", str(tmp_path), "--format", "json"]
     )
     assert result.exit_code == 0
-    payload = _parse_json_before_notice(result.stdout)
+    payload = _parse_json_before_notice(result.output)
     # Prod.java + Cons.java under src/main/java, both scanned.
     assert payload["files_scanned"] == 2
     assert payload["files_skipped"] == 0
@@ -126,7 +126,7 @@ def test_extract_kafka_json_records_fqn_and_call_shape(tmp_path: Path):
     result = runner.invoke(
         app, ["wire", "extract", "kafka", "--repo", str(tmp_path), "--format", "json"]
     )
-    payload = _parse_json_before_notice(result.stdout)
+    payload = _parse_json_before_notice(result.output)
     assert payload["producers"][0]["fqn"] == "com.acme.Prod.publish"
     assert payload["producers"][0]["call_shape"] == "template.send"
     assert payload["consumers"][0]["fqn"] == "com.acme.Cons.handle"
