@@ -86,3 +86,34 @@ def test_clause_position_writes_still_rejected_after_1511():
     assert not is_read_only_cypher("MATCH (n) SET n.load = 1 RETURN n")
     assert not is_read_only_cypher("LOAD CSV FROM 'file:///x' AS row RETURN row")
     assert not is_read_only_cypher("FOREACH (x IN [1] | SET n.x = x)")
+
+def test_allows_allowlisted_introspection_calls():
+    assert is_read_only_cypher("CALL db.labels() YIELD label RETURN label")
+    assert is_read_only_cypher(
+        "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType"
+    )
+    assert is_read_only_cypher("CALL db.propertyKeys() YIELD propertyKey RETURN propertyKey")
+    assert is_read_only_cypher("CALL db.schema.visualization()")
+    assert is_read_only_cypher("CALL db.indexes() YIELD name RETURN name")
+
+
+def test_blocks_call_to_unlisted_procedures():
+    # Neo4j GDS write/mutate procedures: not apoc/dbms/db.*, so the old
+    # name-prefix blocklist missed these; the allowlist rejects them simply
+    # because they aren't on it.
+    assert not is_read_only_cypher(
+        "CALL gds.pageRank.write('g', {writeProperty: 'pr'}) "
+        "YIELD nodePropertiesWritten RETURN nodePropertiesWritten"
+    )
+    assert not is_read_only_cypher("CALL gds.louvain.mutate('g', {mutateProperty: 'community'})")
+    # neosemantics import: SSRF and a write in one call.
+    assert not is_read_only_cypher(
+        "CALL n10s.rdf.import.fetch('http://attacker.example/x.rdf', 'Turtle')"
+    )
+    # Fail closed on a procedure that has never been seen before — the point
+    # of an allowlist over a blocklist.
+    assert not is_read_only_cypher("CALL someplugin.doThing() YIELD result RETURN result")
+
+
+def test_call_subquery_still_rejected():
+    assert not is_read_only_cypher("CALL { MATCH (n) RETURN n } RETURN 1")
