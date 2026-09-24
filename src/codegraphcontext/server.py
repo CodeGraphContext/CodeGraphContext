@@ -353,6 +353,9 @@ class MCPServer:
     def analyze_code_relationships_tool(self, **args) -> Dict[str, Any]:
         return analysis_handlers.analyze_code_relationships(self.code_finder, **args)
 
+    def analyze_impact_tool(self, **args) -> Dict[str, Any]:
+        return analysis_handlers.analyze_impact(self.code_finder, **args)
+
     def find_code_tool(self, **args) -> Dict[str, Any]:
         return analysis_handlers.find_code(self.code_finder, **args)
 
@@ -733,6 +736,7 @@ class MCPServer:
             "find_dead_code": self.find_dead_code_tool,
             "find_code": self.find_code_tool,
             "analyze_code_relationships": self.analyze_code_relationships_tool,
+            "analyze_impact": self.analyze_impact_tool,
             "watch_directory": self.watch_directory_tool,
             "execute_cypher_query": self.execute_cypher_query_tool,
             "add_code_to_graph": self.add_code_to_graph_tool,
