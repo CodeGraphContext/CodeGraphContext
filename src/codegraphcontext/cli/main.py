@@ -47,6 +47,8 @@ from .cli_helpers import (
 )
 from .hook_manager import HookError, get_hook_status, install_hooks, uninstall_hooks
 from codegraphcontext.utils.tool_limits import get_tool_result_limit
+from codegraphcontext.core import graph_snapshot
+from . import snapshot_commands
 
 # Set the log level for the noisy neo4j, asyncio, and urllib3 loggers to keep the output clean.
 # Get the log level from config, defaulting to WARNING
@@ -1077,6 +1079,155 @@ def bundle_merge(
         "[yellow]The bundle may be stale — regenerate it with 'cgc export' after the merge.[/yellow]"
     )
     raise typer.Exit(code=0)
+
+# ============================================================================
+# SNAPSHOT COMMAND GROUP - Save/list index snapshots for `cgc diff` (#1312)
+# ============================================================================
+
+snapshot_app = typer.Typer(help="Save and list graph snapshots for `cgc diff`")
+app.add_typer(snapshot_app, name="snapshot")
+
+
+def _init_snapshot_services(context: Optional[str]):
+    """Resolve credentials and services with stdout reserved for the product.
+
+    `cli_helpers` prints its init chatter on stdout, and every command in this
+    section writes its result there, so the chatter is rerouted to stderr for
+    the init window only and restored afterwards — a permanent rebind leaks a
+    closed stream into later in-process invocations (CliRunner-based tests).
+    """
+    import sys as _sys
+    from . import cli_helpers as _cli_helpers
+    # NB: the .file property GETTER materializes the current (possibly
+    # transient, CliRunner-captured) stream; the dynamic state lives in
+    # ._file, which is None while the console follows sys.stdout live.
+    _prev_console_file = _cli_helpers.console._file
+    _cli_helpers.console.file = _sys.stderr
+    try:
+        _load_credentials()
+        services = _initialize_services(context)
+    finally:
+        _cli_helpers.console._file = _prev_console_file
+    if not all(services[:3]):
+        raise typer.Exit(code=1)
+    return services
+
+
+def _snapshot_fail(exc: Exception):
+    """Render a snapshot/diff failure on stderr and exit: 2 for bad input, 1 otherwise."""
+    console.print(f"[bold red]Error:[/bold red] {exc}")
+    raise typer.Exit(code=2 if isinstance(exc, graph_snapshot.SnapshotUsageError) else 1)
+
+
+@snapshot_app.command("save")
+def snapshot_save(
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="Snapshot name (default: snapshot-YYYYmmdd-HHMMSS)"),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite an existing snapshot with this name"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+    json_output: bool = typer.Option(False, "--json", help="Print a JSON receipt on stdout instead of the summary line"),
+):
+    """
+    Save the current index state as a lightweight snapshot.
+
+    The snapshot is a node/edge manifest with content digests — enough for
+    `cgc diff` to say what changed later, small enough to keep around.
+
+    Example:
+        cgc snapshot save --name before-refactor
+        cgc snapshot save --name ci-42 --json > snapshot.json
+    """
+    try:
+        snapshot_name = (
+            graph_snapshot.validate_name(name) if name else graph_snapshot.default_snapshot_name()
+        )
+    except graph_snapshot.SnapshotUsageError as exc:
+        _snapshot_fail(exc)
+    services = _init_snapshot_services(context)
+    db_manager, _graph_builder, _code_finder, resolved_context = services
+    try:
+        snapshot_commands.run_snapshot_save(
+            db_manager,
+            name=snapshot_name,
+            force=force,
+            ctx=resolved_context,
+            as_json=json_output,
+        )
+    except graph_snapshot.SnapshotError as exc:
+        _snapshot_fail(exc)
+    finally:
+        db_manager.close_driver()
+
+
+@snapshot_app.command("list")
+def snapshot_list(
+    json_output: bool = typer.Option(False, "--json", help="Print the snapshot inventory as JSON on stdout"),
+):
+    """
+    List snapshots saved by `cgc snapshot save`.
+
+    Newest first. Does not open a database connection.
+
+    Example:
+        cgc snapshot list
+        cgc snapshot list --json | jq -r '.snapshots[].name'
+    """
+    try:
+        snapshot_commands.run_snapshot_list(as_json=json_output)
+    except graph_snapshot.SnapshotError as exc:
+        _snapshot_fail(exc)
+
+
+@app.command("diff")
+def diff_command(
+    against: Optional[str] = typer.Option(None, "--against", "-a", help="Snapshot to compare against (default: most recent snapshot)"),
+    json_output: bool = typer.Option(False, "--json", help="Print the full diff document as JSON on stdout"),
+    limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Maximum change lines to print (text output only; JSON is never truncated)"),
+    fail_on_changes: bool = typer.Option(False, "--fail-on-changes", help="Exit 1 when the diff is non-empty (CI gate)"),
+    context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use"),
+):
+    """
+    Show what changed in the graph since a snapshot was saved.
+
+    Exit codes: 0 = no differences (or no gate requested), 1 = differences
+    found with --fail-on-changes, or a snapshot/initialisation error,
+    2 = bad usage.
+
+    Example:
+        cgc snapshot save --name before-refactor
+        # ... edit code, re-index ...
+        cgc diff --against before-refactor
+        cgc diff --against before-refactor --json > changes.json
+        cgc diff --fail-on-changes --json
+    """
+    if against:
+        try:
+            against = graph_snapshot.validate_name(against)
+        except graph_snapshot.SnapshotUsageError as exc:
+            _snapshot_fail(exc)
+    if limit is not None and limit < 0:
+        _snapshot_fail(graph_snapshot.SnapshotUsageError("--limit must be zero or greater"))
+    try:
+        base = snapshot_commands.load_base_snapshot(against)
+    except graph_snapshot.SnapshotError as exc:
+        _snapshot_fail(exc)
+
+    services = _init_snapshot_services(context)
+    db_manager, _graph_builder, _code_finder, resolved_context = services
+    try:
+        changed = snapshot_commands.run_diff(
+            db_manager,
+            base=base,
+            ctx=resolved_context,
+            as_json=json_output,
+            limit=limit,
+        )
+    except graph_snapshot.SnapshotError as exc:
+        _snapshot_fail(exc)
+    finally:
+        db_manager.close_driver()
+
+    if changed and fail_on_changes:
+        raise typer.Exit(code=1)
 
 # ============================================================================
 # HOOK COMMAND GROUP - Git integration
