@@ -138,9 +138,10 @@ DEFAULT_CONFIG = {
     # `Authorization: Bearer <key>` or `X-API-Key`. May also be set via the
     # CGC_API_KEY environment variable (which takes priority).
     "CGC_API_KEY": "",
-    # Multi-repo wire-coupling (PR #1: schema-only; extractors ship in later PRs).
-    # When "false" (default), the graph output is byte-identical to CGC 0.6.13
-    # for every existing user. When "true", downstream PRs will emit new
+    # Multi-repo wire-coupling: scans Kafka/HTTP/gRPC producer/consumer/
+    # server/client call sites across every repo indexed into the same graph
+    # context. When "false" (default), the graph output is byte-identical to
+    # CGC 0.6.13 for every existing user. When "true", indexing emits
     # Topic/Endpoint/ConfigValue nodes plus PRODUCES_TO/CONSUMES_FROM/SERVES/
     # INVOKES/ALIAS_OF edges wiring services together across repositories.
     # Backwards-compatible on/off toggle for the lifetime of the feature.
@@ -244,8 +245,8 @@ CONFIG_DESCRIPTIONS = {
         "WHEN TO ENABLE: multi-service codebases where the dependency graph "
         "between repos matters (event-driven architectures, microservice "
         "meshes, distributed systems). "
-        "PREREQUISITES: none for PR #1 (schema-only). Later PRs add extractors "
-        "and language shims for Java/Python/Go. "
+        "PREREQUISITES: none — extractors ship with this flag for Java, "
+        "Python, and Go (Kafka, HTTP, gRPC). "
         "COST when false (default): zero — pipeline is byte-identical to "
         "CGC 0.6.13. Wire-coupling schema entries stay reserved but unused. "
         "COST when true: one additional walk over parsed source per index run "

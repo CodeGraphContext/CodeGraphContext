@@ -41,7 +41,7 @@ NODE_LABELS = frozenset({
     "DbTable",
     "DbColumn",
     "RedisKeyPattern",
-    # Multi-repo wire-coupling graph (MULTI_REPO_LINKS, PR #1)
+    # Multi-repo wire-coupling graph (MULTI_REPO_LINKS)
     # Nodes are only materialized when MULTI_REPO_LINKS=true at index time.
     # Their presence in this contract is unconditional so consumers reading
     # the schema can pre-declare filters without gating on runtime config.
@@ -83,7 +83,7 @@ RELATIONSHIP_TYPES = frozenset({
     "MAPS_TO",
     "HAS_COLUMN",
     "STORED_IN",
-    # Multi-repo wire-coupling edges (MULTI_REPO_LINKS, PR #1)
+    # Multi-repo wire-coupling edges (MULTI_REPO_LINKS)
     # Only materialized when MULTI_REPO_LINKS=true at index time.
     "PRODUCES_TO",     # Function -> Topic          (Kafka/SQS/Rabbit/PubSub producer)
     "CONSUMES_FROM",   # Function -> Topic          (@KafkaListener, @SqsListener, ...)
@@ -122,11 +122,11 @@ FILE_MERGE_KEYS = ("path",)
 REPOSITORY_MERGE_KEYS = ("path",)
 DIRECTORY_MERGE_KEYS = ("path",)
 
-# Merge keys for wire-coupling nodes (MULTI_REPO_LINKS, PR #1).
+# Merge keys for wire-coupling nodes (MULTI_REPO_LINKS).
 # Every key is a string identity of the *wire address*, never a path — this is
 # what lets producer-in-repo-A and consumer-in-repo-B land on the same node
 # without any cross-repo coordination during indexing.
-TOPIC_MERGE_KEYS = ("system", "name")                       # e.g. ("kafka", "group-chat-notifications")
+TOPIC_MERGE_KEYS = ("system", "name")                       # e.g. ("kafka", "order-events")
 ENDPOINT_MERGE_KEYS = ("protocol", "method", "path")        # e.g. ("http", "POST", "/v1/players/{id}/invitations")
 CONFIG_VALUE_MERGE_KEYS = ("repo_root", "key")              # per-repo scoped; alias linkage is on Topic/Endpoint, not here
 HINT_FILE_MERGE_KEYS = ("path",)                            # absolute path of the loaded hint file
