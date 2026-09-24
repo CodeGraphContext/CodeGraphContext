@@ -191,9 +191,16 @@ def _extract_package(source: str) -> Optional[str]:
 
 
 # Server RPC methods: public void <rpc>(Request req, StreamObserver<Response> resp)
+# Deliberately doesn't try to also match/skip any leading `@Annotation` lines:
+# a `(?:@...)*` prefix here previously nested a quantified `[\w.]+` inside
+# another quantifier with no unambiguous boundary between repetitions, which
+# is a classic catastrophic-backtracking (ReDoS) shape (CodeQL flagged it on
+# input like " @." repeated many times). Annotations aren't captured and
+# finditer() below already matches this pattern at any offset in the body
+# regardless of what precedes it, so skipping them explicitly added no
+# functionality — only the reported line number could shift by the couple of
+# lines an @Override/etc. annotation occupies, which is immaterial here.
 _RPC_METHOD_RE = re.compile(
-    r"(?:@[\w.]+\s*(?:\([^)]*\))?\s*)*"
-    r"(?:@Override\s+)?"
     r"public\s+(?:void|[\w.]+)\s+"
     r"([A-Za-z_]\w*)"
     r"\s*\([^)]*StreamObserver[^)]*\)",
