@@ -88,6 +88,11 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 console = Console(stderr=True)
+# `analyze` prints its primary product (the table, and the notice that there is
+# none), so it goes to stdout like `cgc stats` / `cgc diagram` already do;
+# `console` stays for interactive prompts and diagnostics. Argument validation
+# errors inside those commands remain on the stderr console.
+analyze_result_console = Console()
 
 # Configure basic logging for the application. Default to WARNING so CLI
 # output stays clean; the root --debug flag switches this to DEBUG.
@@ -2645,7 +2650,7 @@ def analyze_calls(
             results = results[:req_limit]
         
         if not results:
-            console.print(f"[yellow]No function calls found for '{function}'[/yellow]")
+            analyze_result_console.print(f"[yellow]No function calls found for '{function}'[/yellow]")
             return
         
         # Check if visual mode is enabled
@@ -2669,12 +2674,12 @@ def analyze_calls(
                 "📦 Dependency" if result.get("called_is_dependency") else "📝 Project"
             )
         
-        console.print(f"\n[bold cyan]Function '{function}' calls:[/bold cyan]")
-        console.print(table)
+        analyze_result_console.print(f"\n[bold cyan]Function '{function}' calls:[/bold cyan]")
+        analyze_result_console.print(table)
         if truncated:
-            console.print(f"\n[dim]Total: {len(results)} function(s) (truncated, {req_limit}+ exist)[/dim]")
+            analyze_result_console.print(f"\n[dim]Total: {len(results)} function(s) (truncated, {req_limit}+ exist)[/dim]")
         else:
-            console.print(f"\n[dim]Total: {len(results)} function(s)[/dim]")
+            analyze_result_console.print(f"\n[dim]Total: {len(results)} function(s)[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -2708,7 +2713,7 @@ def analyze_callers(
             results = results[:req_limit]
         
         if not results:
-            console.print(f"[yellow]No callers found for '{function}'[/yellow]")
+            analyze_result_console.print(f"[yellow]No callers found for '{function}'[/yellow]")
             return
         
         # Check if visual mode is enabled
@@ -2734,12 +2739,12 @@ def analyze_callers(
                 "📦 Dependency" if result.get("caller_is_dependency") else "📝 Project"
                 )
         
-        console.print(f"\n[bold cyan]Functions that call '{function}':[/bold cyan]")
-        console.print(table)
+        analyze_result_console.print(f"\n[bold cyan]Functions that call '{function}':[/bold cyan]")
+        analyze_result_console.print(table)
         if truncated:
-            console.print(f"\n[dim]Total: {len(results)} caller(s) (truncated, {req_limit}+ exist)[/dim]")
+            analyze_result_console.print(f"\n[dim]Total: {len(results)} caller(s) (truncated, {req_limit}+ exist)[/dim]")
         else:
-            console.print(f"\n[dim]Total: {len(results)} caller(s)[/dim]")
+            analyze_result_console.print(f"\n[dim]Total: {len(results)} caller(s)[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -2776,7 +2781,7 @@ def analyze_chain(
             results = results[:req_limit]
         
         if not results:
-            console.print(f"[yellow]No call chain found between '{from_func}' and '{to_func}' within depth {max_depth}[/yellow]")
+            analyze_result_console.print(f"[yellow]No call chain found between '{from_func}' and '{to_func}' within depth {max_depth}[/yellow]")
             return
         
         # Check if visual mode is enabled
@@ -2785,7 +2790,7 @@ def analyze_chain(
             return
         
         for idx, chain in enumerate(results, 1):
-            console.print(f"\n[bold cyan]Call Chain #{idx} (length: {chain.get('chain_length', 0)}):[/bold cyan]")
+            analyze_result_console.print(f"\n[bold cyan]Call Chain #{idx} (length: {chain.get('chain_length', 0)}):[/bold cyan]")
             
             functions = chain.get('function_chain', [])
             call_details = chain.get('call_details', [])
@@ -2794,7 +2799,7 @@ def analyze_chain(
                 indent = "  " * i
                 
                 # Print function
-                console.print(f"{indent}[cyan]{func.get('name', 'Unknown')}[/cyan] [dim]({func.get('path', '')}:{func.get('line_number', '')})[/dim]")
+                analyze_result_console.print(f"{indent}[cyan]{func.get('name', 'Unknown')}[/cyan] [dim]({func.get('path', '')}:{func.get('line_number', '')})[/dim]")
                 
                 # If there is a next step, print the connecting call detail
                 if i < len(functions) - 1 and i < len(call_details):
@@ -2817,7 +2822,7 @@ def analyze_chain(
                             args_str = args_str[:47] + "..."
                         args_info = f" [dim]({args_str})[/dim]"
                     
-                    console.print(f"{indent}  ⬇ [dim]calls at line {line}[/dim]{args_info}")
+                    analyze_result_console.print(f"{indent}  ⬇ [dim]calls at line {line}[/dim]{args_info}")
     finally:
         db_manager.close_driver()
 
@@ -2845,16 +2850,16 @@ def analyze_kotlin_call_audit(
     try:
         result = code_finder.audit_kotlin_call_ambiguity(repo_path=repo_path, limit=limit)
         if json_output:
-            console.print_json(json.dumps(result))
+            analyze_result_console.print_json(json.dumps(result))
         else:
-            console.print("\n[bold cyan]Kotlin CALLS ambiguity audit[/bold cyan]")
+            analyze_result_console.print("\n[bold cyan]Kotlin CALLS ambiguity audit[/bold cyan]")
             summary = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
             summary.add_column("Metric", style="cyan")
             summary.add_column("Value", style="green")
             summary.add_row("Kotlin fn→fn CALLS edges", str(result["kotlin_fn_to_fn_edges"]))
             summary.add_row("Ambiguous groups", str(result["ambiguous_groups"]))
             summary.add_row("Ambiguous edges", str(result["ambiguous_edges"]))
-            console.print(summary)
+            analyze_result_console.print(summary)
 
             if result["examples"]:
                 examples = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
@@ -2871,9 +2876,9 @@ def analyze_kotlin_call_audit(
                         str(example.get("full_call_name") or ""),
                         targets,
                     )
-                console.print(examples)
+                analyze_result_console.print(examples)
             else:
-                console.print("[green]No ambiguous Kotlin call groups found.[/green]")
+                analyze_result_console.print("[green]No ambiguous Kotlin call groups found.[/green]")
 
         if fail_on_ambiguity and result["ambiguous_groups"]:
             raise typer.Exit(1)
@@ -2906,7 +2911,7 @@ def analyze_dependencies(
         results = code_finder.find_module_dependencies(target)
         
         if not results.get('importers') and not results.get('imports'):
-            console.print(f"[yellow]No dependency information found for '{target}'[/yellow]")
+            analyze_result_console.print(f"[yellow]No dependency information found for '{target}'[/yellow]")
             return
         
         # Check if visual mode is enabled
@@ -2919,7 +2924,7 @@ def analyze_dependencies(
             importers = [row for row in importers if not row.get('file_is_dependency')]
 
         if importers:
-            console.print(f"\n[bold cyan]Files that import '{target}':[/bold cyan]")
+            analyze_result_console.print(f"\n[bold cyan]Files that import '{target}':[/bold cyan]")
             table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
             table.add_column("Location", style="cyan", overflow="fold")
 
@@ -2928,11 +2933,11 @@ def analyze_dependencies(
                 line_str = str(imp.get('import_line_number', ''))
                 location_str = f"{path}:{line_str}" if line_str else path
                 table.add_row(location_str)
-            console.print(table)
+            analyze_result_console.print(table)
 
         imports = results.get('imports') or []
         if imports:
-            console.print(f"\n[bold cyan]Modules commonly imported alongside '{target}':[/bold cyan]")
+            analyze_result_console.print(f"\n[bold cyan]Modules commonly imported alongside '{target}':[/bold cyan]")
             imp_table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
             imp_table.add_column("Module", style="cyan")
             imp_table.add_column("Alias", style="dim")
@@ -2941,7 +2946,7 @@ def analyze_dependencies(
                     str(row.get('imported_module', row.get('imported_name', ''))),
                     str(row.get('import_alias', '') or ''),
                 )
-            console.print(imp_table)
+            analyze_result_console.print(imp_table)
     finally:
         db_manager.close_driver()
 
@@ -2976,38 +2981,38 @@ def analyze_inheritance_tree(
             if has_hierarchy:
                 visualize_inheritance_tree(results, class_name)
             else:
-                console.print(f"[yellow]No inheritance hierarchy to visualize for '{class_name}'[/yellow]")
+                analyze_result_console.print(f"[yellow]No inheritance hierarchy to visualize for '{class_name}'[/yellow]")
             return
         
-        console.print(f"\n[bold cyan]Class Hierarchy for '{class_name}':[/bold cyan]\n")
+        analyze_result_console.print(f"\n[bold cyan]Class Hierarchy for '{class_name}':[/bold cyan]\n")
         
         # Show parent classes
         if results.get('parent_classes'):
-            console.print("[bold yellow]Parents (inherits from):[/bold yellow]")
+            analyze_result_console.print("[bold yellow]Parents (inherits from):[/bold yellow]")
             for parent in results['parent_classes']:
-                console.print(f"  ⬆ [cyan]{parent.get('parent_class', '')}[/cyan] [dim]({parent.get('parent_file_path', '')}:{parent.get('parent_line_number', '')})[/dim]")
+                analyze_result_console.print(f"  ⬆ [cyan]{parent.get('parent_class', '')}[/cyan] [dim]({parent.get('parent_file_path', '')}:{parent.get('parent_line_number', '')})[/dim]")
         else:
-            console.print("[dim]No parent classes found[/dim]")
+            analyze_result_console.print("[dim]No parent classes found[/dim]")
         
-        console.print()
+        analyze_result_console.print()
         
         # Show child classes
         if results.get('child_classes'):
-            console.print("[bold yellow]Children (classes that inherit from this):[/bold yellow]")
+            analyze_result_console.print("[bold yellow]Children (classes that inherit from this):[/bold yellow]")
             for child in results['child_classes']:
-                console.print(f"  ⬇ [cyan]{child.get('child_class', '')}[/cyan] [dim]({child.get('child_file_path', '')}:{child.get('child_line_number', '')})[/dim]")
+                analyze_result_console.print(f"  ⬇ [cyan]{child.get('child_class', '')}[/cyan] [dim]({child.get('child_file_path', '')}:{child.get('child_line_number', '')})[/dim]")
         else:
-            console.print("[dim]No child classes found[/dim]")
+            analyze_result_console.print("[dim]No child classes found[/dim]")
         
-        console.print()
+        analyze_result_console.print()
         
         # Show methods
         if results.get('methods'):
-            console.print(f"[bold yellow]Methods ({len(results['methods'])}):[/bold yellow]")
+            analyze_result_console.print(f"[bold yellow]Methods ({len(results['methods'])}):[/bold yellow]")
             for method in results['methods'][:10]:  # Limit to 10
-                console.print(f"  • [green]{method.get('method_name', '')}[/green]({method.get('method_args', '')})")
+                analyze_result_console.print(f"  • [green]{method.get('method_name', '')}[/green]({method.get('method_args', '')})")
             if len(results['methods']) > 10:
-                console.print(f"  [dim]... and {len(results['methods']) - 10} more[/dim]")
+                analyze_result_console.print(f"  [dim]... and {len(results['methods']) - 10} more[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -3123,7 +3128,7 @@ def analyze_complexity(
 
     def _render_complexity_table(results, title):
         if not results:
-            console.print("[yellow]No complexity data available for this file[/yellow]")
+            analyze_result_console.print("[yellow]No complexity data available for this file[/yellow]")
             return
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
         table.add_column("Function", style="cyan")
@@ -3140,9 +3145,9 @@ def analyze_complexity(
                 f"[{color}]{complexity}[/{color}]",
                 location_str
             )
-        console.print(f"\n[bold cyan]{title}[/bold cyan]")
-        console.print(table)
-        console.print(f"\n[dim]{len([f for f in results if f.get('complexity', 0) > threshold])} function(s) exceed threshold[/dim]")
+        analyze_result_console.print(f"\n[bold cyan]{title}[/bold cyan]")
+        analyze_result_console.print(table)
+        analyze_result_console.print(f"\n[dim]{len([f for f in results if f.get('complexity', 0) > threshold])} function(s) exceed threshold[/dim]")
 
     violations = None
     try:
@@ -3169,12 +3174,12 @@ def analyze_complexity(
             if machine_output:
                 _emit_machine(violations)
             elif result:
-                console.print(f"\n[bold cyan]Complexity for '{path}':[/bold cyan]")
-                console.print(f"  Cyclomatic Complexity: [yellow]{result.get('complexity', 'N/A')}[/yellow]")
-                console.print(f"  File: [dim]{result.get('path', '')}[/dim]")
-                console.print(f"  Line: [dim]{result.get('line_number', '')}[/dim]")
+                analyze_result_console.print(f"\n[bold cyan]Complexity for '{path}':[/bold cyan]")
+                analyze_result_console.print(f"  Cyclomatic Complexity: [yellow]{result.get('complexity', 'N/A')}[/yellow]")
+                analyze_result_console.print(f"  File: [dim]{result.get('path', '')}[/dim]")
+                analyze_result_console.print(f"  Line: [dim]{result.get('line_number', '')}[/dim]")
             else:
-                console.print(f"[yellow]Function '{path}' not found or has no complexity data[/yellow]")
+                analyze_result_console.print(f"[yellow]Function '{path}' not found or has no complexity data[/yellow]")
         elif file:
             # --file option without positional arg
             results = code_finder.find_most_complex_functions_in_file(file, effective_limit)
@@ -3244,7 +3249,7 @@ def analyze_dead_code(
         total_count = results.get('total_count', len(unused_funcs))
 
         if not unused_funcs:
-            console.print("[green]✓ No dead code found![/green]")
+            analyze_result_console.print("[green]✓ No dead code found![/green]")
             return
         
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
@@ -3267,15 +3272,15 @@ def analyze_dead_code(
                 location_str,
             )
         
-        console.print("\n[bold yellow]⚠️  Potentially Unused Functions:[/bold yellow]")
-        console.print(table)
+        analyze_result_console.print("\n[bold yellow]⚠️  Potentially Unused Functions:[/bold yellow]")
+        analyze_result_console.print(table)
         if total_count > len(unused_funcs):
-            console.print(
+            analyze_result_console.print(
                 f"\n[dim]Total: {total_count} function(s); "
                 f"showing the first {len(unused_funcs)} by path[/dim]"
             )
         else:
-            console.print(f"\n[dim]Total: {total_count} function(s)[/dim]")
+            analyze_result_console.print(f"\n[dim]Total: {total_count} function(s)[/dim]")
         counts = results.get('confidence_counts') or {}
         if counts:
             summary = (
@@ -3285,8 +3290,8 @@ def analyze_dead_code(
             )
             if not show_all:
                 summary += " [dim](low-confidence categories are hidden — use --show-all)[/dim]"
-            console.print(summary)
-        console.print(f"[dim]Note: {results.get('note', '')}[/dim]")
+            analyze_result_console.print(summary)
+        analyze_result_console.print(f"[dim]Note: {results.get('note', '')}[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -3321,7 +3326,7 @@ def analyze_overrides(
             results = results[:req_limit]
         
         if not results:
-            console.print(f"[yellow]No implementations found for function '{function_name}'[/yellow]")
+            analyze_result_console.print(f"[yellow]No implementations found for function '{function_name}'[/yellow]")
             return
         
         # Check if visual mode is enabled
@@ -3345,10 +3350,10 @@ def analyze_overrides(
                 location_str
             )
         
-        console.print(f"\n[bold cyan]Found {len(results)} implementation(s) of '{function_name}':[/bold cyan]")
-        console.print(table)
+        analyze_result_console.print(f"\n[bold cyan]Found {len(results)} implementation(s) of '{function_name}':[/bold cyan]")
+        analyze_result_console.print(table)
         if truncated:
-            console.print(f"[dim]... truncated ({req_limit} shown), more exist[/dim]")
+            analyze_result_console.print(f"[dim]... truncated ({req_limit} shown), more exist[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -3380,10 +3385,10 @@ def analyze_variable_usage(
         instances = scope_results.get('instances', [])
         
         if not instances:
-            console.print(f"[yellow]No instances found for variable '{variable_name}'[/yellow]")
+            analyze_result_console.print(f"[yellow]No instances found for variable '{variable_name}'[/yellow]")
             return
         
-        console.print(f"\n[bold cyan]Variable '{variable_name}' Usage Analysis:[/bold cyan]\n")
+        analyze_result_console.print(f"\n[bold cyan]Variable '{variable_name}' Usage Analysis:[/bold cyan]\n")
         
         # Group by scope type
         by_scope = {}
@@ -3395,7 +3400,7 @@ def analyze_variable_usage(
         
         # Display by scope
         for scope_type, items in by_scope.items():
-            console.print(f"[bold yellow]{scope_type.upper()} Scope ({len(items)} instance(s)):[/bold yellow]")
+            analyze_result_console.print(f"[bold yellow]{scope_type.upper()} Scope ({len(items)} instance(s)):[/bold yellow]")
             
             table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
             table.add_column("Scope Name", style="cyan")
@@ -3413,10 +3418,10 @@ def analyze_variable_usage(
                     str(item.get('variable_value', ''))[:50] if item.get('variable_value') else '-'
                 )
             
-            console.print(table)
-            console.print()
+            analyze_result_console.print(table)
+            analyze_result_console.print()
         
-        console.print(f"[dim]Total: {len(instances)} instance(s) across {len(by_scope)} scope type(s)[/dim]")
+        analyze_result_console.print(f"[dim]Total: {len(instances)} instance(s) across {len(by_scope)} scope type(s)[/dim]")
     finally:
         db_manager.close_driver()
 
