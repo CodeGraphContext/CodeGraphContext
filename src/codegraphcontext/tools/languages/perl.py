@@ -320,7 +320,7 @@ def pre_scan_perl(files: List[Path], parser_wrapper) -> Dict[str, List[str]]:
                 name = node.text.decode('utf-8')
                 if name not in name_to_files:
                     name_to_files[name] = []
-                name_to_files[name].append(str(path.resolve()))
+                name_to_files[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Error pre-scanning Perl file {path}: {e}")
     return name_to_files

@@ -112,7 +112,7 @@ def list_bundles(verbose: bool = False, unique: bool = False):
         table.add_column("Download URL", style="blue", no_wrap=False)
     
     # Sort by full_name to group versions together
-    bundles.sort(key=lambda b: (b.get('name', ''), b.get('full_name', '')))
+    bundles.sort(key=lambda b: ((b.get('name') or ''), (b.get('full_name') or '')))
     
     for bundle in bundles:
         # Use full_name for display (includes version info)
@@ -163,10 +163,10 @@ def search_bundles(query: str):
     query_lower = query.lower()
     matching_bundles = [
         b for b in bundles
-        if query_lower in b.get('name', '').lower() or
-           query_lower in b.get('full_name', '').lower() or
-           query_lower in b.get('repo', '').lower() or
-           query_lower in b.get('description', '').lower()
+        if query_lower in (b.get('name') or '').lower() or
+           query_lower in (b.get('full_name') or '').lower() or
+           query_lower in (b.get('repo') or '').lower() or
+           query_lower in (b.get('description') or '').lower()
     ]
     
     if not matching_bundles:
@@ -407,7 +407,7 @@ def load_bundle_command(bundle_name: str, clear_existing: bool = False):
         if not all(services):
             return (False, "Failed to initialize database services", {})
         
-        db_manager, _, _ = services
+        db_manager, _, _, _ = services
         
         # Check if bundle exists locally
         bundle_path = Path(bundle_name)

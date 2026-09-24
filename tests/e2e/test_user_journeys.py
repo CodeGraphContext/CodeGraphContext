@@ -19,13 +19,16 @@ class TestUserJourneys:
     simulating a real user interacting with the installed tool.
     """
 
-    def run_cgc(self, args, cwd=None, db_path=None):
+    def run_cgc(self, args, cwd=None, db_path=None, env=None):
         """Helper to run cgc cli."""
         cmd = [sys.executable, "-m", "codegraphcontext.cli.main"]
         if db_path:
             cmd += ["--path", str(db_path)]
         cmd += args
-        return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
+        run_env = os.environ.copy()
+        if env:
+            run_env.update(env)
+        return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=run_env)
 
     @pytest.mark.skipif(not KUZU_AVAILABLE, reason="KuzuDB not installed")
     @pytest.mark.slow
@@ -63,8 +66,11 @@ class TestUserJourneys:
 
     @pytest.mark.skipif(not KUZU_AVAILABLE, reason="KuzuDB not installed")
     @pytest.mark.slow
-    def test_clean_up(self, temp_test_dir):
+    def test_clean_up(self, temp_test_dir, monkeypatch):
         """User wants to remove a repo."""
+        # Deletion is gated behind ALLOW_DB_DELETION (opt-in safety flag);
+        # enable it for this journey so the delete subprocess is permitted.
+        monkeypatch.setenv("ALLOW_DB_DELETION", "true")
         # Setup: Create dummy repo
         dummy_dir = temp_test_dir / "to_delete"
         dummy_dir.mkdir()
@@ -74,12 +80,15 @@ class TestUserJourneys:
         self.run_cgc(["--db", "kuzudb", "index", str(dummy_dir)], db_path=db_path)
         
         # Act: Delete
-        result = self.run_cgc(["--db", "kuzudb", "delete", str(dummy_dir), "--yes"], db_path=db_path)
+        env = {"ALLOW_DB_DELETION": "true"}
+        result = self.run_cgc(["--db", "kuzudb", "delete", str(dummy_dir), "--yes"], db_path=db_path, env=env)
         
         # If --yes is not supported or failed, try interactive
         if result.returncode != 0:
             cmd = [sys.executable, "-m", "codegraphcontext.cli.main", "--path", str(db_path), "--db", "kuzudb", "delete", str(dummy_dir)]
-            result = subprocess.run(cmd, input="y\n", capture_output=True, text=True)
+            run_env = os.environ.copy()
+            run_env.update(env)
+            result = subprocess.run(cmd, input="y\n", capture_output=True, text=True, env=run_env)
 
         assert result.returncode == 0, f"Delete failed: {result.stderr}"
         

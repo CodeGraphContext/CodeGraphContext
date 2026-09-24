@@ -14,7 +14,7 @@ from codegraphcontext.cli.main import app
 runner = CliRunner()
 
 class _FakeDBManager:
-    def get_driver(self):
+    def get_driver(self, graph_name=None):
         return MagicMock()
 
     def close_driver(self):

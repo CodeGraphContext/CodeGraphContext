@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { useSearchParams, useParams, useLocation } from "react-router-dom";
-import CodeGraphViewer from "../components/CodeGraphViewer";
+const CodeGraphViewer = lazy(() => import("../components/CodeGraphViewer"));
 import LocalUploader from "../components/LocalUploader";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
@@ -1118,11 +1118,18 @@ const Explore = () => {
           </motion.div>
         ) : (
           <div className="w-full h-full relative">
-            <CodeGraphViewer 
-              key="viewer" 
-              data={graphData} 
-              onClose={() => setGraphData(null)}
-            />
+            <Suspense fallback={
+              <div className="w-full h-full flex flex-col items-center justify-center bg-black text-white font-mono text-sm gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+                <span>Loading Viewer...</span>
+              </div>
+            }>
+              <CodeGraphViewer 
+                key="viewer" 
+                data={graphData} 
+                onClose={() => setGraphData(null)}
+              />
+            </Suspense>
           </div>
         )}
       </AnimatePresence>

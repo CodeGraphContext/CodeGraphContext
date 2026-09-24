@@ -6,9 +6,14 @@ from codegraphcontext.utils.tree_sitter_manager import execute_query
 
 RUBY_QUERIES = {
     "functions": """
-        (method
-            name: (identifier) @name
-        ) @function_node
+        [
+            (method
+                name: (identifier) @name
+            )
+            (singleton_method
+                name: (identifier) @name
+            )
+        ] @function_node
     """,
     "classes": """
         (class
@@ -42,6 +47,14 @@ RUBY_QUERIES = {
         )
         (assignment
             left: (instance_variable) @name
+            right: (_) @value
+        )
+        (assignment
+            left: (class_variable) @name
+            right: (_) @value
+        )
+        (assignment
+            left: (global_variable) @name
             right: (_) @value
         )
     """,
@@ -180,14 +193,47 @@ class RubyTreeSitterParser:
             prev_sibling = prev_sibling.prev_sibling
         return None
 
+    # Ruby parameter node types, and the prefix each carries in source. The
+    # bare `identifier` case is a required positional parameter.
+    _PARAM_PREFIXES = {
+        'optional_parameter': '',        # b = 1
+        'keyword_parameter': '',         # key:
+        'splat_parameter': '*',          # *rest
+        'hash_splat_parameter': '**',    # **opts
+        'block_parameter': '&',          # &blk
+    }
+
     def _parse_method_parameters(self, method_node: Any) -> list[str]:
-        """Parse method parameters from a method node."""
+        """Parse method parameters from a method node.
+
+        Parameters live inside a `method_parameters` child, not directly on the
+        method — the only direct `identifier` child is the method's own name,
+        which this used to skip, so every Ruby method reported no parameters at
+        all and no `HAS_PARAMETER` edge was ever created.
+        """
+        params_node = method_node.child_by_field_name('parameters')
+        if params_node is None:
+            params_node = next(
+                (c for c in method_node.children
+                 if c.type in ('method_parameters', 'parameters', 'bare_parameters')),
+                None,
+            )
+        if params_node is None:
+            return []
+
         params = []
-        # Look for parameters in the method node
-        for child in method_node.children:
-            if child.type == 'identifier' and child != method_node.child_by_field_name('name'):
-                # This is likely a parameter
+        for child in params_node.children:
+            if not child.is_named:
+                continue  # punctuation: ( ) ,
+            if child.type == 'identifier':
                 params.append(self._get_node_text(child))
+                continue
+            prefix = self._PARAM_PREFIXES.get(child.type)
+            if prefix is None:
+                continue
+            name_node = next((c for c in child.children if c.type == 'identifier'), None)
+            if name_node is not None:
+                params.append(prefix + self._get_node_text(name_node))
         return params
 
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict[str, Any]:
@@ -297,23 +343,26 @@ class RubyTreeSitterParser:
         # Collect all captures first
         all_captures = list(execute_query(self.language, query_str, root_node))
         
-        # Group captures by class node using a different approach
+        # Read each class's own `name` field rather than matching @name captures
+        # to classes by byte range. An outer class always contains an inner
+        # class's name node, so range-matching assigned the inner name to the
+        # outer class (the first container, in document order) and left the
+        # inner entry nameless — where it was then dropped. `class Client`
+        # wrapping `class TimeoutError` yielded exactly one class, named
+        # TimeoutError, carrying Client's line range.
         captures_by_class = {}
         for node, capture_name in all_captures:
-            if capture_name == 'class':
-                captures_by_class[id(node)] = {'node': node, 'name': None}
-        
-        # Now find names for each class
-        for node, capture_name in all_captures:
-            if capture_name == 'name':
-                # Find which class this name belongs to
-                for class_id, class_data in captures_by_class.items():
-                    class_node = class_data['node']
-                    # Check if this name node is within the class node
-                    if (node.start_byte >= class_node.start_byte and 
-                        node.end_byte <= class_node.end_byte):
-                        captures_by_class[class_id]['name'] = self._get_node_text(node)
-                        break
+            if capture_name != 'class':
+                continue
+            name_node = node.child_by_field_name('name')
+            if name_node is None:
+                # tree-sitter-ruby gives the `class` keyword token the same
+                # node type as the definition; only the definition has a name.
+                continue
+            captures_by_class[id(node)] = {
+                'node': node,
+                'name': self._get_node_text(name_node),
+            }
 
         # Build class entries
         for class_data in captures_by_class.values():
@@ -439,13 +488,18 @@ class RubyTreeSitterParser:
                         captures_by_call[call_id]['name'] = self._get_node_text(node)
                 
                 elif capture_name == 'receiver':
-                    captures_by_call[call_id]['receiver'] = self._get_node_text(node)
+                    # Field check, like the name branch: byte-range containment
+                    # alone let nested calls steal each other's receiver —
+                    # `logger.info(formatter.render(x))` recorded `info` with
+                    # full_name "formatter.info" (#1538).
+                    if node == call_node.child_by_field_name('receiver'):
+                        captures_by_call[call_id]['receiver'] = self._get_node_text(node)
                 
                 elif capture_name == 'args':
-                     # Capture arguments
-                    args_text = self._get_node_text(node)
-                    # Simple heuristic: split by comma
-                    captures_by_call[call_id]['args'] = [a.strip() for a in args_text.strip("()").split(',') if a.strip()]
+                    if node == call_node.child_by_field_name('arguments'):
+                        args_text = self._get_node_text(node)
+                        # Simple heuristic: split by comma
+                        captures_by_call[call_id]['args'] = [a.strip() for a in args_text.strip("()").split(',') if a.strip()]
 
         for call_data in captures_by_call.values():
             call_node = call_data['node']
@@ -491,7 +545,12 @@ class RubyTreeSitterParser:
                 while current and current.type != 'assignment':
                     current = current.parent
                 if current:
-                    assignment_id = id(current)
+                    # id() of a tree-sitter node is a fresh wrapper each
+                    # access (n1 == n2 while id(n1) != id(n2)), which split
+                    # the @name/@value captures of ONE assignment into two
+                    # buckets — value was always None (#1660). Key on the
+                    # node's span instead.
+                    assignment_id = (current.start_byte, current.end_byte)
                     if assignment_id not in captures_by_assignment:
                         captures_by_assignment[assignment_id] = {'node': current, 'name': None, 'value': None}
                     captures_by_assignment[assignment_id]['name'] = self._get_node_text(node)
@@ -501,7 +560,7 @@ class RubyTreeSitterParser:
                 while current and current.type != 'assignment':
                     current = current.parent
                 if current:
-                    assignment_id = id(current)
+                    assignment_id = (current.start_byte, current.end_byte)
                     if assignment_id not in captures_by_assignment:
                         captures_by_assignment[assignment_id] = {'node': current, 'name': None, 'value': None}
                     captures_by_assignment[assignment_id]['value'] = self._get_node_text(node)
@@ -514,10 +573,12 @@ class RubyTreeSitterParser:
             if name:
                 # Determine variable type based on name prefix
                 var_type = "local"
-                if name.startswith("@"):
-                    var_type = "instance"
-                elif name.startswith("@@"):
+                # @@ must be tested before @: startswith("@") matches
+                # "@@count" too, which left the class branch dead (#1660).
+                if name.startswith("@@"):
                     var_type = "class"
+                elif name.startswith("@"):
+                    var_type = "instance"
                 elif name.startswith("$"):
                     var_type = "global"
 
@@ -548,19 +609,22 @@ def pre_scan_ruby(files: list[Path], parser_wrapper) -> dict:
         (method
             name: (identifier) @name
         )
+        (singleton_method
+            name: (identifier) @name
+        )
     """
     
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 tree = parser_wrapper.parser.parse(bytes(f.read(), "utf8"))
 
             for capture, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(path.resolve()))
+                imports_map[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     

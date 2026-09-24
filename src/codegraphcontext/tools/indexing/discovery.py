@@ -13,9 +13,13 @@ from .constants import DEFAULT_IGNORE_PATTERNS
 # Must stay in sync with GraphBuilder.generic_extensions / generic_filenames.
 _GENERIC_EXTENSIONS: FrozenSet[str] = frozenset({
     ".toml", ".sh", ".yaml", ".yml", ".json", ".ini", ".cfg",
-    ".md", ".txt", ".env", ".bat", ".ps1", ".dockerignore", ".gitignore",
+    ".md", ".txt", ".bat", ".ps1",
 })
-_GENERIC_FILENAMES: FrozenSet[str] = frozenset({"Dockerfile", "Makefile"})
+# Literal dotfiles/config filenames have no suffix (e.g. Path(".gitignore").suffix == ""),
+# so they must be matched by name rather than extension.
+_GENERIC_FILENAMES: FrozenSet[str] = frozenset({
+    "Dockerfile", "Makefile", ".gitignore", ".dockerignore", ".env",
+})
 
 
 def safe_walk(

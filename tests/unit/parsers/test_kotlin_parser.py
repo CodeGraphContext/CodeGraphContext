@@ -26,9 +26,19 @@ def _write_and_parse(parser, src: str, suffix: str = ".kt") -> dict:
         mode="w", suffix=suffix, delete=False, encoding="utf-8"
     ) as f:
         f.write(src)
-        tmp = f.name
+        # Resolve before parsing, not after. On macOS tempfile hands back
+        # /var/folders/... while /var is a symlink to /private/var, and the
+        # call-resolution layer stores the fully resolved path -- so any test
+        # comparing an edge's called_file_path against Path(data["path"])
+        # compares /private/var/... to /var/... and fails on a clean
+        # checkout. Resolving here makes data["path"] already canonical, so
+        # every such comparison in this file holds without each one having
+        # to remember to call .resolve(). See issue #1608.
+        tmp = str(Path(f.name).resolve())
     try:
-        return parser.parse(Path(tmp))
+        result = parser.parse(Path(tmp))
+        assert isinstance(result, dict)
+        return result
     finally:
         os.unlink(tmp)
 
@@ -38,6 +48,9 @@ def _write_source(root: Path, relative_path: str, src: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(src, encoding="utf-8")
     return path
+
+
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "sample_projects"
 
 
 EVENT_PROCESSOR_SRC = """
@@ -682,6 +695,21 @@ class B {
         assert workers == [("Worker", 4), ("Worker", 9)]
         assert runs == [(5, "Worker", 4), (10, "Worker", 9)]
         assert "class_context_line" not in top
+
+    def test_single_line_object_with_function_is_parsed(self, parser):
+        data = _write_and_parse(parser, "object A { fun x() = 1 }")
+
+        parsed_object = next(obj for obj in data["objects"] if obj["name"] == "A")
+        parsed_function = next(fn for fn in data["functions"] if fn["name"] == "x")
+
+        assert parsed_object["node_type"] == "object_declaration"
+        assert parsed_function["class_context"] == "A"
+        assert parsed_function["class_context_line"] == 1
+
+    def test_anonymous_single_line_object_is_not_indexed_as_named_object(self, parser):
+        data = _write_and_parse(parser, "val a = object { fun x() = 1 }")
+
+        assert data["objects"] == []
 
     def test_nested_constructor_call_resolves_nearest_same_named_class(self, parser):
         data = _write_and_parse(
@@ -4088,3 +4116,631 @@ class TestKotlinSemanticResolution:
         }
         assert calls_by_name["fromCall.applyEvent"]["inferred_obj_type"] is None
         assert calls_by_name["fromComparison.applyEvent"]["inferred_obj_type"] is None
+
+
+class TestKotlinDecorators:
+    """Annotation extraction into the `decorators` property (PR 1a)."""
+
+    def test_plain_function_emits_empty_decorators_list(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            fun plain(): Int {
+                return 1
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "plain")
+        # The key must be present and an empty list -- not missing, not None.
+        # find_dead_code filters with NOT ANY(d IN func.decorators ...), which
+        # evaluates NULL (not TRUE) against an unset property, silently dropping
+        # un-annotated functions from results.
+        assert "decorators" in fn
+        assert fn["decorators"] == []
+
+    def test_single_annotation_on_function(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            fun Greeting(name: String) {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "Greeting")
+        assert fn["decorators"] == ["@Composable"]
+
+    def test_multiple_annotations_preserve_source_order(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            @Preview(showBackground = true)
+            fun GreetingPreview() {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "GreetingPreview")
+        assert fn["decorators"] == ["@Composable", "@Preview(showBackground = true)"]
+
+    def test_annotation_arguments_are_retained_verbatim(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Query("SELECT * FROM users")
+            fun all() {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "all")
+        assert fn["decorators"] == ['@Query("SELECT * FROM users")']
+
+    def test_visibility_and_function_modifiers_do_not_leak(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            private inline suspend fun Greeting(name: String) {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "Greeting")
+        # `private` and `inline` are visibility_modifier / function_modifier
+        # siblings inside the same `modifiers` node. They belong to PR 1b.
+        assert fn["decorators"] == ["@Composable"]
+
+    def test_multiline_annotation_is_collapsed_to_one_line(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Deprecated(
+                message = "old",
+                replaceWith = ReplaceWith("newThing()")
+            )
+            fun multiLine() {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "multiLine")
+        assert fn["decorators"] == [
+            '@Deprecated( message = "old", replaceWith = ReplaceWith("newThing()") )'
+        ]
+
+    def test_annotated_class_carries_decorators(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @HiltViewModel
+            class MyViewModel {
+                fun load() {
+                }
+            }
+            """,
+        )
+        cls = next(c for c in data["classes"] if c["name"] == "MyViewModel")
+        assert cls["decorators"] == ["@HiltViewModel"]
+
+    def test_plain_class_emits_empty_decorators_list(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            class Plain {
+            }
+            """,
+        )
+        cls = next(c for c in data["classes"] if c["name"] == "Plain")
+        assert "decorators" in cls
+        assert cls["decorators"] == []
+
+    def test_annotation_class_keyword_is_not_a_decorator(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            annotation class Fancy(val id: Int)
+            """,
+        )
+        cls = next(c for c in data["classes"] if c["name"] == "Fancy")
+        # `annotation` here is the class_modifier keyword, not an annotation.
+        # It parses to a node of type `annotation` nested under `class_modifier`,
+        # so only scanning *direct* children of `modifiers` excludes it.
+        assert cls["decorators"] == []
+
+    def test_interface_carries_decorators(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Dao
+            interface UserDao {
+                @Query("SELECT * FROM users")
+                fun all(): Int
+            }
+            """,
+        )
+        iface = next(c for c in data["interfaces"] if c["name"] == "UserDao")
+        # The Interface node table acquired a `decorators` column in Task 1.
+        # Task 2 removed the category gate, so interfaces now carry decorators.
+        assert iface["decorators"] == ["@Dao"]
+
+        # The interface's methods are function_declaration nodes and DO carry
+        # decorators -- which is what preserves the dead-code payoff for @Dao types.
+        fn = next(f for f in data["functions"] if f["name"] == "all")
+        assert fn["decorators"] == ['@Query("SELECT * FROM users")']
+
+    def test_android_fixture_annotations_are_extracted(self, parser):
+        fixture = FIXTURES / "sample_project_kotlin" / "AndroidAnnotations.kt"
+        data = parser.parse(fixture)
+
+        greeting = next(f for f in data["functions"] if f["name"] == "Greeting")
+        assert greeting["decorators"] == ["@Composable"]
+
+        greeting_preview = next(
+            f for f in data["functions"] if f["name"] == "GreetingPreview"
+        )
+        assert greeting_preview["decorators"] == [
+            "@Composable",
+            '@Preview(showBackground = true, name = "Greeting preview")',
+        ]
+
+        find_all = next(f for f in data["functions"] if f["name"] == "findAll")
+        assert find_all["decorators"] == ['@Query("SELECT * FROM users")']
+
+        helped = next(f for f in data["functions"] if f["name"] == "helped")
+        assert helped["decorators"] == []
+
+        user_view_model = next(c for c in data["classes"] if c["name"] == "UserViewModel")
+        assert user_view_model["decorators"] == ["@HiltViewModel"]
+
+        user_entity = next(c for c in data["classes"] if c["name"] == "UserEntity")
+        assert user_entity["decorators"] == ['@Entity(tableName = "users")']
+
+        plain_helper = next(c for c in data["classes"] if c["name"] == "PlainHelper")
+        assert plain_helper["decorators"] == []
+
+        # The stub `annotation class` declarations must not pick up their own
+        # `annotation` keyword as a decorator.
+        composable = next(c for c in data["classes"] if c["name"] == "Composable")
+        assert composable["decorators"] == []
+
+    def test_visibility_defaults_to_public(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            fun plain() {
+            }
+            """)
+        fn = next(f for f in data["functions"] if f["name"] == "plain")
+        # Kotlin's default is public; emit it explicitly so queries need no
+        # null handling.
+        assert fn["visibility"] == "public"
+        assert fn["modifiers"] == []
+
+    def test_explicit_visibility_and_function_modifiers(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            private suspend inline fun work() {
+            }
+            """)
+        fn = next(f for f in data["functions"] if f["name"] == "work")
+        assert fn["visibility"] == "private"
+        assert fn["modifiers"] == ["suspend", "inline"]
+
+    def test_override_is_captured_as_a_modifier(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            class VM : Base() {
+                override fun onCreate() {
+                }
+            }
+            """)
+        fn = next(f for f in data["functions"] if f["name"] == "onCreate")
+        # `override` is a member_modifier. G2 treats these as live.
+        assert "override" in fn["modifiers"]
+
+    def test_class_kind_modifiers(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            sealed class A
+            data class B(val x: Int)
+            internal value class C(val v: Int)
+            """)
+        by = {c["name"]: c for c in data["classes"]}
+        assert by["A"]["modifiers"] == ["sealed"]
+        assert by["B"]["modifiers"] == ["data"]
+        assert by["C"]["modifiers"] == ["value"]
+        assert by["C"]["visibility"] == "internal"
+
+    def test_enum_is_recorded_even_though_it_is_not_a_modifier_node(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            enum class Color { RED, GREEN }
+            """)
+        cls = next(c for c in data["classes"] if c["name"] == "Color")
+        # `enum class` produces NO modifiers node -- `enum` is a direct keyword
+        # child of class_declaration, like `interface`. Derived separately so
+        # that `modifiers` is the single place to ask what kind of class this is.
+        assert cls["modifiers"] == ["enum"]
+
+    def test_interface_and_object_now_carry_decorators(self, parser):
+        data = _write_and_parse(parser, """
+            package com.example
+
+            @Dao
+            interface UserDao {
+                fun all(): Int
+            }
+
+            @Module
+            object AppModule {
+                fun provide(): Int = 1
+            }
+            """)
+        iface = next(c for c in data["interfaces"] if c["name"] == "UserDao")
+        obj = next(c for c in data["objects"] if c["name"] == "AppModule")
+        # 1a gated these out because the columns did not exist. Task 1 added them.
+        assert iface["decorators"] == ["@Dao"]
+        assert obj["decorators"] == ["@Module"]
+
+    def test_composable_function_flags_is_composable_true(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Composable
+            fun Greeting(name: String) {
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "Greeting")
+        assert fn["is_composable"] is True
+
+    def test_plain_function_flags_is_composable_false(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            fun plain(): Int {
+                return 1
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "plain")
+        assert fn["is_composable"] is False
+
+    def test_composable_target_annotation_does_not_flag_is_composable(self, parser):
+        """Word boundary in regex prevents matching @ComposableTarget and similar.
+
+        This is the boundary test that justifies using a regex instead of a substring check.
+        """
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @ComposableTarget
+            fun special(): Int {
+                return 1
+            }
+            """,
+        )
+        fn = next(f for f in data["functions"] if f["name"] == "special")
+        # Both assertions are necessary: the first proves @ComposableTarget
+        # was extracted, making the second meaningful.
+        assert fn["decorators"] == ["@ComposableTarget"]
+        assert fn["is_composable"] is False
+
+
+
+class TestKotlinSingleLineObject:
+    """`object A { fun x() = 1 }` on one line must still be indexed (#1600).
+
+    The tree-sitter Kotlin grammar misparses the single-line form: instead of
+    an `object_declaration` it produces
+
+        infix_expression
+          object_literal ("object")
+          simple_identifier ("A")
+          lambda_literal { statements { function_declaration } }
+
+    so the `object_declaration` pattern the classes query looks for is never
+    produced. The empty (`object A { }`) and multi-line forms parse normally;
+    only the one-line-with-a-body form is affected, and single-line singletons
+    are a common Kotlin idiom.
+
+    Two things follow from that misparse, and a fix that addresses only the
+    first would look complete while leaving members unattributed:
+    the object node is missing, and its members have no enclosing context
+    because they have no `object_declaration` ancestor to find.
+    """
+
+    def test_single_line_object_is_indexed(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            object OneLine { fun x() = 1 }
+            """,
+        )
+        assert "OneLine" in {o["name"] for o in data["objects"]}
+
+    def test_single_line_object_member_carries_its_object_as_context(self, parser):
+        """The multi-line form yields context == "Multi"; the one-line form
+        must agree rather than leaving the member at top level."""
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            object OneLine { fun x() = 1 }
+            """,
+        )
+        member = next(f for f in data["functions"] if f["name"] == "x")
+        assert member["context"] == "OneLine"
+        assert member["class_context"] == "OneLine"
+
+    def test_multi_line_and_empty_object_forms_still_work(self, parser):
+        """Regression guard: these already parsed as object_declaration, and
+        the added pattern must not disturb or duplicate them."""
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            object Multi {
+                fun y() = 2
+            }
+
+            object Empty { }
+            """,
+        )
+        names = [o["name"] for o in data["objects"]]
+        assert names.count("Multi") == 1
+        assert names.count("Empty") == 1
+        member = next(f for f in data["functions"] if f["name"] == "y")
+        assert member["context"] == "Multi"
+
+    def test_genuine_infix_expression_is_not_mistaken_for_an_object(self, parser):
+        """Boundary test for the added pattern.
+
+        The new query arm matches an `infix_expression`, which is also what a
+        real infix call produces. `object_literal` as the left operand is the
+        discriminator -- it can only come from the `object` keyword -- so an
+        ordinary infix expression with a trailing lambda must not be captured.
+        """
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            fun build() {
+                val mapped = listOf(1) zip listOf(2)
+                val handled = someValue apply { println(it) }
+            }
+            """,
+        )
+        object_names = {o["name"] for o in data["objects"]}
+        assert "someValue" not in object_names
+        assert "mapped" not in object_names
+        assert "handled" not in object_names
+
+    def test_single_line_companion_object_was_never_affected(self, parser):
+        """`companion object { fun z() = 3 }` parses as a real companion_object
+        even on one line, so it needs no special handling -- pinned so a future
+        change to the added pattern cannot quietly start double-counting it."""
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            class Holder {
+                companion object { fun z() = 3 }
+            }
+            """,
+        )
+        member = next(f for f in data["functions"] if f["name"] == "z")
+        assert member["context"] is not None
+
+
+class TestKotlinAnnotationsAreNotCalls:
+    """Annotations must never reach `function_calls` (issue #1602).
+
+    In the tree-sitter Kotlin grammar an annotation *with arguments* is
+    `annotation -> @ + constructor_invocation`, and KOTLIN_QUERIES["calls"]
+    captures `constructor_invocation`. Without filtering, every such
+    annotation is recorded as a call made by the annotated declaration,
+    producing phantom CALLS edges on `@Preview(...)`, `@Query(...)`,
+    `@InstallIn(...)` and friends.
+
+    The discriminator is the parse tree, not the name: an annotation's
+    `constructor_invocation` sits under an `annotation` node, whereas a
+    genuine supertype call (`class A : B()`) sits under a
+    `delegation_specifier`. The negative tests below pin the phantoms;
+    the positive ones pin the real calls that must survive the filter.
+    """
+
+    @staticmethod
+    def _call_names(data: dict) -> set:
+        return {c["name"] for c in data["function_calls"] if c.get("name")}
+
+    def test_annotation_with_arguments_is_not_recorded_as_a_call(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Preview(showBackground = true)
+            @Deprecated("old")
+            fun GreetingPreview() {
+                realCall()
+            }
+            """,
+        )
+        names = self._call_names(data)
+        # Both assertions matter: the first proves calls were extracted at
+        # all, which is what makes the exclusions below meaningful.
+        assert "realCall" in names
+        assert "Preview" not in names
+        assert "Deprecated" not in names
+
+    def test_expressions_inside_annotation_arguments_are_not_calls(self, parser):
+        """The echo is not limited to the annotation's own name.
+
+        `FooProvider::class` inside an annotation argument is captured by the
+        `callable_reference` arm of the calls query, so a preview function
+        appeared to call every type named anywhere in its annotations.
+        """
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @PreviewParameter(provider = FooProvider::class)
+            @Composable
+            fun GreetingPreview() {
+                Greeting("x")
+            }
+            """,
+        )
+        names = self._call_names(data)
+        assert "Greeting" in names
+        assert "FooProvider" not in names
+        assert "PreviewParameter" not in names
+
+    def test_annotations_on_classes_and_parameters_are_not_calls(self, parser):
+        """Annotations appear on far more than functions.
+
+        Class-level (`@Entity(...)`) and use-site-targeted parameter
+        annotations (`@field:ColumnInfo(...)`) take the same path, so the
+        filter must key on the parse tree rather than on the enclosing
+        declaration being a function.
+        """
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Entity(tableName = "users")
+            data class UserEntity(
+                @field:ColumnInfo(name = "n") val n: String
+            )
+            """,
+        )
+        names = self._call_names(data)
+        assert "Entity" not in names
+        assert "ColumnInfo" not in names
+
+    def test_supertype_constructor_call_is_still_recorded(self, parser):
+        """Regression guard for the filter itself.
+
+        `B()` in `class A : B()` is also a `constructor_invocation`. It is
+        distinguished only by its parent (`delegation_specifier`, not
+        `annotation`), so a filter keyed on the node type alone would
+        silently delete every superclass-construction edge.
+        """
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            open class Base
+
+            @Deprecated("old")
+            class Derived : Base()
+            """,
+        )
+        names = self._call_names(data)
+        assert "Base" in names
+        assert "Deprecated" not in names
+
+    def test_file_level_annotations_are_not_calls(self, parser):
+        """`@file:` targets get their own grammar node.
+
+        A file-level annotation is `file_annotation`, not `annotation`, so
+        an ancestor walk looking only for `annotation` misses it and the
+        phantom survives at the top of every file using `@file:JvmName`.
+        """
+        data = _write_and_parse(
+            parser,
+            """@file:JvmName("Utils")
+@file:JvmSuppressWildcards(FooProvider::class)
+
+package com.example
+
+fun real() {
+    actuallyCalled()
+}
+""",
+        )
+        names = self._call_names(data)
+        assert "actuallyCalled" in names
+        assert "JvmName" not in names
+        assert "JvmSuppressWildcards" not in names
+        assert "FooProvider" not in names
+
+    def test_property_use_site_target_annotations_are_not_calls(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            class Holder {
+                @get:JvmName("xx")
+                val x: Int = 1
+            }
+            """,
+        )
+        assert "JvmName" not in self._call_names(data)
+
+    def test_typealias_annotations_are_not_calls(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Deprecated("old")
+            typealias Handler = Int
+            """,
+        )
+        assert "Deprecated" not in self._call_names(data)
+
+    def test_constructor_delegation_is_still_recorded(self, parser):
+        data = _write_and_parse(
+            parser,
+            """
+            package com.example
+
+            @Deprecated("old")
+            class Thing(val x: Int) {
+                constructor() : this(1)
+            }
+            """,
+        )
+        names = self._call_names(data)
+        assert "Thing" in names
+        assert "Deprecated" not in names

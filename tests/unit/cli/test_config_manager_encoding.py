@@ -46,3 +46,39 @@ def test_context_config_files_are_opened_with_utf8(tmp_path, monkeypatch):
     loaded = config_manager.load_context_config()
 
     assert loaded.default_context == "global"
+
+
+def test_save_context_config_preserves_workspace_mappings(tmp_path, monkeypatch):
+    """save_context_config must not wipe unrelated top-level keys (data-loss guard)."""
+    import yaml
+
+    context_config = tmp_path / "config.yaml"
+
+    monkeypatch.setattr(config_manager, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config_manager, "CONTEXT_CONFIG_FILE", context_config)
+    monkeypatch.setattr(config_manager, "_LEGACY_CONTEXT_CONFIG_FILE", tmp_path / "cgc_config.yaml")
+
+    # Seed an existing config that already carries a workspace_mappings section.
+    mappings = {"/home/user/repo": {"context_path": "/ctx", "database": "falkordb"}}
+    context_config.write_text(
+        yaml.dump(
+            {
+                "version": 1,
+                "mode": "global",
+                "default_context": "",
+                "contexts": {},
+                "workspace_mappings": mappings,
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    # Saving unrelated context config must leave workspace_mappings intact.
+    config_manager.save_context_config(config_manager.ContextConfig(default_context="global"))
+
+    with open(context_config, "r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+
+    assert raw["workspace_mappings"] == mappings
+    assert raw["default_context"] == "global"

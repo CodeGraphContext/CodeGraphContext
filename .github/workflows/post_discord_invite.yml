@@ -12,8 +12,9 @@ on:
 
 jobs:
   post_discord_invite:
-    # Skip if the event is a PR from a fork; still run for issues and in-repo PRs
-    if: ${{ github.event_name == 'issues' || (github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork) }}
+    # Always run the job so the check stays green; skip posting only for fork PRs
+    # inside the script (exit 0) instead of skipping the whole job (which made
+    # GitHub report "No jobs were run" -> failure on fork-PR runs).
     runs-on: ubuntu-latest
     steps:
       - name: Post Discord Invite Comment
@@ -22,6 +23,12 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const discord_link = "https://discord.gg/dR4QY32uYQ";
+
+            // Fork PRs: don't post the invite, but keep the check green.
+            if (context.payload.pull_request && context.payload.pull_request.head.repo.fork) {
+              console.log("Fork PR — skipping Discord invite. Exiting.");
+              return;
+            }
 
             let number;
             if (context.payload.issue) {

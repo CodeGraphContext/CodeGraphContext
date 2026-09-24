@@ -6,6 +6,58 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
+
+# Child construct list -> node label: the 8 kinds that can declare inheritance.
+_INHERIT_KEY_TO_LABEL = {
+    "classes": "Class",
+    "structs": "Struct",
+    "traits": "Trait",
+    "interfaces": "Interface",
+    "mixins": "Mixin",
+    "enums": "Enum",
+    "extensions": "Extension",
+    "variables": "Variable",
+}
+
+# All construct lists whose nodes can be an INHERITS parent, mapped to their label.
+# Matches the 12 labels the writer enumerates. Used to attach exact child/parent
+# labels to rows and to detect the rare (name, path) collisions where more than one
+# node kind shares a name+path — those stay ambiguous so the writer falls back to
+# full enumeration (keeping the produced edge set identical).
+_NODE_KEY_TO_LABEL = {
+    "classes": "Class",
+    "traits": "Trait",
+    "interfaces": "Interface",
+    "structs": "Struct",
+    "enums": "Enum",
+    "unions": "Union",
+    "records": "Record",
+    "mixins": "Mixin",
+    "extensions": "Extension",
+    "modules": "Module",
+    "objects": "Object",
+    "variables": "Variable",
+}
+
+
+def _build_node_label_index(
+    all_file_data: List[Dict[str, Any]],
+) -> Dict[str, Dict[str, set]]:
+    """Map normalized path -> {name -> set(labels)} across all inheritance-eligible
+    node kinds. A (path, name) with exactly one label lets the writer target that
+    label directly; multiple labels leaves it ambiguous (writer enumerates)."""
+    index: Dict[str, Dict[str, set]] = {}
+    for file_data in all_file_data:
+        fpath = str(Path(file_data["path"]).resolve().as_posix())
+        per_file = index.setdefault(fpath, {})
+        for key, label in _NODE_KEY_TO_LABEL.items():
+            for item in file_data.get(key, []):
+                name = item.get("name")
+                if name:
+                    per_file.setdefault(name, set()).add(label)
+    return index
+
+
 def resolve_inheritance_link(
     class_item: Dict[str, Any],
     base_class_str: str,
@@ -13,10 +65,15 @@ def resolve_inheritance_link(
     local_class_names: set,
     local_imports: dict,
     imports_map: dict,
+    child_label: Optional[str] = None,
+    node_label_index: Optional[Dict[str, Dict[str, set]]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Resolve a single inheritance link. Returns row dict or None."""
     import re
     if base_class_str == "object":
+        return None
+
+    if not base_class_str:
         return None
 
     # Unwrap JS/TS mixins like Swimmable(Flyable(Person)) -> Person
@@ -52,21 +109,41 @@ def resolve_inheritance_link(
             if len(possible_paths) == 1:
                 resolved_path = possible_paths[0]
 
+    # Pin the child label only when this (path, name) is a single node kind. If more
+    # than one kind shares it, leave it off so the writer enumerates (byte-identical).
+    child_lbl = None
+    if child_label:
+        if node_label_index is None:
+            child_lbl = child_label
+        else:
+            present = node_label_index.get(caller_file_path, {}).get(class_item["name"])
+            if present and len(present) == 1 and child_label in present:
+                child_lbl = child_label
+
+    def _with_labels(row: Dict[str, Any], parent_path: str) -> Dict[str, Any]:
+        if child_lbl:
+            row["child_label"] = child_lbl
+        if node_label_index is not None:
+            plabels = node_label_index.get(parent_path, {}).get(target_class_name)
+            if plabels and len(plabels) == 1:
+                row["parent_label"] = next(iter(plabels))
+        return row
+
     if resolved_path:
-        return {
+        return _with_labels({
             "child_name": class_item["name"],
             "path": caller_file_path,
             "parent_name": target_class_name,
             "resolved_parent_file_path": resolved_path,
             "confidence_label": "EXTRACTED",
-        }
-    return {
+        }, resolved_path)
+    return _with_labels({
         "child_name": class_item["name"],
         "path": caller_file_path,
         "parent_name": target_class_name,
         "resolved_parent_file_path": "__external__",
         "confidence_label": "INFERRED",
-    }
+    }, "__external__")
 
 
 
@@ -76,6 +153,7 @@ def build_inheritance_and_csharp_files(
     """Returns (inheritance_batch_rows, csharp_file_data_list)."""
     inheritance_batch: List[Dict[str, Any]] = []
     csharp_files: List[Dict[str, Any]] = []
+    node_label_index = _build_node_label_index(all_file_data)
 
     for file_data in all_file_data:
         if file_data.get("lang") == "c_sharp":
@@ -84,16 +162,17 @@ def build_inheritance_and_csharp_files(
 
         caller_file_path = str(Path(file_data["path"]).resolve().as_posix())
         local_class_names = set()
-        for key in ["classes", "structs", "traits", "interfaces", "mixins", "enums", "extensions", "variables"]:
+        for key in _INHERIT_KEY_TO_LABEL:
             for item in file_data.get(key, []):
                 local_class_names.add(item["name"])
 
         local_imports = {
-            imp.get("alias") or imp["name"].split(".")[-1]: imp["name"]
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: imp.get("name")
             for imp in file_data.get("imports", [])
+            if imp.get("name")
         }
 
-        for key in ["classes", "structs", "traits", "interfaces", "mixins", "enums", "extensions", "variables"]:
+        for key, child_label in _INHERIT_KEY_TO_LABEL.items():
             for class_item in file_data.get(key, []):
                 if not class_item.get("bases"):
                     continue
@@ -105,6 +184,8 @@ def build_inheritance_and_csharp_files(
                         local_class_names,
                         local_imports,
                         imports_map,
+                        child_label=child_label,
+                        node_label_index=node_label_index,
                     )
                     if resolved:
                         inheritance_batch.append(resolved)
@@ -320,6 +401,8 @@ def _resolve_decorator_path(
         return caller_path
     if decorator_name in local_imports:
         imported = local_imports[decorator_name]
+        if not isinstance(imported, str) or not imported:
+            return caller_path
         lookup = imported.split(".")[-1]
         paths = imports_map.get(lookup, imports_map.get(imported, []))
         if len(paths) == 1:
@@ -346,8 +429,15 @@ def build_decorated_by_links(
             for item in file_data.get(key, [])
             if item.get("name")
         }
+        # Parsed imports carry `name` / `full_import_name`; there is no `source`
+        # key, so this mapped every imported symbol to None and made
+        # _resolve_decorator_path bail out to the caller's own file before it
+        # could consult imports_map. Mirrors the working construction in
+        # build_inheritance_links above.
         local_imports = {
-            imp.get("alias") or imp.get("name"): imp.get("source")
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: (
+                imp.get("full_import_name") or imp.get("name")
+            )
             for imp in file_data.get("imports", [])
             if imp.get("name") or imp.get("alias")
         }
@@ -402,8 +492,15 @@ def build_metaclass_links(
             continue
         caller_file_path = str(Path(file_data["path"]).resolve().as_posix())
         local_class_names = {c["name"] for c in file_data.get("classes", [])}
+        # Parsed imports carry `name` / `full_import_name`; there is no `source`
+        # key, so this mapped every imported symbol to None and made
+        # _resolve_decorator_path bail out to the caller's own file before it
+        # could consult imports_map. Mirrors the working construction in
+        # build_inheritance_links above.
         local_imports = {
-            imp.get("alias") or imp.get("name"): imp.get("source")
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: (
+                imp.get("full_import_name") or imp.get("name")
+            )
             for imp in file_data.get("imports", [])
             if imp.get("name") or imp.get("alias")
         }
@@ -493,6 +590,8 @@ def build_embeds_links(
             if not struct_name:
                 continue
             for base in struct.get("bases") or []:
+                if not base:
+                    continue
                 base_name = base.split(".")[-1]
                 if base_name not in struct_names:
                     continue
@@ -509,6 +608,322 @@ def build_embeds_links(
                 })
 
     return embeds_batch
+
+
+def _resolve_type_name(
+    type_name: str,
+    caller_file_path: str,
+    local_names: set,
+    local_imports: dict,
+    imports_map: dict,
+) -> Tuple[str, str]:
+    """Resolve a bare Kotlin type name to a file path plus a confidence
+    label, reusing _resolve_decorator_path's resolution order (local
+    names -> local imports -> unique global import). Confidence is
+    EXTRACTED when that resolution actually found something (either a
+    same-file declaration or a real import target), INFERRED when it
+    fell all the way back to guessing the caller's own file."""
+    resolved_path = _resolve_decorator_path(
+        type_name, caller_file_path, local_names, local_imports, imports_map
+    )
+    caller_path = str(Path(caller_file_path).resolve().as_posix())
+    if type_name in local_names or resolved_path != caller_path:
+        return resolved_path, "EXTRACTED"
+    return resolved_path, "INFERRED"
+
+
+def build_binds_links(
+    all_file_data: List[Dict[str, Any]],
+    imports_map: dict,
+) -> List[Dict[str, Any]]:
+    """Resolve Hilt @Binds/@Provides functions on @Module classes/objects
+    into BINDS row payloads for write_binds_links.
+
+    @Binds: source = the function's return_type, target = the single
+    arg_types entry (the abstract method's one parameter). Both are
+    known statically -- no need to consult function_calls.
+
+    @Provides: source = the function's return_type, target = the type
+    constructed in the function body. Kotlin has no `new` keyword, so a
+    constructor call is indistinguishable at the syntax level from any
+    other call -- function_calls records it with call_kind "call" like
+    every other invocation. We locate candidate calls by matching a
+    call's context (function name, "function_declaration", function
+    line_number) and class_context (enclosing class/object name) back
+    to the @Provides function, then require the call's name to resolve
+    to a known type (local class/interface/object or an import) so an
+    incidental non-constructor call in the body isn't mistaken for the
+    binding target. If more than one call in the body resolves to a
+    known type, the actually-returned one is ambiguous with the
+    information available -- e.g. "val logger = LoggerImpl();
+    return ThingImpl(logger)" wants the last call, while
+    "return ThingImpl(LoggerImpl())" wants the first (textually) -- so
+    no row is emitted rather than guessing. A wrong DI edge is worse
+    for impact analysis than a missing one.
+    """
+    binds_batch: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    for file_data in all_file_data:
+        if file_data.get("lang") != "kotlin":
+            continue
+
+        caller_file_path = str(Path(file_data["path"]).resolve().as_posix())
+
+        # Unlike build_decorated_by_links' local_names (functions/classes
+        # only), Hilt bindings routinely name an *interface* as the
+        # return_type/arg_types entry, so interfaces must be included or
+        # every @Binds row would incorrectly resolve to __external__/INFERRED.
+        local_names = {
+            item["name"]
+            for key in ("classes", "interfaces", "objects")
+            for item in file_data.get(key, [])
+            if item.get("name")
+        }
+        local_imports = {
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: (
+                imp.get("full_import_name") or imp.get("name")
+            )
+            for imp in file_data.get("imports", [])
+            if imp.get("name") or imp.get("alias")
+        }
+
+        module_names = set()
+        for key in ("classes", "objects"):
+            for item in file_data.get(key, []):
+                for dec_raw in item.get("decorators") or []:
+                    if _parse_decorator_name(dec_raw) == "Module":
+                        module_names.add(item.get("name"))
+                        break
+
+        if not module_names:
+            continue
+
+        function_calls = file_data.get("function_calls") or []
+
+        for func in file_data.get("functions", []):
+            class_context = func.get("class_context")
+            if not class_context or class_context not in module_names:
+                continue
+
+            dec_names = {_parse_decorator_name(d) for d in (func.get("decorators") or [])}
+            return_type = func.get("return_type")
+
+            if "Binds" in dec_names:
+                provider = "Binds"
+                arg_types = func.get("arg_types") or []
+                if not return_type or len(arg_types) != 1 or not arg_types[0]:
+                    continue
+                target_type = arg_types[0]
+            elif "Provides" in dec_names:
+                provider = "Provides"
+                if not return_type:
+                    continue
+                func_name = func.get("name")
+                func_line = func.get("line_number")
+                candidates = []
+                for call in function_calls:
+                    ctx = call.get("context") or []
+                    call_class_ctx = call.get("class_context") or []
+                    if (
+                        len(ctx) >= 3
+                        and ctx[0] == func_name
+                        and ctx[2] == func_line
+                        and len(call_class_ctx) >= 1
+                        and call_class_ctx[0] == class_context
+                    ):
+                        call_name = call.get("name")
+                        if call_name and (
+                            call_name in local_names
+                            or call_name in local_imports
+                            or call_name in imports_map
+                        ):
+                            candidates.append(call_name)
+                if not candidates:
+                    continue
+                if len(candidates) > 1:
+                    # More than one type-resolvable call in the body -- e.g.
+                    # "val logger = LoggerImpl(); return ThingImpl(logger)"
+                    # (wanted call is last) vs "return ThingImpl(LoggerImpl())"
+                    # (wanted call is first, textually). Neither a first- nor
+                    # last-line tie-break is correct in general with the
+                    # information available in function_calls, and a wrong DI
+                    # edge is worse than a missing one for impact analysis.
+                    # Skip rather than guess, mirroring the @Binds arity check
+                    # above.
+                    continue
+                target_type = candidates[0]
+            else:
+                continue
+
+            source_path, source_conf = _resolve_type_name(
+                return_type, caller_file_path, local_names, local_imports, imports_map
+            )
+            target_path, target_conf = _resolve_type_name(
+                target_type, caller_file_path, local_names, local_imports, imports_map
+            )
+            confidence_label = (
+                "EXTRACTED" if source_conf == "EXTRACTED" and target_conf == "EXTRACTED" else "INFERRED"
+            )
+
+            key = (return_type, source_path, target_type, target_path, func.get("line_number"), provider)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            binds_batch.append({
+                "source_name": return_type,
+                "source_path": source_path,
+                "target_name": target_type,
+                "target_path": target_path,
+                "line_number": func.get("line_number"),
+                "provider": provider,
+                "confidence_label": confidence_label,
+            })
+
+    return binds_batch
+
+
+def build_previews_links(
+    all_file_data: List[Dict[str, Any]],
+    imports_map: dict,
+) -> List[Dict[str, Any]]:
+    """Build PREVIEWS rows: a @Preview-annotated Compose function exists
+    only to render some composable, so link it to each composable it
+    calls, resolved from function_calls.
+
+    Decorator matching reuses _parse_decorator_name (as build_decorated_by_links
+    and build_binds_links do) to strip the leading "@" and any "(...)"
+    arguments down to the bare annotation name, then compares it for
+    equality against "Preview". This is the word-boundary-safe equivalent
+    of kotlin.py's anchored `^@Preview\\b` regex for is_composable: because
+    the comparison is exact-match rather than substring/prefix, "Preview"
+    != "PreviewParameter" and "Preview" != "PreviewScreenSizes", so those
+    unrelated annotations are correctly excluded without a parallel
+    annotation-name parser.
+
+    Name resolution reuses _resolve_decorator_path, same as build_binds_links
+    reuses it via _resolve_type_name.
+
+    A candidate call target is only emitted once it is confirmed to be an
+    actual @Composable function (via a global (name, path) -> is_composable
+    index built up front) -- otherwise an incidental non-composable call in
+    a preview function's body (e.g. a logging call) would be mistaken for
+    the previewed composable.
+
+    Annotation-echo filtering (backstop): KOTLIN_QUERIES["calls"] captures
+    constructor_invocation nodes, and any annotation with arguments --
+    "@Preview(showBackground = true)", "@Query(...)", "@InstallIn(...)" --
+    is syntactically a constructor_invocation. The Kotlin parser used to
+    record the annotation itself as a phantom entry in function_calls,
+    sharing the annotated function's context (issue #1602). That is now
+    filtered at source by KotlinTreeSitterParser._is_within_annotation, so
+    no echo should reach this builder.
+
+    The rejection below is kept as a backstop rather than removed, because
+    a composable_index membership check alone would not be enough if an
+    echo ever returned: it only fails to match by coincidence, when no
+    @Composable function happens to be named e.g. "Preview" or "Query". If
+    one existed with that exact name and were resolvable from this file,
+    the phantom would pass the composable_index check and produce a bogus
+    PREVIEWS edge to a composable the preview function never actually
+    calls. Rejecting any candidate whose name matches one of the *same
+    function's own* decorator names (also via _parse_decorator_name) closes
+    that gap deterministically -- a real call to a composable can never be
+    named identically to one of its own annotations, so this can only ever
+    reject an echo, never a genuine call. It costs one set lookup per
+    candidate and is pinned by
+    test_annotation_echo_is_rejected_even_when_a_same_named_composable_exists,
+    which feeds it hand-built rows rather than parser output.
+    """
+    previews_batch: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    # Global index of composable functions by (name, resolved path), built
+    # once so a call resolved through an import can be confirmed to
+    # actually target a @Composable function rather than any function
+    # sharing that name.
+    composable_index: set = set()
+    for file_data in all_file_data:
+        file_path = str(Path(file_data["path"]).resolve().as_posix())
+        for func in file_data.get("functions", []):
+            if func.get("is_composable") and func.get("name"):
+                composable_index.add((func["name"], file_path))
+
+    for file_data in all_file_data:
+        if file_data.get("lang") != "kotlin":
+            continue
+
+        caller_file_path = str(Path(file_data["path"]).resolve().as_posix())
+        local_names = {
+            item["name"] for item in file_data.get("functions", []) if item.get("name")
+        }
+        local_imports = {
+            imp.get("alias") or (imp.get("name") or "").split(".")[-1]: (
+                imp.get("full_import_name") or imp.get("name")
+            )
+            for imp in file_data.get("imports", [])
+            if imp.get("name") or imp.get("alias")
+        }
+        function_calls = file_data.get("function_calls") or []
+
+        for func in file_data.get("functions", []):
+            decorators = func.get("decorators") or []
+            if not any(_parse_decorator_name(dec) == "Preview" for dec in decorators):
+                continue
+
+            preview_name = func.get("name")
+            preview_line = func.get("line_number")
+            if not preview_name or preview_line is None:
+                continue
+
+            # Backstop only: the parser no longer emits annotation echoes
+            # into function_calls (#1602), but rejecting any candidate whose
+            # name matches one of this function's own decorator names keeps
+            # the exclusion holding regardless of what else is named in the
+            # indexed codebase -- see the docstring.
+            own_decorator_names = {_parse_decorator_name(d) for d in decorators}
+
+            for call in function_calls:
+                ctx = call.get("context") or ()
+                if len(ctx) < 3 or ctx[0] != preview_name or ctx[2] != preview_line:
+                    continue
+                call_name = call.get("name")
+                if not call_name:
+                    continue
+                if call_name in own_decorator_names:
+                    continue
+
+                resolved_path = _resolve_decorator_path(
+                    call_name, caller_file_path, local_names, local_imports, imports_map
+                )
+                if (call_name, resolved_path) not in composable_index:
+                    continue
+
+                key = (preview_name, caller_file_path, preview_line, call_name, resolved_path)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                previews_batch.append({
+                    "preview_name": preview_name,
+                    "preview_path": caller_file_path,
+                    "preview_line": preview_line,
+                    "composable_name": call_name,
+                    "composable_path": resolved_path,
+                    "line_number": preview_line,
+                    # Kept for shape-parity with the other builders in this
+                    # module (all of which carry a confidence_label) and in
+                    # case a future PREVIEWS schema change adds the column,
+                    # but PREVIEWS currently has no confidence_label column
+                    # and write_previews_links does not set it -- this
+                    # value is always "EXTRACTED" (every row here has
+                    # already been positively confirmed against
+                    # composable_index) and is not currently persisted.
+                    "confidence_label": "EXTRACTED",
+                })
+
+    return previews_batch
 
 
 def build_elixir_implements_links(

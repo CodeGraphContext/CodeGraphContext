@@ -1,0 +1,44 @@
+# How to Clone and Contribute
+
+## Step 1: Fork the Repository
+- Go to the GitHub page of the project.
+- Click on the "Fork" button to create your own copy.
+
+## Step 2: Clone Your Fork
+- Open PowerShell or your terminal.
+- Navigate to the folder where you want to keep the project.
+- Run:
+  git clone https://github.com/<your-username>/CodeGraphContext.git
+- Move into the project folder:
+  cd CodeGraphContext
+
+## Step 3: Create a New Branch
+- Always work on a separate branch:
+  git checkout -b feature/my-change
+
+## Step 4: Make Your Contribution
+- Open the project in VS Code:
+  code .
+- Add or edit files (documentation, code, tests).
+- Save your changes.
+
+## Step 5: Commit Your Work
+- Stage and commit:
+  git add .
+  git commit -m "feat: describe your change here"
+
+## Step 6: Push to Your Fork
+- Push your branch:
+  git push origin feature/my-change
+
+## Step 7: Open a Pull Request
+- Go to your fork on GitHub.
+- Click "Compare & Pull Request".
+- Write a clear description of your changes.
+- Submit the PR to the original repository.
+
+---
+
+### Contributor Note
+This guide was written to help new contributors (like me!) get started.  
+Open source is about learning, sharing, and improving together.

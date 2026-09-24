@@ -138,7 +138,7 @@ export class SetupPanel {
   private _update() {
     const cfg = vscode.workspace.getConfiguration("cgc");
     const executable = cfg.get<string>("executable", "cgc");
-    const dbMode = cfg.get<string>("databaseMode", "falkordb");
+    const dbMode = cfg.get<string>("databaseMode", "auto");
     const pythonPackagePath = cfg.get<string>("pythonPackagePath", "");
     const maxToolResponseTokens = cfg.get<number>("maxToolResponseTokens", 0);
     const neo4jUri = cfg.get<string>("neo4jUri", "");
@@ -193,6 +193,7 @@ export class SetupPanel {
             <div class="field">
                 <label>Database Mode</label>
                 <select id="dbMode">
+                    <option value="auto" ${dbMode === "auto" || dbMode === "" ? "selected" : ""}>Auto (KuzuDB on Windows, FalkorDB elsewhere)</option>
                     <option value="kuzudb" ${dbMode === "kuzudb" ? "selected" : ""}>KuzuDB (Embedded)</option>
                     <option value="falkordb" ${dbMode === "falkordb" ? "selected" : ""}>FalkorDB (Redis-based)</option>
                     <option value="neo4j" ${dbMode === "neo4j" ? "selected" : ""}>Neo4j</option>

@@ -6,6 +6,21 @@ from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logge
 from codegraphcontext.utils.tree_sitter_manager import execute_query
 
 CSHARP_QUERIES = {
+    # Fields and locals share a shape: `variable_declaration` carries the type
+    # and holds one `variable_declarator` per name. There was no `variables`
+    # query at all and the key was hardcoded to [], so C# produced no Variable
+    # nodes — and `resolution/calls.py` lost the local-variable declarations it
+    # uses to infer a receiver's type, so `var s = new UserService(); s.Save();`
+    # could not resolve Save to UserService.Save.
+    "variables": """
+        (field_declaration
+            (variable_declaration) @decl
+        ) @field_node
+
+        (local_declaration_statement
+            (variable_declaration) @decl
+        ) @local_node
+    """,
     "functions": """
         (method_declaration
             name: (identifier) @name
@@ -123,6 +138,7 @@ class CSharpTreeSitterParser:
             parsed_enums = []
             parsed_records = []
             parsed_properties = []
+            parsed_variables = []
             parsed_imports = []
             parsed_calls = []
 
@@ -143,6 +159,8 @@ class CSharpTreeSitterParser:
                     parsed_records = self._parse_type_declarations(captures, source_code, path, "Record")
                 elif capture_name == "properties":
                     parsed_properties = self._parse_properties(captures, source_code, path, tree.root_node)
+                elif capture_name == "variables":
+                    parsed_variables = self._parse_variables(captures)
                 elif capture_name == "imports":
                     parsed_imports = self._parse_imports(captures, source_code)
                 elif capture_name == "calls":
@@ -157,7 +175,7 @@ class CSharpTreeSitterParser:
                 "enums": parsed_enums,
                 "records": parsed_records,
                 "properties": parsed_properties,
-                "variables": [],
+                "variables": parsed_variables,
                 "imports": parsed_imports,
                 "function_calls": parsed_calls,
                 "is_dependency": is_dependency,
@@ -212,11 +230,16 @@ class CSharpTreeSitterParser:
                             params_node = params_captures[0][0]
                             parameters = self._extract_parameters(params_node)
 
-                        # Extract attributes applied to this function
+                        # Extract attributes applied to this function.
+                        # attribute_list nodes are CHILDREN of the declaration
+                        # (never its parent), so the old parent check was
+                        # always false and attributes stayed [] (#1538).
                         attributes = []
-                        if node.parent and node.parent.type == "attribute_list":
-                            attr_text = self._get_node_text(node.parent)
-                            attributes.append(attr_text)
+                        for child in node.children:
+                            if child.type == "attribute_list":
+                                for attr in child.children:
+                                    if attr.type == "attribute":
+                                        attributes.append(self._get_node_text(attr))
 
                         # Find containing class/struct/interface
                         class_context = self._find_containing_type(node, source_code)
@@ -227,7 +250,9 @@ class CSharpTreeSitterParser:
                             "name": func_name,
                             "args": parameters,
                             "attributes": attributes,
-                            "line_number": start_line,
+                            # The declaration line, not the first attribute's
+                            # (python.py's decorated_definition convention).
+                            "line_number": name_node.start_point[0] + 1,
                             "end_line": end_line,
                             "path": str(path),
                             "lang": self.language_name,
@@ -290,7 +315,26 @@ class CSharpTreeSitterParser:
                             # Parse base list: ": BaseClass, IInterface1, IInterface2"
                             bases_text = bases_text.strip().lstrip(':').strip()
                             if bases_text:
-                                raw_bases = [b.strip() for b in bases_text.split(',')]
+                                # Split on TOP-LEVEL commas only: a naive split
+                                # shredded multi-arg generics —
+                                # `: Dictionary<string, int>` became two bases,
+                                # 'Dictionary<string' and 'int>', creating
+                                # INHERITS edges to nonexistent types (#1538).
+                                raw_bases = []
+                                depth = 0
+                                current = []
+                                for ch in bases_text:
+                                    if ch in "<([":
+                                        depth += 1
+                                    elif ch in ">)]":
+                                        depth = max(0, depth - 1)
+                                    if ch == "," and depth == 0:
+                                        raw_bases.append("".join(current).strip())
+                                        current = []
+                                    else:
+                                        current.append(ch)
+                                if current:
+                                    raw_bases.append("".join(current).strip())
                                 # records might have base calls like : Person(name, age)
                                 # we want just Person
                                 for rb in raw_bases:
@@ -359,18 +403,78 @@ class CSharpTreeSitterParser:
 
         return imports
 
+    def _parse_variables(self, captures: list) -> list:
+        """Fields and locals, from `variable_declaration` nodes.
+
+        Both shapes nest identically — `variable_declaration` carries the type
+        and holds one `variable_declarator` per declared name, so
+        `int a = 1, b = 2;` yields two rows sharing a type.
+        """
+        variables = []
+        seen = set()
+        for node, capture_name in captures:
+            if capture_name != "decl":
+                continue
+            type_node = node.child_by_field_name("type")
+            var_type = self._get_node_text(type_node) if type_node is not None else None
+
+            for declarator in node.children:
+                if declarator.type != "variable_declarator":
+                    continue
+                name_node = declarator.child_by_field_name("name")
+                if name_node is None:
+                    name_node = next(
+                        (c for c in declarator.children if c.type == "identifier"), None
+                    )
+                if name_node is None:
+                    continue
+
+                line_number = name_node.start_point[0] + 1
+                name = self._get_node_text(name_node)
+                if (name, line_number) in seen:
+                    continue
+                seen.add((name, line_number))
+
+                # tree-sitter-c-sharp has no `equals_value_clause`: the
+                # initialiser is a direct sibling following the `=` token.
+                value = None
+                seen_equals = False
+                for child in declarator.children:
+                    if child.type == "=":
+                        seen_equals = True
+                        continue
+                    if seen_equals and child.is_named:
+                        value = self._get_node_text(child)
+                        break
+
+                context, _ctx_type, _ctx_line = self._get_parent_context(
+                    declarator, types=("method_declaration", "function_declaration")
+                )
+                class_context, _c_type, _c_line = self._get_parent_context(
+                    declarator,
+                    types=("class_declaration", "struct_declaration", "record_declaration"),
+                )
+
+                variables.append({
+                    "name": name,
+                    "line_number": line_number,
+                    "value": value,
+                    "type": var_type,
+                    "context": context,
+                    "class_context": class_context,
+                    "lang": self.language_name,
+                    "is_dependency": False,
+                })
+        return variables
+
     def _get_parent_context(self, node: Any, types: Tuple[str, ...] = ('class_declaration', 'struct_declaration', 'function_declaration', 'method_declaration')):
         """Find parent context for C# constructs."""
         curr = node.parent
         while curr:
             if curr.type in types:
-                if curr.type in ('method_declaration', 'function_declaration'):
-                     name_node = curr.child_by_field_name('name')
-                     return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
-                else: 
-                     # Classes, structs, etc.
-                     name_node = curr.child_by_field_name('name')
-                     return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
+                name_node = curr.child_by_field_name('name')
+                if name_node:
+                    return self._get_node_text(name_node), curr.type, curr.start_point[0] + 1
             curr = curr.parent
         return None, None, None
 
@@ -394,8 +498,11 @@ class CSharpTreeSitterParser:
                     call_name = self._get_node_text(node)
                     line_number = node.start_point[0] + 1
                     
-                    # Avoid duplicates at the same line for the same name
-                    call_key = f"{call_name}_{line_number}"
+                    # Dedupe per CALL SITE, not per (name, line): keying on
+                    # name_line dropped distinct calls to the same function on
+                    # one line — `Math.Max(Clamp(a), Clamp(b))` recorded ONE
+                    # Clamp (#1538). The node's byte offset separates them.
+                    call_key = (call_name, line_number, node.start_byte)
                     if call_key in seen_calls:
                         continue
                     seen_calls.add(call_key)
@@ -407,7 +514,16 @@ class CSharpTreeSitterParser:
                     
                     # Get context
                     context_name, context_type, context_line = self._get_parent_context(node)
-                    class_context = context_name if context_type and 'class' in context_type else None
+                    # A call's first enclosing declaration is its METHOD, so
+                    # `'class' in context_type` was always false and every
+                    # call's class_context was None (#1538). Walk again for
+                    # class-like ancestors only, cpp-style.
+                    cls_name, _cls_type, cls_line = self._get_parent_context(
+                        node,
+                        types=("class_declaration", "struct_declaration",
+                               "record_declaration", "interface_declaration"),
+                    )
+                    class_context = (cls_name, cls_line) if cls_name else None
 
                     call_data = {
                         "name": call_name,

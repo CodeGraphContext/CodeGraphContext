@@ -139,11 +139,20 @@ class JavascriptTreeSitterParser:
                     if curr.parent and curr.parent.type == 'variable_declarator':
                         name_node = curr.parent.child_by_field_name('name')
                     elif curr.parent and curr.parent.type == 'assignment_expression':
-                        name_node = curr.parent.child_by_field_name('left')
+                        left = curr.parent.child_by_field_name('left')
+                        if left and left.type == 'member_expression':
+                            name_node = left.child_by_field_name('property') or left
+                        else:
+                            name_node = left
                     elif curr.parent and curr.parent.type == 'pair': # property: function
                         name_node = curr.parent.child_by_field_name('key')
+                    elif curr.parent and curr.parent.type in ('public_field_definition', 'field_definition', 'property_definition'):
+                        name_node = curr.parent.child_by_field_name('name') or curr.parent.child_by_field_name('property')
                 
-                return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
+                if name_node:
+                    name_text = self._get_node_text(name_node)
+                    if name_text:
+                        return name_text, curr.type, curr.start_point[0] + 1
             curr = curr.parent
         return None, None, None
 
@@ -184,30 +193,34 @@ class JavascriptTreeSitterParser:
     def parse(self, path: Path, is_dependency: bool = False, index_source: bool = False) -> Dict[str, Any]:
         """Parses a file and returns its structure in a standardized dictionary format."""
         self.index_source = index_source
-        with open(path, "r", encoding="utf-8") as f:
-            source_code = f.read()
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                source_code = f.read()
 
-        tree = self.parser.parse(bytes(source_code, "utf8"))
-        root_node = tree.root_node
+            tree = self.parser.parse(bytes(source_code, "utf8"))
+            root_node = tree.root_node
 
-        functions = self._find_functions(root_node)
-        classes = self._find_classes(root_node)
-        imports = self._find_imports(root_node)
-        function_calls = self._find_calls(root_node)
-        variables = self._find_variables(root_node)
-        components = self._find_react_components(root_node)
+            functions = self._find_functions(root_node)
+            classes = self._find_classes(root_node)
+            imports = self._find_imports(root_node)
+            function_calls = self._find_calls(root_node)
+            variables = self._find_variables(root_node)
+            components = self._find_react_components(root_node)
 
-        return {
-            "path": str(path),
-            "functions": functions,
-            "classes": classes,
-            "variables": variables,
-            "imports": imports,
-            "function_calls": function_calls,
-            "components": components,
-            "is_dependency": is_dependency,
-            "lang": self.language_name,
-        }
+            return {
+                "path": str(path),
+                "functions": functions,
+                "classes": classes,
+                "variables": variables,
+                "imports": imports,
+                "function_calls": function_calls,
+                "components": components,
+                "is_dependency": is_dependency,
+                "lang": self.language_name,
+            }
+        except Exception as e:
+            error_logger(f"Failed to parse JavaScript file {path}: {e}")
+            return {"path": str(path), "error": str(e)}
 
     def _find_functions(self, root_node):
         functions = []
@@ -285,7 +298,7 @@ class JavascriptTreeSitterParser:
                 args = [self._get_node_text(data['single_param'])]
 
             # Context & docstring
-            context, context_type, _ = self._get_parent_context(func_node)
+            context, context_type, context_line = self._get_parent_context(func_node)
             class_context = context if context_type == 'class_declaration' else None
             docstring = self._get_jsdoc_comment(func_node)
 
@@ -301,8 +314,17 @@ class JavascriptTreeSitterParser:
                 "end_line": func_node.end_point[0] + 1,
                 "args": args,
                 "class_context": class_context,
+                # context/context_type were computed and then dropped, so a
+                # nested function never got a CONTAINS edge to its enclosing
+                # function (#1538). Function rows carry context as a BARE NAME
+                # plus separate type/line fields — the tuple shape belongs to
+                # call rows only (python.py is the reference).
+                "context": context,
+                "context_type": context_type,
+                "context_line": context_line,
                 "lang": self.language_name,
                 "is_dependency": False,
+                "cyclomatic_complexity": self._calculate_complexity(func_node),
             }
 
             if self.index_source:
@@ -355,12 +377,76 @@ class JavascriptTreeSitterParser:
                     left_child = child.child_by_field_name('left')
                     if left_child and left_child.type == 'identifier':
                         params.append(self._get_node_text(left_child))
-                elif child.type == 'rest_pattern':
+                elif child.type in ('rest_element', 'rest_pattern'):
                     # Rest parameter: ...args
-                    argument = child.child_by_field_name('argument')
-                    if argument and argument.type == 'identifier':
-                        params.append(f"...{self._get_node_text(argument)}")
+                    # Try named field first, then direct identifier child
+                    name_node = (child.child_by_field_name('name') or
+                                 child.child_by_field_name('argument'))
+                    if name_node is None:
+                        name_node = next(
+                            (c for c in child.children if c.type == 'identifier'), None
+                        )
+                    if name_node:
+                        params.append(f"...{self._get_node_text(name_node)}")
+                elif child.type == 'object_pattern':
+                    # Destructured object: {a}, {a: renamed}, {a = 1}
+                    names = self._pattern_binding_names(child)
+                    params.append("{" + ", ".join(names) + "}" if names else "{...}")
+                elif child.type == 'array_pattern':
+                    # Destructured array: [a, b]
+                    names = self._pattern_binding_names(child)
+                    params.append("[" + ", ".join(names) + "]" if names else "[...]")
         return params
+
+    def _pattern_binding_names(self, pattern_node):
+        """Local names a destructuring pattern binds, in source order.
+
+        Recorded rather than collapsed to a placeholder because the binding is
+        what later code refers to — `function Button({label})` is the dominant
+        React idiom, and `label` is the name that appears in the body. One
+        entry is still emitted per *parameter position* so arity, which call
+        resolution matches on, is unchanged.
+        """
+        names = []
+
+        def walk(node):
+            for child in node.named_children:
+                if child.type == 'shorthand_property_identifier_pattern':
+                    # { a }
+                    names.append(self._get_node_text(child))
+                elif child.type == 'pair_pattern':
+                    # { a: local } — the binding is the value, not the key
+                    value = child.child_by_field_name('value')
+                    if value is not None and value.type == 'identifier':
+                        names.append(self._get_node_text(value))
+                    elif value is not None:
+                        walk(value)  # nested destructuring
+                elif child.type == 'object_assignment_pattern':
+                    # { a = 1 }
+                    target = child.child_by_field_name('left') or (
+                        child.named_children[0] if child.named_children else None
+                    )
+                    if target is not None:
+                        if target.type in (
+                            'identifier', 'shorthand_property_identifier_pattern'
+                        ):
+                            names.append(self._get_node_text(target))
+                        else:
+                            walk(target)
+                elif child.type == 'identifier':
+                    # [ a, b ]
+                    names.append(self._get_node_text(child))
+                elif child.type in ('object_pattern', 'array_pattern'):
+                    walk(child)
+                elif child.type in ('rest_element', 'rest_pattern'):
+                    inner = next(
+                        (c for c in child.children if c.type == 'identifier'), None
+                    )
+                    if inner is not None:
+                        names.append(f"...{self._get_node_text(inner)}")
+
+        walk(pattern_node)
+        return names
 
 
     def _get_jsdoc_comment(self, func_node):
@@ -427,38 +513,49 @@ class JavascriptTreeSitterParser:
             if node.type == 'import_statement':
                 source = self._get_node_text(node.child_by_field_name('source')).strip('\'"')
 
-                # Look for different import structures
-                import_clause = node.child_by_field_name('import')
+                # `import_clause` is an unnamed child of import_statement, not a
+                # field, so child_by_field_name('import') always returned None and
+                # every ES import collapsed into the bare-module fallback (#1526).
+                import_clause = next(
+                    (c for c in node.children if c.type == 'import_clause'), None
+                )
                 if not import_clause:
+                    # Side-effect import: import 'polyfill';
                     imports.append({'name': source, 'source': source, 'alias': None, 'line_number': line_number,
                                     'lang': self.language_name})
                     continue
 
-                # Default import: import defaultExport from '...'
-                if import_clause.type == 'identifier':
-                    alias = self._get_node_text(import_clause)
-                    imports.append({'name': 'default', 'source': source, 'alias': alias, 'line_number': line_number,
-                                    'lang': self.language_name})
-
-                # Namespace import: import * as name from '...'
-                elif import_clause.type == 'namespace_import':
-                    alias_node = import_clause.child_by_field_name('alias')
-                    if alias_node:
-                        alias = self._get_node_text(alias_node)
-                        imports.append({'name': '*', 'source': source, 'alias': alias, 'line_number': line_number,
+                # One clause can carry several bindings at once
+                # (import Def, { a as b } from 'mod'), so walk its children.
+                for binding in import_clause.children:
+                    # Default import: import defaultExport from '...'
+                    if binding.type == 'identifier':
+                        alias = self._get_node_text(binding)
+                        imports.append({'name': 'default', 'source': source, 'alias': alias, 'line_number': line_number,
                                         'lang': self.language_name})
 
-                # Named imports: import { name, name as alias } from '...'
-                elif import_clause.type == 'named_imports':
-                    for specifier in import_clause.children:
-                        if specifier.type == 'import_specifier':
-                            name_node = specifier.child_by_field_name('name')
-                            alias_node = specifier.child_by_field_name('alias')
-                            original_name = self._get_node_text(name_node)
-                            alias = self._get_node_text(alias_node) if alias_node else None
-                            imports.append(
-                                {'name': original_name, 'source': source, 'alias': alias, 'line_number': line_number,
-                                 'lang': self.language_name})
+                    # Namespace import: import * as name from '...' — the alias
+                    # is the identifier child (there is no 'alias' field).
+                    elif binding.type == 'namespace_import':
+                        alias = next(
+                            (self._get_node_text(c) for c in binding.children if c.type == 'identifier'),
+                            None,
+                        )
+                        if alias:
+                            imports.append({'name': '*', 'source': source, 'alias': alias, 'line_number': line_number,
+                                            'lang': self.language_name})
+
+                    # Named imports: import { name, name as alias } from '...'
+                    elif binding.type == 'named_imports':
+                        for specifier in binding.children:
+                            if specifier.type == 'import_specifier':
+                                name_node = specifier.child_by_field_name('name')
+                                alias_node = specifier.child_by_field_name('alias')
+                                original_name = self._get_node_text(name_node)
+                                alias = self._get_node_text(alias_node) if alias_node else None
+                                imports.append(
+                                    {'name': original_name, 'source': source, 'alias': alias, 'line_number': line_number,
+                                     'lang': self.language_name})
 
             elif node.type == 'call_expression':  # require('...')
                 args = node.child_by_field_name('arguments')
@@ -626,14 +723,14 @@ def pre_scan_javascript(files: list[Path], parser_wrapper) -> dict:
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 tree = parser_wrapper.parser.parse(bytes(f.read(), "utf8"))
 
             for capture, _ in execute_query(parser_wrapper.language, query_str, tree.root_node):
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(path.resolve()))
+                imports_map[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     return imports_map

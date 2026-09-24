@@ -49,9 +49,14 @@ class RepositoryEventHandler(FileSystemEventHandler):
         self.repo_path = repo_path.resolve()
         self.debounce_interval = debounce_interval
         self.timers = {}
+        # Guards self.timers, and serialises the graph updates that the
+        # per-path debounce timers would otherwise run concurrently.
+        self._timers_lock = threading.Lock()
+        self._update_lock = threading.RLock()
 
         self.ignore_root = self.repo_path
         self.ignore_spec = ignore_spec
+        self.cgcignore_path = cgcignore_path
         self._load_ignore_spec(cgcignore_path)
 
         self.all_file_data = []
@@ -114,11 +119,17 @@ class RepositoryEventHandler(FileSystemEventHandler):
         from ..tools.indexing.discovery import discover_files_to_index
 
         supported = self.graph_builder.parsers.keys()
+        # Forward the explicit ignore file and re-apply this handler's own spec.
+        # Without them, discovery fell back to the repo-local .cgcignore, so the
+        # initial scan and disk sync indexed files that later change events
+        # would skip — the graph kept entries the user asked to exclude, and
+        # they went stale on edit.
         files, _ = discover_files_to_index(
             self.repo_path,
+            cgcignore_path=getattr(self, "cgcignore_path", None),
             supported_extensions=set(supported),
         )
-        return files
+        return [f for f in files if not self._should_ignore(f)]
 
     def _initial_scan(self):
         info_logger(f"Initial scan: {self.repo_path}")
@@ -151,8 +162,14 @@ class RepositoryEventHandler(FileSystemEventHandler):
         info_logger(f"Syncing: {self.repo_path}")
 
         current_files = self._iter_supported_files()
-        current_paths = {str(p.resolve()) for p in current_files}
-        indexed = self.graph_builder.get_repo_file_paths(self.repo_path)
+        current_paths = {p.resolve().as_posix() for p in current_files}
+        # Normalize stored paths lexically only: older Windows indexes stored
+        # backslash paths, but resolving a foreign-platform path against the
+        # local filesystem would prefix cwd and mark every file stale.
+        indexed = {
+            p.replace("\\", "/")
+            for p in self.graph_builder.get_repo_file_paths(self.repo_path)
+        }
 
         self.imports_map = self.graph_builder.pre_scan_imports(current_files)
 
@@ -180,16 +197,33 @@ class RepositoryEventHandler(FileSystemEventHandler):
         info_logger("Sync complete")
 
     def _debounce(self, event_path, action):
-        if event_path in self.timers:
-            self.timers[event_path].cancel()
-        t = threading.Timer(self.debounce_interval, action)
-        t.start()
-        self.timers[event_path] = t
+        # Timers are keyed per path, so N files changed inside the debounce
+        # window fire N handler threads concurrently. Those handlers do
+        # read-modify-write on the shared imports_map and interleave
+        # delete/add/delete_outgoing_calls for overlapping caller sets, so one
+        # can delete edges another just created. A branch switch or `git pull`
+        # is the normal trigger. _handle_modification now takes _update_lock.
+        def _run():
+            # Drop the fired timer: entries were never removed, so self.timers
+            # grew without bound for the life of the watcher.
+            with self._timers_lock:
+                if self.timers.get(event_path) is timer:
+                    del self.timers[event_path]
+            action()
+
+        with self._timers_lock:
+            existing = self.timers.get(event_path)
+            if existing is not None:
+                existing.cancel()
+            timer = threading.Timer(self.debounce_interval, _run)
+            self.timers[event_path] = timer
+        timer.start()
 
     def cancel_timers(self):
-        for t in self.timers.values():
-            t.cancel()
-        self.timers.clear()
+        with self._timers_lock:
+            for t in self.timers.values():
+                t.cancel()
+            self.timers.clear()
 
     def _update_imports_map_for_file(self, changed_path: Path):
         """Re-scan a single file and merge its contributions into self.imports_map."""
@@ -211,6 +245,15 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
     def _handle_modification(self, event_path_str: str):
         """Incremental update: re-parse and re-link only the changed file and its neighbours."""
+        # Serialised: concurrent handlers previously did read-modify-write on
+        # the shared imports_map (lost updates) and interleaved
+        # delete_file_from_graph / add_file_to_graph /
+        # delete_outgoing_calls_from_files for overlapping caller sets, so one
+        # could delete edges another had just created.
+        with self._update_lock:
+            self._handle_modification_locked(event_path_str)
+
+    def _handle_modification_locked(self, event_path_str: str):
         info_logger(f"File change detected (incremental update): {event_path_str}")
         changed_path = Path(event_path_str)
         if self._should_ignore(changed_path):
@@ -240,7 +283,15 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
         self.graph_builder.update_file_in_graph(changed_path, self.repo_path, self.imports_map)
 
-        other_callers = list(caller_paths)
+        # Every file in affected_paths is re-parsed below and fed back into
+        # link_function_calls, so every one of them needs its outgoing CALLS
+        # cleared first. Clearing only caller_paths left the inheritance-only
+        # neighbours to have their edges re-created on top of the existing ones
+        # — and on Neo4j/Nornic the writer uses CREATE, not MERGE, so duplicate
+        # CALLS multiplied on every save. (FalkorDB and Kùzu use MERGE, which is
+        # why this never showed up there.) The changed file itself is excluded:
+        # update_file_in_graph above already deleted and rebuilt it.
+        other_callers = list(affected_paths - {changed_path_str})
         other_inheritors = list(inheritor_paths)
         if other_callers:
             self.graph_builder.delete_outgoing_calls_from_files(other_callers)
@@ -273,14 +324,26 @@ class RepositoryEventHandler(FileSystemEventHandler):
             _inherit_enabled = False
 
         if _vector_enabled:
-            try:
-                from codegraphcontext.tools.indexing.embeddings import EmbeddingPipeline
-                embed_pipeline = EmbeddingPipeline(self.graph_builder.driver)
-                embed_pipeline.invalidate_for_file(changed_path_str)
-                embed_pipeline.run(str(self.repo_path))
-                info_logger(f"[EMBED] Incremental embedding complete for {changed_path_str}")
-            except Exception as _e:
-                warning_logger(f"[EMBED] Incremental embedding failed: {_e}")
+            # Probe once per handler: with no backend installed, the old code
+            # re-attempted (and re-failed) the import on every file event and
+            # only said so at a suppressed log level (#1597).
+            if not hasattr(self, "_embed_backend_ok"):
+                from codegraphcontext.tools.indexing.embeddings import probe_embedding_backend
+                self._embed_backend_ok, _detail = probe_embedding_backend()
+                if not self._embed_backend_ok:
+                    error_logger(
+                        f"[EMBED] ENABLE_VECTOR_RESOLVE=true but incremental embeddings "
+                        f"cannot run: {_detail} (reported once; further file events skip this)"
+                    )
+            if self._embed_backend_ok:
+                try:
+                    from codegraphcontext.tools.indexing.embeddings import EmbeddingPipeline
+                    embed_pipeline = EmbeddingPipeline(self.graph_builder.driver)
+                    embed_pipeline.invalidate_for_file(changed_path_str)
+                    embed_pipeline.run(str(self.repo_path))
+                    info_logger(f"[EMBED] Incremental embedding complete for {changed_path_str}")
+                except Exception as _e:
+                    warning_logger(f"[EMBED] Incremental embedding failed: {_e}")
 
         if _inherit_enabled:
             try:
@@ -314,8 +377,26 @@ class RepositoryEventHandler(FileSystemEventHandler):
             self._debounce(event.src_path, lambda: self._handle_modification(event.src_path))
 
     def on_moved(self, event):
-        if not event.is_directory:
-            self._debounce(event.dest_path, lambda: self._handle_modification(event.dest_path))
+        if event.is_directory:
+            return
+        # Both endpoints matter. Only dest_path was handled, so the node for
+        # the *old* path and all of its symbols stayed in the graph forever:
+        # every rename duplicated every symbol in the file, and a normal
+        # refactoring session or a `git checkout` between branches accumulated
+        # them indefinitely until find_callers started returning dead paths.
+        src_path = getattr(event, "src_path", None)
+        if src_path:
+            self._debounce(src_path, lambda: self._handle_removal(src_path))
+        self._debounce(event.dest_path, lambda: self._handle_modification(event.dest_path))
+
+    def _handle_removal(self, path_str):
+        """Drop a path that no longer exists (the source side of a rename)."""
+        with self._update_lock:
+            try:
+                self.graph_builder.delete_file_from_graph(str(Path(path_str).resolve()))
+                info_logger(f"[WATCH] removed stale node for moved file: {path_str}")
+            except Exception as exc:  # noqa: BLE001 - a watcher must not die on one file
+                error_logger(f"[WATCH] failed to remove {path_str}: {exc}")
 
 
 class CodeWatcher:
@@ -388,6 +469,13 @@ class CodeWatcher:
         for h in self.handlers.values():
             h.cancel_timers()
         self.handlers.clear()
+
+        # A stopped watchdog Observer cannot be restarted, so the watch state
+        # must not survive it: a stale entry makes watch_directory answer
+        # "Already watching" for a dead observer and the graph silently goes
+        # stale (#1519).
+        self.watched_paths.clear()
+        self.watches.clear()
 
         if self.observer.is_alive():
             self.observer.stop()

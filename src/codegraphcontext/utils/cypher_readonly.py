@@ -27,30 +27,81 @@ _FORBIDDEN_PATTERNS = (
     re.compile(r"CALL\s+db\.[a-z0-9_.]*\.(?:create|drop|delete|set|add|remove|alter)\b", re.IGNORECASE),
     re.compile(r"CALL\s+db\.[a-z0-9_.]*create", re.IGNORECASE),
     re.compile(r"CALL\s*\{"),
+    # Write-side APOC procedures are blocked explicitly (not only via the bare
+    # `CALL apoc` rule above) so they are also caught when invoked inline, with
+    # a yield/where clause, or in any spacing the `CALL apoc` rule might miss.
+    # These namespaces mutate the graph and must never run on a read path.
+    re.compile(r"\bapoc\.(?:create|merge|refactor|periodic)\b", re.IGNORECASE),
 )
 _STRING_LITERAL_RE = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'')
-_LINE_COMMENT_RE = re.compile(r"//[^\n]*")
-_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+# Quoted spans and comments must be recognised in a single left-to-right pass.
+# Stripping literals first would treat a quote *inside* a comment as the start
+# of a literal, pairing it with a later real quote and deleting the write
+# keywords in between:
+#
+#     MATCH (n) // note with '
+#     DELETE n WHERE n.x = 'y' RETURN n
+#
+# The `'` in the comment paired with the `'` of 'y', the DELETE vanished with
+# it, and the query was accepted as read-only. Backtick-quoted identifiers are
+# consumed here too, so `` [r:`DELETE`] `` is not mistaken for a write clause.
+_LITERAL_OR_COMMENT_RE = re.compile(
+    r"""
+      '(?:\\.|[^'\\])*'      # '...'
+    | "(?:\\.|[^"\\])*"      # "..."
+    | `(?:\\.|[^`\\])*`      # `...`
+    | //[^\n]*               # // line comment
+    | /\*.*?\*/              # /* block comment */
+    """,
+    re.VERBOSE | re.DOTALL,
+)
 
 
 def strip_string_literals(query: str) -> str:
     return _STRING_LITERAL_RE.sub("", query)
 
 
-def _strip_comments(query: str) -> str:
-    without_block = _BLOCK_COMMENT_RE.sub("", query)
-    return _LINE_COMMENT_RE.sub("", without_block)
+def _strip_literals_and_comments(query: str) -> str:
+    # Replace with a space rather than "" so neighbouring tokens cannot fuse
+    # into a new identifier once the quoted span between them is removed.
+    return _LITERAL_OR_COMMENT_RE.sub(" ", query)
+
+
+# A forbidden keyword only functions as a write *clause* in clause position.
+# The same word is inert — and common in real codebases' graphs — when it is:
+#   n.load        a property access        (preceded by '.')
+#   (n:Insert)    a label / rel-type       (preceded by ':')
+#   $update       a parameter name         (preceded by '$')
+#   AS set        a result-column alias    (preceded by the token AS)
+# Only those provably-safe positions are carved out (#1511); anything
+# ambiguous stays rejected, because a false negative here is a write slipping
+# through a read-only gate while a false positive is merely an inconvenience.
+_TOKEN_RE = re.compile(r"\w+|[^\w\s]")
+
+
+def _keyword_in_clause_position(stripped: str, keyword: str) -> bool:
+    tokens = _TOKEN_RE.findall(stripped)
+    kw = keyword.upper()
+    for i, tok in enumerate(tokens):
+        if tok.upper() != kw:
+            continue
+        prev = tokens[i - 1] if i > 0 else ""
+        if prev in (".", ":", "$") or prev.upper() == "AS":
+            continue
+        return True
+    return False
 
 
 def is_read_only_cypher(query: str) -> bool:
     """Return True when *query* has no write keywords outside string literals."""
     if not query or not query.strip():
         return False
-    stripped = _strip_comments(strip_string_literals(query))
+    stripped = _strip_literals_and_comments(query)
     if ";" in stripped:
         return False
     for keyword in _FORBIDDEN_KEYWORDS:
-        if re.search(r"\b" + keyword + r"\b", stripped, re.IGNORECASE):
+        if _keyword_in_clause_position(stripped, keyword):
             return False
     for pattern in _FORBIDDEN_PATTERNS:
         if pattern.search(stripped):

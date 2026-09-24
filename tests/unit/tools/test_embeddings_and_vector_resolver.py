@@ -60,6 +60,11 @@ class _FakeDriver:
     def session(self):
         return self._session
 
+    def get_backend_type(self):
+        # These tests mock neo4j-style responses (vector index DDL + ANN rows),
+        # so identify as the neo4j backend for detect_graph_backend().
+        return "neo4j"
+
 
 # ---------------------------------------------------------------------------
 # Tests: EmbeddingPipeline

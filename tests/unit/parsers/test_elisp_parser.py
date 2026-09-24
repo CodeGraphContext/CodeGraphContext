@@ -97,7 +97,7 @@ def test_tree_sitter_parser_dispatches_to_elisp_parser():
 
 def test_elisp_queries_capture_mvp_shapes(elisp_parser, temp_test_dir):
     f = temp_test_dir / "sample.el"
-    f.write_text(ELISP_SAMPLE)
+    f.write_text(ELISP_SAMPLE, encoding="utf-8")
     tree = elisp_parser.parser.parse(f.read_bytes())
 
     function_captures = execute_query(
@@ -138,9 +138,10 @@ def test_elisp_queries_capture_mvp_shapes(elisp_parser, temp_test_dir):
 
 def test_parse_elisp_normalized_output(elisp_parser, temp_test_dir):
     f = temp_test_dir / "sample.el"
-    f.write_text(ELISP_SAMPLE)
+    f.write_text(ELISP_SAMPLE, encoding="utf-8")
 
     result = elisp_parser.parse(f, index_source=True)
+    assert isinstance(result, dict)
 
     assert result["lang"] == "elisp"
     assert result["classes"] == []
@@ -189,14 +190,14 @@ def test_pre_scan_elisp_indexes_definitions_and_provided_features(
 ):
     core = temp_test_dir / "foo-core.el"
     core.write_text("""
-(defvar foo-core-count 0)
+(defvar foo-core-count 0, encoding="utf-8")
 (defun foo-core-helper (name) (message "%s" name))
 (defmacro foo-core-with-helper (&rest body) `(progn ,@body))
 (provide 'foo-core)
 """)
     ui = temp_test_dir / "foo-ui.el"
     ui.write_text("""
-(require 'foo-core)
+(require 'foo-core, encoding="utf-8")
 (defun foo-ui-render (name) (foo-core-helper name))
 (provide 'foo-ui)
 """)

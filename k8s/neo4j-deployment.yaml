@@ -30,8 +30,10 @@ spec:
               key: auth
         - name: NEO4J_PLUGINS
           value: '["apoc"]'
-        - name: NEO4J_dbms_security_procedures_unrestricted
-          value: "apoc.*"
+        # APOC is installed but intentionally NOT granted unrestricted access.
+        # CGC uses no apoc procedures and blocks `CALL apoc` in user queries,
+        # so the previous `apoc.*` unrestricted grant was an unnecessary attack
+        # surface (e.g. apoc.load.json SSRF/file read, apoc.export file write). See #1006.
         - name: NEO4J_dbms_memory_heap_max__size
           value: "2G"
         resources:

@@ -501,7 +501,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
               <div className="relative w-full max-w-[280px]">
                 <Button className="bg-purple-600 text-white relative cursor-pointer hover:bg-gray-200 rounded-full px-10 py-6 text-lg w-full shadow-[0_0_20px_rgba(255,255,255,0.1)]">
                   Select ZIP Archive
-                  <input type="file" accept=".zip" onChange={handleZipUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                  <input type="file" accept=".zip" onChange={handleZipUpload} aria-label="Upload ZIP file" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                 </Button>
               </div>
             </motion.div>
@@ -515,7 +515,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
               <div className="relative w-full max-w-[280px]">
                 <Button className="bg-purple-600 text-white relative cursor-pointer hover:bg-gray-200 rounded-full px-10 py-6 text-lg w-full shadow-[0_0_20px_rgba(255,255,255,0.1)]">
                   Select CGC Bundle
-                  <input type="file" accept=".cgc" onChange={handleCgcUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                  <input type="file" accept=".cgc" onChange={handleCgcUpload} aria-label="Upload CGC bundle" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                 </Button>
               </div>
             </motion.div>
@@ -533,6 +533,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                   placeholder="GitHub or GitLab URL / owner/repo"
                   value={remoteRepoUrl}
                   onChange={e => handleRepoUrlChange(e.target.value)}
+                  aria-label="GitHub or GitLab Repository URL"
                   className="w-full bg-white/40 dark:bg-black/40 border border-gray-300 dark:border-white/20 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 px-5 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-sm"
                 />
                 <p className="text-[11px] text-gray-500 dark:text-gray-500 text-left leading-relaxed px-1">
@@ -559,6 +560,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                   placeholder="PAT for private repos — GitHub (ghp_...) or GitLab (glpat-...)"
                   value={pat}
                   onChange={e => handlePatChange(e.target.value)}
+                  aria-label="Personal Access Token"
                   className="w-full bg-white/40 dark:bg-black/40 border border-gray-300 dark:border-white/20 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 px-5 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-sm"
                 />
                 {pat.trim() && remoteRepoUrl.trim() && (
@@ -680,7 +682,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                   {/* 3. Max Graph Nodes */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center">
-                      <label className="text-sm font-semibold text-white">
+                      <label htmlFor="max-nodes-slider" className="text-sm font-semibold text-white">
                         Maximum Graph Nodes
                       </label>
                       <span className="text-xs font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
@@ -691,6 +693,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                       The maximum number of AST elements (files, classes, functions, variables) to create in the graph.
                     </span>
                     <input
+                      id="max-nodes-slider"
                       type="range"
                       min={10000}
                       max={500000}
@@ -704,7 +707,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                   {/* 4. Max Graph Edges */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center">
-                      <label className="text-sm font-semibold text-white">
+                      <label htmlFor="max-edges-slider" className="text-sm font-semibold text-white">
                         Maximum Call / Import Edges
                       </label>
                       <span className="text-xs font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
@@ -715,6 +718,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                       Limits relationship lines to safeguard browser rendering performance. High edge density can slow down rendering.
                     </span>
                     <input
+                      id="max-edges-slider"
                       type="range"
                       min={5000}
                       max={200000}

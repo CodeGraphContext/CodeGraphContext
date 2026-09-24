@@ -631,7 +631,7 @@ The `CodeFinder` class is the read-side of the graph. It generates and executes 
 │  ├── find_by_module_name(name)                             │
 │  ├── find_by_content(text)                                 │
 │  ├── find_by_type(node_type)                               │
-│  ├── find_functions_by_argument(arg_name)                  │
+│  ├── find_functions_by_argument(name_or_type)              │
 │  ├── find_functions_by_decorator(decorator)                │
 │  └── find_imports(module)                                  │
 │                                                            │

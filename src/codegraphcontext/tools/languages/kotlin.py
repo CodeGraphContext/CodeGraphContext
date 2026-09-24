@@ -6,6 +6,9 @@ from codegraphcontext.tools.type_utils import strip_type_modifiers
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
 
+# Matches @Composable and @Composable(...) but not @ComposableTarget etc.
+_COMPOSABLE_RE = re.compile(r"^@Composable\b")
+
 KOTLIN_QUERIES = {
     "functions": """
         (function_declaration
@@ -18,6 +21,11 @@ KOTLIN_QUERIES = {
             (class_declaration (type_identifier) @name)
             (object_declaration (type_identifier) @name)
             (companion_object (type_identifier)? @name)
+            (infix_expression
+                (object_literal)
+                (simple_identifier)
+                (lambda_literal)
+            )
         ] @class
     """,
     "imports": """
@@ -149,6 +157,9 @@ class KotlinTreeSitterParser:
     def _get_parent_context(self, node: Any) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
+            inline_object_name = self._get_inline_object_name(curr)
+            if inline_object_name:
+                return inline_object_name, "object_declaration", curr.start_point[0] + 1
             if curr.type in ("function_declaration",):
                 name_node = None
                 for child in curr.children:
@@ -158,7 +169,10 @@ class KotlinTreeSitterParser:
                 return (
                     self._get_node_text(name_node) if name_node else None,
                     curr.type,
-                    curr.start_point[0] + 1,
+                    # The name node's line, not the node's: an annotated
+                    # declaration starts at its annotation, and consumers join
+                    # this against the function's line_number (#1660).
+                    (name_node.start_point[0] + 1) if name_node else (curr.start_point[0] + 1),
                 )
             if curr.type in ("class_declaration", "interface_declaration", "object_declaration"):
                 for child in curr.children:
@@ -166,7 +180,7 @@ class KotlinTreeSitterParser:
                          return (
                             self._get_node_text(child),
                             curr.type,
-                            curr.start_point[0] + 1,
+                            child.start_point[0] + 1,
                         )
                 # Check for secondary constructors
                 if curr.type == "secondary_constructor":
@@ -204,13 +218,100 @@ class KotlinTreeSitterParser:
             curr = curr.parent
         return None, None, None
 
+    def _get_inline_object_name(self, node: Any) -> Optional[str]:
+        """Return the name from Kotlin's misparsed single-line object shape."""
+        if node.type != "infix_expression":
+            return None
+
+        children = node.named_children
+        if [child.type for child in children] != [
+            "object_literal",
+            "simple_identifier",
+            "lambda_literal",
+        ]:
+            return None
+        if self._get_node_text(children[0]) != "object":
+            return None
+        return self._get_node_text(children[1])
+
     def _get_node_text(self, node: Any) -> str:
         if not node: return ""
         return node.text.decode("utf-8")
 
+    def _get_node_annotations(self, node: Any) -> List[str]:
+        """Return raw annotation text for a declaration, e.g. ['@Preview(showBackground = true)'].
+
+        Only *direct* `annotation` children of the `modifiers` node are collected.
+        In `annotation class Foo`, the `annotation` keyword also produces a node of
+        type `annotation`, but nested one level down under `class_modifier` -- so a
+        recursive search would emit the bare string "annotation" as a decorator.
+        """
+        modifiers = None
+        for child in node.children:
+            if child.type == "modifiers":
+                modifiers = child
+                break
+        if not modifiers:
+            return []
+
+        annotations = []
+        for child in modifiers.children:
+            if child.type == "annotation":
+                text = " ".join(self._get_node_text(child).split())
+                if text:
+                    annotations.append(text)
+        return annotations
+
+    _MODIFIER_CHILD_TYPES = (
+        "class_modifier",
+        "function_modifier",
+        "inheritance_modifier",
+        "member_modifier",
+        "platform_modifier",
+        "parameter_modifier",
+        "property_modifier",
+        "reification_modifier",
+    )
+
+    def _get_node_modifiers(self, node: Any) -> Tuple[str, List[str]]:
+        """Return (visibility, modifiers) for a declaration.
+
+        `visibility` defaults to "public", matching Kotlin's own default, so
+        consumers never have to handle a missing value. `modifiers` holds the
+        bare keyword text of every non-annotation, non-visibility modifier in
+        source order.
+
+        Note `enum` is NOT here: `enum class C` produces no `modifiers` node at
+        all. Callers that care derive it from a direct `enum` keyword child.
+        """
+        modifiers_node = None
+        for child in node.children:
+            if child.type == "modifiers":
+                modifiers_node = child
+                break
+
+        visibility = "public"
+        modifiers: List[str] = []
+        if not modifiers_node:
+            return visibility, modifiers
+
+        for child in modifiers_node.children:
+            if child.type == "visibility_modifier":
+                visibility = self._get_node_text(child).strip()
+            elif child.type in self._MODIFIER_CHILD_TYPES:
+                text = self._get_node_text(child).strip()
+                # `annotation` appears here as a class_modifier keyword on
+                # `annotation class Foo`; keep it, it is a real class kind.
+                if text:
+                    modifiers.append(text)
+        return visibility, modifiers
+
     def _get_enclosing_class_context(self, node: Any) -> Tuple[Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
+            inline_object_name = self._get_inline_object_name(curr)
+            if inline_object_name:
+                return inline_object_name, curr.start_point[0] + 1
             if curr.type in ("class_declaration", "interface_declaration", "object_declaration"):
                 for child in curr.children:
                     if child.type in ("simple_identifier", "type_identifier"):
@@ -1232,6 +1333,12 @@ class KotlinTreeSitterParser:
                             
                     if name_node:
                         func_name = self._get_node_text(name_node)
+                        # Annotations/modifiers are children of the declaration
+                        # node, so node.start_point is the ANNOTATION line for
+                        # any annotated function. The name node sits on the
+                        # declaration proper — the established convention
+                        # (python decorated_definition, csharp #1659, #1660).
+                        start_line = name_node.start_point[0] + 1
                         
                         params_node = None
                         for child in node.children:
@@ -1271,7 +1378,14 @@ class KotlinTreeSitterParser:
                             "lang": self.language_name,
                             "context": context_name,
                             "class_context": context_name if is_class_context else None,
+                            "decorators": self._get_node_annotations(node),
                         }
+                        func_data["is_composable"] = any(
+                            _COMPOSABLE_RE.match(d) for d in func_data["decorators"]
+                        )
+                        visibility, modifiers = self._get_node_modifiers(node)
+                        func_data["visibility"] = visibility
+                        func_data["modifiers"] = modifiers
                         if is_class_context and context_line is not None:
                             func_data["class_context_line"] = context_line
 
@@ -1321,13 +1435,14 @@ class KotlinTreeSitterParser:
 
         for node, capture_name in captures:
             if capture_name == "class":
+                inline_object_name = self._get_inline_object_name(node)
                 node_id = (node.start_byte, node.end_byte, node.type)
                 if node_id in seen_nodes:
                     continue
                 seen_nodes.add(node_id)
                 
                 try:
-                    if node.type in ("object_declaration", "companion_object"):
+                    if inline_object_name or node.type in ("object_declaration", "companion_object"):
                         category = "objects"
                         label = "Object"
                     else:
@@ -1343,14 +1458,19 @@ class KotlinTreeSitterParser:
                     end_line = node.end_point[0] + 1
                     
                     # Find name child (type_identifier or simple_identifier)
-                    class_name = "Anonymous"
+                    class_name = inline_object_name or "Anonymous"
                     if node.type == "companion_object":
                         class_name = "Companion" # Default name
                     
-                    for child in node.children:
-                        if child.type in ("type_identifier", "simple_identifier"):
-                            class_name = self._get_node_text(child)
-                            break
+                    if not inline_object_name:
+                        for child in node.children:
+                            if child.type in ("type_identifier", "simple_identifier"):
+                                class_name = self._get_node_text(child)
+                                # Same convention as functions: an annotated
+                                # class node starts at its annotation line;
+                                # report the declaration line (#1660).
+                                start_line = child.start_point[0] + 1
+                                break
                             
                     source_text = self._get_node_text(node)
                     context_name, context_type, context_line = self._get_parent_context(node)
@@ -1390,13 +1510,23 @@ class KotlinTreeSitterParser:
 
                     class_data = {
                         "name": class_name,
-                        "node_type": node.type,
+                        "node_type": "object_declaration" if inline_object_name else node.type,
                         "line_number": start_line,
                         "end_line": end_line,
                         "bases": bases,
                         "path": str(path),
                         "lang": self.language_name,
                     }
+                    # Task 1 added `decorators` to Interface and Object, so the
+                    # 1a category gate is no longer needed.
+                    class_data["decorators"] = self._get_node_annotations(node)
+                    visibility, modifiers = self._get_node_modifiers(node)
+                    class_data["visibility"] = visibility
+                    # `enum class` produces no modifiers node; the keyword is a
+                    # direct child, same as `interface`.
+                    if any(c.type == "enum" for c in node.children):
+                        modifiers.append("enum")
+                    class_data["modifiers"] = modifiers
                     if is_nested_class:
                         class_data["class_context"] = context_name
                         if context_line is not None:
@@ -1631,6 +1761,44 @@ class KotlinTreeSitterParser:
 
         return imports
 
+    @staticmethod
+    def _is_within_annotation(node: Any) -> bool:
+        """True when `node` is part of an annotation rather than a real call.
+
+        An annotation carrying arguments is `annotation -> @ +
+        constructor_invocation` in this grammar, and KOTLIN_QUERIES["calls"]
+        captures `constructor_invocation`, so `@Preview(showBackground =
+        true)` would otherwise be recorded as a call made by the annotated
+        declaration. The same applies to expressions *inside* the argument
+        list -- `@PreviewParameter(provider = FooProvider::class)` puts a
+        `callable_reference` there, which the query captures too.
+
+        The walk is over ancestors rather than a single parent check because
+        the captured node is the annotation's own `constructor_invocation`
+        (direct parent `annotation`) in the first case and an argument nested
+        below it in the second. Ancestors are also what keeps genuine calls:
+        `B()` in `class A : B()` is a `constructor_invocation` as well, but
+        its parent chain runs through `delegation_specifier`, never
+        `annotation`, so it survives -- as does a `constructor_delegation_call`
+        under `secondary_constructor`. Keying on the node type alone would
+        delete both.
+
+        Two node types are checked, not one. Declaration-level annotations
+        nest under `annotation`, which covers functions, classes, objects,
+        interfaces, typealiases, properties and use-site targets such as
+        `@field:ColumnInfo(...)` and `@get:JvmName(...)`. File-level
+        annotations are the exception: `@file:JvmName("Utils")` produces a
+        `file_annotation` node instead, with no `annotation` anywhere in the
+        chain, so checking only `annotation` would leave the phantom at the
+        top of every file using a `@file:` target. See issue #1602.
+        """
+        current = node.parent
+        while current is not None:
+            if current.type in ("annotation", "file_annotation"):
+                return True
+            current = current.parent
+        return False
+
     def _parse_calls(
         self,
         captures: list,
@@ -1722,6 +1890,8 @@ class KotlinTreeSitterParser:
 
         for node, capture_name in captures:
             if capture_name == "call_node":
+                if self._is_within_annotation(node):
+                    continue
                 try:
                     # navigation_expression check
                     

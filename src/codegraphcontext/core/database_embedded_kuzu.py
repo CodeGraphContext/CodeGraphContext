@@ -20,7 +20,109 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List, ClassVar
 
 from codegraphcontext.core.graph_query import GraphQueryInterface
+from ..utils.cypher_ddl import is_schema_ddl
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
+
+# Default cap for ladybug/kuzu buffer pools (bytes). Both libraries otherwise
+# default to ~80% of system RAM, which lets long-running gateways grow huge.
+DEFAULT_EMBEDDED_BUFFER_POOL_BYTES = 4 * 1024**3
+
+# Floor for the availability-derived default, so a briefly-busy machine does
+# not shrink the pool into pathological territory.
+MIN_DEFAULT_BUFFER_POOL_BYTES = 256 * 1024**2
+
+
+def _cgroup_available_bytes():
+    """Memory headroom under the container's cgroup limit, or None when
+    unconfined. /proc/meminfo shows the HOST inside a container, so a pod
+    capped at 1 GiB on a 64 GiB host would otherwise size a 4 GiB pool and
+    be OOM-killed natively at first touch."""
+    # cgroup v2 (unified hierarchy)
+    try:
+        with open("/sys/fs/cgroup/memory.max") as f:
+            raw = f.read().strip()
+        if raw != "max":
+            limit = int(raw)
+            usage = 0
+            try:
+                with open("/sys/fs/cgroup/memory.current") as f:
+                    usage = int(f.read().strip())
+            except (OSError, ValueError):
+                pass
+            return max(limit - usage, 0)
+    except (OSError, ValueError):
+        pass
+    # cgroup v1
+    try:
+        with open("/sys/fs/cgroup/memory/memory.limit_in_bytes") as f:
+            limit = int(f.read().strip())
+        if limit < 1 << 60:  # v1 reports ~8 EiB when unlimited
+            usage = 0
+            try:
+                with open("/sys/fs/cgroup/memory/memory.usage_in_bytes") as f:
+                    usage = int(f.read().strip())
+            except (OSError, ValueError):
+                pass
+            return max(limit - usage, 0)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _available_memory_bytes():
+    """The tighter of host MemAvailable (/proc/meminfo) and the cgroup
+    memory headroom, or None where neither is readable (macOS…)."""
+    host = None
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    host = int(line.split()[1]) * 1024
+                    break
+    except OSError:
+        pass
+    cgroup = _cgroup_available_bytes()
+    if host is not None and cgroup is not None:
+        return min(host, cgroup)
+    return host if host is not None else cgroup
+
+
+def resolve_embedded_buffer_pool_size() -> int:
+    """
+    Resolve ``buffer_pool_size`` for embedded ``Database(...)`` constructors.
+
+    Reads ``CGC_EMBEDDED_BUFFER_POOL_MB`` (integer MiB). Unset uses an
+    adaptive default: 4 GiB, capped at half of currently-available memory
+    (floored at 256 MiB) — on a memory-constrained host (CI runners sharing
+    RAM with a Neo4j container, small VMs) a fixed 4 GiB pool made LadybugDB
+    fault natively (SIGSEGV, parity run exit -11) when the reservation could
+    not be backed. An explicit env value is always honored as-is; ``0`` opts
+    back into the library default (~80% of system memory).
+    """
+    raw = os.getenv("CGC_EMBEDDED_BUFFER_POOL_MB")
+    if raw is None or str(raw).strip() == "":
+        available = _available_memory_bytes()
+        if available is None:
+            return DEFAULT_EMBEDDED_BUFFER_POOL_BYTES
+        adaptive = max(MIN_DEFAULT_BUFFER_POOL_BYTES, available // 2)
+        return min(DEFAULT_EMBEDDED_BUFFER_POOL_BYTES, adaptive)
+    try:
+        mb = int(str(raw).strip())
+    except ValueError:
+        warning_logger(
+            f"Invalid CGC_EMBEDDED_BUFFER_POOL_MB={raw!r}; "
+            f"using default {DEFAULT_EMBEDDED_BUFFER_POOL_BYTES} bytes"
+        )
+        return DEFAULT_EMBEDDED_BUFFER_POOL_BYTES
+    if mb < 0:
+        warning_logger(
+            f"Invalid CGC_EMBEDDED_BUFFER_POOL_MB={raw!r}; "
+            f"using default {DEFAULT_EMBEDDED_BUFFER_POOL_BYTES} bytes"
+        )
+        return DEFAULT_EMBEDDED_BUFFER_POOL_BYTES
+    if mb == 0:
+        return 0
+    return mb * 1024**2
 
 
 @dataclass(frozen=True)
@@ -99,9 +201,14 @@ class EmbeddedGraphManager(GraphQueryInterface):
         os.makedirs(Path(self.db_path).parent, exist_ok=True)
         self._initialized = True
 
-    def get_driver(self):
+    def get_driver(self, graph_name: str = None):
         """
         Gets the embedded driver. Initialises the database and connection pool.
+
+        The ``graph_name`` parameter is accepted for interface parity with
+        FalkorDB (which supports multiple graphs per instance). Embedded
+        backends (KùzuDB, LadybugDB) are single-graph, so the argument is
+        ignored.
         """
         spec = self.BACKEND_SPEC
         if self._db is None:
@@ -111,8 +218,24 @@ class EmbeddedGraphManager(GraphQueryInterface):
                     max_retries = 5
                     for attempt in range(max_retries):
                         try:
-                            info_logger(f"Initializing {spec.display_name} at {self.db_path}")
-                            self._db = backend.Database(self.db_path)
+                            buffer_pool_size = resolve_embedded_buffer_pool_size()
+                            if buffer_pool_size == 0:
+                                pool_msg = "library default (~80% of system memory)"
+                            else:
+                                pool_msg = f"{buffer_pool_size} bytes"
+                            info_logger(
+                                f"Initializing {spec.display_name} at {self.db_path} "
+                                f"(buffer_pool_size={pool_msg})"
+                            )
+                            if buffer_pool_size == 0:
+                                # 0 means "library default": omit the kwarg
+                                # rather than trusting every backend to treat
+                                # a literal 0 that way.
+                                self._db = backend.Database(self.db_path)
+                            else:
+                                self._db = backend.Database(
+                                    self.db_path, buffer_pool_size=buffer_pool_size
+                                )
 
                             # Initialise connection pool
                             self._pool = queue.Queue()
@@ -164,32 +287,38 @@ class EmbeddedGraphManager(GraphQueryInterface):
         
         node_tables = [
             ("Repository", "path STRING, name STRING, is_dependency BOOLEAN, indexed_at STRING, commit_hash STRING, PRIMARY KEY (path)"),
-            ("File", "path STRING, name STRING, relative_path STRING, package_name STRING, is_dependency BOOLEAN, PRIMARY KEY (path)"),
+            ("File", "path STRING, name STRING, relative_path STRING, package_name STRING, language STRING, is_dependency BOOLEAN, PRIMARY KEY (path)"),
             ("Directory", "path STRING, name STRING, PRIMARY KEY (path)"),
             ("Module", "name STRING, lang STRING, full_import_name STRING, path STRING, line_number INT64, PRIMARY KEY (name)"),
             # For types with composite keys (name, path, line_number), we use a 'uid'
-            ("Function", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, cyclomatic_complexity INT64, context STRING, context_type STRING, class_context STRING, class_context_line INT64, module_context STRING, is_dependency BOOLEAN, decorators STRING[], args STRING[], http_method STRING, http_path STRING, embedding DOUBLE[], PRIMARY KEY (uid)"),
-            ("Class", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, node_type STRING, is_dependency BOOLEAN, decorators STRING[], PRIMARY KEY (uid)"),
-            ("Variable", "uid STRING, name STRING, path STRING, line_number INT64, source STRING, docstring STRING, lang STRING, value STRING, context STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Trait", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Interface", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Macro", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Struct", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Enum", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("EnumMember", "uid STRING, name STRING, path STRING, line_number INT64, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Union", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Function", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, cyclomatic_complexity INT64, context STRING, context_type STRING, class_context STRING, class_context_line INT64, module_context STRING, is_dependency BOOLEAN, decorators STRING[], args STRING[], arg_types STRING[], http_method STRING, http_path STRING, embedding DOUBLE[], visibility STRING, modifiers STRING[], is_composable BOOLEAN, PRIMARY KEY (uid)"),
+            ("Class", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, node_type STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
+            ("Variable", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, source STRING, docstring STRING, lang STRING, value STRING, context STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Trait", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Interface", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
+            ("Macro", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Struct", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Enum", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("EnumMember", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Union", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Annotation", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Record", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Property", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Record", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Property", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Parameter", "uid STRING, name STRING, path STRING, function_line_number INT64, PRIMARY KEY (uid)"),
-            ("Mixin", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Extension", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("Object", "uid STRING, name STRING, path STRING, line_number INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
-            ("DbTable", "name STRING, fqn STRING, datasource_name STRING, path STRING, PRIMARY KEY (name)"),
+            ("Mixin", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Extension", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
+            ("Object", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
+            ("DbTable", "fqn STRING, name STRING, datasource_name STRING, table_type STRING, comment STRING, path STRING, PRIMARY KEY (fqn)"),
             ("Datasource", "name STRING, kind STRING, host STRING, env STRING, PRIMARY KEY (name)"),
-            ("DbColumn", "name STRING, table_fqn STRING, type STRING, nullable BOOLEAN, datasource_name STRING, is_primary_key BOOLEAN, PRIMARY KEY (name, table_fqn)"),
-            ("RedisKeyPattern", "pattern STRING, datasource_name STRING, key_type STRING, example_key STRING, count INT64, PRIMARY KEY (pattern, datasource_name)"),
-            ("ExternalClass", "name STRING, path STRING, PRIMARY KEY (name)")
+            ("DbColumn", "uid STRING, name STRING, table_fqn STRING, type STRING, nullable BOOLEAN, datasource_name STRING, is_primary_key BOOLEAN, PRIMARY KEY (uid)"),
+            ("RedisKeyPattern", "uid STRING, pattern STRING, datasource_name STRING, key_type STRING, example_key STRING, count INT64, PRIMARY KEY (uid)"),
+            ("ExternalClass", "name STRING, path STRING, PRIMARY KEY (name)"),
+            # Build-system entities (#1603): these were never declared, so the
+            # whole Gradle/Maven build graph silently failed to write on the
+            # embedded backends. Composite natural keys use a synthesized uid.
+            ("GradleModule", "name STRING, build_file STRING, path STRING, repo_path STRING, PRIMARY KEY (name)"),
+            ("MavenModule", "uid STRING, group_id STRING, artifact_id STRING, version STRING, packaging STRING, pom_path STRING, path STRING, repo_path STRING, PRIMARY KEY (uid)"),
+            ("ExternalLibrary", "uid STRING, group_id STRING, artifact_id STRING, version STRING, PRIMARY KEY (uid)")
         ]
         
         # rel_tables: list of (table_name, schema, use_group)
@@ -232,7 +361,34 @@ class EmbeddedGraphManager(GraphQueryInterface):
                 line_number INT64, args STRING[], full_call_name STRING, args_key STRING, confidence DOUBLE, resolution_tier INT64, 
                 confidence_label STRING, source STRING, resolution_method STRING, called_name STRING
             """, True),
-            ("IMPORTS", "FROM File TO Module, alias STRING, full_import_name STRING, imported_name STRING, line_number INT64", False),
+            # Same bindings as CALLS. writer.py emits HEURISTIC_CALLS for
+            # resolution tier >= 8, but the table was never declared here, so on
+            # Kùzu those edges could not be written and every query matching
+            # [:CALLS|HEURISTIC_CALLS] failed outright with
+            # "Binder exception: Table HEURISTIC_CALLS does not exist" —
+            # which broke `cgc analyze dead-code` completely on this backend.
+            ("HEURISTIC_CALLS", """
+                FROM Function TO Function, FROM Function TO Class, FROM Function TO Interface, FROM Function TO Trait, 
+                FROM Function TO Struct, FROM Function TO Enum, FROM Function TO Record, FROM Function TO `Union`,
+                FROM Function TO Mixin, FROM Function TO Extension, FROM Function TO Object, FROM Function TO Parameter,
+                FROM Class TO Function, FROM Class TO Class, FROM Class TO Interface, FROM Class TO Trait, 
+                FROM Class TO Struct, FROM Class TO Enum, FROM Class TO Record, FROM Class TO `Union`,
+                FROM Interface TO Function, FROM Interface TO Class, FROM Interface TO Interface,
+                FROM Trait TO Function, FROM Trait TO Class, FROM Trait TO Interface,
+                FROM Mixin TO Function, FROM Mixin TO Class, FROM Mixin TO Interface,
+                FROM Extension TO Function, FROM Extension TO Class, FROM Extension TO Interface,
+                FROM Object TO Function, FROM Object TO Class, FROM Object TO Interface,
+                FROM `Union` TO Function, FROM `Union` TO Class, FROM `Union` TO Interface,
+                FROM `Macro` TO Function, FROM `Macro` TO Class, FROM `Macro` TO Interface,
+                FROM File TO Function, FROM File TO Class, FROM File TO Interface, FROM File TO Trait, 
+                FROM File TO Struct, FROM File TO Enum, FROM File TO Record, FROM File TO `Union`,
+                FROM Function TO File,
+                FROM Variable TO Function, FROM Variable TO Class, FROM Variable TO Interface,
+                line_number INT64, args STRING[], full_call_name STRING, args_key STRING, confidence DOUBLE, resolution_tier INT64, 
+                confidence_label STRING, source STRING, resolution_method STRING, called_name STRING
+            """, True),
+            ("IMPORTS", "FROM File TO Module, alias STRING, full_import_name STRING, imported_name STRING, line_number INT64, lang STRING", False),
+            ("PREVIEWS", "FROM Function TO Function, line_number INT64", False),
             ("INHERITS", """
                 FROM Class TO Class, FROM Class TO Trait, FROM Class TO Interface, FROM Class TO Struct, FROM Class TO Enum, FROM Class TO `Union`, FROM Class TO Record, FROM Class TO Mixin, FROM Class TO Extension, FROM Class TO Module, FROM Class TO Object, FROM Class TO ExternalClass,
                 FROM Trait TO Class, FROM Trait TO Trait, FROM Trait TO Interface, FROM Trait TO Struct, FROM Trait TO Enum, FROM Trait TO `Union`, FROM Trait TO Record, FROM Trait TO Mixin, FROM Trait TO Extension, FROM Trait TO Module, FROM Trait TO Object, FROM Trait TO ExternalClass,
@@ -259,12 +415,34 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("PARTIAL_OF", "FROM Class TO Class, line_number INT64, confidence_label STRING", False),
             ("PART_OF", "FROM File TO File", False),
             ("INJECTS", "FROM Class TO Class, field_name STRING, inject_line INT64, confidence_label STRING", False),
+            ("BINDS", "FROM Interface TO Class, FROM Class TO Class, FROM Interface TO Interface, line_number INT64, provider STRING, confidence_label STRING", True),
             ("MAPS_TO", "FROM Class TO DbTable, datastore STRING, line_number INT64", False),
             ("READS", "FROM Function TO DbTable, line_number INT64", False),
             ("WRITES", "FROM Function TO DbTable, line_number INT64", False),
             ("STORED_IN", "FROM DbTable TO Datasource, FROM RedisKeyPattern TO Datasource", True),
             ("HAS_COLUMN", "FROM DbTable TO DbColumn", False),
         ]
+
+        # Legacy Kùzu databases may carry a DbTable created with PRIMARY KEY
+        # (name) before #1393-era fixes; the writer merges DbTable on `fqn`,
+        # so that shape never received a row. Drop the empty legacy table so
+        # the CREATE below rebuilds it keyed on fqn. Only an *empty* table is
+        # dropped -- a populated one is left untouched.
+        try:
+            info = self._conn.execute("CALL TABLE_INFO('DbTable') RETURN *")
+            legacy_pk_name = False
+            while info.has_next():
+                row = info.get_next()
+                if row[1] == "name" and row[-1]:
+                    legacy_pk_name = True
+            if legacy_pk_name:
+                count_res = self._conn.execute("MATCH (n:DbTable) RETURN count(n)")
+                empty = count_res.get_next()[0] == 0 if count_res.has_next() else True
+                if empty:
+                    self._conn.execute("DROP TABLE DbTable")
+                    debug_log("Dropped empty legacy DbTable (PK name) for rebuild keyed on fqn")
+        except Exception:
+            pass  # table absent -- nothing to migrate
 
         for table_name, schema in node_tables:
             try:
@@ -293,6 +471,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
         # Simple (non-group) table migrations
         simple_migrations = [
             ("File", "package_name", "STRING"),
+            ("File", "language", "STRING"),
             ("Module", "full_import_name", "STRING"),
             ("Module", "path", "STRING"),
             ("Module", "line_number", "INT64"),
@@ -300,16 +479,46 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("ExternalClass", "path", "STRING"),
             ("IMPORTS", "full_import_name", "STRING"),
             ("IMPORTS", "imported_name", "STRING"),
+            ("IMPORTS", "lang", "STRING"),
+            # occurrence_index disambiguates same-name/same-line symbols (#1393)
+            ("Function", "occurrence_index", "INT64"),
+            ("Class", "occurrence_index", "INT64"),
+            ("Variable", "occurrence_index", "INT64"),
+            ("Trait", "occurrence_index", "INT64"),
+            ("Interface", "occurrence_index", "INT64"),
+            ("Macro", "occurrence_index", "INT64"),
+            ("Struct", "occurrence_index", "INT64"),
+            ("Enum", "occurrence_index", "INT64"),
+            ("Union", "occurrence_index", "INT64"),
+            ("Record", "occurrence_index", "INT64"),
+            ("Property", "occurrence_index", "INT64"),
+            ("EnumMember", "occurrence_index", "INT64"),
+            ("Mixin", "occurrence_index", "INT64"),
+            ("Extension", "occurrence_index", "INT64"),
+            ("Object", "occurrence_index", "INT64"),
             ("Repository", "indexed_at", "STRING"),
             ("Repository", "commit_hash", "STRING"),
             # Spring endpoint properties on Function
+            ("Function", "is_composable", "BOOLEAN"),
             ("Function", "http_method", "STRING"),
             ("Function", "http_path", "STRING"),
+            ("Function", "arg_types", "STRING[]"),
             # Kotlin/JVM precision improvements
             ("Function", "class_context_line", "INT64"),
             ("Function", "module_context", "STRING"),
             ("Function", "embedding", "DOUBLE[]"),
             ("Class", "node_type", "STRING"),
+            # Visibility/modifiers columns and Interface/Object decorators
+            ("Function", "visibility", "STRING"),
+            ("Function", "modifiers", "STRING[]"),
+            ("Class", "visibility", "STRING"),
+            ("Class", "modifiers", "STRING[]"),
+            ("Interface", "decorators", "STRING[]"),
+            ("Object", "decorators", "STRING[]"),
+            ("Interface", "visibility", "STRING"),
+            ("Interface", "modifiers", "STRING[]"),
+            ("Object", "visibility", "STRING"),
+            ("Object", "modifiers", "STRING[]"),
         ]
 
         # REL TABLE GROUP migrations: KuzuDB creates sub-tables named
@@ -359,6 +568,12 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("EMBEDS", "FROM Struct TO Struct, line_number INT64", False),
             ("PARTIAL_OF", "FROM Class TO Class, line_number INT64, confidence_label STRING", False),
             ("PART_OF", "FROM File TO File", False),
+            ("BINDS", "FROM Interface TO Class, FROM Class TO Class, FROM Interface TO Interface, line_number INT64, provider STRING, confidence_label STRING", True),
+            ("PREVIEWS", "FROM Function TO Function, line_number INT64", False),
+            # Build-system relationships (#1603)
+            ("MODULE_DEPENDS_ON", "FROM GradleModule TO GradleModule, FROM MavenModule TO MavenModule, configuration STRING, scope STRING", True),
+            ("USES_LIBRARY", "FROM GradleModule TO ExternalLibrary, FROM MavenModule TO ExternalLibrary, configuration STRING, scope STRING", True),
+            ("CHILD_MODULE", "FROM MavenModule TO MavenModule", False),
         ]
         for table_name, schema, use_group in rel_table_migrations:
             try:
@@ -418,7 +633,15 @@ class EmbeddedGraphManager(GraphQueryInterface):
                 # Without this call the process hangs on exit because the
                 # embedded Kùzu engine keeps background threads alive.
                 try:
-                    if not self._db.is_closed():
+                    # kuzu exposes is_closed as a METHOD on some builds and a
+                    # bool ATTRIBUTE on others (0.11.x). Calling the attribute
+                    # raised "'bool' object is not callable" — which this
+                    # except swallowed, so the close NEVER ran and the
+                    # background threads it exists to stop stayed alive.
+                    closed = self._db.is_closed
+                    if callable(closed):
+                        closed = closed()
+                    if not closed:
                         self._db.close()
                         info_logger(f"{self.BACKEND_SPEC.display_name} database closed successfully")
                 except Exception as e:
@@ -490,16 +713,19 @@ class EmbeddedDriverWrapper:
         compat_state = getattr(self, "_compat_state", None)
         pool = getattr(self, "_pool", None)
         display_name = getattr(self, "_display_name", "Embedded")
+        backend_id = getattr(self, "_backend_id", "embedded")
         if pool is not None:
             return EmbeddedSessionWrapper(
                 pool, getattr(self, "_write_lock", None),
                 compat_state=compat_state, display_name=display_name,
+                backend_id=backend_id,
             )
         else:
             db = getattr(self, "db", None) or getattr(self, "conn", None)
             write_lock = getattr(self, "_write_lock", None) or getattr(self, "_query_lock", None)
             return EmbeddedSessionWrapper(
                 db, write_lock, compat_state=compat_state, display_name=display_name,
+                backend_id=backend_id,
             )
     def close(self):
         pass
@@ -509,10 +735,12 @@ class EmbeddedDriverWrapper:
 
 
 class EmbeddedSessionWrapper:
-    def __init__(self, pool_or_conn, write_lock=None, compat_state=None, display_name: str = "Embedded"):
+    def __init__(self, pool_or_conn, write_lock=None, compat_state=None, display_name: str = "Embedded",
+                 backend_id: str = "embedded"):
         self._write_lock = write_lock or threading.Lock()
         self._query_lock = self._write_lock
         self._display_name = display_name
+        self._backend_id = backend_id
         # Disabled-query-type state is shared via the manager's compat_state so
         # fail-fast disabling persists across sessions. A standalone session
         # (tests / legacy callers) gets its own private state.
@@ -525,30 +753,49 @@ class EmbeddedSessionWrapper:
         # Backward compatibility check: check if it's a pool or connection
         if hasattr(pool_or_conn, "get") and not hasattr(pool_or_conn, "execute"):
             self._pool = pool_or_conn
-            self.conn = self._pool.get()
+            try:
+                # The embedded manager is a per-subclass singleton: switching
+                # db_path closes the old database and drains its pool. A caller
+                # holding a STALE driver reference then blocked here forever
+                # with no diagnostic. Fail loudly instead.
+                self.conn = self._pool.get(timeout=30)
+            except queue.Empty:
+                raise RuntimeError(
+                    "No database connection available after 30s — this driver's "
+                    "connection pool is exhausted or its database manager was "
+                    "closed/switched to another path. Re-acquire the driver via "
+                    "get_database_manager().get_driver() instead of holding a "
+                    "stale reference."
+                )
         else:
             self._pool = None
             self.conn = pool_or_conn
 
 
         self.uid_map = {
-            'Function': ['name', 'path', 'line_number'],
-            'Class': ['name', 'path', 'line_number'],
-            'Variable': ['name', 'path', 'line_number'],
-            'Trait': ['name', 'path', 'line_number'],
-            'Interface': ['name', 'path', 'line_number'],
-            'Macro': ['name', 'path', 'line_number'],
-            'Struct': ['name', 'path', 'line_number'],
-            'Enum': ['name', 'path', 'line_number'],
-            'EnumMember': ['name', 'path', 'line_number'],
-            'Union': ['name', 'path', 'line_number'],
+            'Function': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Class': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Variable': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Trait': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Interface': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Macro': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Struct': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Enum': ['name', 'path', 'line_number', 'occurrence_index'],
+            'EnumMember': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Union': ['name', 'path', 'line_number', 'occurrence_index'],
             'Annotation': ['name', 'path', 'line_number'],
-            'Record': ['name', 'path', 'line_number'],
-            'Property': ['name', 'path', 'line_number'],
+            'Record': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Property': ['name', 'path', 'line_number', 'occurrence_index'],
             'Parameter': ['name', 'path', 'function_line_number'],
-            'Mixin': ['name', 'path', 'line_number'],
-            'Extension': ['name', 'path', 'line_number'],
-            'Object': ['name', 'path', 'line_number']
+            'Mixin': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Extension': ['name', 'path', 'line_number', 'occurrence_index'],
+            'Object': ['name', 'path', 'line_number', 'occurrence_index'],
+            # Datasource entities: Kùzu cannot declare composite primary keys,
+            # so these tables are keyed on a synthesized uid (#see write_datasource_graph)
+            'DbColumn': ['name', 'table_fqn'],
+            'RedisKeyPattern': ['pattern', 'datasource_name'],
+            'MavenModule': ['group_id', 'artifact_id'],
+            'ExternalLibrary': ['group_id', 'artifact_id']
         }
     
     def __enter__(self):
@@ -695,10 +942,32 @@ class EmbeddedSessionWrapper:
         translated_query, translated_params = self._translate_query(query, parameters)
         debug_log(f"Translated Query: {translated_query[:200]}")
         try:
-            # Force loop fallback for relationship writes inside UNWIND to avoid Kuzu query planner bugs
-            # which can incorrectly bind/corrupt relationship endpoints across rows in the batch.
-            if "UNWIND" in query and ("-[" in query or "]->" in query) and not getattr(self, "_skip_unwind_fallback", False):
-                raise Exception("unordered_map::at (forced fallback to avoid relationship UNWIND planner bugs)")
+            # Force the per-row loop fallback ONLY for UNWIND batches containing a
+            # node-MERGE. Kùzu's MERGE pipeline mis-binds when a merged node's key
+            # value repeats NON-adjacently across the batch: in
+            # [(A,P), (B,X), (C,P)] the C row binds to X's node instead of
+            # re-matching P (reproduced on Kùzu 0.11.3; see #1605). Relationship-only
+            # MERGEs (MATCH … MATCH … MERGE (a)-[r]->(b)) do not exhibit the bug —
+            # verified with interleaved duplicate endpoint keys and duplicate pairs —
+            # so they now run batched, which removes the bulk of the per-row planner
+            # overhead (~2.4x on a full index of the Python sample project).
+            # Only `UNWIND $param AS row` shapes are guarded — that is the single
+            # shape the recovery path below can rewrite into a per-row loop. Read
+            # queries that unwind a bound list (`WITH relationships(p) AS rels
+            # UNWIND rels AS r`) must not match, or the fabricated exception would
+            # surface to the caller as a hard failure.
+            # Node-only UNWIND writes (`MERGE (n:Label {…}) SET n += row`, no
+            # relationship pattern) have always batched through the SET-expansion
+            # path and the per-row rewriter cannot handle their bare `SET n += row`,
+            # so the guard additionally requires a relationship pattern.
+            _has_node_merge = re.search(r"MERGE\s*\(\s*\w+\s*:", query)
+            if (
+                re.search(r"UNWIND\s+\$\w+\s+AS\s+\w+", query)
+                and ("-[" in query or "]->" in query)
+                and _has_node_merge
+                and not getattr(self, "_skip_unwind_fallback", False)
+            ):
+                raise Exception("unordered_map::at (forced fallback: node-MERGE inside UNWIND mis-binds repeated keys)")
 
             # 2. Execute under the lock. _write_lock (name kept for backward
             # compat) now serializes ALL access, reads included: kuzu.Connection
@@ -706,6 +975,60 @@ class EmbeddedSessionWrapper:
             # otherwise race a read against a write on the same connection.
             with self._write_lock:
                 result = self.conn.execute(translated_query, translated_params)
+
+                # LadybugDB (0.19.x) state-dependently drops SOME rows of a
+                # batched relationship-only UNWIND MERGE — no error is raised,
+                # the MERGE just writes nothing for those rows (a 17-row
+                # Struct-CONTAINS batch wrote 12; #1710). Locally an immediate
+                # identical re-run bound the stragglers, but on CI the drop
+                # survives re-execution, so after the batched pass every row
+                # is replayed as a single-row batch through the SAME translated
+                # query. MERGE is idempotent, so the union is safe; only
+                # ladybug pays the cost. The generic per-row rewrite path is
+                # deliberately NOT used here — its query surgery loses ~51
+                # CONTAINS edges (the #1612 signature).
+                if (
+                    getattr(self, "_backend_id", "") == "ladybugdb"
+                    and "MERGE" in query
+                    and ("-[" in query or "]->" in query)
+                    and "RETURN" not in query.upper()
+                ):
+                    _u = re.search(r"UNWIND\s+\$(\w+)\s+AS\s+\w+", translated_query)
+                    _rows = _u and translated_params.get(_u.group(1))
+                    if isinstance(_rows, list) and len(_rows) > 1:
+                        # Best-effort only: the batched pass above already
+                        # wrote what it could, so a failing single must NEVER
+                        # propagate — the first singles attempt let one raise
+                        # and the escaping exception aborted the writer's
+                        # remaining batches, costing ~51 CONTAINS edges (the
+                        # union of idempotent MERGEs cannot otherwise shrink).
+                        _single_failures = 0
+                        _first_single_error = None
+                        for _row in _rows:
+                            single = dict(translated_params)
+                            single[_u.group(1)] = [_row]
+                            try:
+                                self.conn.execute(translated_query, single)
+                            except Exception as _se:
+                                _single_failures += 1
+                                if _first_single_error is None:
+                                    _first_single_error = str(_se)[:160]
+                        if _single_failures:
+                            debug_log(
+                                f"Ladybug single-row replay: {_single_failures}/{len(_rows)} "
+                                f"rows errored (first: {_first_single_error}) — batched pass "
+                                f"result stands — query: {query[:90]}"
+                            )
+                        if os.environ.get("CGC_LBG_DIAG") and "helpers.go" in str(translated_params):
+                            try:
+                                _mq = re.sub(r"MERGE\s.*", "RETURN count(*)", translated_query, flags=re.S)
+                                _mr = self.conn.execute(_mq, translated_params)
+                                _matched = _mr.get_next()[0]
+                                import sys as _sys
+                                print(f"LBG_DIAG matched={_matched} batch={len(_rows)} q={translated_query[:110].strip()!r}", file=_sys.stderr, flush=True)
+                            except Exception as _de:
+                                import sys as _sys
+                                print(f"LBG_DIAG count-err {str(_de)[:120]}", file=_sys.stderr, flush=True)
 
             return EmbeddedResultWrapper(result)
         except Exception as e:
@@ -738,8 +1061,23 @@ class EmbeddedSessionWrapper:
                         props_used = set(re.findall(rf'{row_var}\.(\w+)', loop_query))
                         for p in props_used:
                             loop_query = loop_query.replace(f"{row_var}.{p}", f"${row_var}_{p}")
+                        # The row var itself may still appear bare in WITH lists
+                        # ("WITH tbl, t") once the UNWIND is gone; a dangling
+                        # reference binder-errors and the row is silently
+                        # dropped. Scrub it from WITH clauses.
+                        loop_query = re.sub(
+                            rf'(WITH\s+[^\n]*?),\s*{row_var}\b(?!\.)', r'\1', loop_query
+                        )
+                        loop_query = re.sub(
+                            rf'WITH\s+{row_var}\s*,\s*', 'WITH ', loop_query
+                        )
+                        loop_query = re.sub(
+                            rf'WITH\s+{row_var}\b(?!\.)\s*\n', 'WITH 1 AS _row_scrubbed\n', loop_query
+                        )
                         
                         last_result = None
+                        dropped = 0
+                        first_drop_error = None
                         for item in batch_data:
                             loop_params = parameters.copy()
                             loop_params.pop(batch_param, None)
@@ -752,8 +1090,34 @@ class EmbeddedSessionWrapper:
                             except Exception as nested_e:
                                 nested_err_str = str(nested_e).lower()
                                 if "binder" in nested_err_str or "cannot find a valid label" in nested_err_str:
+                                    # Expected: label-pair probing legitimately
+                                    # misses on schemaless shapes.
                                     continue
-                                raise nested_e
+                                # Transient failure (lock contention, buffer
+                                # pressure): retry the ROW once before dropping
+                                # it — writes are MERGE-idempotent. Silent
+                                # drops here were LadybugDB's missing-edge
+                                # signature in the parity run (#1612).
+                                try:
+                                    last_result = self.run(loop_query, **loop_params)
+                                except Exception as retry_e:
+                                    dropped += 1
+                                    if first_drop_error is None:
+                                        first_drop_error = str(retry_e)[:160]
+                        if dropped:
+                            if dropped == len(batch_data) and dropped > 0:
+                                # Every row failing is systematic breakage, not
+                                # transient pressure — raise so the caller's
+                                # own retry/failure accounting still engages.
+                                raise RuntimeError(
+                                    f"Per-row fallback failed for ALL {dropped} rows "
+                                    f"(first error: {first_drop_error}) — query: {query[:90]}"
+                                )
+                            warning_logger(
+                                f"Per-row fallback dropped {dropped}/{len(batch_data)} "
+                                f"rows after retry (first error: {first_drop_error}) — "
+                                f"query: {query[:90]}"
+                            )
                         return last_result or EmbeddedResultWrapper(None)
 
 
@@ -767,33 +1131,33 @@ class EmbeddedSessionWrapper:
             'File': 'path',
             'Directory': 'path',
             'Module': 'name',
-            'DbTable': 'name',
+            'DbTable': 'fqn',
             'ExternalClass': 'name'
         }
         
         # 0. Define Schema Map (Strict property filtering)
         SCHEMA_MAP = {
             'Repository': {'path', 'name', 'is_dependency', 'indexed_at', 'commit_hash'},
-            'File': {'path', 'name', 'relative_path', 'package_name', 'is_dependency'},
+            'File': {'path', 'name', 'relative_path', 'package_name', 'language', 'is_dependency'},
             'Directory': {'path', 'name'},
             'Module': {'name', 'lang', 'full_import_name', 'path', 'line_number'},
-            'Function': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'cyclomatic_complexity', 'context', 'context_type', 'class_context', 'class_context_line', 'module_context', 'is_dependency', 'decorators', 'args', 'http_method', 'http_path'},
-            'Class': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'node_type', 'is_dependency', 'decorators'},
-            'Variable': {'uid', 'name', 'path', 'line_number', 'source', 'docstring', 'lang', 'value', 'context', 'is_dependency'},
-            'Trait': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'Interface': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'Macro': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'Struct': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'Enum': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'EnumMember': {'uid', 'name', 'path', 'line_number', 'lang', 'is_dependency'},
-            'Union': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
+            'Function': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'cyclomatic_complexity', 'context', 'context_type', 'class_context', 'class_context_line', 'module_context', 'is_dependency', 'decorators', 'args', 'arg_types', 'http_method', 'http_path', 'visibility', 'modifiers', 'is_composable'},
+            'Class': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'node_type', 'is_dependency', 'decorators', 'visibility', 'modifiers'},
+            'Variable': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'source', 'docstring', 'lang', 'value', 'context', 'is_dependency'},
+            'Trait': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
+            'Interface': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency', 'decorators', 'visibility', 'modifiers'},
+            'Macro': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
+            'Struct': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
+            'Enum': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
+            'EnumMember': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'lang', 'is_dependency'},
+            'Union': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
             'Annotation': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'Record': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'Property': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
+            'Record': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
+            'Property': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
             'Parameter': {'uid', 'name', 'path', 'function_line_number'},
-            'Mixin': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'Extension': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
-            'Object': {'uid', 'name', 'path', 'line_number', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'}
+            'Mixin': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
+            'Extension': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
+            'Object': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency', 'decorators', 'visibility', 'modifiers'}
         }
 
         # 1. Translate SET n += $props  and  SET n = $props  (map merge/assign)
@@ -816,7 +1180,7 @@ class EmbeddedSessionWrapper:
                     pk_field = PK_MAP.get(label, 'uid')
 
                     for k, v in props_dict.items():
-                        if isinstance(v, (dict, list)) and k != 'args' and k != 'decorators':
+                        if isinstance(v, (dict, list)) and k != 'args' and k != 'decorators' and k != 'modifiers':
                             continue
                         
                         if allowed_props and k not in allowed_props:
@@ -842,6 +1206,26 @@ class EmbeddedSessionWrapper:
         #   b) MERGE uid injection from row fields (row.name, row.line_number, …)
         unwind_m = re.search(r'UNWIND\s+\$(\w+)\s+AS\s+(\w+)', query)
         if unwind_m:
+            # 1.5-pre: Collapse consecutive MATCH clauses into one comma-joined
+            # MATCH. LadybugDB's planner silently yields ZERO rows for
+            # UNWIND → MATCH (a {…}) → MATCH (b {…}) when the first MATCH is an
+            # index-map lookup (File-by-path being the everyday case): each
+            # MATCH works alone, chained they produce nothing — no error is
+            # raised, so downstream MERGEs quietly write no edges. That was the
+            # exact signature of the parity gap (all File-sourced CALLS edges
+            # and a handful of Struct CONTAINS edges missing on ladybug only).
+            # The comma form `MATCH (a {…}), (b {…})` is semantically identical
+            # for non-optional patterns and both engines plan it correctly.
+            # Only simple node patterns (no relationship arrows, no parens
+            # inside the pattern) directly adjacent to the next MATCH are
+            # merged, and never across OPTIONAL MATCH.
+            _match_merge_re = re.compile(
+                r'(?<!OPTIONAL )\bMATCH\s*(\([^()]*\)(?:\s*,\s*\([^()]*\))*)\s+MATCH\s*(?=\()'
+            )
+            _prev = None
+            while _prev != query:
+                _prev = query
+                query = _match_merge_re.sub(r'MATCH \1, ', query, count=1)
             batch_param = unwind_m.group(1)
             row_var = unwind_m.group(2)
             batch_data = parameters.get(batch_param)
@@ -912,6 +1296,12 @@ class EmbeddedSessionWrapper:
                                      uid_components.append(str(val))
                                  else:
                                      uid_components.append(f"__missing_{part}")
+                             elif part == 'occurrence_index':
+                                 # Legacy write paths (bundle import, older queries)
+                                 # MERGE without occurrence_index in the pattern;
+                                 # treat them as ordinal 0 so their uid matches the
+                                 # writer's uid for non-colliding symbols (#1393).
+                                 uid_components.append(str(item.get('occurrence_index', 0) or 0))
                              else:
                                  all_ok = False
                                  break
@@ -933,9 +1323,26 @@ class EmbeddedSessionWrapper:
                          # Kuzu node tables are keyed by uid for these labels, so MERGE
                          # should match on the primary key only. Matching on additional
                          # non-PK fields can still lead to duplicate PK insert attempts.
+                         # The displaced pattern properties must be re-applied with an
+                         # explicit SET, though: unlike Neo4j, the uid-only MERGE no
+                         # longer assigns them on create, and queries whose follow-up
+                         # SET does not repeat them (e.g. MavenModule/ExternalLibrary
+                         # writes) would otherwise leave the key columns NULL and break
+                         # every later MATCH on them.
+                         displaced_pairs = [
+                             (k.strip(), v.strip())
+                             for k, v in re.findall(r'(\w+)\s*:\s*([^,{}]+)', props_str)
+                             if k.strip() != 'uid'
+                         ]
+                         displaced_set = ''
+                         if displaced_pairs:
+                             assignments = ', '.join(
+                                 f"{var_name}.{k} = {v}" for k, v in displaced_pairs
+                             )
+                             displaced_set = f" SET {assignments}"
                          query = re.sub(
                              rf"MERGE\s+\({re.escape(var_name)}:{re.escape(label_raw)}\s*\{{[^}}]*uid:\s*{re.escape(row_var)}\.uid[^}}]*\}}\)",
-                             f"MERGE ({var_name}:{label_raw} {{uid: {row_var}.uid}})",
+                             f"MERGE ({var_name}:{label_raw} {{uid: {row_var}.uid}}){displaced_set}",
                              query,
                              count=1,
                          )
@@ -1050,8 +1457,11 @@ class EmbeddedSessionWrapper:
             return f"{prefix}NOT label({var_name}) = '{label_name}'"
         query = re.sub(r'(WHERE\s+|AND\s+|OR\s+)NOT\s+(\w+):([a-zA-Z0-9_`]+)', not_label_replacer, query, flags=re.IGNORECASE)
 
-        # 4. Polymorphic matches and label access
-        query = query.replace("labels(n)[0]", "label(n)")
+        # 4. Polymorphic matches and label access. Kùzu has no labels();
+        # rewrite labels(<var>)[0] for ANY variable name — the literal
+        # "labels(n)[0]" form missed n1/n2 and the simulator's relationship
+        # query reached the engine unsupported (#1512).
+        query = re.sub(r'labels\((\w+)\)\s*\[\s*0\s*\]', r'label(\1)', query)
 
         query = query.replace("coalesce(", "COALESCE(")
         query = re.sub(r'\btype\(', 'label(', query)
@@ -1060,7 +1470,10 @@ class EmbeddedSessionWrapper:
         query = re.sub(r'\bON\s+CREATE\s+SET\b', 'SET', query, flags=re.IGNORECASE)
         query = re.sub(r'\bON\s+MATCH\s+SET\b', 'SET', query, flags=re.IGNORECASE)
 
-        if any(x in query.upper() for x in ["CREATE CONSTRAINT", "CREATE INDEX"]):
+        # Anchored to the leading keyword: a substring test also matched
+        # these words inside a string literal, silently turning ordinary
+        # data queries into "RETURN 1".
+        if is_schema_ddl(query):
             return "RETURN 1", {}
 
         # 5. Cleanup unused parameters (Kuzu is strict)
@@ -1162,8 +1575,10 @@ class EmbeddedSessionWrapper:
                     if isinstance(item, dict):
                         normalized = dict(item)
                         normalized.setdefault("full_import_name", normalized.get("name"))
+                        normalized.setdefault("imported_name", normalized.get("name"))
                         normalized.setdefault("alias", "")
                         normalized.setdefault("line_number", None)
+                        normalized.setdefault("lang", "")
                         normalized_batch.append(normalized)
                     else:
                         normalized_batch.append(item)

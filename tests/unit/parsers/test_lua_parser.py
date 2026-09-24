@@ -50,9 +50,10 @@ function M:method(value)
 end
 """
     f = temp_test_dir / "sample.lua"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
 
     result = lua_parser.parse(f)
+    assert isinstance(result, dict)
 
     assert result["lang"] == "lua"
 
@@ -84,7 +85,7 @@ function M.run()
 end
 """
     f = temp_test_dir / "scanner.lua"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
 
     manager = get_tree_sitter_manager()
     wrapper = MagicMock()

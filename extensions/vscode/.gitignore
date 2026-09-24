@@ -1,0 +1,7 @@
+node_modules/
+out/
+*.vsix
+
+# Bundled binary lives here at package time; keep the dir, ignore the file.
+bin/cgc
+bin/cgc-*

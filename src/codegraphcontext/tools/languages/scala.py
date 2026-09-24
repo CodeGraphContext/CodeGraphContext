@@ -9,7 +9,7 @@ SCALA_QUERIES = {
     "functions": """
         (function_definition
             name: (identifier) @name
-            parameters: (parameters) @params
+            parameters: (parameters)? @params
         ) @function_node
     """,
     "classes": """

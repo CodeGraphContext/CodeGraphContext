@@ -83,6 +83,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     statusBar,
     jobPoller,
+    dashboardPanel,
+    callGraphPanel,
     vscode.languages.registerCodeLensProvider({ scheme: "file" }, codeLensProvider),
     vscode.languages.registerHoverProvider({ scheme: "file" }, hoverProvider),
     vscode.languages.registerCodeActionsProvider(
@@ -114,10 +116,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     refreshDiagnostics().catch(() => {});
   };
 
-  cgcEvents.on("graph:changed", invalidateAll);
-  cgcEvents.on("index:done", invalidateAll);
-  cgcEvents.on("repo:changed", invalidateAll);
-  cgcEvents.on("context:changed", invalidateAll);
+  context.subscriptions.push(
+  { dispose: cgcEvents.on("graph:changed",   invalidateAll) },
+  { dispose: cgcEvents.on("index:done",      invalidateAll) },
+  { dispose: cgcEvents.on("repo:changed",    invalidateAll) },
+  { dispose: cgcEvents.on("context:changed", invalidateAll) }
+);
 
   // ── Commands ──────────────────────────────────────────────────────────────
   context.subscriptions.push(

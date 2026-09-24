@@ -223,12 +223,12 @@ body {
   }
 
   /* Graph visualization styles */
+ /* Graph visualization styles */
   .graph-node {
     @apply rounded-full border-2 border-primary/20 transition-all duration-300;
-    background: hsl(var(--gradient-primary));
+    background: var(--gradient-primary);
     box-shadow: var(--shadow-glow);
   }
-
 
 
   .graph-edge {
@@ -324,4 +324,22 @@ body {
       transform: rotate(calc(var(--angle) * 1deg + 360deg)) translateY(calc(var(--radius) * 1px)) rotate(calc((var(--angle) * -1deg) - 360deg));
     }
   }
+}
+.scroll-btn {
+  position: fixed;
+  right: 24px;
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 1000;
+}
+
+.scroll-up {
+  bottom: 84px;
+}
+
+.scroll-down {
+  bottom: 24px;
 }

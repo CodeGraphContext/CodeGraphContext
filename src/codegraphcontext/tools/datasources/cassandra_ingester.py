@@ -20,6 +20,8 @@ def ingest(
     password: Optional[str] = None,
     name: Optional[str] = None,
     env: str = "production",
+    ssl_verify: bool = False,
+    ssl_ca_certs: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Fetch schema from Cassandra system_schema and return a datasource graph dict.
 
@@ -44,7 +46,24 @@ def ingest(
     if username and password:
         auth_provider = PlainTextAuthProvider(username=username, password=password)
 
-    cluster = Cluster(hosts, port=port, auth_provider=auth_provider)
+    ssl_context = None
+    if ssl_verify:
+        import ssl
+
+        ssl_context = ssl.create_default_context(
+            cafile=ssl_ca_certs if ssl_ca_certs else None
+        )
+        if not ssl_ca_certs:
+            # No explicit CA bundle: verify against system trust store.
+            ssl_context.verify_mode = ssl.CERT_REQUIRED
+            ssl_context.check_hostname = True
+
+    cluster = Cluster(
+        hosts,
+        port=port,
+        auth_provider=auth_provider,
+        ssl_context=ssl_context,
+    )
     session = cluster.connect()
 
     try:

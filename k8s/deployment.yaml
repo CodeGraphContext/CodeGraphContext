@@ -14,9 +14,13 @@ spec:
       labels:
         app: codegraphcontext
     spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       containers:
       - name: codegraphcontext
-        image: ghcr.io/CodeGraphContext/codegraphcontext:latest
+        image: codegraphcontext/codegraphcontext:latest
         imagePullPolicy: Always
         command: ["/bin/bash"]
         args: ["-c", "while true; do sleep 30; done"]

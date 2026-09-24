@@ -21,6 +21,7 @@ def _services(tmp_path):
 
 def test_index_helper_exits_nonzero_on_indexing_failure(tmp_path):
     services = _services(tmp_path)
+    services[1].estimate_processing_time.return_value = (2, 0.1)
     with (
         patch.object(cli_helpers, "_initialize_services", return_value=services),
         patch.object(cli_helpers, "_run_index_with_progress", side_effect=_failing_index),
@@ -43,3 +44,25 @@ def test_reindex_helper_exits_nonzero_on_indexing_failure(tmp_path):
 
     assert exc_info.value.exit_code == 1
     services[0].close_driver.assert_called_once()
+
+
+def test_index_helper_does_not_skip_directory_with_partial_index(tmp_path):
+    """A prior one-file scan must not mark its parent directory complete."""
+    (tmp_path / "indexed.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "missing.py").write_text("pass\n", encoding="utf-8")
+    services = _services(tmp_path)
+    services[1].estimate_processing_time.return_value = (2, 0.1)
+    services[2].list_indexed_repositories.return_value = [{"path": str(tmp_path)}]
+
+    session = MagicMock()
+    session.run.return_value.single.return_value = {"file_count": 1}
+    services[0].get_driver.return_value.session.return_value.__enter__.return_value = session
+
+    with (
+        patch.object(cli_helpers, "_initialize_services", return_value=services),
+        patch.object(cli_helpers, "_run_index_with_progress") as run_index,
+        patch.object(cli_helpers, "_print_index_execution_summary"),
+    ):
+        cli_helpers.index_helper(str(tmp_path))
+
+    run_index.assert_called_once()

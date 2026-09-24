@@ -91,7 +91,9 @@ sequenceDiagram
   cgc unwatch /path/to/project
   ```
 
-On startup, each watcher **reconciles** the graph with disk: files present on disk but missing from the graph are indexed, and graph entries for deleted files are removed before live monitoring begins.
+On startup, each watcher can **reconcile** the graph with disk: files present on disk but missing from the graph are indexed, and graph entries for deleted files are removed before live monitoring begins.
+
+This is **off by default** — pass `--sync-on-start` to enable it. Without it, changes made while the watcher was not running are not picked up for an already-indexed repository.
 
 ---
 

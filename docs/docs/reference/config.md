@@ -78,6 +78,24 @@ cgc config reset
 
 ## Configuration Variable Reference
 
+### Destructive Operation Safety
+
+| Config Key | Default | Description |
+| :--- | :--- | :--- |
+| **`ALLOW_DB_DELETION`** | `false` | Enables destructive database operations, including `cgc clean` and `cgc delete` (`cgc rm`). |
+
+`cgc clean` and `cgc delete` exit with an error while this setting is `false`. Enable it explicitly before running either command:
+
+```bash
+cgc config set ALLOW_DB_DELETION true
+```
+
+After the operation, restore the safety guard:
+
+```bash
+cgc config set ALLOW_DB_DELETION false
+```
+
 ### Core Engine Settings
 
 | Config Key | Default | Description |
@@ -103,7 +121,8 @@ cgc config reset
 | Config Key | Default | Description |
 | :--- | :--- | :--- |
 | **`SCIP_INDEXER`** | `false` | When `true`, enables SCIP-based symbol resolution. |
-| **`SCIP_LANGUAGES`** | `python,typescript,go,rust,java` | List of target languages to process via SCIP. |
+| **`SCIP_LANGUAGES`** | `python,typescript,javascript,go,rust,java,dart,cpp,c,csharp` | List of target languages to process via SCIP. |
+| **`SCIP_LOCAL_INDEXER_TIMEOUT_SECONDS`** | `300` | Timeout for the local SCIP indexer subprocess. Raise it for large repositories whose indexer runs longer than 5 minutes. Values `<= 0` or non-numeric fall back to `300`. |
 
 ---
 
@@ -148,6 +167,7 @@ Local embedded database instances are stored on disk. Use the settings below to 
 | **`KUZUDB_PATH`** | `~/.codegraphcontext/global/db/kuzudb/` | Root storage directory for KuzuDB files. |
 | **`LADYBUGDB_PATH`** | `~/.codegraphcontext/global/db/ladybugdb/` | Root storage directory for LadybugDB files. |
 | **`FALKORDB_PATH`** | `~/.codegraphcontext/global/db/falkordb/` | Storage path for FalkorDB Lite database. |
+| **`CGC_EMBEDDED_BUFFER_POOL_MB`** | `4096` | Max buffer pool size in MiB for LadybugDB/Kuzu. Set `0` to use the library default (~80% of system RAM). |
 
 ---
 

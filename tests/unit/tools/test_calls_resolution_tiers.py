@@ -321,3 +321,51 @@ class TestTierConfidenceOrdering:
         """All confidence values must be in [0.0, 1.0]."""
         for tier, conf in _TIER_CONFIDENCE.items():
             assert 0.0 <= conf <= 1.0, f"Tier {tier} confidence {conf} out of range"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Attribute-qualified module calls (Regression for Issue #1573)
+# ---------------------------------------------------------------------------
+
+class TestAttributeQualifiedModuleCalls:
+    """Regression test for issue #1573: import m; m.fn() produced no
+    CALLS/HEURISTIC_CALLS edge because resolved_called_name was
+    overwritten with the module name instead of the function name."""
+
+    def test_plain_module_attribute_call_keeps_function_name(self):
+        call = _call("attr_probe_fn", full_name="target.attr_probe_fn")
+        local_imports = {"target": "target"}
+        imports_map = {"attr_probe_fn": ["/tmp/attrtest/target.py"]}
+
+        result = resolve(
+            call, local_imports=local_imports, imports_map=imports_map
+        )
+
+        assert result["called_name"] == "attr_probe_fn"
+        assert result["called_file_path"] == "/tmp/attrtest/target.py"
+
+    def test_aliased_module_attribute_call_keeps_function_name(self):
+        call = _call("attr_probe_fn", full_name="t.attr_probe_fn")
+        local_imports = {"t": "target"}
+        imports_map = {"attr_probe_fn": ["/tmp/attrtest/target.py"]}
+
+        result = resolve(
+            call, local_imports=local_imports, imports_map=imports_map
+        )
+
+        assert result["called_name"] == "attr_probe_fn"
+        assert result["called_file_path"] == "/tmp/attrtest/target.py"
+
+    def test_aliased_module_attribute_call_resolves_module_path_from_imports_map(self):
+        call = _call("attr_probe_fn", full_name="t.attr_probe_fn")
+        local_imports = {"t": "target"}
+        imports_map = {"target": ["/tmp/attrtest/target.py"]}
+
+        result = resolve(
+            call, local_imports=local_imports, imports_map=imports_map
+        )
+
+        assert result["called_name"] == "attr_probe_fn"
+        assert result["called_file_path"] == "/tmp/attrtest/target.py"
+
+

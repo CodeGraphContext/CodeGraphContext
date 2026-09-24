@@ -1,19 +1,16 @@
-name: Build and Push Docker Image
+name: Docker Build & Publish
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - 'v*'
+    branches: [main]
+    tags: ['v*']
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  DOCKERHUB_IMAGE: codegraphcontext/codegraphcontext
+  GHCR_IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
   build-and-push:
@@ -22,28 +19,78 @@ jobs:
       contents: read
       packages: write
       id-token: write
-      attestations: write 
+      attestations: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # The `secrets` context cannot be used in a step-level `if`, so probe the
+      # credentials once here and gate the Docker Hub steps on this output.
+      # Without it the whole workflow failed at "Log in to Docker Hub" with
+      # "Username and password required" on every push to main, taking the
+      # GHCR publish down with it.
+      - name: Detect Docker Hub credentials
+        id: cfg
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          # Container registries reject uppercase in image names, and
+          # ${{ github.repository }} is "CodeGraphContext/CodeGraphContext".
+          # docker/metadata-action lowercases its own tags, so the pushed image
+          # is ghcr.io/codegraphcontext/... — anything we reference by hand has
+          # to be lowercased too or `docker run` fails with exit 125.
+          GHCR_LC=$(echo "${{ env.GHCR_IMAGE }}" | tr '[:upper:]' '[:lower:]')
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            echo "has_dockerhub=true" >> "$GITHUB_OUTPUT"
+            # Multi-line outputs need the heredoc form; the old %0A escape only
+            # worked with the deprecated ::set-output command.
+            {
+              echo "images<<CGC_EOF"
+              echo "${{ env.DOCKERHUB_IMAGE }}"
+              echo "$GHCR_LC"
+              echo "CGC_EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "primary_image=${{ env.DOCKERHUB_IMAGE }}" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docker Hub credentials found; publishing to Docker Hub and GHCR."
+          else
+            echo "has_dockerhub=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "images<<CGC_EOF"
+              echo "$GHCR_LC"
+              echo "CGC_EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "primary_image=$GHCR_LC" >> "$GITHUB_OUTPUT"
+            echo "::warning::DOCKERHUB_USERNAME/DOCKERHUB_TOKEN are not configured; publishing to GHCR only."
+          fi
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request' && steps.cfg.outputs.has_dockerhub == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ steps.cfg.outputs.images }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -52,6 +99,7 @@ jobs:
             type=semver,pattern={{major}}
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push Docker image
         id: build
@@ -62,14 +110,33 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            CGC_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
+
+      - name: Test Docker image
+        if: github.event_name != 'pull_request'
+        run: |
+          docker run --rm ${{ steps.cfg.outputs.primary_image }}:${{ steps.meta.outputs.version }} cgc --version
 
       - name: Generate artifact attestation
         if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@v1
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-name: ${{ steps.cfg.outputs.primary_image }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+      # Needs the Docker Hub credentials; without them peter-evans/
+      # dockerhub-description fails with "Required input 'username' is missing"
+      # and takes the whole job red even though the image published fine.
+      - name: Update Docker Hub Description
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.cfg.outputs.has_dockerhub == 'true'
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.DOCKERHUB_IMAGE }}
+          readme-filepath: ./README.md

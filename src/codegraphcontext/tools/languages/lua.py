@@ -191,7 +191,8 @@ class LuaTreeSitterParser:
         while current:
             if current.type in {"function_declaration", "function_definition"}:
                 name, _, _ = self._function_identity(current)
-                return name, current.type, current.start_point[0] + 1
+                if name:
+                    return name, current.type, current.start_point[0] + 1
             current = current.parent
         return None, None, None
 
@@ -433,7 +434,7 @@ def pre_scan_lua(files: list[Path], parser_wrapper) -> dict:
     for path in files:
         try:
             parsed = parser.parse(str(path))
-            resolved_path = str(path.resolve())
+            resolved_path = path.resolve().as_posix()
 
             for function in parsed.get("functions", []):
                 names = {function["name"]}

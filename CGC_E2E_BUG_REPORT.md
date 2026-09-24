@@ -4,7 +4,7 @@
 - **CGC version:** 0.4.16 — tested on **PyPI** (`pip install codegraphcontext`) and **local editable** (`pip install -e .` from this repo, uncommitted working-tree changes)
 - **Python:** 3.12.3
 - **OS:** Linux 6.8.0-124-generic
-- **Method:** Subprocess-only per [E2E plan](.cursor/plans/cgc_e2e_bug_hunt_6028a5c6.plan.md). No source modifications. Tests run from `/tmp` with isolated `HOME` unless testing repo-local config bleed.
+- **Method:** Subprocess-only per E2E plan. No source modifications. Tests run from `/tmp` with isolated `HOME` unless testing repo-local config bleed.
 - **Harness note:** Initial automated harness (`/tmp/cgc_e2e_harness.py`) produced many false positives (truncated Rich output, missing `bundle import -y`, config bleed when cwd inside CGC repo). Findings below are manually verified.
 
 ---

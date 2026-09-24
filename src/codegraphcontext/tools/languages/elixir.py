@@ -465,6 +465,28 @@ class ElixirTreeSitterParser:
                     "is_dependency": False,
                 })
 
+        # A `def hello(x) do ... end` is itself a `call` node whose arguments
+        # contain the SIGNATURE as a nested call. Recursing blindly recorded
+        # every definition head as an invocation — a false self-recursive
+        # CALLS edge on every Elixir function (#1538). For definition calls,
+        # skip the signature and recurse only into the body.
+        if node.type == 'call':
+            head_identifier = next(
+                (c for c in node.children if c.type == 'identifier'), None
+            )
+            head_target = self._get_node_text(head_identifier) if head_identifier else None
+            if head_target in FUNCTION_KEYWORDS:
+                for child in node.children:
+                    if child.type == 'do_block':
+                        self._find_calls_recursive(child, calls)
+                    elif child.type == 'arguments':
+                        # Skip the signature (the first nested call) but keep
+                        # the inline `, do: body` keywords — that IS the body.
+                        for arg in child.children:
+                            if arg.type != 'call':
+                                self._find_calls_recursive(arg, calls)
+                return
+
         for child in node.children:
             self._find_calls_recursive(child, calls)
 
@@ -475,7 +497,7 @@ def pre_scan_elixir(files: list[Path], parser_wrapper) -> dict:
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 source = f.read()
             tree = parser_wrapper.parser.parse(bytes(source, "utf8"))
             _pre_scan_recursive(tree.root_node, path, imports_map)
@@ -500,7 +522,7 @@ def _pre_scan_recursive(node, path: Path, imports_map: dict):
                                     name = ac.text.decode('utf-8')
                                     if name not in imports_map:
                                         imports_map[name] = []
-                                    imports_map[name].append(str(path.resolve()))
+                                    imports_map[name].append(path.resolve().as_posix())
                 elif keyword in FUNCTION_KEYWORDS:
                     # Get function name
                     for sib in node.children:
@@ -512,7 +534,7 @@ def _pre_scan_recursive(node, path: Path, imports_map: dict):
                                         name = target.text.decode('utf-8')
                                         if name not in imports_map:
                                             imports_map[name] = []
-                                        imports_map[name].append(str(path.resolve()))
+                                        imports_map[name].append(path.resolve().as_posix())
                 break
 
     for child in node.children:

@@ -5,17 +5,19 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
-
+import os
 from ...core.jobs import JobManager, JobStatus
-from ...utils.debug_log import debug_log, error_logger, info_logger
+from ...utils.debug_log import debug_log, error_logger, info_logger, warning_logger
 from .discovery import discover_files_to_index
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
 from .resolution.calls import build_function_call_groups
 from .resolution.inheritance import (
+    build_binds_links,
     build_companion_of_links,
     build_decorated_by_links,
     build_elixir_implements_links,
@@ -26,7 +28,69 @@ from .resolution.inheritance import (
     build_metaclass_links,
     build_partial_of_links,
     build_part_of_links,
+    build_previews_links,
 )
+
+
+DEFAULT_PARALLEL_WORKERS = 10
+
+
+def get_parallel_workers() -> int:
+    """Resolve the indexing concurrency limit from the PARALLEL_WORKERS config.
+
+    Falls back to DEFAULT_PARALLEL_WORKERS when the value is unset or not a
+    usable positive integer, so a bad config never breaks indexing.
+    """
+    from ...cli.config_manager import get_config_value
+
+    try:
+        workers = int(get_config_value("PARALLEL_WORKERS") or "")
+    except (TypeError, ValueError):
+        return DEFAULT_PARALLEL_WORKERS
+    return workers if workers > 0 else DEFAULT_PARALLEL_WORKERS
+
+
+def build_index_summary(
+    files: List[Path],
+    parsers: Dict[str, str],
+    all_file_data: List[Dict[str, Any]],
+    resolved_call_groups: tuple,
+    serialization_seconds: float,
+    parse_failures: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Build CLI-facing metrics for a completed Tree-sitter indexing run."""
+    extension_counts = Counter()
+    for file in files:
+        extension = file.suffix or file.name
+        language = parsers.get(file.suffix, "generic")
+        extension_counts[f"{extension} ({language})"] += 1
+
+    # Exclude the synthetic `<module>` frame the Python parser adds per file —
+    # it is the attribution target for module-level calls, not a function the
+    # user wrote, and counting it inflated every reported total by one per file.
+    function_nodes = sum(
+        1
+        for file_data in all_file_data
+        for func in file_data.get("functions", [])
+        if not func.get("is_synthetic") and func.get("name") != "<module>"
+    )
+    class_nodes = sum(len(file_data.get("classes", [])) for file_data in all_file_data)
+    call_edges = sum(len(group) for group in resolved_call_groups)
+
+    failed = list(parse_failures or [])
+
+    return {
+        "total_scanned_files": len(files),
+        "files_by_extension": dict(sorted(extension_counts.items())),
+        "function_nodes": function_nodes,
+        "class_nodes": class_nodes,
+        "call_edges": call_edges,
+        "serialization_seconds": serialization_seconds,
+        # A run where files failed to parse used to be indistinguishable from a
+        # clean one: the summary had no failure row at all.
+        "failed_files": len(failed),
+        "failed_file_details": failed,
+    }
 
 
 async def run_tree_sitter_index_async(
@@ -41,6 +105,7 @@ async def run_tree_sitter_index_async(
     parse_file: Callable[[Path, Path, bool], Dict[str, Any]],
     add_minimal_file_node: Callable[[Path, Path, bool], None],
     call_resolution_diagnostics: Optional[List[Dict[str, Any]]] = None,
+    index_summary: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Parse all discovered files, write symbols, then inheritance + CALLS."""
     if job_id:
@@ -63,7 +128,7 @@ async def run_tree_sitter_index_async(
     resolved_repo_path_str = path.resolve().as_posix() if path.is_dir() else path.parent.resolve().as_posix()
 
     processed_count = 0
-    concurrency_limit = 10
+    concurrency_limit = get_parallel_workers()
     semaphore = asyncio.Semaphore(concurrency_limit)
     
     async def process_file(file: Path) -> Optional[Dict[str, Any]]:
@@ -100,29 +165,101 @@ async def run_tree_sitter_index_async(
             job_manager.update_job(job_id, processed_files=processed_count)
         
         if processed_count % 50 == 0:
-            info_logger(f"Processed {processed_count}/{len(files)} files...")
+            
+            if os.environ.get("CGC_ACTIVE_PROGRESS_BAR") != "1":
+                info_logger(f"Processed {processed_count}/{len(files)} files...")
+
+    serialization_start = time.time()
 
     # Parsing remains concurrent, but graph writes are ordered so shared nodes
     # such as imported modules receive deterministic canonical metadata.
+    # One unwritable file must not abort the run. There is no transaction here,
+    # so an exception escaping this loop left a partially written graph with no
+    # rollback and every remaining file silently unindexed.
+    write_failures: List[Dict[str, Any]] = []
     for file_data in sorted(all_file_data, key=lambda data: str(data.get("path") or "")):
         repo_path = Path(file_data.pop("_index_repo_path"))
-        if "error" not in file_data:
-            await asyncio.to_thread(
-                writer.add_file_to_graph,
-                file_data,
-                repo_name,
-                imports_map,
-                repo_path_str=resolved_repo_path_str,
-            )
-        elif not file_data.get("unsupported"):
-            await asyncio.to_thread(
-                add_minimal_file_node,
-                Path(file_data["path"]),
-                repo_path,
-                is_dependency,
-            )
+        try:
+            if "error" not in file_data:
+                await asyncio.to_thread(
+                    writer.add_file_to_graph,
+                    file_data,
+                    repo_name,
+                    imports_map,
+                    repo_path_str=resolved_repo_path_str,
+                )
+            elif not file_data.get("unsupported"):
+                await asyncio.to_thread(
+                    add_minimal_file_node,
+                    Path(file_data["path"]),
+                    repo_path,
+                    is_dependency,
+                )
+        except Exception as exc:  # noqa: BLE001 - keep indexing the other files
+            # Must not be named `path`: that is the function's repo-root Path
+            # parameter, still needed further down (`path.is_dir()`). Rebinding
+            # it to this file's path string turned a single recoverable write
+            # failure into an AttributeError that aborted the whole job.
+            failed_path = file_data.get("path")
+            # Retry once before giving up: writes are MERGE-idempotent, and a
+            # transient failure under runner load silently costs the graph the
+            # whole file's edges (observed as LadybugDB intermittently writing
+            # ~51 fewer CONTAINS edges in the parity run, #1612).
+            retried_ok = False
+            if "error" not in file_data:
+                try:
+                    await asyncio.sleep(0.2)
+                    await asyncio.to_thread(
+                        writer.add_file_to_graph,
+                        file_data,
+                        repo_name,
+                        imports_map,
+                        repo_path_str=resolved_repo_path_str,
+                    )
+                    retried_ok = True
+                    warning_logger(
+                        f"Write for {failed_path} succeeded on retry after: {exc}"
+                    )
+                except Exception as retry_exc:  # noqa: BLE001
+                    exc = retry_exc
+            if not retried_ok:
+                write_failures.append({"path": failed_path, "error": str(exc)})
+                error_logger(f"Failed to write {failed_path} to the graph: {exc}")
+                file_data["error"] = str(exc)
+                file_data["parse_failed"] = True
 
-    all_file_data = [file_data for file_data in all_file_data if "error" not in file_data]
+    if write_failures:
+        warning_logger(
+            f"{len(write_failures)} file(s) could not be written to the graph; "
+            "the rest of the repository was still indexed."
+        )
+
+    # Capture genuine parse failures before the error entries are dropped —
+    # build_index_summary runs much later, against the filtered list.
+    parse_failures = [
+        {"path": file_data.get("path"), "error": file_data.get("error")}
+        for file_data in all_file_data
+        if file_data.get("parse_failed")
+    ]
+    if parse_failures:
+        warning_logger(
+            f"{len(parse_failures)} file(s) failed to parse and contributed no "
+            "symbols to the graph."
+        )
+        for failure in parse_failures[:10]:
+            warning_logger(f"  parse failed: {failure['path']}: {failure['error']}")
+
+    # Sort before post-processing. Files are appended in `asyncio.as_completed`
+    # order, so the list order varies run to run with task scheduling. Everything
+    # downstream that builds a map by iterating it — global_class_bases,
+    # interface_implementors, class_method_index — then inherits that ordering,
+    # and any last-writer-wins or first-match-wins choice becomes
+    # nondeterministic. The graph write loop already sorted for exactly this
+    # reason; resolution was left unsorted.
+    all_file_data = sorted(
+        (file_data for file_data in all_file_data if "error" not in file_data),
+        key=lambda data: str(data.get("path") or ""),
+    )
 
     info_logger(
         f"File processing complete. {len(all_file_data)} files parsed. "
@@ -145,6 +282,8 @@ async def run_tree_sitter_index_async(
     writer.write_part_of_links(build_part_of_links(all_file_data))
     writer.write_metaclass_links(build_metaclass_links(all_file_data, imports_map))
     writer.write_decorated_by_links(build_decorated_by_links(all_file_data, imports_map))
+    writer.write_binds_links(build_binds_links(all_file_data, imports_map))
+    writer.write_previews_links(build_previews_links(all_file_data, imports_map))
     t1 = time.time()
     info_logger(f"Inheritance links created in {t1 - t0:.1f}s. Starting function calls...")
 
@@ -168,6 +307,15 @@ async def run_tree_sitter_index_async(
         job_manager.update_job(job_id, status_message="Linking C++ class-function edges...")
     info_logger("[CPP] Linking C++ out-of-line method definitions to their classes...")
     writer.write_cpp_class_function_links(resolved_repo_path_str)
+
+    # ── File->CONTAINS invariant (empty-index race self-heal) ────────────────
+    if job_id:
+        job_manager.update_job(job_id, status_message="Verifying File->CONTAINS linking...")
+    repaired_contains = writer.repair_missing_contains_links(resolved_repo_path_str)
+    if repaired_contains:
+        warning_logger(
+            f"[INVARIANT] Back-filled File-[:CONTAINS] edges for: {repaired_contains}"
+        )
 
     # ── Spring injection edges (#887) ─────────────────────────────────────────
     if job_id:
@@ -250,17 +398,29 @@ async def run_tree_sitter_index_async(
 
     # ── Phase 4: embedding generation (optional, config-gated) ────────────────
     from ...cli.config_manager import get_config_value as _gcv
+    embed_warning: Optional[str] = None
     if (_gcv("ENABLE_VECTOR_RESOLVE") or "false").lower() == "true":
-        if job_id:
-            job_manager.update_job(job_id, status_message="Generating embeddings...")
-        try:
-            from .embeddings import EmbeddingPipeline
-            repo_path_str = path.resolve().as_posix()
-            info_logger("[EMBED] Starting embedding pipeline...")
-            EmbeddingPipeline(writer.driver).run(repo_path_str)
-            info_logger("[EMBED] Embedding pipeline complete.")
-        except Exception as _ee:
-            info_logger(f"[EMBED] Embedding pipeline failed (skipping): {_ee}")
+        # Probe first: with no backend installed the pipeline used to fail
+        # inside a swallowed except at a log level that is off by default,
+        # so 'vector resolve is working' and 'vector resolve has never run'
+        # were indistinguishable (#1597).
+        from .embeddings import probe_embedding_backend
+        _ok, _detail = probe_embedding_backend()
+        if not _ok:
+            embed_warning = f"ENABLE_VECTOR_RESOLVE=true but embeddings were NOT generated: {_detail}"
+            error_logger(f"[EMBED] {embed_warning}")
+        else:
+            if job_id:
+                job_manager.update_job(job_id, status_message="Generating embeddings...")
+            try:
+                from .embeddings import EmbeddingPipeline
+                repo_path_str = path.resolve().as_posix()
+                info_logger("[EMBED] Starting embedding pipeline...")
+                EmbeddingPipeline(writer.driver).run(repo_path_str)
+                info_logger("[EMBED] Embedding pipeline complete.")
+            except Exception as _ee:
+                embed_warning = f"ENABLE_VECTOR_RESOLVE=true but the embedding pipeline failed: {_ee}"
+                error_logger(f"[EMBED] {embed_warning}")
 
     # ── Phase 5: inheritance-aware re-resolution (optional, config-gated) ─────
     if (_gcv("ENABLE_INHERIT_RESOLVE") or "false").lower() == "true":
@@ -280,6 +440,21 @@ async def run_tree_sitter_index_async(
             info_logger(f"[INHERIT-RESOLVE] Post-resolution complete: {improved} edges improved")
         except Exception as _ie:
             info_logger(f"[INHERIT-RESOLVE] Post-resolution failed (skipping): {_ie}")
+
+    if index_summary is not None:
+        index_summary.clear()
+        index_summary.update(
+            build_index_summary(
+                files,
+                parsers,
+                all_file_data,
+                resolved_calls,
+                time.time() - serialization_start,
+                parse_failures=parse_failures,
+            )
+        )
+        if embed_warning:
+            index_summary.setdefault("warnings", []).append(embed_warning)
 
     if job_id:
         job_manager.update_job(job_id, status=JobStatus.COMPLETED, end_time=datetime.now())

@@ -6,6 +6,13 @@ from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logge
 from codegraphcontext.utils.tree_sitter_manager import execute_query
 
 CPP_QUERIES = {
+    # A pointer or reference return type wraps the function declarator from the
+    # OUTSIDE: `char* f()` is
+    #     function_definition > pointer_declarator > function_declarator > identifier
+    # not function_declarator > pointer_declarator. Matching only the unwrapped
+    # shape meant no function returning `T*`, `T&` or `T**` was ever extracted —
+    # accessors, factories and `operator[]` are pervasive in C++, and because
+    # pre_scan_cpp shares this query they were invisible as call targets too.
     "functions": """
         (function_definition
             declarator: (function_declarator
@@ -14,6 +21,44 @@ CPP_QUERIES = {
                     (field_identifier) @name
                     (qualified_identifier) @qualified_name
                 ]
+            )
+        ) @function_node
+
+        (function_definition
+            declarator: (pointer_declarator
+                declarator: (function_declarator
+                    declarator: [
+                        (identifier) @name
+                        (field_identifier) @name
+                        (qualified_identifier) @qualified_name
+                    ]
+                )
+            )
+        ) @function_node
+
+        (function_definition
+            declarator: (pointer_declarator
+                declarator: (pointer_declarator
+                    declarator: (function_declarator
+                        declarator: [
+                            (identifier) @name
+                            (field_identifier) @name
+                            (qualified_identifier) @qualified_name
+                        ]
+                    )
+                )
+            )
+        ) @function_node
+
+        (function_definition
+            declarator: (reference_declarator
+                (function_declarator
+                    declarator: [
+                        (identifier) @name
+                        (field_identifier) @name
+                        (qualified_identifier) @qualified_name
+                    ]
+                )
             )
         ) @function_node
     """,
@@ -96,6 +141,10 @@ CPP_QUERIES = {
         (preproc_def
             name: (identifier) @name
         ) @macro
+
+        (preproc_function_def
+            name: (identifier) @func_name
+        ) @func_macro
     """,
     "variables": """
     (declaration
@@ -106,6 +155,10 @@ CPP_QUERIES = {
         declarator: (init_declarator
                         declarator: (pointer_declarator
                             declarator: (identifier) @name)))
+
+    (declaration
+        type: (_) @var_type
+        declarator: (identifier) @plain_name)
 
     (field_declaration
         declarator: [
@@ -198,6 +251,16 @@ class CppTreeSitterParser:
                     name = parts[1]
                 else:
                     name = raw_text
+
+                if not class_context:
+                    ancestor = func_node.parent
+                    while ancestor:
+                        if ancestor.type == 'class_specifier':
+                            class_name_node = ancestor.child_by_field_name('name')
+                            if class_name_node:
+                                class_context = self._get_node_text(class_name_node)
+                            break
+                        ancestor = ancestor.parent
 
                 params = self._extract_function_params(func_node)
 
@@ -317,7 +380,7 @@ class CppTreeSitterParser:
             capture_name = match[1]
             node = match[0]
             if capture_name == 'path':
-                path = self._get_node_text(node).strip('<>')
+                path = self._get_node_text(node).strip('"<>')
                 imports.append({
                     "name": path,
                     "full_import_name": path,
@@ -417,14 +480,25 @@ class CppTreeSitterParser:
         for match in execute_query(self.language, query_str, root_node):
             capture_name = match[1]
             node = match[0]
-            if capture_name == 'name':
+            if capture_name in ('name', 'func_name'):
                 macro_node = node.parent
                 name = self._get_node_text(node)
+                end_row = macro_node.end_point[0]
+                end_col = macro_node.end_point[1]
+                end_line = end_row if end_col == 0 else end_row + 1
                 macro_data = {
                     "name": name,
                     "line_number": node.start_point[0] + 1,
-                    "end_line": macro_node.end_point[0] + 1,
+                    "end_line": end_line,
                 }
+                if capture_name == 'func_name':
+                    parameters_node = macro_node.child_by_field_name('parameters')
+                    params = []
+                    if parameters_node:
+                        for child in parameters_node.children:
+                            if child.type == 'identifier':
+                                params.append(self._get_node_text(child))
+                    macro_data["params"] = params
                 if self.index_source:
                     macro_data["source"] = self._get_node_text(macro_node)
                 macros.append(macro_data)
@@ -445,11 +519,7 @@ class CppTreeSitterParser:
                 if lambda_node is None or lambda_node.type != 'lambda_expression':
                     continue
 
-                params_node = lambda_node.child_by_field_name('declarator')
-                if params_node:
-                    params_node = params_node.child_by_field_name('parameters')
                 name = self._get_node_text(node)
-                params_node = lambda_node.child_by_field_name('parameters')
 
                 context, context_type, _ = self._get_parent_context(assignment_node)
                 class_context, _, _ = self._get_parent_context(assignment_node, types=('class_specifier',))
@@ -458,7 +528,15 @@ class CppTreeSitterParser:
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "end_line": assignment_node.end_point[0] + 1,
-                    "args": [p for p in [self._get_node_text(p) for p in params_node.children if p.type == 'identifier'] if p] if params_node else [],
+                    # lambda_expression carries the same declarator→parameters
+                    # field chain as a function_definition, so the shared
+                    # extractor handles parameter_declaration unwrapping
+                    # (pointers/refs included). The old inline version first
+                    # clobbered its correctly-walked parameter_list with a
+                    # nonexistent field and then filtered for bare identifiers
+                    # over parameter_declaration nodes — every lambda got
+                    # args: [] (#1527, case 5).
+                    "args": self._extract_function_params(lambda_node),
                     
                     "docstring": None,
                     "cyclomatic_complexity": 1,
@@ -479,6 +557,7 @@ class CppTreeSitterParser:
     def _find_variables(self, root_node):
         variables = []
         query_str = CPP_QUERIES['variables']
+        seen_plain_names = set()
         for match in execute_query(self.language, query_str, root_node):
             capture_name = match[1]
             node = match[0]
@@ -493,8 +572,17 @@ class CppTreeSitterParser:
 
                 name = self._get_node_text(node)
                 value = self._get_node_text(right_node) if right_node else None
-                
-                type_node = assignment_node.child_by_field_name('type')
+
+                # For `int x = 5;`, `assignment_node` is the init_declarator,
+                # which has no 'type' field — the type lives on the enclosing
+                # `declaration` node. For field declarations (`int m;` inside
+                # a class), `assignment_node` is already the `field_declaration`
+                # node itself and already carries the 'type' field directly.
+                if assignment_node.type == 'init_declarator':
+                    decl_node = assignment_node.parent
+                    type_node = decl_node.child_by_field_name('type') if decl_node else None
+                else:
+                    type_node = assignment_node.child_by_field_name('type')
                 type_text = self._get_node_text(type_node) if type_node else None
 
                 context, _, _ = self._get_parent_context(node)
@@ -504,6 +592,33 @@ class CppTreeSitterParser:
                     "name": name,
                     "line_number": node.start_point[0] + 1,
                     "value": value,
+                    "type": type_text,
+                    "context": context,
+                    "class_context": class_context,
+                    "lang": self.language_name,
+                    "is_dependency": False,
+                }
+                variables.append(variable_data)
+                seen_plain_names.add((name, node.start_point[0]))
+
+            elif capture_name == 'plain_name':
+                # Uninitialized declaration: `int count;`
+                key = (self._get_node_text(node), node.start_point[0])
+                if key in seen_plain_names:
+                    continue
+                seen_plain_names.add(key)
+
+                decl_node = node.parent
+                type_node = decl_node.child_by_field_name('type') if decl_node else None
+                type_text = self._get_node_text(type_node) if type_node else None
+
+                context, _, _ = self._get_parent_context(node)
+                class_context, _, _ = self._get_parent_context(node, types=('class_specifier',))
+
+                variable_data = {
+                    "name": self._get_node_text(node),
+                    "line_number": node.start_point[0] + 1,
+                    "value": None,
                     "type": type_text,
                     "context": context,
                     "class_context": class_context,
@@ -536,14 +651,15 @@ class CppTreeSitterParser:
                             decl = child
                         else:
                             break
-                    # Fallback or if not found
-                    return None, curr.type, curr.start_point[0] + 1
+                    # Fallback or if not found - continue walking if no name
                 elif curr.type == 'class_specifier':
                     name_node = curr.child_by_field_name('name')
-                    return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
+                    if name_node:
+                        return self._get_node_text(name_node), curr.type, curr.start_point[0] + 1
                 else:
                     name_node = curr.child_by_field_name('name')
-                    return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
+                    if name_node:
+                        return self._get_node_text(name_node), curr.type, curr.start_point[0] + 1
             curr = curr.parent
         return None, None, None
     
@@ -651,6 +767,23 @@ def pre_scan_cpp(files: list[Path], parser_wrapper) -> dict:
         (type_definition declarator: (type_identifier) @name)
         (function_definition declarator: (function_declarator declarator: (identifier) @name))
         (function_definition declarator: (function_declarator declarator: (qualified_identifier) @qualified_name))
+
+        ; A pointer/reference return type wraps the function declarator from the
+        ; outside, so these forms need their own alternatives — without them a
+        ; `T* f()` was not registered here either, and so was unresolvable as a
+        ; call target even once it became a node.
+        (function_definition declarator: (pointer_declarator
+            declarator: (function_declarator declarator: (identifier) @name)))
+        (function_definition declarator: (pointer_declarator
+            declarator: (function_declarator declarator: (qualified_identifier) @qualified_name)))
+        (function_definition declarator: (pointer_declarator declarator: (pointer_declarator
+            declarator: (function_declarator declarator: (identifier) @name))))
+        (function_definition declarator: (pointer_declarator declarator: (pointer_declarator
+            declarator: (function_declarator declarator: (qualified_identifier) @qualified_name))))
+        (function_definition declarator: (reference_declarator
+            (function_declarator declarator: (identifier) @name)))
+        (function_definition declarator: (reference_declarator
+            (function_declarator declarator: (qualified_identifier) @qualified_name)))
     """
 
 
@@ -662,7 +795,7 @@ def pre_scan_cpp(files: list[Path], parser_wrapper) -> dict:
                 tree = parser_wrapper.parser.parse(source_bytes)
 
             for node, capture_name in execute_query(parser_wrapper.language, query_str, tree.root_node):
-                resolved_path = str(path.resolve())
+                resolved_path = path.resolve().as_posix()
                 if capture_name == "name":
                     name = node.text.decode("utf-8")
                     paths = imports_map.setdefault(name, [])

@@ -355,6 +355,21 @@ Bundles only contain graph data, not executable code. However:
 - Use `--clear` cautiously (it deletes existing data)
 - Keep backups of your graph database
 
+### Secrets in Bundles
+
+Bundles include node properties from the indexed source code, which may contain **string literals and variable values** such as API keys, tokens, passwords, and database connection strings that were hardcoded in the source.
+
+**Before sharing a bundle:**
+
+1. Enable `REDACT_SECRETS=true` in your CGC config before indexing to automatically redact likely secrets:
+   ```bash
+   cgc config set REDACT_SECRETS true
+   cgc index /path/to/repo
+   cgc bundle export my-project.cgc
+   ```
+2. Inspect the bundle contents (`unzip -p bundle.cgc nodes.jsonl`) for any remaining sensitive values.
+3. CGC logs a warning at index time when potential secrets are detected, listing the affected nodes and properties.
+
 ---
 
 ## 🛠️ Troubleshooting

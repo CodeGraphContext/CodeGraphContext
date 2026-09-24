@@ -14,7 +14,7 @@ class _KuzuDBAdapter:
     def __init__(self, driver):
         self._driver = driver
 
-    def get_driver(self):
+    def get_driver(self, graph_name=None):
         return self._driver
 
     def get_backend_type(self) -> str:
@@ -103,11 +103,11 @@ def test_kuzu_indexes_typescript_scoped_package_import(tmp_path):
             rows = session.run(
                 """
                 MATCH (:File)-[r:IMPORTS]->(m:Module)
-                RETURN m.name as name, r.imported_name as imported_name
+                RETURN m.name as name, r.imported_name as imported_name, r.lang as lang
                 """
             ).data()
 
-        assert rows == [{"name": "@my-org/utils", "imported_name": "foo"}]
+        assert rows == [{"name": "@my-org/utils", "imported_name": "foo", "lang": "typescript"}]
     finally:
         manager.close_driver()
 
@@ -146,6 +146,208 @@ def test_kuzu_indexes_import_rows_with_missing_optional_fields(tmp_path):
             ).data()
 
         assert rows == [{"name": "os", "full_import_name": "os", "alias": ""}]
+    finally:
+        manager.close_driver()
+
+
+def test_kuzu_indexes_python_from_import_as_source_module(tmp_path):
+    """from pathlib import Path must create Module pathlib, not Path."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    file_path = repo / "main.py"
+    file_path.write_text(
+        "import os\nfrom pathlib import Path\nfrom unittest.mock import AsyncMock as AM\n",
+        encoding="utf-8",
+    )
+
+    manager, driver = _new_kuzu_driver(tmp_path)
+    try:
+        writer = GraphWriter(driver)
+        writer.add_repository_to_graph(repo)
+        writer.add_file_to_graph(
+            {
+                "path": str(file_path),
+                "repo_path": str(repo),
+                "lang": "python",
+                "imports": [
+                    {"name": "os", "full_import_name": "os", "line_number": 1},
+                    {
+                        "name": "Path",
+                        "source": "pathlib",
+                        "imported_name": "Path",
+                        "full_import_name": "pathlib.Path",
+                        "line_number": 2,
+                    },
+                    {
+                        "name": "AsyncMock",
+                        "source": "unittest.mock",
+                        "imported_name": "AsyncMock",
+                        "full_import_name": "unittest.mock.AsyncMock",
+                        "alias": "AM",
+                        "line_number": 3,
+                    },
+                ],
+                "functions": [],
+                "classes": [],
+                "variables": [],
+            },
+            repo.name,
+            {},
+            repo_path_str=str(repo.resolve()),
+        )
+
+        with driver.session() as session:
+            rows = session.run(
+                """
+                MATCH (:File)-[r:IMPORTS]->(m:Module)
+                RETURN m.name AS name, r.imported_name AS imported_name, r.alias AS alias, r.lang AS lang
+                ORDER BY name, imported_name
+                """
+            ).data()
+
+        assert rows == [
+            {"name": "os", "imported_name": "os", "alias": "", "lang": "python"},
+            {"name": "pathlib", "imported_name": "Path", "alias": "", "lang": "python"},
+            {"name": "unittest.mock", "imported_name": "AsyncMock", "alias": "AM", "lang": "python"},
+        ]
+        assert "Path" not in {row["name"] for row in rows}
+        assert "AsyncMock" not in {row["name"] for row in rows}
+    finally:
+        manager.close_driver()
+
+
+def test_kuzu_indexes_cross_language_import_lang(tmp_path):
+    """Python and TypeScript imports of the same specifier stay filterable by r.lang."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    py_path = repo / "app.py"
+    ts_path = repo / "app.ts"
+    py_path.write_text("import shared\n", encoding="utf-8")
+    ts_path.write_text("import shared from 'shared';\n", encoding="utf-8")
+
+    manager, driver = _new_kuzu_driver(tmp_path)
+    try:
+        writer = GraphWriter(driver)
+        writer.add_repository_to_graph(repo)
+        writer.add_file_to_graph(
+            {
+                "path": str(py_path),
+                "repo_path": str(repo),
+                "lang": "python",
+                "imports": [{"name": "shared", "full_import_name": "shared", "line_number": 1}],
+                "functions": [],
+                "classes": [],
+                "variables": [],
+            },
+            repo.name,
+            {},
+            repo_path_str=str(repo.resolve()),
+        )
+        writer.add_file_to_graph(
+            {
+                "path": str(ts_path),
+                "repo_path": str(repo),
+                "lang": "typescript",
+                "imports": [
+                    {
+                        "name": "default",
+                        "source": "shared",
+                        "alias": "shared",
+                        "line_number": 1,
+                    }
+                ],
+                "functions": [],
+                "classes": [],
+                "variables": [],
+            },
+            repo.name,
+            {},
+            repo_path_str=str(repo.resolve()),
+        )
+
+        with driver.session() as session:
+            all_rows = session.run(
+                """
+                MATCH (f:File)-[r:IMPORTS]->(m:Module {name: 'shared'})
+                RETURN f.path AS path, r.lang AS lang
+                ORDER BY r.lang
+                """
+            ).data()
+            python_only = session.run(
+                """
+                MATCH (f:File)-[r:IMPORTS]->(m:Module {name: 'shared'})
+                WHERE r.lang = 'python'
+                RETURN f.path AS path
+                """
+            ).data()
+
+        assert {(row["path"].endswith("app.py"), row["lang"]) for row in all_rows} == {
+            (True, "python"),
+            (False, "typescript"),
+        }
+        assert len(all_rows) == 2
+        assert len(python_only) == 1
+        assert python_only[0]["path"].endswith("app.py")
+    finally:
+        manager.close_driver()
+
+
+def test_kuzu_file_deletion_preserves_module_included_by_other_files(tmp_path):
+    """Deleting a defining file must not detach other files from its Module."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    module_file = repo / "shared.rb"
+    alpha_file = repo / "alpha.rb"
+    beta_file = repo / "beta.rb"
+    for path in (module_file, alpha_file, beta_file):
+        path.write_text("# fixture\n", encoding="utf-8")
+
+    manager, driver = _new_kuzu_driver(tmp_path)
+    try:
+        writer = GraphWriter(driver)
+        writer.add_repository_to_graph(repo)
+        writer.add_file_to_graph(
+            {
+                "path": str(module_file),
+                "repo_path": str(repo),
+                "lang": "ruby",
+                "modules": [{"name": "Shared", "line_number": 1}],
+                "functions": [],
+                "classes": [],
+                "variables": [],
+            },
+            repo.name,
+            {},
+            repo_path_str=str(repo.resolve()),
+        )
+        for path, class_name in ((alpha_file, "Alpha"), (beta_file, "Beta")):
+            writer.add_file_to_graph(
+                {
+                    "path": str(path),
+                    "repo_path": str(repo),
+                    "lang": "ruby",
+                    "classes": [{"name": class_name, "line_number": 1}],
+                    "module_inclusions": [{"class": class_name, "module": "Shared"}],
+                    "functions": [],
+                    "variables": [],
+                },
+                repo.name,
+                {},
+                repo_path_str=str(repo.resolve()),
+            )
+
+        writer.delete_file_from_graph(str(module_file))
+
+        with driver.session() as session:
+            rows = session.run(
+                """
+                MATCH (c:Class)-[:INCLUDES]->(m:Module {name: 'Shared'})
+                RETURN c.name AS class_name
+                ORDER BY class_name
+                """
+            ).data()
+
+        assert rows == [{"class_name": "Alpha"}, {"class_name": "Beta"}]
     finally:
         manager.close_driver()
 

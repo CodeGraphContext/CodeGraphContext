@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import time
 import json
+import re
 import sys
 import shutil
 import yaml 
@@ -14,6 +15,48 @@ from codegraphcontext.core.database import DatabaseManager
 from codegraphcontext.cli.config_manager import normalize_config_path
 
 console = Console()
+
+def _strip_jsonc(text: str) -> str:
+    """Drop // and /* */ comments and trailing commas from a JSONC document.
+
+    VS Code and its forks write settings.json as JSONC. json.loads rejects both,
+    and treating that rejection as "no settings yet" discards the user's file.
+    """
+    out = []
+    i, n = 0, len(text)
+    in_string = escaped = False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if text.startswith("//", i):
+            i = text.find("\n", i)
+            if i == -1:
+                break
+            continue
+        if text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end == -1 else end + 2
+            continue
+        out.append(ch)
+        i += 1
+    stripped = "".join(out)
+    # A trailing comma before } or ] is legal JSONC, not JSON.
+    return re.sub(r",(\s*[}\]])", r"\1", stripped)
+
 
 def _check_write_access(path: Path) -> bool:
     target = path if path.exists() else path.parent
@@ -60,6 +103,37 @@ def _save_neo4j_credentials(creds):
     console.print("[dim]  • cgc find function    - Search your codebase[/dim]")
     console.print("\n[dim]To use cgc as an MCP server in your IDE, run:[/dim]")
     console.print("[dim]  cgc mcp setup[/dim]")
+
+
+def _validate_neo4j_credentials(creds):
+    """Validate Neo4j credentials and test the connection."""
+    is_valid, validation_error = DatabaseManager.validate_config(
+        creds.get("uri", ""),
+        creds.get("username", ""),
+        creds.get("password", ""),
+    )
+
+    if not is_valid:
+        console.print(validation_error)
+        console.print("\n[red]❌ Invalid configuration. Please try again.[/red]\n")
+        return False
+
+    console.print("[green]✅ Configuration format is valid[/green]")
+    console.print("\n[cyan]🔗 Testing connection...[/cyan]")
+
+    is_connected, error_msg = DatabaseManager.test_connection(
+        creds.get("uri", ""),
+        creds.get("username", ""),
+        creds.get("password", ""),
+    )
+
+    if not is_connected:
+        console.print(error_msg)
+        console.print("\n[red]❌ Connection test failed.[/red]\n")
+        return False
+
+    console.print("[green]✅ Connection successful![/green]")
+    return True
 
 
 def _generate_mcp_json(creds):
@@ -153,6 +227,11 @@ def find_jetbrains_mcp_config():
                     configs.append(mcp_file)
                     print(mcp_file)
                     return configs
+    # Always return a list: callers store this directly in the config_paths
+    # mapping and iterate it, so returning None (no JetBrains install, or no
+    # mcpServer.xml yet) raised a TypeError instead of falling through to the
+    # "configure manually" path.
+    return configs
 
 
 def convert_mcp_json_to_yaml():
@@ -447,12 +526,26 @@ def _configure_ide(mcp_config):
 
         console.print(f"Using configuration file at: {target_path}")
         
+        had_comments = False
         try:
-            with open(target_path, "r") as f:
+            raw = target_path.read_text()
+            try:
+                settings = json.loads(raw)
+            except json.JSONDecodeError:
                 try:
-                    settings = json.load(f)
+                    settings = json.loads(_strip_jsonc(raw))
+                    had_comments = True
                 except json.JSONDecodeError:
-                    settings = {}
+                    # Never fall back to {}: this file gets written back below, so
+                    # treating an unreadable file as an empty one destroys it.
+                    console.print(
+                        f"[bold red]Could not parse {target_path}.[/bold red] "
+                        "Leaving it untouched so nothing is lost."
+                    )
+                    console.print(
+                        "Please add the MCP configuration manually from the `mcp.json` file generated above."
+                    )
+                    return
         except FileNotFoundError:
             settings = {}
 
@@ -479,6 +572,15 @@ def _configure_ide(mcp_config):
                 )
                 return
 
+            if target_path.exists():
+                backup_path = target_path.with_suffix(target_path.suffix + ".cgc-backup")
+                shutil.copy2(target_path, backup_path)
+                console.print(f"[dim]Backed up existing configuration to {backup_path}[/dim]")
+            if had_comments:
+                console.print(
+                    "[yellow]Note: this file contained comments. JSON output cannot keep them, "
+                    "so they are dropped in the rewritten file (the backup above still has them).[/yellow]"
+                )
             try:
                 with open(target_path, "w") as f:
                     json.dump(settings, f, indent=2)
@@ -754,6 +856,19 @@ def setup_existing_db():
                 console.print(f"[red]❌ Failed to parse credentials file: {e}[/red]")
                 return
 
+        if creds and not _validate_neo4j_credentials(creds):
+            retry = prompt([
+                {
+                    "type": "confirm",
+                    "message": "Connection failed. Would you like to re-enter the details instead of saving these credentials?",
+                    "name": "retry",
+                    "default": True,
+                }
+            ])
+            if retry.get("retry"):
+                return setup_existing_db()
+            console.print("[yellow]Proceeding with the provided credentials anyway.[/yellow]")
+
     elif cred_method: # Manual entry
         console.print("Please enter your Neo4j connection details.")
         
@@ -769,38 +884,12 @@ def setup_existing_db():
             if not manual_creds: 
                 return # User cancelled
             
-            # Validate the user input
-            console.print("\n[cyan]🔍 Validating configuration...[/cyan]")
-            from codegraphcontext.core.database import DatabaseManager
-            is_valid, validation_error = DatabaseManager.validate_config(
-                manual_creds.get("uri", ""),
-                manual_creds.get("username", ""),
-                manual_creds.get("password", "")
-            )
-            
-            if not is_valid:
-                console.print(validation_error)
-                console.print("\n[red]❌ Invalid configuration. Please try again.[/red]\n")
-                continue  # Ask for input again
-            
-            console.print("[green]✅ Configuration format is valid[/green]")
-            
-            # Test the connection
-            console.print("\n[cyan]🔗 Testing connection...[/cyan]")
-            is_connected, error_msg = DatabaseManager.test_connection(
-                manual_creds.get("uri", ""),
-                manual_creds.get("username", ""),
-                manual_creds.get("password", "")
-            )
-            
-            if not is_connected:
-                console.print(error_msg)
+            if not _validate_neo4j_credentials(manual_creds):
                 retry = prompt([{"type": "confirm", "message": "Connection failed. Try again with different credentials?", "name": "retry", "default": True}])
                 if not retry.get("retry"):
                     return
                 continue  # Ask for input again
-            
-            console.print("[green]✅ Connection successful![/green]")
+
             creds = manual_creds
             break  # Exit loop with valid credentials
 
@@ -873,6 +962,19 @@ def setup_hosted_db():
                 console.print(f"[red]❌ Failed to parse credentials file: {e}[/red]")
                 return
 
+        if creds and not _validate_neo4j_credentials(creds):
+            retry = prompt([
+                {
+                    "type": "confirm",
+                    "message": "Connection failed. Would you like to re-enter the details instead of saving these credentials?",
+                    "name": "retry",
+                    "default": True,
+                }
+            ])
+            if retry.get("retry"):
+                return setup_hosted_db()
+            console.print("[yellow]Proceeding with the provided credentials anyway.[/yellow]")
+
     elif cred_method: # Manual entry
         console.print("Please enter your remote Neo4j connection details.")
         
@@ -888,38 +990,12 @@ def setup_hosted_db():
             if not manual_creds:
                 return # User cancelled
             
-            # Validate the user input
-            console.print("\n[cyan]🔍 Validating configuration...[/cyan]")
-            from codegraphcontext.core.database import DatabaseManager
-            is_valid, validation_error = DatabaseManager.validate_config(
-                manual_creds.get("uri", ""),
-                manual_creds.get("username", ""),
-                manual_creds.get("password", "")
-            )
-            
-            if not is_valid:
-                console.print(validation_error)
-                console.print("\n[red]❌ Invalid configuration. Please try again.[/red]\n")
-                continue  # Ask for input again
-            
-            console.print("[green]✅ Configuration format is valid[/green]")
-            
-            # Test the connection
-            console.print("\n[cyan]🔗 Testing connection...[/cyan]")
-            is_connected, error_msg = DatabaseManager.test_connection(
-                manual_creds.get("uri", ""),
-                manual_creds.get("username", ""),
-                manual_creds.get("password", "")
-            )
-            
-            if not is_connected:
-                console.print(error_msg)
+            if not _validate_neo4j_credentials(manual_creds):
                 retry = prompt([{"type": "confirm", "message": "Connection failed. Try again with different credentials?", "name": "retry", "default": True}])
                 if not retry.get("retry"):
                     return
                 continue  # Ask for input again
-            
-            console.print("[green]✅ Connection successful![/green]")
+
             creds = manual_creds
             break  
 

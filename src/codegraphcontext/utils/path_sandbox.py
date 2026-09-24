@@ -23,7 +23,7 @@ def get_allowed_roots() -> List[Path]:
     roots: List[Path] = [Path.cwd().resolve()]
 
     env_roots = os.environ.get("CGC_ALLOWED_ROOTS", "")
-    if env_roots:
+    if env_roots and env_roots != "*":
         separator = ";" if os.name == "nt" else ":"
         for entry in env_roots.split(separator):
             entry = entry.strip()
@@ -33,8 +33,22 @@ def get_allowed_roots() -> List[Path]:
     return roots
 
 
+def is_path_sandbox_disabled() -> bool:
+    """True when path sandboxing is explicitly disabled.
+
+    Set ``CGC_ALLOW_ALL_PATHS=true`` or ``CGC_ALLOWED_ROOTS=*`` to permit
+    indexing, watching, and managing any filesystem path. Disabled by
+    default so sandboxing stays on unless a user opts in.
+    """
+    if os.environ.get("CGC_ALLOW_ALL_PATHS", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    return os.environ.get("CGC_ALLOWED_ROOTS", "").strip() == "*"
+
+
 def is_path_allowed(path: Path) -> bool:
-    """True when *path* resolves under an allowed root."""
+    """True when *path* resolves under an allowed root, or sandboxing is disabled."""
+    if is_path_sandbox_disabled():
+        return True
     resolved = path.resolve()
     for root in get_allowed_roots():
         try:
@@ -61,11 +75,12 @@ def sanitize_bundle_filename(filename: str, default: str = "bundle.cgc") -> str:
     name = Path(filename).name
     if not name or name in (".", ".."):
         return default
-    if not re.fullmatch(r"[\w.\-]+\.cgc", name, flags=re.IGNORECASE):
-        if not name.endswith(".cgc"):
-            sanitized = re.sub(r'[^\w.\-]+', '_', name)
-            name = f"{sanitized}.cgc"
-    return name
+    # Always sanitize the stem so that unsafe characters cannot bypass the
+    # check by simply appending a .cgc extension.
+    stem = name[:-4] if name.lower().endswith(".cgc") else name
+    sanitized_stem = re.sub(r"[^\w.\-]+", "_", stem)
+    # Re-attach the extension whether it was present or not.
+    return f"{sanitized_stem}.cgc"
 
 
 def is_safe_download_url(url: str) -> bool:

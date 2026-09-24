@@ -30,9 +30,21 @@ PHP_QUERIES = {
         (trait_declaration
             name: (name) @name
         ) @trait
+
+        (enum_declaration
+            name: (name) @name
+        ) @enum
     """,
+    # A top-level `use App\Models\User;` is a `namespace_use_declaration`.
+    # `use_declaration` is the *trait* use inside a class body (relied on at
+    # ~line 309), so capturing it here dropped every real import and labelled
+    # trait uses as imports instead.
+    #
+    # Capture the clause rather than the declaration: it is the level that
+    # exists once per imported symbol, so the braced group form
+    # `use Foo\{A, B as C};` yields one row per symbol for free.
     "imports": """
-        (use_declaration) @import
+        (namespace_use_clause) @import
     """,
     "calls": """
         (function_call_expression
@@ -145,12 +157,15 @@ class PhpTreeSitterParser:
     def _get_parent_context(self, node: Any) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
-            if curr.type in ("function_definition", "method_declaration", "class_declaration", "interface_declaration", "trait_declaration"):
+            if curr.type in ("function_definition", "method_declaration", "class_declaration", "interface_declaration", "trait_declaration", "enum_declaration"):
                 name_node = curr.child_by_field_name("name")
                 return (
                     self._get_node_text(name_node) if name_node else None,
                     curr.type,
-                    curr.start_point[0] + 1,
+                    # Name-node line: attributed declarations start at their
+                    # #[Attribute], and consumers join this against the
+                    # declaration's line_number (#1660).
+                    (name_node.start_point[0] + 1) if name_node else (curr.start_point[0] + 1),
                 )
             curr = curr.parent
         return None, None, None
@@ -158,9 +173,26 @@ class PhpTreeSitterParser:
     def _get_enclosing_class_name(self, node: Any) -> Optional[str]:
         curr = node.parent
         while curr:
-            if curr.type in ("class_declaration", "interface_declaration", "trait_declaration"):
+            if curr.type in ("class_declaration", "interface_declaration", "trait_declaration", "enum_declaration"):
                 name_node = curr.child_by_field_name("name")
                 return self._get_node_text(name_node) if name_node else None
+            curr = curr.parent
+        return None
+
+    def _get_enclosing_class(self, node: Any) -> Optional[Tuple[str, int]]:
+        """(name, line) of the enclosing class-like declaration, or None.
+
+        Calls previously emitted TWO shapes for class_context — a bare string
+        for ordinary calls and a dead (None, None) tuple for `new X()` (the
+        parent-context type is the enclosing *function*, never a class) — so
+        the tuple-consuming resolution paths never fired for PHP (#1538).
+        """
+        curr = node.parent
+        while curr:
+            if curr.type in ("class_declaration", "interface_declaration", "trait_declaration", "enum_declaration"):
+                name_node = curr.child_by_field_name("name")
+                name = self._get_node_text(name_node) if name_node else None
+                return (name, name_node.start_point[0] + 1) if name else None
             curr = curr.parent
         return None
 
@@ -216,24 +248,38 @@ class PhpTreeSitterParser:
                     name_node = node.child_by_field_name("name")
                     if name_node:
                         func_name = self._get_node_text(name_node)
+                        # #[Attribute] lines are part of the declaration node,
+                        # so node.start_point is the attribute line; report the
+                        # declaration proper (python/csharp/kotlin convention,
+                        # #1660).
+                        start_line = name_node.start_point[0] + 1
                         
                         params_node = node.child_by_field_name("parameters")
                         parameters = []
                         if params_node:
                             # PHP parameters: function($a, $b)
                             for child in params_node.children:
-                                if "variable_name" in child.type or "simple_parameter" in child.type:
-                                     var_node = child if "variable_name" in child.type else child.child_by_field_name("name")
-                                     type_node = child.child_by_field_name("type") if "simple_parameter" in child.type else None
-                                     
-                                     if var_node:
-                                         var_name = self._get_node_text(var_node)
-                                         parameters.append(var_name)
-                                         if type_node:
-                                             var_type = self._get_node_text(type_node)
-                                             # Extract actual type from union/nullable types
-                                             var_type = var_type.lstrip("?").split("|")[0].strip()
-                                             var_type_map[(func_name, var_name)] = var_type
+                                if child.type == "variable_name":
+                                    var_node = child
+                                    type_node = None
+                                elif child.type in (
+                                    "simple_parameter",
+                                    "property_promotion_parameter",
+                                    "variadic_parameter",
+                                ):
+                                    var_node = child.child_by_field_name("name")
+                                    type_node = child.child_by_field_name("type")
+                                else:
+                                    continue
+
+                                if var_node:
+                                    var_name = self._get_node_text(var_node)
+                                    parameters.append(var_name)
+                                    if type_node:
+                                        var_type = self._get_node_text(type_node)
+                                        # Extract actual type from union/nullable types
+                                        var_type = var_type.lstrip("?").split("|")[0].strip()
+                                        var_type_map[(func_name, var_name)] = var_type
 
                         source_text = self._get_node_text(node)
                         
@@ -249,7 +295,7 @@ class PhpTreeSitterParser:
                             "lang": self.language_name,
                             "context": context_name,
                             "context_type": context_type,
-                            "class_context": context_name if context_type and ("class" in context_type or "interface" in context_type or "trait" in context_type) else None
+                            "class_context": context_name if context_type and ("class" in context_type or "interface" in context_type or "trait" in context_type or "enum" in context_type) else None
                         }
                         
                         if self.index_source:
@@ -270,7 +316,7 @@ class PhpTreeSitterParser:
         seen_nodes = set()
 
         for node, capture_name in captures:
-            if capture_name in ("class", "interface", "trait"):
+            if capture_name in ("class", "interface", "trait", "enum"):
                 node_id = (node.start_byte, node.end_byte, node.type)
                 if node_id in seen_nodes:
                     continue
@@ -283,6 +329,9 @@ class PhpTreeSitterParser:
                     name_node = node.child_by_field_name("name")
                     if name_node:
                         type_name = self._get_node_text(name_node)
+                        # Same convention as functions: attributes are children
+                        # of the declaration node (#1660).
+                        start_line = name_node.start_point[0] + 1
                         source_text = self._get_node_text(node)
                         
                         bases = []
@@ -333,6 +382,12 @@ class PhpTreeSitterParser:
                             interfaces.append(type_data)
                         elif capture_name == "trait":
                             traits.append(type_data)
+                        elif capture_name == "enum":
+                            # PHP 8.1 enums are class-likes: without this arm
+                            # the captured row was silently dropped and enum
+                            # methods became orphans (#1538).
+                            type_data["node_type"] = "enum"
+                            classes.append(type_data)
                         
                 except Exception as e:
                     error_logger(f"Error parsing type in {path}: {e}")
@@ -381,7 +436,7 @@ class PhpTreeSitterParser:
                         "path": str(path),
                         "lang": self.language_name,
                         "context": ctx_name,
-                        "class_context": ctx_name if ctx_type and ("class" in ctx_type or "interface" in ctx_type or "trait" in ctx_type) else None
+                        "class_context": ctx_name if ctx_type and ("class" in ctx_type or "interface" in ctx_type or "trait" in ctx_type or "enum" in ctx_type) else None
                      })
                 except Exception as e:
                     continue
@@ -394,40 +449,82 @@ class PhpTreeSitterParser:
         for node, capture_name in captures:
             if capture_name == "import":
                 try:
-                    import_text = self._get_node_text(node)
-                    # use Foo\Bar as Baz;
-                    # Node usually has children: name (qualified_name), optional alias
-                    
-                    name_node = None
-                    alias_node = None
-                    
+                    # `namespace_use_clause` shapes, in tree-sitter-php:
+                    #   App\Models\User          -> qualified_name
+                    #   App\Models\Post as Blog  -> qualified_name, name(alias)
+                    #   A                        -> name                 (group member)
+                    #   B as C                   -> name, name(alias)    (group member)
+                    #   function Bar\helper      -> qualified_name, with a
+                    #                               leading `function`/`const` token
+                    #
+                    # The alias, when present, is always the final `name` child.
+                    path_node = None
+                    alias = None
+                    name_children = []
+
                     for child in node.children:
-                        if child.type == "qualified_name" or child.type == "name":
-                            name_node = child
-                        # Alias in PHP: use X as Y; The 'as' is usually implicit structure or explicit?
-                        # Tree sitter grammar: use_declaration -> use_clause -> (use_as_clause (qualified_name) (name))
-                    
-                    # Assuming simple handling for now, extracting string from text
-                    # Regex might be safer given tree complexity for `use`
-                    import_match = re.search(r'use\s+([\w\\]+)(?:\s+as\s+(\w+))?', import_text)
-                    if import_match:
-                        import_path = import_match.group(1).strip()
-                        alias = import_match.group(2).strip() if import_match.group(2) else None
-                        
-                        import_data = {
-                            "name": import_path,
-                            "full_import_name": import_text,
-                            "line_number": node.start_point[0] + 1,
-                            "alias": alias,
-                            "context": (None, None),
-                            "lang": self.language_name,
-                            "is_dependency": False,
-                        }
-                        imports.append(import_data)
+                        if child.type == "qualified_name":
+                            path_node = child
+                        elif child.type == "name":
+                            name_children.append(child)
+
+                    if path_node is not None:
+                        # qualified_name carries the path; a trailing bare name
+                        # is therefore the alias.
+                        import_path = self._get_node_text(path_node)
+                        if name_children:
+                            alias = self._get_node_text(name_children[-1])
+                    elif name_children:
+                        # Group member: first name is the symbol, second (if
+                        # any) is its alias.
+                        import_path = self._get_node_text(name_children[0])
+                        if len(name_children) > 1:
+                            alias = self._get_node_text(name_children[-1])
+                    else:
+                        continue
+
+                    # A braced group prefixes its members: `use Foo\{A, B};`
+                    # means Foo\A and Foo\B. Walk up to recover the prefix so
+                    # the recorded path is the real fully-qualified name.
+                    group = node.parent
+                    if group is not None and group.type == "namespace_use_group":
+                        decl = group.parent
+                        if decl is not None:
+                            # The prefix is a `namespace_name` sibling of the
+                            # group (`use Foo\Bar\{A, B};` -> "Foo\Bar").
+                            prefix_parts = [
+                                self._get_node_text(c)
+                                for c in decl.children
+                                if c.type in ("namespace_name", "qualified_name", "name")
+                            ]
+                            if prefix_parts:
+                                import_path = (
+                                    prefix_parts[0].rstrip("\\") + "\\" + import_path
+                                )
+
+                    import_path = import_path.strip()
+                    if not import_path:
+                        continue
+
+                    import_data = {
+                        # `name` is the symbol as referenced in code — the last
+                        # segment, or the alias when one is given.
+                        "name": alias or import_path.split("\\")[-1],
+                        "full_import_name": import_path,
+                        "line_number": node.start_point[0] + 1,
+                        "alias": alias,
+                        "context": (None, None),
+                        "lang": self.language_name,
+                        "is_dependency": False,
+                    }
+                    imports.append(import_data)
                 except Exception as e:
                     error_logger(f"Error parsing import: {e}")
                     continue
 
+        # Query captures arrive in match order, not source order; sort so the
+        # emitted rows are deterministic across runs.
+        imports.sort(key=lambda i: (i["line_number"], i["full_import_name"]))
         return imports
 
     def _parse_calls(self, captures: list, source_code: str, var_type_map: dict) -> list[dict]:
@@ -499,7 +596,7 @@ class PhpTreeSitterParser:
                         "args": args,
                         "inferred_obj_type": inferred_obj_type,
                         "context": (ctx_name, ctx_type, ctx_line),
-                        "class_context": self._get_enclosing_class_name(node),
+                        "class_context": self._get_enclosing_class(node),
                         "lang": self.language_name,
                         "is_dependency": False,
                     }
@@ -548,7 +645,7 @@ class PhpTreeSitterParser:
                         "args": args,
                         "inferred_obj_type": None,
                         "context": (ctx_name, ctx_type, ctx_line),
-                        "class_context": (ctx_name, ctx_line) if ctx_type and ("class" in ctx_type or "interface" in ctx_type or "trait" in ctx_type) else (None, None),
+                        "class_context": self._get_enclosing_class(node),
                         "lang": self.language_name,
                         "is_dependency": False,
                     }

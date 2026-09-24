@@ -15,6 +15,9 @@ DEFAULT_IGNORE_PATTERNS = [
     "build/",
     "target/",
     "out/",
+    # .NET intermediate output: contains *generated* source (AssemblyInfo.cs,
+    # GlobalUsings.g.cs) that pollutes the graph with phantom modules (#1585).
+    "obj/",
     ".git/",
     "__pycache__/",
     "*.png",

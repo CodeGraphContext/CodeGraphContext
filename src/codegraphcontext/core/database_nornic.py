@@ -60,10 +60,14 @@ class NornicDBManager:
         self.nornic_database = os.getenv('NORNIC_DATABASE') 
         self._initialized = True
 
-    def get_driver(self) -> Driver:
+    def get_driver(self, graph_name: str = None) -> Driver:
         """
         Gets the Nornic driver instance, creating it if it doesn't exist.
         This method is thread-safe.
+
+        The `graph_name` parameter is accepted for interface parity with
+        FalkorDB (which supports multiple graphs per instance); Nornic
+        backend ignores it.
 
         Returns:
             The a wrapper for Nornic Driver instance.

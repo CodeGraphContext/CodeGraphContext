@@ -11,7 +11,7 @@
 - 🇯🇵 [日本語](README.ja.md)
 - 🇪🇸 Español (준비 중)
 
-🌍 **CodeGraphContext를 여러분의 언어로 번역하는 데 도움을 주세요! https://github.com/Shashankss1205/CodeGraphContext/issues 에서 이슈와 PR을 생성해 주세요!**
+🌍 **CodeGraphContext를 여러분의 언어로 번역하는 데 도움을 주세요! https://github.com/CodeGraphContext/CodeGraphContext/issues 에서 이슈와 PR을 생성해 주세요!**
 
 <p align="center">
   <br>
@@ -118,7 +118,12 @@
 ---
 
 ## Star 기록
-[![Star History Chart](https://api.star-history.com/svg?repos=CodeGraphContext/CodeGraphContext&type=Date)](https://www.star-history.com/#CodeGraphContext/CodeGraphContext&Date)
+[Star History Chart ↗](https://www.star-history.com/#CodeGraphContext/CodeGraphContext&Date)
+<!-- The inline chart image is temporarily removed: api.star-history.com currently
+     renders "GitHub restricted access to star data" instead of the chart
+     (GitHub-side restriction, see PR #1642). Restore the image once the
+     official service recovers:
+     [![Star History Chart](https://api.star-history.com/svg?repos=CodeGraphContext/CodeGraphContext&type=Date)](https://www.star-history.com/#CodeGraphContext/CodeGraphContext&Date) -->
 
 ---
 

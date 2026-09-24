@@ -485,15 +485,14 @@
 {"_id": {"offset": 33, "table": 5}, "path": "./tough_cases.py", "name": "MethodInjector", "is_dependency": false, "lang": "python", "line_number": 28, "uid": "MethodInjector/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project/tough_cases.py28", "end_line": 33, "source": "class MethodInjector(type):\n    def __new__(cls, name, bases, dct):\n        def dynamic_method(self):\n            return f\"I am a dynamic method in {name}\"\n        dct['injected_call'] = dynamic_method\n        return super().__new__(cls, name, bases, dct)", "decorators": [""], "_labels": ["Class"]}
 {"_id": {"offset": 34, "table": 5}, "path": "./tough_cases.py", "name": "DynamicCaller", "is_dependency": false, "lang": "python", "line_number": 45, "uid": "DynamicCaller/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project/tough_cases.py45", "end_line": 57, "source": "class DynamicCaller:\n    def call_by_name(self, func_name):\n        # Calling via globals()\n        if func_name in globals():\n            return globals()[func_name]()\n        \n        # Calling via getattr\n        method = getattr(self, 'helper_method', None)\n        if method:\n            return method()\n\n    def helper_method(self):\n        return \"Helper called\"", "decorators": [""], "_labels": ["Class"]}
 {"_id": {"offset": 35, "table": 5}, "path": "./unicode_test.py", "name": "_sum", "is_dependency": false, "lang": "python", "line_number": 3, "uid": "_sum/home/shashank/Desktop/cgc/CodeGraphContext/tests/fixtures/sample_projects/sample_project/unicode_test.py3", "end_line": 4, "source": "class _sum:\n    def add(self, a, b): return a + b", "decorators": [""], "_labels": ["Class"]}
-{"_id": {"offset": 0, "table": 3}, "name": "ABC", "lang": "python", "full_import_name": "abc.ABC", "_labels": ["Module"]}
-{"_id": {"offset": 1, "table": 3}, "name": "Enum", "lang": "python", "full_import_name": "enum.Enum", "_labels": ["Module"]}
-{"_id": {"offset": 2, "table": 3}, "name": "dataclass", "lang": "python", "full_import_name": "dataclasses.dataclass", "_labels": ["Module"]}
+{"_id": {"offset": 0, "table": 3}, "name": "abc", "lang": "python", "full_import_name": "abc.ABC", "_labels": ["Module"]}
+{"_id": {"offset": 2, "table": 3}, "name": "dataclasses", "lang": "python", "full_import_name": "dataclasses.dataclass", "_labels": ["Module"]}
 {"_id": {"offset": 3, "table": 3}, "name": "math", "lang": "python", "full_import_name": "math", "_labels": ["Module"]}
 {"_id": {"offset": 4, "table": 3}, "name": "random", "lang": "python", "full_import_name": "random", "_labels": ["Module"]}
 {"_id": {"offset": 5, "table": 3}, "name": "sys", "lang": "python", "full_import_name": "sys", "_labels": ["Module"]}
 {"_id": {"offset": 6, "table": 3}, "name": "asyncio", "lang": "python", "full_import_name": "asyncio", "_labels": ["Module"]}
-{"_id": {"offset": 7, "table": 3}, "name": "func2", "lang": "python", "full_import_name": "circular2.func2", "_labels": ["Module"]}
-{"_id": {"offset": 8, "table": 3}, "name": "func1", "lang": "python", "full_import_name": "circular1.func1", "_labels": ["Module"]}
+{"_id": {"offset": 7, "table": 3}, "name": "circular2", "lang": "python", "full_import_name": "circular2.func2", "_labels": ["Module"]}
+{"_id": {"offset": 8, "table": 3}, "name": "circular1", "lang": "python", "full_import_name": "circular1.func1", "_labels": ["Module"]}
 {"_id": {"offset": 9, "table": 3}, "name": "advanced_functions", "lang": "python", "full_import_name": "advanced_functions", "_labels": ["Module"]}
 {"_id": {"offset": 10, "table": 3}, "name": "argparse", "lang": "python", "full_import_name": "argparse", "_labels": ["Module"]}
 {"_id": {"offset": 11, "table": 3}, "name": "json", "lang": "python", "full_import_name": "json", "_labels": ["Module"]}
@@ -501,17 +500,14 @@
 {"_id": {"offset": 13, "table": 3}, "name": "os", "lang": "python", "full_import_name": "os", "_labels": ["Module"]}
 {"_id": {"offset": 14, "table": 3}, "name": "ujson", "lang": "python", "full_import_name": "ujson", "_labels": ["Module"]}
 {"_id": {"offset": 15, "table": 3}, "name": "enum", "lang": "python", "full_import_name": "enum", "_labels": ["Module"]}
-{"_id": {"offset": 16, "table": 3}, "name": "namedtuple", "lang": "python", "full_import_name": "collections.namedtuple", "_labels": ["Module"]}
+{"_id": {"offset": 16, "table": 3}, "name": "collections", "lang": "python", "full_import_name": "collections.namedtuple", "_labels": ["Module"]}
 {"_id": {"offset": 17, "table": 3}, "name": "importlib", "lang": "python", "full_import_name": "importlib", "_labels": ["Module"]}
 {"_id": {"offset": 18, "table": 3}, "name": "operator", "lang": "python", "full_import_name": "operator", "_labels": ["Module"]}
-{"_id": {"offset": 19, "table": 3}, "name": "partial", "lang": "python", "full_import_name": "functools.partial", "_labels": ["Module"]}
 {"_id": {"offset": 20, "table": 3}, "name": "module_b", "lang": "python", "full_import_name": "module_b", "_labels": ["Module"]}
-{"_id": {"offset": 21, "table": 3}, "name": "process_data", "lang": "python", "full_import_name": "module_b.process_data", "_labels": ["Module"]}
-{"_id": {"offset": 22, "table": 3}, "name": "helper", "lang": "python", "full_import_name": "module_b.helper", "_labels": ["Module"]}
-{"_id": {"offset": 23, "table": 3}, "name": "call_helper_twice", "lang": "python", "full_import_name": "module_c.submodule1.call_helper_twice", "_labels": ["Module"]}
-{"_id": {"offset": 24, "table": 3}, "name": "parent_function", "lang": "python", "full_import_name": "..parent_mod.parent_function", "_labels": ["Module"]}
+{"_id": {"offset": 23, "table": 3}, "name": "module_c.submodule1", "lang": "python", "full_import_name": "module_c.submodule1.call_helper_twice", "_labels": ["Module"]}
+{"_id": {"offset": 24, "table": 3}, "name": "..parent_mod", "lang": "python", "full_import_name": "..parent_mod.parent_function", "_labels": ["Module"]}
 {"_id": {"offset": 25, "table": 3}, "name": "functools", "lang": "python", "full_import_name": "functools", "_labels": ["Module"]}
-{"_id": {"offset": 26, "table": 3}, "name": "List", "lang": "python", "full_import_name": "typing.List", "_labels": ["Module"]}
+{"_id": {"offset": 26, "table": 3}, "name": "typing", "lang": "python", "full_import_name": "typing.List", "_labels": ["Module"]}
 {"_id": {"offset": 0, "table": 23}, "name": "ABC", "_labels": ["ExternalClass"]}
 {"_id": {"offset": 1, "table": 23}, "name": "type", "_labels": ["ExternalClass"]}
 {"_id": {"offset": 2, "table": 23}, "name": "Enum", "_labels": ["ExternalClass"]}

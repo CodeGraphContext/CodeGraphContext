@@ -44,13 +44,16 @@ We ask that you:
 
 --- 
 
-## ✅ Security Best Practices
+## Security Best Practices
 
 While using this project, we recommend you:
 
 - Always run software in a secure and isolated environment.
 - Keep your dependencies up to date.
 - Avoid sharing sensitive API keys or credentials in `.env` or other public files.
+- Enable `REDACT_SECRETS=true` before indexing repositories that may contain hardcoded secrets (API keys, tokens, passwords, connection strings). CGC scans string literals during indexing and can redact likely secrets before they are stored in the graph database.
+- Review `.cgc` export bundles before sharing them — bundles may contain string literals and variable values from indexed source code. Use `REDACT_SECRETS=true` to minimize exposure.
+- When using a shared or remote Neo4j/FalkorDB instance, ensure access controls are in place to prevent unauthorized reads of graph data that may include source-code literals.
 
 ---
 

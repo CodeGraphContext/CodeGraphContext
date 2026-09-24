@@ -71,7 +71,7 @@ class TestFalkorDBDriverWrapperSessionKwargs:
                 return R()
 
         class MockDBManager:
-            def get_driver(self):
+            def get_driver(self, graph_name=None):
                 return FalkorDBDriverWrapper(MockGraph())
 
         from codegraphcontext.tools.handlers.query_handlers import execute_cypher_query
@@ -92,7 +92,7 @@ class TestFalkorDBDriverWrapperSessionKwargs:
                 return R()
 
         class MockDBManager:
-            def get_driver(self):
+            def get_driver(self, graph_name=None):
                 return FalkorDBDriverWrapper(MockGraph())
 
         from codegraphcontext.tools.handlers.query_handlers import execute_cypher_query

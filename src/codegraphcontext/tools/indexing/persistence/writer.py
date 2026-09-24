@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ....utils.debug_log import info_logger, warning_logger
 from ....utils.git_utils import get_repo_commit_hash
-from ..sanitize import sanitize_props
+from ..sanitize import sanitize_props, sanitize_props_with_secrets
 from ..schema_contract import NODE_LABELS
 from .utils import get_backend_type, execute_write_operation, execute_read_operation
 
@@ -55,6 +55,97 @@ def _normalize_prefix(p) -> str:
     return _normalize_path(p) + "/"
 
 
+# These labels are deliberately global: one node per name, shared across files.
+# They are keyed on `name` alone and must not take a per-file disambiguator.
+_NAME_ONLY_MERGE_LABELS = {"Module", "DbTable", "ExternalClass"}
+
+# Variable extractors emit one record per *mention* -- `$i = 0; $i < n; $i++`
+# on one line yields three records for the same symbol. Splitting those with
+# occurrence_index would mint duplicate nodes for a single variable, so records
+# sharing a (name, line_number) key are coalesced (last write wins, matching
+# the old SET-overwrite order) instead of disambiguated. Distinct same-name
+# same-line *variables* would need two scopes on one line -- far rarer than
+# repeated mentions, and merging them is exactly the pre-#1393 behaviour.
+_COALESCE_SAME_KEY_LABELS = {"Variable"}
+
+# Node types that mean "the enclosing declaration is a FUNCTION" across the
+# tree-sitter grammars. The nested-function CONTAINS batch used to gate on the
+# literal Python type 'function_definition', which only python.py emits — every
+# other language that populated context_type (TS, and now JS) silently lost its
+# nested-function containment edges (#1538).
+_FUNCTION_CONTEXT_TYPES = {
+    "function_definition",            # python, cpp, php
+    "function_declaration",           # js/ts, go, kotlin, lua
+    "function_expression",            # js/ts
+    "arrow_function",                 # js/ts
+    "generator_function",             # js/ts
+    "generator_function_declaration", # js/ts
+    "method_definition",              # js/ts
+    "method_declaration",             # java, csharp, go
+    "constructor_declaration",        # java
+    "local_function_statement",       # csharp
+    "func_literal",                   # go
+    "function_item",                  # rust
+    "method",                         # ruby
+    "singleton_method",               # ruby
+    "lambda_expression",              # cpp, java
+}
+
+
+def _coalesce_same_key_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Fold records sharing (name, line_number) into one, in write order."""
+    merged: Dict[Tuple[str, Any], Dict[str, Any]] = {}
+    order: List[Tuple[str, Any]] = []
+    for item in items:
+        key = (str(item.get("name", "")), item.get("line_number"))
+        if key in merged:
+            merged[key].update(item)
+        else:
+            merged[key] = dict(item)
+            order.append(key)
+    return [merged[k] for k in order]
+
+
+def _assign_occurrence_indices(
+    items: List[Dict[str, Any]],
+) -> Tuple[List[int], List[Tuple[str, Any, int]]]:
+    """Disambiguate symbols in one file that share a ``(name, line_number)`` key.
+
+    ``(name, path, line_number)`` is not a unique identity for a symbol. Two
+    distinct symbols sharing a name and a line silently merged onto a single
+    node and the following ``SET n += row`` overwrote the first one's ``args``,
+    ``class_context``, ``end_line`` and ``cyclomatic_complexity`` with the last
+    one's. Two confirmed sources:
+
+    * CSS -- every selector is emitted as a ``Function``, so a grouped rule such
+      as ``tfoot th, tfoot td { }`` yields two ``tfoot`` records on one line.
+    * Minified/bundled JS -- the file is a single line, so genuinely different
+      functions all carry ``line_number: 1`` and collapse into one node whose
+      ``class_context`` is whichever record happened to be written last.
+
+    Returns ``(indices, collisions)`` where *indices* is a per-item ordinal
+    parallel to *items* -- 0 for the first record of each key, and therefore 0
+    for every symbol in the overwhelming majority of files that have no
+    collision at all -- and *collisions* lists ``(name, line_number, count)``
+    for the keys that genuinely repeated, so the caller can report them.
+
+    The ordinal is stable for an unchanged file because parse order is
+    deterministic, and edits cannot strand a stale node because
+    ``update_file_in_graph`` deletes the file's elements before re-adding them.
+
+    See https://github.com/CodeGraphContext/CodeGraphContext/issues/1393
+    """
+    seen: Dict[Tuple[str, Any], int] = {}
+    indices: List[int] = []
+    for item in items:
+        key = (str(item.get("name", "")), item.get("line_number"))
+        index = seen.get(key, 0)
+        indices.append(index)
+        seen[key] = index + 1
+    collisions = [(name, line, count) for (name, line), count in seen.items() if count > 1]
+    return indices, collisions
+
+
 def _cypher_label(label: str, backend: str) -> str:
     """Format a node label for Cypher; Kùzu reserves some identifiers and needs backticks."""
     if backend in ("kuzudb", "ladybugdb") and label in ("Union", "Macro", "Property"):
@@ -63,13 +154,29 @@ def _cypher_label(label: str, backend: str) -> str:
 
 
 def _called_context_clause(called_label: str) -> str:
-    """Match CALLS targets that store scope in context, class_context, or module_context."""
-    if called_label in ("Function", "Variable"):
+    """Match CALLS targets that store scope in context, class_context, or module_context.
+
+    Resolution stores the resolved scope in `called_context`, but which node
+    property carries that scope differs by parser: Python/JS use `context`,
+    C++/PHP methods use `class_context`, and Rust functions carry ONLY
+    `module_context` (#1510). Matching `context` alone filtered every
+    correctly-resolved Rust module-scoped call out at write time.
+
+    Variable is restricted to `context`: the Kùzu Variable table declares no
+    class_context/module_context columns, and referencing a missing column
+    binder-errors the whole batch on typed backends.
+    """
+    if called_label == "Function":
         return (
             'AND (row.called_context = "" OR row.called_context IS NULL '
             "OR called.context = row.called_context "
             "OR called.class_context = row.called_context "
             "OR called.module_context = row.called_context)"
+        )
+    if called_label == "Variable":
+        return (
+            'AND (row.called_context = "" OR row.called_context IS NULL '
+            "OR called.context = row.called_context)"
         )
     return ""
 
@@ -114,12 +221,17 @@ class GraphWriter:
                     result = session.run(
                         "MATCH (n) RETURN DISTINCT label(n) AS lbl"
                     )
-                    labels = sorted(
+                    return sorted(
                         {record[0] for record in result if record[0] is not None}
                     )
-                    if labels:
-                        return labels
-                return execute_read_operation(self.driver, backend, _work)
+                # `_work` used to fall off the end (returning None) when it
+                # discovered no labels, and the caller iterates this result —
+                # aborting delete_repository_from_graph with a TypeError
+                # *after* it had already dropped every relationship, leaving a
+                # half-deleted repository. Fall through to the canonical list.
+                discovered = execute_read_operation(self.driver, backend, _work)
+                if discovered:
+                    return discovered
             except Exception as e:
                 info_logger(
                     f"[DELETE] label discovery failed for {backend} "
@@ -211,6 +323,9 @@ class GraphWriter:
         lang = file_data.get("lang")
 
         backend = get_backend_type(self.driver, self._db_manager)
+        secret_findings: List[Tuple[str, str, str, Optional[str]]] = []
+        from ....cli.config_manager import get_config_value as _gcv
+        _should_redact = (_gcv("REDACT_SECRETS") or "false").lower() == "true"
         def _work(session):
             if repo_path_str:
                 resolved_repo_str = _normalize_path(repo_path_str)
@@ -228,24 +343,42 @@ class GraphWriter:
                     )
 
             try:
-                relative_path = str(Path(file_path_str).relative_to(Path(resolved_repo_str)))
+                relative_path = Path(file_path_str).relative_to(Path(resolved_repo_str)).as_posix()
             except ValueError:
                 relative_path = file_name
 
             session.run(
                 """
                 MERGE (f:File {path: $path})
-                SET f.name = $name, f.relative_path = $relative_path, f.is_dependency = $is_dependency
+                SET f.name = $name, f.relative_path = $relative_path, f.is_dependency = $is_dependency,
+                    f.language = $language
             """,
                 path=file_path_str,
                 name=file_name,
                 relative_path=relative_path,
                 is_dependency=is_dependency,
+                # Bundle export reads f.language to build metadata["languages"].
+                # Nothing set it before, so every bundle advertised no languages.
+                language=lang,
             )
 
             file_path_obj = Path(file_path_str)
             repo_path_obj = Path(resolved_repo_str)
-            relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
+            try:
+                relative_path_to_file = file_path_obj.relative_to(repo_path_obj)
+            except ValueError:
+                # _normalize_path calls .resolve(), which follows symlinks, so a
+                # symlink inside the repo pointing outside it lands here. This
+                # call used to be bare — unlike the guarded one 17 lines above
+                # and its sibling in add_minimal_file_node — and the ValueError
+                # unwound all the way out of the indexing run, so every file
+                # after this one was silently never indexed.
+                warning_logger(
+                    f"{file_path_str} resolves outside the repository "
+                    f"{resolved_repo_str} (symlink?); indexing it without a "
+                    "directory hierarchy."
+                )
+                relative_path_to_file = Path(file_path_obj.name)
             parent_path = resolved_repo_str
             parent_label = "Repository"
             for part in relative_path_to_file.parts[:-1]:
@@ -301,13 +434,49 @@ class GraphWriter:
             for item_list, label in item_mappings:
                 if not item_list:
                     continue
+
+                # Symbols sharing (name, line_number) in one file used to merge
+                # onto a single node and clobber each other's properties (#1393).
+                # Give each one a per-file ordinal so they stay distinct. Labels
+                # merged on name alone are global and keep their old identity.
+                keyed_by_position = label not in _NAME_ONLY_MERGE_LABELS
+                if label in _COALESCE_SAME_KEY_LABELS:
+                    item_list = _coalesce_same_key_items(item_list)
+                occurrence_indices, key_collisions = _assign_occurrence_indices(item_list)
+                if keyed_by_position and key_collisions:
+                    shown = ", ".join(
+                        f"{name!r}@line {line} x{count}" for name, line, count in key_collisions[:5]
+                    )
+                    remainder = len(key_collisions) - 5
+                    if remainder > 0:
+                        shown += f", (+{remainder} more)"
+                    warning_logger(
+                        f"{file_path_str}: {len(key_collisions)} {label} merge-key "
+                        f"collision(s) on (name, line_number); disambiguating with "
+                        f"occurrence_index: {shown}"
+                    )
+
                 batch: List[Dict[str, Any]] = []
-                for item in item_list:
+                for occurrence_index, item in zip(occurrence_indices, item_list):
                     row = dict(item)
                     row["path"] = file_path_str
+                    if keyed_by_position:
+                        row["occurrence_index"] = occurrence_index
+                    # Inherit the file's is_dependency unless the extractor set its
+                    # own. Only ~half the language extractors emit this per item, and
+                    # find_dead_code filters on `func.is_dependency = false` -- in
+                    # Cypher `null = false` is null, not false, so every function from
+                    # an extractor that omitted it was silently dropped and the tool
+                    # returned an empty list. Module has no such column in the schema.
+                    if label != "Module":
+                        row.setdefault("is_dependency", is_dependency)
                     if label == "Function" and "cyclomatic_complexity" not in row:
                         row["cyclomatic_complexity"] = 1
-                    batch.append(sanitize_props(row))
+                    sanitized, findings = sanitize_props_with_secrets(row, redact=_should_redact)
+                    batch.append(sanitized)
+                    for prop_key, pattern in findings:
+                        item_name = item.get("name", "<unknown>")
+                        secret_findings.append((label, item_name, prop_key, pattern))
                     if label == "EnumMember":
                         enum_member_batch.append(
                             {
@@ -322,6 +491,7 @@ class GraphWriter:
                                 {
                                     "func_name": item["name"],
                                     "line_number": item["line_number"],
+                                    "occurrence_index": occurrence_index,
                                     "arg_name": arg_name,
                                 }
                             )
@@ -336,16 +506,27 @@ class GraphWriter:
                                     "func_line": item["line_number"],
                                 }
                             )
-                        if item.get("context_type") == "function_definition":
+                        if item.get("context_type") in _FUNCTION_CONTEXT_TYPES:
                             outer_ctx = item.get("context")
-                            outer_name = (
-                                outer_ctx[0]
-                                if isinstance(outer_ctx, (tuple, list)) and outer_ctx
-                                else outer_ctx
-                            )
+                            is_seq = isinstance(outer_ctx, (tuple, list)) and outer_ctx
+                            outer_name = outer_ctx[0] if is_seq else outer_ctx
+                            # The parser already reports the enclosing function's
+                            # line (_get_parent_context returns name, type, line)
+                            # but it was discarded, so the MATCH below keyed on
+                            # name alone. Any file with two same-named functions
+                            # — i.e. the same method name on two classes, which
+                            # is extremely common — got a false CONTAINS edge.
+                            if is_seq and len(outer_ctx) > 2 and isinstance(outer_ctx[2], int):
+                                outer_line = outer_ctx[2]
+                            else:
+                                # Parsers that flatten `context` to a bare name
+                                # report the line separately.
+                                raw_line = item.get("context_line", -1)
+                                outer_line = raw_line if isinstance(raw_line, int) else -1
                             nested_fn_batch.append(
                                 {
                                     "outer": outer_name,
+                                    "outer_line": outer_line,
                                     "inner_name": item["name"],
                                     "inner_line": item["line_number"],
                                 }
@@ -371,16 +552,26 @@ class GraphWriter:
                         for b in batch:
                             v = b.get(k)
                             if dominant == "list":
+                                # An empty list persists as [], not [""] (#1607).
+                                # The sentinel was not guarding a backend that
+                                # rejects empty lists: Kùzu accepts [] for a
+                                # STRING[] column in every shape used here --
+                                # inside UNWIND $rows, as a single-row parameter,
+                                # and when every row in the batch is empty, so
+                                # there is no sibling row to infer an element
+                                # type from. `dominant` above is unaffected too:
+                                # it only skips None, and [] is not None, so an
+                                # always-empty key still resolves to "list".
                                 if isinstance(v, list):
-                                    b[k] = [str(x) for x in v] if v else [""]
+                                    b[k] = [str(x) for x in v]
                                 elif isinstance(v, str) and v:
                                     try:
                                         p = _json.loads(v)
-                                        b[k] = [str(x) for x in p] if isinstance(p, list) and p else [""]
+                                        b[k] = [str(x) for x in p] if isinstance(p, list) and p else []
                                     except Exception:
                                         b[k] = [v]
                                 else:
-                                    b[k] = [""]
+                                    b[k] = []
                             elif dominant == "int":
                                 if v is None or v == "":
                                     b[k] = 0
@@ -402,12 +593,20 @@ class GraphWriter:
                     key_order = sorted(all_keys)
                     batch[:] = [{k: b[k] for k in key_order if k in b} for b in batch]
 
-                if label in {"Module", "DbTable", "ExternalClass"}:
+                if not keyed_by_position:
                     merge_clause = f"MERGE (n:{label} {{name: row.name}})"
                     match_clause = f"MATCH (n:{label} {{name: row.name}})"
                 else:
-                    merge_clause = f"MERGE (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})"
-                    match_clause = f"MATCH (n:{label} {{name: row.name, path: $file_path, line_number: row.line_number}})"
+                    # occurrence_index is 0 unless two symbols in this file share
+                    # a (name, line_number), so the identity of every node in a
+                    # collision-free file is unchanged (#1393).
+                    node_key = (
+                        "name: row.name, path: $file_path, "
+                        "line_number: row.line_number, "
+                        "occurrence_index: row.occurrence_index"
+                    )
+                    merge_clause = f"MERGE (n:{label} {{{node_key}}})"
+                    match_clause = f"MATCH (n:{label} {{{node_key}}})"
 
                 session.run(
                     f"""
@@ -433,14 +632,17 @@ class GraphWriter:
                 seen_params: set = set()
                 unique_params: List[Dict[str, Any]] = []
                 for p in params_batch:
-                    key = (p["func_name"], p["line_number"], p["arg_name"])
+                    # occurrence_index belongs in the dedupe key too: without it
+                    # two colliding functions that share an argument name would
+                    # collapse to one row and only one of them would be linked.
+                    key = (p["func_name"], p["line_number"], p["occurrence_index"], p["arg_name"])
                     if key not in seen_params:
                         seen_params.add(key)
                         unique_params.append(p)
                 session.run(
                     """
                     UNWIND $batch AS row
-                    MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.line_number})
+                    MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.line_number, occurrence_index: row.occurrence_index})
                     MERGE (p:Parameter {name: row.arg_name, path: $file_path, function_line_number: row.line_number})
                     SET p.name = row.arg_name, p.path = $file_path, p.function_line_number = row.line_number
                     MERGE (fn)-[:HAS_PARAMETER]->(p)
@@ -493,6 +695,7 @@ class GraphWriter:
                     """
                     UNWIND $batch AS row
                     MATCH (outer:Function {name: row.outer, path: $file_path})
+                    WHERE row.outer_line < 0 OR outer.line_number = row.outer_line
                     MATCH (inner:Function {name: row.inner_name, path: $file_path, line_number: row.inner_line})
                     MERGE (outer)-[:CONTAINS]->(inner)
                 """,
@@ -513,14 +716,20 @@ class GraphWriter:
                                 "imported_name": imp.get("name", "*"),
                                 "alias": imp.get("alias") or "",
                                 "line_number": imp.get("line_number") or 0,
+                                "lang": imp.get("lang") or lang,
                             }
                         )
                 else:
-                    module_name = (
-                        imp.get("name")
-                        or imp.get("source")
-                        or imp.get("full_import_name")
-                    )
+                    # Python from-imports keep `name` as the imported symbol
+                    # (call resolution) and stash the module in `source`.
+                    if lang == "python" and imp.get("source"):
+                        module_name = imp.get("source")
+                    else:
+                        module_name = (
+                            imp.get("name")
+                            or imp.get("source")
+                            or imp.get("full_import_name")
+                        )
                     if not module_name:
                         continue
                     full_import_name = (
@@ -532,7 +741,11 @@ class GraphWriter:
                         {
                             "name": module_name,
                             "full_import_name": full_import_name,
-                            "imported_name": imp.get("imported_name") or module_name,
+                            "imported_name": (
+                                imp.get("imported_name")
+                                or imp.get("name")
+                                or module_name
+                            ),
                             "alias": imp.get("alias"),
                             "line_number": imp.get("line_number") or 0,
                             "lang": imp.get("lang") or lang,
@@ -547,7 +760,8 @@ class GraphWriter:
                     MERGE (m:Module {name: row.module_name})
                     MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)
                     SET r.imported_name = row.imported_name,
-                        r.alias = row.alias
+                        r.alias = row.alias,
+                        r.lang = row.lang
                 """,
                     batch=js_imports,
                     file_path=file_path_str,
@@ -562,10 +776,10 @@ class GraphWriter:
                     MERGE (m:Module {name: row.name})
                     SET m.lang = coalesce(m.lang, row.lang),
                         m.full_import_name = coalesce(m.full_import_name, row.full_import_name)
-                    MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)
+                    MERGE (f)-[r:IMPORTS {line_number: row.line_number, imported_name: row.imported_name}]->(m)
                     SET r.alias = coalesce(row.alias, ""),
-                        r.imported_name = row.imported_name,
-                        r.full_import_name = row.full_import_name
+                        r.full_import_name = row.full_import_name,
+                        r.lang = row.lang
                 """,
                     batch=other_imports,
                     file_path=file_path_str,
@@ -587,6 +801,26 @@ class GraphWriter:
                 )
 
         execute_write_operation(self.driver, backend, _work)
+
+        if secret_findings:
+            from ....cli.config_manager import get_config_value
+            redact_on = (get_config_value("REDACT_SECRETS") or "false").lower() == "true"
+            count = len(secret_findings)
+            sample = secret_findings[:5]
+            sample_desc = "; ".join(
+                f"{lbl} '{nm}' prop={pk} ({pat})" for lbl, nm, pk, pat in sample
+            )
+            suffix = f" (showing {len(sample)} of {count})" if count > 5 else ""
+            if redact_on:
+                warning_logger(
+                    f"[SECRETS] {count} potential secret(s) detected and REDACTED in {file_name}{suffix}: {sample_desc}"
+                )
+            else:
+                warning_logger(
+                    f"[SECRETS] {count} potential secret(s) detected in {file_name} "
+                    f"(values stored verbatim — set REDACT_SECRETS=true to redact){suffix}: {sample_desc}"
+                )
+
     def add_minimal_file_node(
         self, file_path: Path, repo_path: Path, is_dependency: bool = False
     ) -> None:
@@ -706,7 +940,15 @@ class GraphWriter:
             (file_to_interface, "File", "Interface"),
             (file_to_object, "File", "Object"),
         ]
-        def _work(session):
+        def relationship_label_for_row(row: Dict[str, Any]) -> str:
+            tier = row.get("resolution_tier")
+            try:
+                tier_int = int(tier)
+            except (TypeError, ValueError):
+                tier_int = -1
+            return "HEURISTIC_CALLS" if tier_int >= 8 else "CALLS"
+
+        with self.driver.session() as session:
             for batch_data, caller_label, called_label in queries:
                 if not batch_data:
                     continue
@@ -771,136 +1013,84 @@ class GraphWriter:
                         unique_calls.append(row)
                 sanitized_batch = unique_calls
 
+                precise_batch = []
+                heuristic_batch = []
+                for row in sanitized_batch:
+                    if relationship_label_for_row(row) == "HEURISTIC_CALLS":
+                        heuristic_batch.append(row)
+                    else:
+                        precise_batch.append(row)
+
+                # Define which labels have a 'context' property in the schema
+                # The label-aware helper matches context, class_context or
+                # module_context depending on what the label's parsers emit —
+                # the inline context-only predicate silently dropped Rust
+                # module-scoped calls whose functions carry only
+                # module_context (#1510).
                 called_context_clause = _called_context_clause(called_label)
 
-                caller_match = (
-                    f"MATCH (caller:File {{path: row.caller_file_path}})"
-                    if caller_label == "File"
-                    else f"MATCH (caller:`{caller_label}` {{name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number}})"
-                )
-                set_clause = """
-                        SET call.args = row.args
-                        SET call.confidence = row.confidence
-                        SET call.resolution_tier = row.resolution_tier
-                        SET call.confidence_label = row.confidence_label"""
-                create_clause = f"{calls_keyword} (caller)-[call:CALLS {{line_number: row.line_number, full_call_name: row.full_call_name, args_key: row.args_key}}]->(called)"
+                # ...and which have a 'line_number'. File and Directory do not:
+                # the Kùzu File table is (path, name, relative_path, package_name,
+                # is_dependency). Referencing called.line_number against them raises
+                # a binder exception on strongly-typed backends, which the caller
+                # swallows via _is_binder_exception -> continue, silently dropping
+                # the ENTIRE Function->File batch. Neo4j is untyped here and
+                # evaluates the predicate to null, so it kept those edges — which is
+                # why dynamic-import edges existed on Neo4j and nowhere else.
+                labels_without_line_number = {"File", "Directory"}
+                predicates = []
+                if called_label not in labels_without_line_number:
+                    predicates.append(
+                        "(row.called_line_number <= 0 OR called.line_number = row.called_line_number)"
+                    )
+                if called_context_clause:
+                    predicates.append(called_context_clause.removeprefix("AND ").strip())
+                where_clause = ("WHERE " + "\n                              AND ".join(predicates)) if predicates else ""
 
-                def _run_call_batch(q: str, sub_batch: List[Dict[str, Any]]) -> None:
-                    if not sub_batch:
+                def _write_batch(batch_rows: List[Dict[str, Any]], relation_label: str) -> None:
+                    if not batch_rows:
                         return
-                    captured_q, captured_b = q, sub_batch
-
-                    def _batch_work(tx, _q=captured_q, _b=captured_b):
-                        tx.run(_q, batch=_b)
-
-                    try:
-                        if hasattr(session, "execute_write"):
-                            session.execute_write(_batch_work)
-                        elif hasattr(session, "write_transaction"):
-                            session.write_transaction(_batch_work)
-                        else:
-                            session.run(q, batch=sub_batch)
-                    except Exception as e:
-                        if _is_binder_exception(e):
-                            return
-                        raise e
-
-                t0 = time.time()
-                total = len(sanitized_batch)
-
-                if use_fast_slow_split:
-                    if called_label == "Parameter":
-                        q_with_line = f"""
+                    if caller_label == "File":
+                        q = f"""
                             UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:Parameter {{name: row.called_name, path: row.called_file_path, function_line_number: row.called_line_number}})
-                            {create_clause}{set_clause}
+                            MATCH (caller:File {{path: row.caller_file_path}})
+                            MATCH (called:{called_label} {{name: row.called_name, path: row.called_file_path}})
+                            {where_clause}
+                            MERGE (caller)-[call:{relation_label} {{line_number: row.line_number, full_call_name: row.full_call_name, args_key: row.args_key}}]->(called)
+                            SET call.args = row.args
+                            SET call.confidence = row.confidence
+                            SET call.resolution_tier = row.resolution_tier
+                            SET call.confidence_label = row.confidence_label
                         """
-                        q_without_line = q_with_line
-                    elif called_label == "File":
-                        q_with_line = f"""
-                            UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:File {{path: row.called_file_path}})
-                            {create_clause}{set_clause}
-                        """
-                        q_without_line = q_with_line
                     else:
-                        q_with_line = f"""
+                        q = f"""
                             UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:`{called_label}` {{name: row.called_name, path: row.called_file_path, line_number: row.called_line_number}})
-                            {"WHERE " + called_context_clause.lstrip("AND ") if called_context_clause else ""}
-                            {create_clause}{set_clause}
-                        """
-                        q_without_line = f"""
-                            UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:`{called_label}` {{name: row.called_name, path: row.called_file_path}})
-                            {"WHERE " + called_context_clause.lstrip("AND ") if called_context_clause else ""}
-                            {create_clause}{set_clause}
+                            MATCH (caller:{caller_label} {{name: row.caller_name, path: row.caller_file_path, line_number: row.caller_line_number}})
+                            MATCH (called:{called_label} {{name: row.called_name, path: row.called_file_path}})
+                            {where_clause}
+                            MERGE (caller)-[call:{relation_label} {{line_number: row.line_number, full_call_name: row.full_call_name, args_key: row.args_key}}]->(called)
+                            SET call.args = row.args
+                            SET call.confidence = row.confidence
+                            SET call.resolution_tier = row.resolution_tier
+                            SET call.confidence_label = row.confidence_label
                         """
 
-                    fast_total = sum(1 for r in sanitized_batch if r.get("called_line_number", 0) > 0)
-                    slow_total = total - fast_total
+                    t0 = time.time()
+                    for i in range(0, len(batch_rows), batch_size):
+                        batch = batch_rows[i : i + batch_size]
+                        try:
+                            session.run(q, batch=batch)
+                        except Exception as e:
+                            if _is_binder_exception(e):
+                                continue
+                            raise e
                     info_logger(
-                        f"[CALLS] {caller_label}-to-{called_label}: {total} edges — "
-                        f"fast path (line known): {fast_total} ({100*fast_total//total if total else 0}%), "
-                        f"slow path: {slow_total} ({100*slow_total//total if total else 0}%)"
+                        f"[{relation_label}] {caller_label}-to-{called_label}: {len(batch_rows)} edges written in {time.time()-t0:.1f}s"
                     )
-                    for i in range(0, total, batch_size):
-                        batch = sanitized_batch[i : i + batch_size]
-                        batch_with_line = [r for r in batch if r.get("called_line_number", 0) > 0]
-                        batch_without_line = [r for r in batch if r.get("called_line_number", 0) <= 0]
-                        for q, sub_batch in ((q_with_line, batch_with_line), (q_without_line, batch_without_line)):
-                            _run_call_batch(q, sub_batch)
-                        written_so_far = min(i + batch_size, total)
-                        info_logger(
-                            f"[CALLS] {caller_label}-to-{called_label}: "
-                            f"{written_so_far}/{total} edges written ({time.time()-t0:.1f}s elapsed)"
-                        )
-                else:
-                    line_where = (
-                        "WHERE (row.called_line_number <= 0 OR called.line_number = row.called_line_number)"
-                    )
-                    if called_context_clause:
-                        line_where += f" {called_context_clause}"
 
-                    if called_label == "Parameter":
-                        q_unified = f"""
-                            UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:Parameter {{name: row.called_name, path: row.called_file_path, function_line_number: row.called_line_number}})
-                            {create_clause}{set_clause}
-                        """
-                    elif called_label == "File":
-                        q_unified = f"""
-                            UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:File {{path: row.called_file_path}})
-                            {create_clause}{set_clause}
-                        """
-                    else:
-                        q_unified = f"""
-                            UNWIND $batch AS row
-                            {caller_match}
-                            MATCH (called:`{called_label}` {{name: row.called_name, path: row.called_file_path}})
-                            {line_where}
-                            {create_clause}{set_clause}
-                        """
+                _write_batch(precise_batch, "CALLS")
+                _write_batch(heuristic_batch, "HEURISTIC_CALLS")
 
-                    for i in range(0, total, batch_size):
-                        _run_call_batch(q_unified, sanitized_batch[i : i + batch_size])
-                        written_so_far = min(i + batch_size, total)
-                        info_logger(
-                            f"[CALLS] {caller_label}-to-{called_label}: "
-                            f"{written_so_far}/{total} edges written ({time.time()-t0:.1f}s elapsed)"
-                        )
-
-                info_logger(f"[CALLS] {caller_label}-to-{called_label}: {total} edges written in {time.time()-t0:.1f}s")
-
-        with self.driver.session() as session:
-            _work(session)
         info_logger("[CALLS] All relationships processed.")
 
     def _create_csharp_inheritance_and_interfaces(
@@ -988,49 +1178,142 @@ class GraphWriter:
         )
         batch_size = 500
         backend = get_backend_type(self.driver, self._db_manager)
-        def _work(session):
-            internal_batch = [r for r in inheritance_batch if r.get("resolved_parent_file_path") != "__external__"]
-            external_batch = [r for r in inheritance_batch if r.get("resolved_parent_file_path") == "__external__"]
+        labels = ("Class", "Trait", "Interface", "Struct", "Enum", "Union", "Record", "Mixin", "Extension", "Module", "Object", "Variable")
 
-            labels = ("Class", "Trait", "Interface", "Struct", "Enum", "Union", "Record", "Mixin", "Extension", "Module", "Object", "Variable")
-            for child_label in labels:
+        def _work(session):
+            # Dedupe identical rows first: parsers can emit the same
+            # (child, parent) record more than once, and while Neo4j's MERGE
+            # absorbs the repeat, the embedded backends' rewritten
+            # node-MERGE+rel-MERGE shape has been observed writing a duplicate
+            # INHERITS edge for it. Deduping is correct on every backend.
+            seen_rows: set = set()
+            deduped_batch: List[Dict[str, Any]] = []
+            for r in inheritance_batch:
+                key = (r.get("child_name"), r.get("path"), r.get("parent_name"),
+                       r.get("resolved_parent_file_path"))
+                if key in seen_rows:
+                    continue
+                seen_rows.add(key)
+                deduped_batch.append(r)
+
+            internal_batch = [r for r in deduped_batch if r.get("resolved_parent_file_path") != "__external__"]
+            external_batch = [r for r in deduped_batch if r.get("resolved_parent_file_path") == "__external__"]
+
+            def _label_is_populated(label: str) -> bool:
+                # An empty node table can never match, so skip the pair entirely.
+                # If the existence probe itself fails for any reason, fall back to
+                # treating the label as populated -- we must never *skip* a pair
+                # that could have produced a real edge.
+                cypher_label = _cypher_label(label, backend)
+                try:
+                    result = session.run(f"MATCH (n:{cypher_label}) RETURN n LIMIT 1")
+                    return result.single() is not None
+                except Exception:
+                    return True
+
+            # Probed once (~12 queries) and reused by the *fallback* enumerations
+            # further down. Deliberately NOT applied to `pair_groups`: those
+            # (child_label, parent_label) pairs are derived from the rows
+            # themselves, so they are never empty -- probing them would be pure
+            # overhead, and a stale or lazily-created label table would make the
+            # probe silently drop real INHERITS edges.
+            populated_labels = {label for label in labels if _label_is_populated(label)}
+
+            def _chunks(rows):
+                for i in range(0, len(rows), batch_size):
+                    yield rows[i:i + batch_size]
+
+            def _run_internal(rows, child_label, parent_label):
                 child_cypher = _cypher_label(child_label, backend)
-                for parent_label in labels:
-                    parent_cypher = _cypher_label(parent_label, backend)
+                parent_cypher = _cypher_label(parent_label, backend)
+                query = f"""
+                    UNWIND $batch AS row
+                    MATCH (child:{child_cypher} {{name: row.child_name, path: row.path}})
+                    MATCH (parent:{parent_cypher} {{name: row.parent_name, path: row.resolved_parent_file_path}})
+                    MERGE (child)-[r:INHERITS]->(parent)
+                    SET r.confidence_label = coalesce(row.confidence_label, 'EXTRACTED')
+                """
+                for chunk in _chunks(rows):
                     try:
-                        session.run(
-                            f"""
-                            UNWIND $batch AS row
-                            MATCH (child:{child_cypher} {{name: row.child_name, path: row.path}})
-                            MATCH (parent:{parent_cypher} {{name: row.parent_name, path: row.resolved_parent_file_path}})
-                            MERGE (child)-[r:INHERITS]->(parent)
-                            SET r.confidence_label = coalesce(row.confidence_label, 'EXTRACTED')
-                        """,
-                            batch=internal_batch,
-                        )
+                        session.run(query, batch=chunk)
                     except Exception as e:
+                        # A label absent in this backend fails to bind for the whole
+                        # (child,parent) group; skip it exactly like the old per-pair loop.
                         if _is_binder_exception(e):
-                            continue
+                            return
                         raise e
 
-            for child_label in labels:
+            def _run_external(rows, child_label):
                 child_cypher = _cypher_label(child_label, backend)
-                try:
-                    session.run(
-                        f"""
-                        UNWIND $batch AS row
-                        MATCH (child:{child_cypher} {{name: row.child_name, path: row.path}})
-                        MERGE (parent:ExternalClass {{name: row.parent_name}})
-                        MERGE (child)-[r:INHERITS]->(parent)
-                        SET r.confidence_label = coalesce(row.confidence_label, 'INFERRED')
-                        """,
-                        batch=external_batch,
-                    )
-                except Exception as e:
-                    if _is_binder_exception(e):
-                        continue
-                    raise e
+                query = f"""
+                    UNWIND $batch AS row
+                    MATCH (child:{child_cypher} {{name: row.child_name, path: row.path}})
+                    MERGE (parent:ExternalClass {{name: row.parent_name}})
+                    MERGE (child)-[r:INHERITS]->(parent)
+                    SET r.confidence_label = coalesce(row.confidence_label, 'INFERRED')
+                """
+                for chunk in _chunks(rows):
+                    try:
+                        session.run(query, batch=chunk)
+                    except Exception as e:
+                        if _is_binder_exception(e):
+                            return
+                        raise e
 
+            # Group internal rows by the labels resolution pinned down, so only the
+            # (child_label, parent_label) pairs that actually occur run — instead of a
+            # 12x12 brute force that re-scans the full batch for every combination.
+            #   both labels known   -> one exact query per (child, parent) pair
+            #   child known only    -> enumerate parent labels over just those rows
+            #   neither             -> full 12x12 (rare: ambiguous (name,path) label collision)
+            # Rows never gain a label they wouldn't have matched, and unknown/ambiguous
+            # cases fall back to enumeration, so the produced edge set is unchanged.
+            pair_groups: Dict[tuple, List[Dict[str, Any]]] = {}
+            child_only_groups: Dict[str, List[Dict[str, Any]]] = {}
+            legacy_rows: List[Dict[str, Any]] = []
+            for row in internal_batch:
+                cl = row.get("child_label")
+                pl = row.get("parent_label")
+                if cl and pl:
+                    pair_groups.setdefault((cl, pl), []).append(row)
+                elif cl:
+                    child_only_groups.setdefault(cl, []).append(row)
+                else:
+                    legacy_rows.append(row)
+
+            for (cl, pl), rows in pair_groups.items():
+                _run_internal(rows, cl, pl)
+            for cl, rows in child_only_groups.items():
+                for pl in labels:
+                    if pl not in populated_labels:
+                        continue
+                    _run_internal(rows, cl, pl)
+            if legacy_rows:
+                for cl in labels:
+                    if cl not in populated_labels:
+                        continue
+                    for pl in labels:
+                        if pl not in populated_labels:
+                            continue
+                        _run_internal(legacy_rows, cl, pl)
+
+            # External parents (ExternalClass): group by known child label; fall back to
+            # enumerating child labels for any label-less rows.
+            ext_by_child: Dict[str, List[Dict[str, Any]]] = {}
+            ext_legacy: List[Dict[str, Any]] = []
+            for row in external_batch:
+                cl = row.get("child_label")
+                if cl:
+                    ext_by_child.setdefault(cl, []).append(row)
+                else:
+                    ext_legacy.append(row)
+            for cl, rows in ext_by_child.items():
+                _run_external(rows, cl)
+            if ext_legacy:
+                for cl in labels:
+                    if cl not in populated_labels:
+                        continue
+                    _run_external(ext_legacy, cl)
 
             for file_data in csharp_files:
                 self._create_csharp_inheritance_and_interfaces(session, file_data, imports_map)
@@ -1129,36 +1412,122 @@ class GraphWriter:
         info_logger(f"[PART_OF] Complete: {len(part_of_batch)} library part links processed.")
 
     def write_decorated_by_links(self, decorated_by_batch: List[Dict[str, Any]]) -> None:
+        """Create DECORATED_BY edges from a decorated declaration to its decorator.
+
+        DECORATED_BY is declared as a REL TABLE GROUP with two FROM..TO
+        pairs -- `FROM Function TO Function, FROM Class TO Function`. Only
+        the *decorated* endpoint varies; the decorator is always a Function.
+
+        This previously hardcoded `:Function` on both endpoints, so every
+        row built for a decorated class matched nothing and was dropped
+        with no error and no log, on every language that records
+        class-level decorators (#1601). build_decorated_by_links emits
+        those rows correctly -- they simply never landed.
+
+        Like write_binds_links, we try each declared source label per row
+        and stop at the first that matches real endpoints: a row carries
+        name+path+line but no label, so a same-named node under the other
+        label could otherwise pick up a second, spurious edge.
+
+        The `context` predicate is emitted only for the Function label.
+        `Class` has no `context` column, and referencing it raises a Kùzu
+        binder exception -- which `_is_binder_exception` swallows, so simply
+        parameterising the label without this would still have dropped every
+        class row, just one layer further down. Omitting the predicate is
+        exact rather than approximate: build_decorated_by_links only sets
+        `decorated_context` from a function's `class_context` and always
+        leaves it "" for classes, so the predicate is a no-op there anyway.
+        """
         if not decorated_by_batch:
+            return
+
+        backend = get_backend_type(self.driver, self._db_manager)
+        decorated_labels = ("Function", "Class")
+
+        def _work(session):
+            for row in decorated_by_batch:
+                for decorated_label in decorated_labels:
+                    decorated_cypher = _cypher_label(decorated_label, backend)
+                    context_predicate = (
+                        'WHERE $decorated_context = "" '
+                        "OR decorated.context = $decorated_context"
+                        if decorated_label == "Function"
+                        else ""
+                    )
+                    try:
+                        result = session.run(
+                            f"""
+                            MATCH (decorated:{decorated_cypher} {{
+                                name: $decorated_name,
+                                path: $decorated_path,
+                                line_number: $decorated_line
+                            }})
+                            {context_predicate}
+                            MATCH (decorator:Function {{
+                                name: $decorator_name,
+                                path: $decorator_path
+                            }})
+                            MERGE (decorated)-[r:DECORATED_BY]->(decorator)
+                            SET r.line_number = $line_number
+                            RETURN r
+                            """,
+                            decorated_name=row["decorated_name"],
+                            decorated_path=row["decorated_path"],
+                            decorated_line=row["decorated_line"],
+                            decorated_context=row.get("decorated_context", ""),
+                            decorator_name=row["decorator_name"],
+                            decorator_path=row["decorator_path"],
+                            line_number=row.get("line_number", row["decorated_line"]),
+                        )
+                    except Exception as e:
+                        if _is_binder_exception(e):
+                            continue
+                        raise e
+                    else:
+                        if result.single() is not None:
+                            break
+
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(f"[DECORATED_BY] Complete: {len(decorated_by_batch)} decorator links processed.")
+
+    def write_previews_links(self, previews_batch: List[Dict[str, Any]]) -> None:
+        """Create PREVIEWS edges: a @Preview-annotated Compose function ->
+        the composable it calls, so "which composables have no preview" is
+        a plain no-inbound-PREVIEWS-edge query.
+
+        PREVIEWS is declared with a single FROM Function TO Function pair
+        (use_group=False), unlike DECORATED_BY's two-pair group, so unlike
+        write_decorated_by_links there is no second label pair to try --
+        hardcoding :Function on both endpoints here is correct.
+        """
+        if not previews_batch:
             return
 
         backend = get_backend_type(self.driver, self._db_manager)
 
         def _work(session):
-            for row in decorated_by_batch:
+            for row in previews_batch:
                 try:
                     session.run(
                         """
-                        MATCH (decorated:Function {
-                            name: $decorated_name,
-                            path: $decorated_path,
-                            line_number: $decorated_line
+                        MATCH (preview:Function {
+                            name: $preview_name,
+                            path: $preview_path,
+                            line_number: $preview_line
                         })
-                        WHERE $decorated_context = "" OR decorated.context = $decorated_context
-                        MATCH (decorator:Function {
-                            name: $decorator_name,
-                            path: $decorator_path
+                        MATCH (composable:Function {
+                            name: $composable_name,
+                            path: $composable_path
                         })
-                        MERGE (decorated)-[r:DECORATED_BY]->(decorator)
+                        MERGE (preview)-[r:PREVIEWS]->(composable)
                         SET r.line_number = $line_number
                         """,
-                        decorated_name=row["decorated_name"],
-                        decorated_path=row["decorated_path"],
-                        decorated_line=row["decorated_line"],
-                        decorated_context=row.get("decorated_context", ""),
-                        decorator_name=row["decorator_name"],
-                        decorator_path=row["decorator_path"],
-                        line_number=row.get("line_number", row["decorated_line"]),
+                        preview_name=row["preview_name"],
+                        preview_path=row["preview_path"],
+                        preview_line=row["preview_line"],
+                        composable_name=row["composable_name"],
+                        composable_path=row["composable_path"],
+                        line_number=row.get("line_number", row["preview_line"]),
                     )
                 except Exception as e:
                     if _is_binder_exception(e):
@@ -1166,7 +1535,72 @@ class GraphWriter:
                     raise e
 
         execute_write_operation(self.driver, backend, _work)
-        info_logger(f"[DECORATED_BY] Complete: {len(decorated_by_batch)} decorator links processed.")
+        info_logger(f"[PREVIEWS] Complete: {len(previews_batch)} preview links processed.")
+
+    def write_binds_links(self, binds_batch: List[Dict[str, Any]]) -> None:
+        """Create BINDS edges: Hilt's @Binds/@Provides link an interface (or
+        class) to the concrete class (or interface) that satisfies it.
+
+        BINDS is declared as a REL TABLE GROUP with three explicit FROM..TO
+        pairs (Interface->Class, Class->Class, Interface->Interface). Kùzu
+        needs both endpoint labels known at query-plan time for a grouped
+        relationship -- an unlabeled MATCH raises "Create rel r bound by
+        multiple node labels is not supported." So, like
+        write_inheritance_links, we try each declared pair per row; a MATCH
+        against the wrong label simply matches nothing and that pair's
+        MERGE is a no-op for the row.
+
+        A row carries only name/path, not a label, and Kotlin does not
+        qualify `name` by enclosing scope (kotlin.py:1394-1436) -- a
+        top-level interface and an unrelated nested class can legitimately
+        share name+path. Once a pair's MATCH actually finds both endpoints
+        we stop trying the remaining pairs for that row; otherwise a
+        same-named node under a different label would pick up a second,
+        spurious BINDS edge.
+        """
+        if not binds_batch:
+            return
+
+        backend = get_backend_type(self.driver, self._db_manager)
+        label_pairs = (("Interface", "Class"), ("Class", "Class"), ("Interface", "Interface"))
+
+        def _work(session):
+            for row in binds_batch:
+                for source_label, target_label in label_pairs:
+                    source_cypher = _cypher_label(source_label, backend)
+                    target_cypher = _cypher_label(target_label, backend)
+                    try:
+                        result = session.run(
+                            f"""
+                            MATCH (source:{source_cypher} {{name: $source_name, path: $source_path}})
+                            MATCH (target:{target_cypher} {{name: $target_name, path: $target_path}})
+                            MERGE (source)-[r:BINDS]->(target)
+                            SET r.line_number = $line_number,
+                                r.provider = $provider,
+                                r.confidence_label = coalesce($confidence_label, 'EXTRACTED')
+                            RETURN r
+                            """,
+                            source_name=row["source_name"],
+                            source_path=row["source_path"],
+                            target_name=row["target_name"],
+                            target_path=row["target_path"],
+                            line_number=row.get("line_number"),
+                            provider=row.get("provider"),
+                            confidence_label=row.get("confidence_label"),
+                        )
+                    except Exception as e:
+                        if _is_binder_exception(e):
+                            continue
+                        raise e
+                    else:
+                        if result.single() is not None:
+                            # This pair matched real endpoints -- do not let a
+                            # coincidentally same-named node under another
+                            # label add a second edge for this row.
+                            break
+
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(f"[BINDS] Complete: {len(binds_batch)} Hilt binding links processed.")
 
     def write_metaclass_links(self, metaclass_batch: List[Dict[str, Any]]) -> None:
         if not metaclass_batch:
@@ -1327,6 +1761,17 @@ class GraphWriter:
             )
             parent_paths = [record["path"] for record in parents_res]
 
+            # Module nodes are shared by their name: a module definition can be
+            # contained by this file while other files keep INCLUDES or IMPORTS
+            # edges to the same node. Remove only this file's containment edge
+            # before deleting the file-owned graph elements.
+            session.run(
+                """
+                MATCH (f:File {path: $path})-[r:CONTAINS]->(:Module)
+                DELETE r
+                """,
+                path=file_path_str,
+            )
             session.run(
                 """
                 MATCH (f:File {path: $path})
@@ -1349,6 +1794,7 @@ class GraphWriter:
                 )
 
         execute_write_operation(self.driver, backend, _work)
+        self._purge_dangling_pathless_nodes()
     def write_cpp_class_function_links(self, repo_path_str: str) -> None:
         """Post-pass: create Class-[:CONTAINS]->Function edges for C++ files.
 
@@ -1387,6 +1833,55 @@ class GraphWriter:
                     warning_logger(f"Failed to link C++ methods for label {clab}: {e}")
 
         execute_write_operation(self.driver, backend, _work)
+
+    def repair_missing_contains_links(self, repo_path_str: str) -> Dict[str, int]:
+        """Post-index invariant: every symbol under the repo must be reachable
+        from its ``File`` through ``CONTAINS``.
+
+        The per-file linking MERGE keys on the ``occurrence_index`` property
+        (#1393).  On FalkorDB Lite an index created while parallel workers are
+        still writing can come up operational but empty, so those MATCHes
+        silently match zero rows: the symbols persist, but not one
+        ``File-[:CONTAINS]`` edge does, and the scoped ``cgc stats`` counters
+        (which traverse ``Repository-[:CONTAINS*]->Function``) report 0.
+        Detect the label-wise all-unlinked state, warn, and back-fill the
+        edges from the already-stored ``path`` property.  Partially linked
+        labels are left alone — that indicates a different, per-file defect.
+        """
+        repo_path_str = _normalize_path(repo_path_str)
+        backend = get_backend_type(self.driver, self._db_manager)
+        repaired: Dict[str, int] = {}
+
+        def _work(session):
+            for label in ("Function", "Class", "Variable"):
+                symbols = session.run(
+                    f"MATCH (n:{label}) WHERE n.path STARTS WITH $repo_path "
+                    "RETURN count(n) AS c",
+                    repo_path=repo_path_str,
+                ).single()["c"]
+                linked = session.run(
+                    f"MATCH (f:File)-[:CONTAINS]->(n:{label}) "
+                    "WHERE f.path STARTS WITH $repo_path RETURN count(n) AS c",
+                    repo_path=repo_path_str,
+                ).single()["c"]
+                if symbols and not linked:
+                    warning_logger(
+                        f"[INVARIANT] {symbols} {label} node(s) have no "
+                        "File-[:CONTAINS] edge — the per-file linking pass "
+                        "matched nothing (known FalkorDB Lite empty-index "
+                        "race). Back-filling from node paths."
+                    )
+                    session.run(
+                        f"MATCH (f:File) WHERE f.path STARTS WITH $repo_path "
+                        f"MATCH (n:{label}) WHERE n.path = f.path "
+                        "MERGE (f)-[:CONTAINS]->(n)",
+                        repo_path=repo_path_str,
+                    )
+                    repaired[label] = symbols
+            return repaired
+
+        return execute_write_operation(self.driver, backend, _work)
+
     def write_spring_inject_links(self, inject_batch: List[Dict[str, Any]]) -> None:
         """Create INJECTS edges: injector Class -> injected Class (via @Autowired / @Inject)."""
         if not inject_batch:
@@ -1940,7 +2435,7 @@ DETACH DELETE r, n
         backend = get_backend_type(self.driver, self._db_manager)
         def _work(session):
             result = session.run(
-                "MATCH (caller)-[:CALLS]->(callee) "
+                "MATCH (caller)-[:CALLS|HEURISTIC_CALLS]->(callee) "
                 "WHERE callee.path = $path "
                 "RETURN DISTINCT coalesce(caller.path, '') AS p",
                 path=file_path_str,
@@ -1976,14 +2471,12 @@ DETACH DELETE r, n
 
         return execute_read_operation(self.driver, backend, _work)
     def delete_outgoing_calls_from_files(self, file_paths: List[str]) -> None:
-        backend = get_backend_type(self.driver, self._db_manager)
-        def _work(session):
+        with self.driver.session() as session:
             result = session.run(
-                "MATCH (a)-[r:CALLS]->(b) WHERE a.path IN $paths DELETE r RETURN count(r) AS cnt",
+                "MATCH (a)-[r:CALLS|HEURISTIC_CALLS]->(b) WHERE a.path IN $paths DELETE r RETURN count(r) AS cnt",
                 paths=file_paths,
             ).single()
-            return result["cnt"] if result else 0
-        cnt = execute_write_operation(self.driver, backend, _work)
+        cnt = result["cnt"] if result else 0
         info_logger(f"[RELINK] Deleted {cnt} outgoing CALLS from {len(file_paths)} caller files")
 
     def delete_inherits_for_files(self, file_paths: List[str]) -> None:
@@ -2025,7 +2518,7 @@ DETACH DELETE r, n
         backend = get_backend_type(self.driver, self._db_manager)
         def _work(session):
             result = session.run(
-                "MATCH (a)-[r:CALLS]->(b) WHERE a.path STARTS WITH $prefix DELETE r RETURN count(r) AS cnt",
+                "MATCH (a)-[r:CALLS|HEURISTIC_CALLS]->(b) WHERE a.path STARTS WITH $prefix DELETE r RETURN count(r) AS cnt",
                 prefix=repo_path_str,
             ).single()
             calls_deleted = result["cnt"] if result else 0
@@ -2039,5 +2532,5 @@ DETACH DELETE r, n
 
         calls_deleted, inherits_deleted = execute_write_operation(self.driver, backend, _work)
         info_logger(
-            f"[RELINK] Cleared {calls_deleted} CALLS and {inherits_deleted} INHERITS before re-linking: {repo_path}"
+            f"[RELINK] Cleared {calls_deleted} CALLS/HEURISTIC_CALLS and {inherits_deleted} INHERITS before re-linking: {repo_path}"
         )

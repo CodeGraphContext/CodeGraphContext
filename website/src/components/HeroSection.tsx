@@ -1,12 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Github, ExternalLink, Copy, Check, Sparkles, FolderUp, Mail, Loader2, Package, Download, CheckCircle2, XCircle, Clock } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import ShowDownloads from "@/components/ShowDownloads";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import LocalUploader from "@/components/LocalUploader";
-import CodeGraphViewer from "@/components/CodeGraphViewer";
+const CodeGraphViewer = lazy(() => import("@/components/CodeGraphViewer"));
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import MagneticButton from "@/components/MagneticButton";
@@ -203,7 +203,12 @@ const HeroSection = () => {
         return (
           <div className="space-y-4 w-full relative z-10">
             <div className="flex flex-col gap-3">
+              <label htmlFor="hero-repo-url" className="sr-only">
+                Repository URL to index
+              </label>
               <Input
+                id="hero-repo-url"
+                name="repoUrl"
                 type="url"
                 placeholder="https://github.com/owner/repo"
                 value={repoUrl}
@@ -348,7 +353,14 @@ const HeroSection = () => {
   if (graphData) {
     return (
       <div className="fixed inset-0 z-50 bg-background w-full h-full">
-        <CodeGraphViewer data={graphData} onClose={() => setGraphData(null)} />
+        <Suspense fallback={
+          <div className="w-full h-full flex flex-col items-center justify-center bg-black text-white font-mono text-sm gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+            <span>Loading Viewer...</span>
+          </div>
+        }>
+          <CodeGraphViewer data={graphData} onClose={() => setGraphData(null)} />
+        </Suspense>
       </div>
     );
   }
@@ -374,13 +386,13 @@ const HeroSection = () => {
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto items-center justify-center mb-24">
-          <MagneticButton 
+          <Button
             className="bg-purple-600 hover:bg-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.4)] text-white hover:opacity-90 transition-all duration-300 cursor-pointer w-full sm:w-[320px] h-14 flex items-center justify-center font-bold text-sm tracking-wide rounded-full uppercase border-0"
             onClick={handleCopy}
           >
             {copied ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}
             pip install codegraphcontext
-          </MagneticButton>
+          </Button>
 
           <Button asChild className="bg-cyan-400 hover:bg-cyan-300 text-black shadow-[0_0_20px_rgba(34,211,238,0.4)] border-0 transition-colors w-full sm:w-auto h-14 rounded-full font-bold uppercase tracking-widest text-xs px-8">
             <a href="https://github.com/CodeGraphContext/CodeGraphContext" target="_blank" rel="noopener noreferrer">

@@ -34,9 +34,10 @@ defprotocol MyApp.Serializable do
 end
 """
     f = temp_test_dir / "sample.ex"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
 
     result = elixir_parser.parse(f)
+    assert isinstance(result, dict)
 
     modules = result.get("modules", [])
     assert len(modules) == 2
@@ -63,9 +64,10 @@ defmodule MyApp.Server do
 end
 """
     f = temp_test_dir / "funcs.ex"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
 
     result = elixir_parser.parse(f)
+    assert isinstance(result, dict)
 
     functions = result["functions"]
     assert len(functions) == 3
@@ -93,9 +95,10 @@ defmodule MyApp.Worker do
 end
 """
     f = temp_test_dir / "imports.ex"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
 
     result = elixir_parser.parse(f)
+    assert isinstance(result, dict)
 
     imports = result["imports"]
     assert len(imports) == 4
@@ -120,9 +123,10 @@ defmodule MyApp.Worker do
 end
 """
     f = temp_test_dir / "calls.ex"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
 
     result = elixir_parser.parse(f)
+    assert isinstance(result, dict)
 
     calls = result["function_calls"]
     dot_calls = [c for c in calls if "." in c["full_name"]]
@@ -137,9 +141,10 @@ defmodule MyApp do
 end
 """
     f = temp_test_dir / "no_classes.ex"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
 
     result = elixir_parser.parse(f)
+    assert isinstance(result, dict)
     assert result["classes"] == []
 
 
@@ -156,7 +161,7 @@ defmodule MyApp.Scanner do
 end
 """
     f = temp_test_dir / "scanner.ex"
-    f.write_text(code)
+    f.write_text(code, encoding="utf-8")
 
     manager = get_tree_sitter_manager()
     wrapper = MagicMock()

@@ -150,6 +150,24 @@ class RustTreeSitterParser:
                     params.append(arg_str)
 
                 module_context = self._module_path_for_node(func_node)
+
+                # impl methods carried only module_context, so Point::new was
+                # never linked to Point and impl methods showed up as orphan
+                # functions (#1538). The impl_item's `type` field is the
+                # implementing type for both inherent (`impl Point`) and
+                # trait (`impl Draw for Point`) blocks.
+                class_context = None
+                class_context_line = None
+                curr = func_node.parent
+                while curr:
+                    if curr.type == "impl_item":
+                        type_node = curr.child_by_field_name("type")
+                        if type_node is not None:
+                            class_context = self._get_node_text(type_node)
+                            class_context_line = curr.start_point[0] + 1
+                        break
+                    curr = curr.parent
+
                 func_data = {
                     "name": name,
                     "line_number": name_node.start_point[0] + 1,
@@ -157,6 +175,8 @@ class RustTreeSitterParser:
                     "params": params,
                     "args": params,
                     "module_context": module_context,
+                    "class_context": class_context,
+                    "class_context_line": class_context_line,
                     "is_extern": False,
                     "lang": self.language_name,
                     "is_dependency": False,
@@ -289,33 +309,67 @@ class RustTreeSitterParser:
         return structs, enums, traits
 
     def _find_imports(self, root_node: Any) -> list[Dict[str, Any]]:
+        """Walk `use` declarations structurally (#1538).
+
+        The old text-based version had two audit findings: a braced list
+        (`use std::collections::{HashMap, HashSet};`) kept only the LAST
+        name, and `full_import_name` was the raw source including the `use`
+        keyword and semicolon — written verbatim as the Module node name,
+        where no path-matching consumer could ever match it.
+        """
         imports = []
+
+        def _emit(name, full, alias, line):
+            imports.append({
+                "name": name,
+                "full_import_name": full,
+                "line_number": line,
+                "alias": alias,
+            })
+
+        def _last_segment(path_text):
+            seg = path_text.split("::")[-1].strip()
+            return seg or path_text
+
+        def _walk_use_arg(node, base, line):
+            """base is the '::'-joined path prefix accumulated so far."""
+            t = node.type
+            text = self._get_node_text(node)
+            if t in ("identifier", "scoped_identifier", "crate", "self", "super"):
+                full = f"{base}::{text}" if base else text
+                _emit(_last_segment(full), full, None, line)
+            elif t == "use_as_clause":
+                inner = node.children[0]
+                alias_node = node.children[-1]
+                inner_text = self._get_node_text(inner)
+                full = f"{base}::{inner_text}" if base else inner_text
+                _emit(self._get_node_text(alias_node), full, self._get_node_text(alias_node), line)
+            elif t == "use_wildcard":
+                # use x::*;  — child[0] is the path, if any (super/crate/self
+                # are their own node types, not identifiers)
+                path_children = [c for c in node.children if c.type in ("identifier", "scoped_identifier", "super", "crate", "self")]
+                prefix = self._get_node_text(path_children[0]) if path_children else ""
+                full_base = f"{base}::{prefix}" if base and prefix else (prefix or base)
+                _emit("*", f"{full_base}::*" if full_base else "*", None, line)
+            elif t == "scoped_use_list":
+                # <path> :: { list }
+                path_children = [c for c in node.children if c.type in ("identifier", "scoped_identifier", "super", "crate", "self")]
+                prefix = self._get_node_text(path_children[0]) if path_children else ""
+                new_base = f"{base}::{prefix}" if base and prefix else (prefix or base)
+                for c in node.children:
+                    if c.type == "use_list":
+                        _walk_use_arg(c, new_base, line)
+            elif t == "use_list":
+                for c in node.children:
+                    if c.type not in ("{", "}", ","):
+                        _walk_use_arg(c, base, line)
+
         query_str = RUST_QUERIES["imports"]
         for node, _ in execute_query(self.language, query_str, root_node):
-            full_import_name = self._get_node_text(node)
-            alias = None
-
-            alias_match = re.search(r"as\s+(\w+)\s*;?$", full_import_name)
-            if alias_match:
-                alias = alias_match.group(1)
-                name = alias
-            else:
-                cleaned_path = re.sub(r";$", "", full_import_name).strip()
-                last_part = cleaned_path.split("::")[-1]
-                if last_part.strip() == "*":
-                    name = "*"
-                else:
-                    name_match = re.findall(r"(\w+)", last_part)
-                    name = name_match[-1] if name_match else last_part
-
-            imports.append(
-                {
-                    "name": name,
-                    "full_import_name": full_import_name,
-                    "line_number": node.start_point[0] + 1,
-                    "alias": alias,
-                }
-            )
+            line = node.start_point[0] + 1
+            for child in node.children:
+                if child.type not in ("use", ";"):
+                    _walk_use_arg(child, "", line)
         return imports
 
     def _find_calls(self, root_node: Any) -> list[Dict[str, Any]]:
@@ -340,12 +394,28 @@ class RustTreeSitterParser:
                             if child.type not in ('(', ')', ','):
                                 args.append(self._get_node_text(child))
 
+                # For `Type::method()` the scope is the receiver type — now
+                # that impl methods carry class_context (#1538), handing the
+                # scope to resolution lets it pick the RIGHT `new` among many
+                # same-named impl methods instead of guessing (or, worse,
+                # binding Arc::new/Box::new to an unrelated local `new`).
+                inferred_obj_type = None
+                if call_node and call_node.type == 'call_expression':
+                    fn_node = call_node.child_by_field_name('function')
+                    if fn_node is not None and fn_node.type == 'scoped_identifier':
+                        scope_node = fn_node.child_by_field_name('path')
+                        if scope_node is not None:
+                            scope_text = self._get_node_text(scope_node)
+                            # `Vec::<T>::new` styles: keep the last plain segment
+                            inferred_obj_type = scope_text.split('::')[-1] or None
+
                 calls.append(
                     {
                         "name": call_name,
                         "full_name": self._get_node_text(call_node) if call_node else call_name,
                         "line_number": node.start_point[0] + 1,
                         "args": args,
+                        "inferred_obj_type": inferred_obj_type,
                         "context": self._get_parent_context(node),
                         "lang": self.language_name,
                         "is_dependency": False,
@@ -373,7 +443,7 @@ def pre_scan_rust(files: list[Path], parser_wrapper) -> dict:
                 name = capture.text.decode('utf-8')
                 if name not in imports_map:
                     imports_map[name] = []
-                imports_map[name].append(str(path.resolve()))
+                imports_map[name].append(path.resolve().as_posix())
         except Exception as e:
             warning_logger(f"Tree-sitter pre-scan failed for {path}: {e}")
     return imports_map

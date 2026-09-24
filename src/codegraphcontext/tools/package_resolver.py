@@ -49,7 +49,15 @@ def _get_python_package_path(package_name: str) -> Optional[str]:
             if _is_stdlib_module(package_name):
                 return str(module_file)
 
-            return str(module_file.parent)
+            # For a flat, single-file package (e.g. six.py, typing_extensions.py),
+            # the parent is site-packages itself.  Returning it would cause
+            # add_package_to_graph to index every installed dependency.
+            # Return the file instead so only the package is indexed.
+            parent = module_file.parent
+            if parent.name in ("site-packages", "dist-packages"):
+                return str(module_file)
+
+            return str(parent)
 
         if spec.submodule_search_locations:
             locations = list(spec.submodule_search_locations)

@@ -50,8 +50,8 @@ visualizations/
 *.html
 !src/**/*.html
 
-# Website
-website/
+# Website (removed from ignore so it can be built)
+# website/
 
 # Other
 .cgcignore
@@ -62,4 +62,15 @@ CLI_Commands.md
 CONTRIBUTING.md
 SECURITY.md
 organizer/
-scripts/
+# scripts/ (removed from ignore because we need docker-entrypoint.sh)
+# Added during Dockerfile refactor
+.cursor/
+extensions/
+k8s/
+*.spec
+COMMIT_MSG.txt
+CGC_*.md
+ROADMAP.md
+.env
+.env.*
+!.env.example
