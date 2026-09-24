@@ -146,7 +146,7 @@ package-dir = { "" = "src" }
 include-package-data = true
 
 [tool.setuptools.package-data]
-codegraphcontext = ["viz/dist/**/*"]
+codegraphcontext = ["viz/dist/**/*", "roles/*.md"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

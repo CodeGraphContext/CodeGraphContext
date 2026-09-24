@@ -131,45 +131,61 @@ You are an expert AI pair programmer. Your primary goal is to help a developer u
 """
 
 
-def build_system_prompt(project_root: Optional[Path] = None) -> str:
+def build_system_prompt(
+    project_root: Optional[Path] = None,
+    role_prompt: Optional[str] = None,
+) -> str:
     """
     Build the complete system prompt by prepending custom prompt files.
-    
+
     Args:
         project_root: Root directory of the project. If None, uses current directory.
-    
+        role_prompt: Optional AI role text prepended before everything else.
+            When None or empty, behaviour is identical to previous versions.
+
     Returns:
-        Complete system prompt with custom prompts prepended to the base prompt.
+        Complete system prompt with role (if any) and custom prompts prepended
+        to the base prompt.
     """
     # Import here to avoid circular dependencies
     try:
         from codegraphcontext.cli.project_config import get_prompt_file_contents
-        
+
         # Get custom prompt contents
         custom_prompts = get_prompt_file_contents(project_root)
-        
+
         if not custom_prompts:
-            # No custom prompts, return base prompt
+            # No custom prompts, return base prompt (with role prepended if given)
+            if role_prompt:
+                return f"{role_prompt}\n\n---\n\n{LLM_SYSTEM_PROMPT}"
             return LLM_SYSTEM_PROMPT
-        
-        # Build combined prompt: custom prompts first, then base prompt
+
+        # Build combined prompt: role first (if any), then custom prompts, then base
         combined_parts = []
-        
+
+        # Add role prompt at the very top so it frames everything below
+        if role_prompt:
+            combined_parts.append(role_prompt)
+
         # Add custom prompts
         for i, custom_content in enumerate(custom_prompts, 1):
             combined_parts.append(f"# Custom Instructions {i}\n\n{custom_content}")
-        
+
         # Add separator and base prompt
         combined_parts.append("---\n")
         combined_parts.append(LLM_SYSTEM_PROMPT)
-        
+
         return "\n\n".join(combined_parts)
-        
+
     except ImportError:
         # If project_config is not available (shouldn't happen in normal use)
         logger.warning("Could not import project_config module, using base prompt only")
+        if role_prompt:
+            return f"{role_prompt}\n\n---\n\n{LLM_SYSTEM_PROMPT}"
         return LLM_SYSTEM_PROMPT
     except Exception as e:
         # Log error but continue with base prompt to maintain backward compatibility
         logger.warning(f"Error loading custom prompts: {e}. Using base prompt only.")
+        if role_prompt:
+            return f"{role_prompt}\n\n---\n\n{LLM_SYSTEM_PROMPT}"
         return LLM_SYSTEM_PROMPT

@@ -132,21 +132,49 @@ def mcp_setup():
     configure_mcp_client()
 
 @mcp_app.command("start")
-def mcp_start():
+def mcp_start(
+    role: Optional[str] = typer.Option(
+        None,
+        "--role",
+        help="AI role injected into the MCP initialize response: "
+        "reviewer, architect, auditor, explainer, custom, or neutral. "
+        "Default: neutral (no injection).",
+    ),
+    role_file: Optional[str] = typer.Option(
+        None,
+        "--role-file",
+        help="Path to a custom role .md file (max 64 KB). "
+        "Used with --role custom, or alone to imply custom.",
+    ),
+):
     """
     Start the CodeGraphContext MCP server.
     
     Starts the server which listens for JSON-RPC requests from stdin.
     This is used by IDE integrations (VS Code, Cursor, Zed, etc.).
+    
+    Role precedence: --role > CGC_MCP_ROLE env > .cgc/config.json > neutral.
     """
     console.print("[bold green]Starting CodeGraphContext Server...[/bold green]")
     _load_credentials()
+
+    # Resolve role prompt before starting the server so errors surface early.
+    role_prompt = None
+    if role or role_file:
+        try:
+            from codegraphcontext.roles import resolve_role_prompt
+            role_prompt = resolve_role_prompt(cli_role=role, cli_role_file=role_file)
+        except ValueError as e:
+            console.print(f"[bold red]Role Error:[/bold red] {e}")
+            raise typer.Exit(code=1) from e
+        if role_prompt:
+            console.print(f"[dim]AI role active ({role or 'custom'}).[/dim]")
 
     server = None
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        server = MCPServer(loop=loop, cwd=Path.cwd())
+        server = MCPServer(loop=loop, cwd=Path.cwd(), role_prompt=role_prompt)
         loop.run_until_complete(server.run())
     except ValueError as e:
         # This typically happens if credentials are still not found after all checks.
