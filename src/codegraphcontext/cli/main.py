@@ -93,6 +93,7 @@ console = Console(stderr=True)
 # `console` stays for interactive prompts and diagnostics. Argument validation
 # errors inside those commands remain on the stderr console.
 analyze_result_console = Console()
+find_result_console = Console()
 
 # Configure basic logging for the application. Default to WARNING so CLI
 # output stays clean; the root --debug flag switches this to DEBUG.
@@ -2221,7 +2222,7 @@ def find_by_name(
                 for r in results: r['type'] = 'File'
         
         if not results:
-            console.print(f"[yellow]No code elements found with name '{name}'[/yellow]")
+            find_result_console.print(f"[yellow]No code elements found with name '{name}'[/yellow]")
             return
         
         # Check if visual mode is enabled
@@ -2245,8 +2246,8 @@ def find_by_name(
                 location_str
             )
             
-        console.print(f"[cyan]Found {len(results)} matches for '{name}':[/cyan]")
-        console.print(table)
+        find_result_console.print(f"[cyan]Found {len(results)} matches for '{name}':[/cyan]")
+        find_result_console.print(table)
     finally:
         db_manager.close_driver()
 
@@ -2309,7 +2310,7 @@ def find_by_pattern(
             results = [dict(record) for record in result]
         
         if not results:
-            console.print(f"[yellow]No matches found for pattern '{pattern}'[/yellow]")
+            find_result_console.print(f"[yellow]No matches found for pattern '{pattern}'[/yellow]")
             return
         
         # Check if visual mode is enabled
@@ -2318,7 +2319,7 @@ def find_by_pattern(
             return
             
         if not case_sensitive and any(c in pattern for c in "*?["):
-             console.print("[yellow]Note: Wildcards/Regex are not fully supported in this mode. Performing substring search.[/yellow]")
+             find_result_console.print("[yellow]Note: Wildcards/Regex are not fully supported in this mode. Performing substring search.[/yellow]")
 
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
         table.add_column("Name", style="cyan")
@@ -2338,8 +2339,8 @@ def find_by_pattern(
                 "📦 Dependency" if res.get('is_dependency') else "📝 Project"
             )
             
-        console.print(f"[cyan]Found {len(results)} matches for pattern '{pattern}':[/cyan]")
-        console.print(table)
+        find_result_console.print(f"[cyan]Found {len(results)} matches for pattern '{pattern}':[/cyan]")
+        find_result_console.print(table)
     finally:
         db_manager.close_driver()
 
@@ -2369,7 +2370,7 @@ def find_by_type(
         results = code_finder.find_by_type(element_type, limit)
         
         if not results:
-            console.print(f"[yellow]No elements found of type '{element_type}'[/yellow]")
+            find_result_console.print(f"[yellow]No elements found of type '{element_type}'[/yellow]")
             return
         
         # Add type to results for visualization
@@ -2397,8 +2398,8 @@ def find_by_type(
                 "📦 Dependency" if res.get('is_dependency') else "📝 Project"
             )
             
-        console.print(f"[cyan]Found {len(results)} {element_type}s:[/cyan]")
-        console.print(table)
+        find_result_console.print(f"[cyan]Found {len(results)} {element_type}s:[/cyan]")
+        find_result_console.print(table)
     finally:
         db_manager.close_driver()
 
@@ -2424,7 +2425,7 @@ def find_by_variable(
         results = code_finder.find_by_variable_name(name)
         
         if not results:
-            console.print(f"[yellow]No variables found with name '{name}'[/yellow]")
+            find_result_console.print(f"[yellow]No variables found with name '{name}'[/yellow]")
             return
             
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
@@ -2443,8 +2444,8 @@ def find_by_variable(
                 res.get('context', '') or 'module'
             )
             
-        console.print(f"[cyan]Found {len(results)} variable(s) named '{name}':[/cyan]")
-        console.print(table)
+        find_result_console.print(f"[cyan]Found {len(results)} variable(s) named '{name}':[/cyan]")
+        find_result_console.print(table)
     finally:
         db_manager.close_driver()
 
@@ -2482,7 +2483,7 @@ def find_by_content_search(
             raise
         
         if not results:
-            console.print(f"[yellow]No content matches found for '{query}'[/yellow]")
+            find_result_console.print(f"[yellow]No content matches found for '{query}'[/yellow]")
             return
             
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
@@ -2501,8 +2502,8 @@ def find_by_content_search(
                 location_str
             )
             
-        console.print(f"[cyan]Found {len(results)} content match(es) for '{query}':[/cyan]")
-        console.print(table)
+        find_result_console.print(f"[cyan]Found {len(results)} content match(es) for '{query}':[/cyan]")
+        find_result_console.print(table)
     finally:
         db_manager.close_driver()
 
@@ -2533,7 +2534,7 @@ def find_by_decorator_search(
             results = results[:req_limit]
         
         if not results:
-            console.print(f"[yellow]No functions found with decorator '@{decorator}'[/yellow]")
+            find_result_console.print(f"[yellow]No functions found with decorator '@{decorator}'[/yellow]")
             return
             
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
@@ -2553,10 +2554,10 @@ def find_by_decorator_search(
                 decorators_str
             )
             
-        console.print(f"[cyan]Found {len(results)} function(s) with decorator '@{decorator}':[/cyan]")
-        console.print(table)
+        find_result_console.print(f"[cyan]Found {len(results)} function(s) with decorator '@{decorator}':[/cyan]")
+        find_result_console.print(table)
         if truncated:
-            console.print(f"[dim]... truncated ({req_limit} shown), more exist[/dim]")
+            find_result_console.print(f"[dim]... truncated ({req_limit} shown), more exist[/dim]")
     finally:
         db_manager.close_driver()
 
@@ -2588,7 +2589,7 @@ def find_by_argument_search(
             results = results[:req_limit]
         
         if not results:
-            console.print(f"[yellow]No functions found with argument name or type '{argument}'[/yellow]")
+            find_result_console.print(f"[yellow]No functions found with argument name or type '{argument}'[/yellow]")
             return
             
         table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
@@ -2605,10 +2606,10 @@ def find_by_argument_search(
                 location_str
             )
             
-        console.print(f"[cyan]Found {len(results)} function(s) with argument '{argument}':[/cyan]")
-        console.print(table)
+        find_result_console.print(f"[cyan]Found {len(results)} function(s) with argument '{argument}':[/cyan]")
+        find_result_console.print(table)
         if truncated:
-            console.print(f"[dim]... truncated ({req_limit} shown), more exist[/dim]")
+            find_result_console.print(f"[dim]... truncated ({req_limit} shown), more exist[/dim]")
     finally:
         db_manager.close_driver()
 
