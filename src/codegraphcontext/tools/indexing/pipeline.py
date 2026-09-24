@@ -308,6 +308,15 @@ async def run_tree_sitter_index_async(
     info_logger("[CPP] Linking C++ out-of-line method definitions to their classes...")
     writer.write_cpp_class_function_links(resolved_repo_path_str)
 
+    # ── File->CONTAINS invariant (empty-index race self-heal) ────────────────
+    if job_id:
+        job_manager.update_job(job_id, status_message="Verifying File->CONTAINS linking...")
+    repaired_contains = writer.repair_missing_contains_links(resolved_repo_path_str)
+    if repaired_contains:
+        warning_logger(
+            f"[INVARIANT] Back-filled File-[:CONTAINS] edges for: {repaired_contains}"
+        )
+
     # ── Spring injection edges (#887) ─────────────────────────────────────────
     if job_id:
         job_manager.update_job(job_id, status_message="Processing Spring injection edges...")
