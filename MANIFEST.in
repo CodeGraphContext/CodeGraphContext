@@ -1,4 +1,5 @@
 prune website
 prune images
 recursive-include src/codegraphcontext/viz/dist *
+recursive-include src/codegraphcontext/roles *.md
 recursive-include vscode-extension *
