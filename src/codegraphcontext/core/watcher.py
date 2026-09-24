@@ -5,6 +5,7 @@ It observes directories for changes and triggers updates to the code graph.
 
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 import typing
 
@@ -243,6 +244,16 @@ class RepositoryEventHandler(FileSystemEventHandler):
                     self.imports_map[symbol] = []
                 self.imports_map[symbol].extend(paths)
 
+    def _incremental_parse_workers(self) -> int:
+        """Return the bounded worker count for parsing affected files."""
+        raw_workers = get_config_value("PARALLEL_WORKERS") or "4"
+        try:
+            workers = int(raw_workers)
+        except (TypeError, ValueError):
+            warning_logger(f"Invalid PARALLEL_WORKERS={raw_workers!r}; using 4")
+            workers = 4
+        return max(1, min(workers, 32))
+
     def _handle_modification(self, event_path_str: str):
         """Incremental update: re-parse and re-link only the changed file and its neighbours."""
         # Serialised: concurrent handlers previously did read-modify-write on
@@ -281,7 +292,11 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
         self._update_imports_map_for_file(changed_path)
 
-        self.graph_builder.update_file_in_graph(changed_path, self.repo_path, self.imports_map)
+        # Step 3: Delete + re-add nodes for the changed file.
+        # DETACH DELETE inside update_file_in_graph removes all CALLS/INHERITS on its nodes.
+        changed_file_data = self.graph_builder.update_file_in_graph(
+            changed_path, self.repo_path, self.imports_map
+        )
 
         # Every file in affected_paths is re-parsed below and fed back into
         # link_function_calls, so every one of them needs its outgoing CALLS
@@ -298,13 +313,50 @@ class RepositoryEventHandler(FileSystemEventHandler):
         if other_inheritors:
             self.graph_builder.delete_inherits_for_files(other_inheritors)
 
+        # Step 5: Re-parse only the affected subset. The changed file was already
+        # parsed during update_file_in_graph(), so reuse that result and parse the
+        # remaining affected files in parallel.
         subset_file_data = []
+        if (
+            changed_file_data
+            and "error" not in changed_file_data
+            and not changed_file_data.get("deleted")
+        ):
+            subset_file_data.append(changed_file_data)
+
+        paths_to_parse = []
         for path_str in affected_paths:
+            if path_str == changed_path_str:
+                continue
             p = Path(path_str)
             if p.exists() and p.suffix in supported_extensions and not self._should_ignore(p):
+                paths_to_parse.append(p)
+
+        def parse_affected_file(p: Path):
+            try:
                 parsed = self.graph_builder.parse_file(self.repo_path, p)
-                if "error" not in parsed:
+                return parsed if "error" not in parsed else None
+            except Exception as e:
+                error_logger(f"Error parsing affected file {p}: {e}")
+                return None
+
+        worker_count = min(self._incremental_parse_workers(), len(paths_to_parse))
+        if worker_count <= 1:
+            for p in paths_to_parse:
+                parsed = parse_affected_file(p)
+                if parsed:
                     subset_file_data.append(parsed)
+        else:
+            info_logger(
+                f"[INCREMENTAL] Parsing {len(paths_to_parse)} affected files "
+                f"with {worker_count} workers"
+            )
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                futures = [executor.submit(parse_affected_file, p) for p in paths_to_parse]
+                for future in as_completed(futures):
+                    parsed = future.result()
+                    if parsed:
+                        subset_file_data.append(parsed)
 
         file_class_lookup = self.graph_builder.get_repo_class_lookup(self.repo_path)
 
