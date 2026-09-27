@@ -44,6 +44,8 @@ def test_missing_native_engine_is_unavailable(monkeypatch):
     reason = core.ladybugdb_unavailable_reason()
     assert reason is not None and "native engine" in reason
     assert "Could not find lbug C API shared library" in reason
+    # The extension's own import error is surfaced, not just the fallback's.
+    assert "extension:" in reason
     assert core._is_ladybugdb_available() is False
 
 

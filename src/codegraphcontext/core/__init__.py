@@ -18,6 +18,7 @@ import os
 import platform
 from pathlib import Path
 from typing import Union, Optional
+import importlib
 import importlib.util
 import functools
 
@@ -138,9 +139,24 @@ def ladybugdb_unavailable_reason() -> Optional[str]:
     try:
         if get_pybind_module() is not None:
             return None
+    except Exception:
+        pass
+    # ladybug swallows the extension's ImportError before falling back to the
+    # C-API library, so the fallback's "Could not find lbug C API shared
+    # library" hides the real cause (e.g. a DLL load failure). Re-import once
+    # to recover it for the message.
+    try:
+        importlib.import_module("ladybug._lbug")
+        pybind_error = None
+    except Exception as e:
+        pybind_error = f"{type(e).__name__}: {e}"
+    try:
         get_capi_module()
     except Exception as e:
-        return f"LadybugDB is installed but its native engine could not be loaded: {e}"
+        detail = f"C-API: {e}"
+        if pybind_error:
+            detail = f"extension: {pybind_error}; {detail}"
+        return f"LadybugDB is installed but its native engine could not be loaded ({detail})"
     return None
 
 
