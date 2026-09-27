@@ -35,6 +35,15 @@ _ALLOWED_CALL_PROCEDURES = frozenset({
     "db.propertykeys",
     "db.schema.visualization",
     "db.indexes",
+    # Kùzu / LadybugDB (the default embedded backends) expose schema
+    # introspection as table functions rather than db.* procedures. All are
+    # read-only; Kùzu's config form `CALL threads=4` is not on the list and
+    # stays rejected.
+    "show_tables",
+    "table_info",
+    "show_connection",
+    "show_indexes",
+    "db_version",
 })
 
 _FORBIDDEN_PATTERNS = (

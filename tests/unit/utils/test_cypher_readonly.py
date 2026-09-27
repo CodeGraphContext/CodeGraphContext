@@ -117,3 +117,19 @@ def test_blocks_call_to_unlisted_procedures():
 
 def test_call_subquery_still_rejected():
     assert not is_read_only_cypher("CALL { MATCH (n) RETURN n } RETURN 1")
+
+
+def test_allows_kuzu_introspection_table_functions():
+    # Kùzu is the default backend; its schema introspection must keep working
+    # through `cgc query` after the CALL allowlist (#1727).
+    assert is_read_only_cypher("CALL show_tables() RETURN *")
+    assert is_read_only_cypher("CALL SHOW_TABLES() RETURN *")
+    assert is_read_only_cypher("CALL table_info('Function') RETURN *")
+    assert is_read_only_cypher("CALL show_connection('CALLS') RETURN *")
+    assert is_read_only_cypher("CALL db_version() RETURN *")
+
+
+def test_kuzu_config_and_index_writes_still_rejected():
+    assert not is_read_only_cypher("CALL threads=4")
+    assert not is_read_only_cypher("CALL create_fts_index('Function', 'idx', ['name'])")
+    assert not is_read_only_cypher("CALL drop_fts_index('Function', 'idx')")
