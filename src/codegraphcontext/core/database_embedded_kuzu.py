@@ -1014,21 +1014,14 @@ class EmbeddedSessionWrapper:
                                 if _first_single_error is None:
                                     _first_single_error = str(_se)[:160]
                         if _single_failures:
-                            debug_log(
+                            # warning, not debug: this is the only trace of a
+                            # silently short ladybug write, and parity CI
+                            # never sees debug output (#1730).
+                            warning_logger(
                                 f"Ladybug single-row replay: {_single_failures}/{len(_rows)} "
                                 f"rows errored (first: {_first_single_error}) — batched pass "
                                 f"result stands — query: {query[:90]}"
                             )
-                        if os.environ.get("CGC_LBG_DIAG") and "helpers.go" in str(translated_params):
-                            try:
-                                _mq = re.sub(r"MERGE\s.*", "RETURN count(*)", translated_query, flags=re.S)
-                                _mr = self.conn.execute(_mq, translated_params)
-                                _matched = _mr.get_next()[0]
-                                import sys as _sys
-                                print(f"LBG_DIAG matched={_matched} batch={len(_rows)} q={translated_query[:110].strip()!r}", file=_sys.stderr, flush=True)
-                            except Exception as _de:
-                                import sys as _sys
-                                print(f"LBG_DIAG count-err {str(_de)[:120]}", file=_sys.stderr, flush=True)
 
             return EmbeddedResultWrapper(result)
         except Exception as e:
