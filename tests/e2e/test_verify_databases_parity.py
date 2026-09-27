@@ -187,6 +187,14 @@ async def _run_database_parity_e2e(temp_test_dir):
         if importlib.util.find_spec(pkg_map[db]) is None:
             print(f"Skipping {db}: {pkg_map[db]} driver not installed.")
             continue
+        if db == "ladybugdb":
+            # Installed is not runnable: some ladybug wheels (Windows, #1731)
+            # ship without the native engine.
+            from codegraphcontext.core import ladybugdb_unavailable_reason
+            reason = ladybugdb_unavailable_reason()
+            if reason is not None:
+                print(f"Skipping {db}: {reason}")
+                continue
         db_types_to_run.append(db)
         
     db_types = db_types_to_run

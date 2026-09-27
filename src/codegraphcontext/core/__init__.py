@@ -19,6 +19,7 @@ import platform
 from pathlib import Path
 from typing import Union, Optional
 import importlib.util
+import functools
 
 # Retained for compatibility with callers that inspect this module attribute.
 # FalkorDB startup failures are now tracked by FalkorDBManager per database
@@ -108,12 +109,44 @@ def _is_kuzudb_available() -> bool:
     except ImportError:
         return False
 
-def _is_ladybugdb_available() -> bool:
-    """Check if LadybugDB is installed."""
+@functools.lru_cache(maxsize=1)
+def ladybugdb_unavailable_reason() -> Optional[str]:
+    """Return None when LadybugDB can actually run here, else why it cannot.
+
+    An installed ``ladybug`` package is not enough: its engine is either a
+    bundled pybind extension or the ``lbug`` C-API shared library loaded via
+    ctypes, and some wheels (Windows, #1731) ship neither. Probing only the
+    package made such an interpreter look ready, so explicit selection and
+    fallback both picked a backend that died on first use with
+    "Could not find lbug C API shared library".
+    """
     try:
-        return importlib.util.find_spec("ladybug") is not None
+        if importlib.util.find_spec("ladybug") is None:
+            return "LadybugDB is not installed"
+    except (ImportError, ValueError):
+        return "LadybugDB is not installed"
+    try:
+        from ladybug._backend import get_capi_module, get_pybind_module
     except ImportError:
-        return False
+        # Package layout without the dual-backend loader: importing it is the
+        # best available signal.
+        try:
+            import ladybug  # noqa: F401
+        except Exception as e:
+            return f"LadybugDB failed to import: {e}"
+        return None
+    try:
+        if get_pybind_module() is not None:
+            return None
+        get_capi_module()
+    except Exception as e:
+        return f"LadybugDB is installed but its native engine could not be loaded: {e}"
+    return None
+
+
+def _is_ladybugdb_available() -> bool:
+    """Check if LadybugDB is installed and its native engine loads."""
+    return ladybugdb_unavailable_reason() is None
 
 def _is_falkordb_available() -> bool:
     """Check if FalkorDB Lite is installed (Unix only)."""
@@ -235,7 +268,10 @@ def get_database_manager(db_path: Optional[str] = None) -> Union['DatabaseManage
             return NornicDBManager()
         elif db_type == 'ladybugdb':
             if not _is_ladybugdb_available():
-                raise ValueError("Database set to 'ladybugdb' but LadybugDB is not installed.\nRun 'pip install ladybug'")
+                raise ValueError(
+                    f"Database set to 'ladybugdb' but {ladybugdb_unavailable_reason() or 'LadybugDB is not available'}.\n"
+                    "Run 'pip install ladybug', or choose another backend with 'cgc config db kuzudb'."
+                )
             from .database_ladybug import LadybugDBManager
             info_logger(f"Using LadybugDB (explicit) at {db_path or 'default path'}")
             return LadybugDBManager(db_path=db_path)
