@@ -63,8 +63,8 @@ def test_infer_cxx_enum_vs_struct_vs_class() -> None:
         "union MyUnion {",
         "class Foo {",
     ]
-    assert p._infer_cxx_zero_kind("cxx . . $ Color#", 1, lines) == 18
-    assert p._infer_cxx_zero_kind("cxx . . $ Direction#", 2, lines) == 18
+    assert p._infer_cxx_zero_kind("cxx . . $ Color#", 1, lines) == 11
+    assert p._infer_cxx_zero_kind("cxx . . $ Direction#", 2, lines) == 11
     assert p._infer_cxx_zero_kind("cxx . . $ MyStruct#", 3, lines) == 49
     assert p._infer_cxx_zero_kind("cxx . . $ MyUnion#", 4, lines) == 49
     assert p._infer_cxx_zero_kind("cxx . . $ Foo#", 5, lines) == 7
