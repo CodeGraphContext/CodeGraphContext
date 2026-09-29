@@ -40,6 +40,44 @@ def sort_import_rows_for_metadata(rows: List[Dict[str, Any]]) -> List[Dict[str, 
     return sorted(rows, key=metadata_priority)
 
 
+# Parameter, Module and ExternalClass used to be written as `UNWIND … MERGE (node) … MERGE (a)-[r]->(node)`. The
+# embedded wrapper forces that shape (node MERGE plus a relationship, Kuzu #1605) onto a per-row loop, one query per
+# row. These three writers instead run a node-only UNWIND with distinct node keys, then a relationship-only UNWIND,
+# neither of which the guard touches. Each node phase keeps the old MATCH, so no node is created that the combined
+# query would not have created.
+def _module_node_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One row per Module name holding, per field, the first non-null value in `rows` order: what the sequential
+    `SET m.x = coalesce(m.x, row.x)` of the combined query leaves on the node."""
+    nodes: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        n = nodes.setdefault(r["name"], {"name": r["name"], "lang": None, "full_import_name": None})
+        for k in ("lang", "full_import_name"):
+            if n[k] is None:
+                n[k] = r.get(k)
+    return list(nodes.values())
+
+
+def _last_row_per_key(rows: List[Dict[str, Any]], key) -> List[Dict[str, Any]]:
+    """Rows sharing a relationship MERGE key are one relationship. Row by row, its SET ends with the last row's
+    values; one batched MERGE+SET keeps the first row's. Keep the last row per key."""
+    last: Dict[Any, Dict[str, Any]] = {}
+    for r in rows:
+        last[key(r)] = r
+    return list(last.values())
+
+
+def _run_node_then_rel(session, node_query: str, node_rows, rel_query: str, rel_rows, combined_query: str,
+                       combined_rows, **params) -> None:
+    """Node phase, then relationship phase. `node_rows` may be a callable reading them from the session. On any error
+    the chunk is rerun through the old combined query, i.e. the wrapper's per-row path with its old skip / retry / drop
+    semantics; every MERGE here is idempotent."""
+    try:
+        session.run(node_query, batch=node_rows(session) if callable(node_rows) else node_rows, **params)
+        session.run(rel_query, batch=rel_rows, **params)
+    except Exception:
+        session.run(combined_query, batch=combined_rows, **params)
+
+
 def _normalize_path(p) -> str:
     """Normalize a path to use forward slashes for cross-platform DB consistency.
 
@@ -639,7 +677,24 @@ class GraphWriter:
                     if key not in seen_params:
                         seen_params.add(key)
                         unique_params.append(p)
-                session.run(
+                fn_match = "MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.line_number, occurrence_index: row.occurrence_index})"
+                _run_node_then_rel(
+                    session,
+                    """
+                    UNWIND $batch AS row
+                    MERGE (p:Parameter {name: row.arg_name, path: $file_path, function_line_number: row.line_number})
+                    SET p.name = row.arg_name, p.path = $file_path, p.function_line_number = row.line_number
+                """,
+                    # one row per Parameter key whose Function exists, as the combined query's MATCH required
+                    lambda s: s.run(f"UNWIND $batch AS row {fn_match} RETURN DISTINCT row.arg_name AS arg_name, "
+                                    "row.line_number AS line_number", batch=unique_params, file_path=file_path_str).data(),
+                    f"""
+                    UNWIND $batch AS row
+                    {fn_match}
+                    MATCH (p:Parameter {{name: row.arg_name, path: $file_path, function_line_number: row.line_number}})
+                    MERGE (fn)-[:HAS_PARAMETER]->(p)
+                """,
+                    unique_params,
                     """
                     UNWIND $batch AS row
                     MATCH (fn:Function {name: row.func_name, path: $file_path, line_number: row.line_number, occurrence_index: row.occurrence_index})
@@ -647,7 +702,7 @@ class GraphWriter:
                     SET p.name = row.arg_name, p.path = $file_path, p.function_line_number = row.line_number
                     MERGE (fn)-[:HAS_PARAMETER]->(p)
                 """,
-                    batch=unique_params,
+                    unique_params,
                     file_path=file_path_str,
                 )
 
@@ -769,7 +824,26 @@ class GraphWriter:
 
             if other_imports:
                 other_imports = sort_import_rows_for_metadata(other_imports)
-                session.run(
+                _run_node_then_rel(
+                    session,
+                    """
+                    UNWIND $batch AS row
+                    MATCH (f:File {path: $file_path})
+                    MERGE (m:Module {name: row.name})
+                    SET m.lang = coalesce(m.lang, row.lang),
+                        m.full_import_name = coalesce(m.full_import_name, row.full_import_name)
+                """,
+                    _module_node_rows(other_imports),
+                    """
+                    UNWIND $batch AS row
+                    MATCH (f:File {path: $file_path})
+                    MATCH (m:Module {name: row.name})
+                    MERGE (f)-[r:IMPORTS {line_number: row.line_number, imported_name: row.imported_name}]->(m)
+                    SET r.alias = coalesce(row.alias, ""),
+                        r.full_import_name = row.full_import_name,
+                        r.lang = row.lang
+                """,
+                    _last_row_per_key(other_imports, lambda r: (r["name"], r["line_number"], r["imported_name"])),
                     """
                     UNWIND $batch AS row
                     MATCH (f:File {path: $file_path})
@@ -781,7 +855,7 @@ class GraphWriter:
                         r.full_import_name = row.full_import_name,
                         r.lang = row.lang
                 """,
-                    batch=other_imports,
+                    other_imports,
                     file_path=file_path_str,
                 )
 
@@ -1244,17 +1318,32 @@ class GraphWriter:
                         raise e
 
             def _run_external(rows, child_label):
-                child_cypher = _cypher_label(child_label, backend)
+                child_match = f"MATCH (child:{_cypher_label(child_label, backend)} {{name: row.child_name, path: row.path}})"
+                parents = f"""
+                    UNWIND $batch AS row
+                    {child_match}
+                    WITH DISTINCT row.parent_name AS parent_name
+                    MERGE (:ExternalClass {{name: parent_name}})
+                """
+                links = f"""
+                    UNWIND $batch AS row
+                    {child_match}
+                    MATCH (parent:ExternalClass {{name: row.parent_name}})
+                    MERGE (child)-[r:INHERITS]->(parent)
+                    SET r.confidence_label = coalesce(row.confidence_label, 'INFERRED')
+                """
                 query = f"""
                     UNWIND $batch AS row
-                    MATCH (child:{child_cypher} {{name: row.child_name, path: row.path}})
+                    {child_match}
                     MERGE (parent:ExternalClass {{name: row.parent_name}})
                     MERGE (child)-[r:INHERITS]->(parent)
                     SET r.confidence_label = coalesce(row.confidence_label, 'INFERRED')
                 """
                 for chunk in _chunks(rows):
                     try:
-                        session.run(query, batch=chunk)
+                        # every referenced field present: a key missing from all rows would not bind in a batch
+                        rows_n = [{k: r.get(k) for k in ("child_name", "path", "parent_name", "confidence_label")} for r in chunk]
+                        _run_node_then_rel(session, parents, rows_n, links, rows_n, query, chunk)
                     except Exception as e:
                         if _is_binder_exception(e):
                             return

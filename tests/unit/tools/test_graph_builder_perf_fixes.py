@@ -660,13 +660,19 @@ class TestAddFileToGraph:
 
         gb.add_file_to_graph(file_data, "my_repo", {}, repo_path_str="/repo")
 
+        # Module nodes are written by a node-only query before the IMPORTS relationships
+        module_call = next(
+            c
+            for c in session.calls
+            if "MERGE (m:Module {name: row.name})" in c["query"] and "IMPORTS" not in c["query"]
+        )
+        assert "m.lang = coalesce(m.lang, row.lang)" in module_call["query"]
+        assert "m.full_import_name = coalesce(m.full_import_name, row.full_import_name)" in module_call["query"]
         import_call = next(
             c
             for c in session.calls
             if "MERGE (f)-[r:IMPORTS {line_number: row.line_number" in c["query"]
         )
-        assert "m.lang = coalesce(m.lang, row.lang)" in import_call["query"]
-        assert "m.full_import_name = coalesce(m.full_import_name, row.full_import_name)" in import_call["query"]
         assert "r.full_import_name = row.full_import_name" in import_call["query"]
         assert "r.lang = row.lang" in import_call["query"]
 
