@@ -102,7 +102,7 @@ cgc config set ALLOW_DB_DELETION false
 | :--- | :--- | :--- |
 | **`DEFAULT_DATABASE`** | `falkordb` | Active database engine. Options: `kuzudb`, `ladybugdb`, `falkordb`, `falkordb-remote`, `neo4j`. |
 | **`ENABLE_AUTO_WATCH`** | `false` | When `true`, indexing a project automatically initializes a directory watcher. |
-| **`PARALLEL_WORKERS`** | `4` | Max thread pool size for parsing code files concurrently. |
+| **`PARALLEL_WORKERS`** | `4` | Max thread pool size for parsing code files concurrently. Shared by full indexing and the file watcher. Values above 32 are clamped. An empty or invalid value falls back to 10 for a full index and 4 for the watcher. |
 | **`CACHE_ENABLED`** | `true` | Caches file hashes to support fast incremental scans. |
 
 ### Indexing Scope Configurations

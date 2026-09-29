@@ -161,7 +161,7 @@ CONFIG_DESCRIPTIONS = {
     "ENABLE_AUTO_WATCH": "Automatically watch directory after indexing",
     "COMPLEXITY_THRESHOLD": "Cyclomatic complexity warning threshold",
     "MAX_DEPTH": "Maximum directory depth for indexing (unlimited or number)",
-    "PARALLEL_WORKERS": "Number of parallel indexing workers",
+    "PARALLEL_WORKERS": "Parallel parse workers for indexing and the file watcher (clamped to 32)",
     "CACHE_ENABLED": "Enable caching for faster re-indexing",
     "IGNORE_DIRS": "Comma-separated list of directory names to ignore during indexing",
     "INDEX_SOURCE": "Store full source code in graph database (for faster indexing use false, for better performance use true)",

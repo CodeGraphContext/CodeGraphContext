@@ -1322,6 +1322,19 @@ class TestWatcherIncrementalHandleModification:
 
         mock_gb.link_function_calls.assert_called_once()
 
+    def test_incremental_parse_workers_delegates_to_shared_helper(self):
+        """Worker-count rules live in get_parallel_workers(); the watcher only picks its default (#1732)."""
+        from codegraphcontext.core.watcher import RepositoryEventHandler
+        from codegraphcontext.tools.indexing.pipeline import WATCHER_DEFAULT_PARALLEL_WORKERS
+
+        watcher = RepositoryEventHandler.__new__(RepositoryEventHandler)
+        with patch(
+            "codegraphcontext.tools.indexing.pipeline.get_parallel_workers",
+            return_value=6,
+        ) as helper:
+            assert watcher._incremental_parse_workers() == 6
+        helper.assert_called_once_with(default=WATCHER_DEFAULT_PARALLEL_WORKERS)
+
 
 class TestWriteOrmMappingsDatasourceName:
     """Regression test for bug: DbTable.datasource_name is null when write_query_links

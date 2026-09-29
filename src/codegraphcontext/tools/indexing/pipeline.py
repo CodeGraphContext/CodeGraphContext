@@ -33,21 +33,55 @@ from .resolution.inheritance import (
 
 
 DEFAULT_PARALLEL_WORKERS = 10
+# Used only when PARALLEL_WORKERS is empty or not a positive integer.
+# load_config() copies DEFAULT_CONFIG first, where the key is "4", so a
+# normal install reads 4 for both indexing and the watcher. This smaller
+# fallback is for the watcher alone: incremental re-parse runs in the
+# background during editing.
+WATCHER_DEFAULT_PARALLEL_WORKERS = 4
+MAX_PARALLEL_WORKERS = 32
 
 
-def get_parallel_workers() -> int:
-    """Resolve the indexing concurrency limit from the PARALLEL_WORKERS config.
+def _clamp_parallel_workers(workers: int) -> int:
+    """Cap a resolved worker count. A config of 5000 must not spawn 5000 threads."""
+    if workers > MAX_PARALLEL_WORKERS:
+        warning_logger(
+            f"PARALLEL_WORKERS={workers} exceeds {MAX_PARALLEL_WORKERS}; "
+            f"using {MAX_PARALLEL_WORKERS}"
+        )
+        return MAX_PARALLEL_WORKERS
+    return workers
 
-    Falls back to DEFAULT_PARALLEL_WORKERS when the value is unset or not a
-    usable positive integer, so a bad config never breaks indexing.
+
+def get_parallel_workers(default: int = DEFAULT_PARALLEL_WORKERS) -> int:
+    """Resolve PARALLEL_WORKERS for indexing and the file watcher.
+
+    ``default`` is used when the value is empty or not a positive integer.
+    A full index uses ``DEFAULT_PARALLEL_WORKERS`` (10). The watcher passes
+    ``WATCHER_DEFAULT_PARALLEL_WORKERS`` (4). A positive integer is returned
+    to every caller, capped at ``MAX_PARALLEL_WORKERS``. ``load_config``
+    supplies ``"4"`` from ``DEFAULT_CONFIG`` when the user has not set the
+    key, so both paths use 4 in that case.
+
+    A non-integer or non-positive value logs a warning before falling back.
     """
     from ...cli.config_manager import get_config_value
 
+    raw = get_config_value("PARALLEL_WORKERS")
+    if raw is None or str(raw).strip() == "":
+        return _clamp_parallel_workers(default)
+
     try:
-        workers = int(get_config_value("PARALLEL_WORKERS") or "")
+        workers = int(str(raw).strip())
     except (TypeError, ValueError):
-        return DEFAULT_PARALLEL_WORKERS
-    return workers if workers > 0 else DEFAULT_PARALLEL_WORKERS
+        warning_logger(f"Invalid PARALLEL_WORKERS={raw!r}; using {default}")
+        return _clamp_parallel_workers(default)
+
+    if workers <= 0:
+        warning_logger(f"Invalid PARALLEL_WORKERS={raw!r}; using {default}")
+        return _clamp_parallel_workers(default)
+
+    return _clamp_parallel_workers(workers)
 
 
 def build_index_summary(
