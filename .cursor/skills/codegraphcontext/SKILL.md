@@ -36,5 +36,4 @@ description: >-
 
 - CLI entry: `codegraphcontext.cli.main`
 - MCP server and tool wiring: `codegraphcontext.server`, `tool_definitions.py`
-- User-facing setup detail: `docs/docs/setup_workflows.md`, `docs/docs/guides/mcp_guide.md`
-- Published copy of this skill (for docs / GitHub): `docs/docs/agent_skill_codegraphcontext.md`
+- User-facing setup detail: `docs/docs/getting-started/installation.md`, `docs/docs/getting-started/mcp-setup.md`
