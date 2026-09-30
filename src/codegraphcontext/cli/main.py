@@ -1514,12 +1514,13 @@ def doctor():
                 console.print("       Run: pip install kuzu")
                 all_checks_passed = False
         elif default_db == "ladybugdb":
-            from importlib.util import find_spec
+            from codegraphcontext.core import ladybugdb_unavailable_reason
 
-            if find_spec("ladybug") is not None:
+            ladybug_reason = ladybugdb_unavailable_reason()
+            if ladybug_reason is None:
                 console.print("   [green]✓[/green] LadybugDB core (ladybug) is installed")
             else:
-                console.print("   [red]✗[/red] LadybugDB core (ladybug) is not installed")
+                console.print(f"   [red]✗[/red] {ladybug_reason}")
                 console.print("       Run: pip install ladybug")
                 all_checks_passed = False
         elif default_db == "falkordb-remote":
