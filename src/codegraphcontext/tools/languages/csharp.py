@@ -525,11 +525,17 @@ class CSharpTreeSitterParser:
                     )
                     class_context = (cls_name, cls_line) if cls_name else None
 
+                    call_node = node.parent
+                    if call_node is not None and call_node.type in ("member_access_expression", "qualified_name"):
+                        call_node = call_node.parent
+                    arg_list = call_node.child_by_field_name("arguments") if call_node is not None else None
+                    args = [self._get_node_text(a) for a in arg_list.named_children if a.type == "argument"] if arg_list else []
+
                     call_data = {
                         "name": call_name,
                         "full_name": full_call_name,
                         "line_number": line_number,
-                        "args": [],
+                        "args": args,
                         "inferred_obj_type": None,
                         "context": (context_name, context_type, context_line),
                         "class_context": class_context,
