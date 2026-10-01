@@ -223,7 +223,6 @@ body {
   }
 
   /* Graph visualization styles */
- /* Graph visualization styles */
   .graph-node {
     @apply rounded-full border-2 border-primary/20 transition-all duration-300;
     background: var(--gradient-primary);
