@@ -18,6 +18,11 @@ DEFAULT_IGNORE_PATTERNS = [
     # .NET intermediate output: contains *generated* source (AssemblyInfo.cs,
     # GlobalUsings.g.cs) that pollutes the graph with phantom modules (#1585).
     "obj/",
+    # Terraform and Terragrunt vendor a copy of every remote module into these after `init`,
+    # the same way node_modules works: 23,000 vendored files against 1,900 real ones on one
+    # estate, all of them merging into the same global Module namespace.
+    ".terraform/",
+    ".terragrunt-cache/",
     ".git/",
     "__pycache__/",
     "*.png",

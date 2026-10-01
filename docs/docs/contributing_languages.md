@@ -178,3 +178,33 @@ Expected results include files such as `Greeter.sol` / `BaseGreeter.sol` / `Usin
 The initial Emacs Lisp implementation intentionally stays on the Tree-sitter pipeline. There is no standard `scip-elisp` indexer to register in `EXTENSION_TO_SCIP`, and the commonly used `elisp-refs` package is designed as an interactive Emacs reference finder rather than a batch indexer: it searches files recorded in the running Emacs `load-history`, renders results in a special buffer instead of emitting JSON or SCIP data, and exposes useful Lisp-2 function/variable heuristics only through internal APIs.
 
 A future semantic indexer could reuse those heuristics in a dedicated batch wrapper, but it would still need directory discovery, side-effect-safe loading or buffer creation, line/column conversion from character offsets, structured output, and explicit handling for macro expansion and indirect calls. Until that exists, `.el` files should continue to use Tree-sitter indexing with documented limitations around arbitrary macro semantics and dynamic dispatch.
+
+### HCL smoke check
+
+`.tf`, `.tfvars` and `.hcl` are parsed by `languages/hcl.py` (Terraform, OpenTofu, Terragrunt).
+
+```bash
+cgc index ./tests/fixtures/sample_projects/sample_project_hcl --force
+cgc query "MATCH (c:Class) RETURN c.name, c.node_type"
+cgc query "MATCH (f:File)-[:IMPORTS]->(m:Module) RETURN f.name, m.name"
+```
+
+Expect blocks under their Terraform address (`aws_s3_bucket.artifacts`,
+`data.aws_caller_identity.current`, `module.network`), variables as they are referenced
+(`var.bucket_name`, `output.bucket_arn`, `local.tags`) and one import per literal module source,
+`include` path and `dependency` config path.
+
+### HCL limitations (v1)
+
+- No reference extraction, so no `function_calls` and no edges from a block to the variables it
+  reads. "Which configurations consume this module" works; "what breaks if I change
+  `var.location`" does not yet.
+- Only a reference written as a quoted string becomes an import. One built by a function call,
+  such as Terragrunt's `find_in_parent_folders("root.hcl")`, names no single target, and imports
+  merge into `Module` nodes by name alone, so keeping it would merge every configuration using
+  that idiom onto one node.
+- A reference relative to the file that writes it is resolved against that file, including
+  `${get_terragrunt_dir()}`. Other interpolations are kept as written: `${get_repo_root()}/x`
+  names the same file from everywhere, so those configurations should meet on one node.
+- `.hcl` is also used by Packer, Nomad, Consul and Vault. Those files parse, but their block
+  vocabularies are not modelled, so addresses fall back to `<block type>.<label>`.
