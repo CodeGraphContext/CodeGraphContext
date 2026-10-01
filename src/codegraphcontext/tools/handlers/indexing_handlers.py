@@ -1,12 +1,69 @@
 # src/codegraphcontext/tools/handlers/indexing_handlers.py
+import ast
 import os
-from typing import Any, Dict
+from typing import Any, Dict, List, Set
 from pathlib import Path
 import asyncio
+import stdlibs
 from ...utils.debug_log import debug_log
 from ...utils.path_sandbox import is_path_allowed as _is_path_allowed
 from ...utils.repo_path import repo_record_matches_path
 from ..package_resolver import get_local_package_path
+
+
+def _collect_python_imports(path_obj: Path) -> Set[str]:
+    """Collect top-level import names from Python files in the given path."""
+    import_names: Set[str] = set()
+    try:
+        all_files = path_obj.rglob("*") if path_obj.is_dir() else [path_obj]
+        for file_path in all_files:
+            if file_path.is_file() and file_path.suffix == '.py':
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        source = f.read()
+                    tree = ast.parse(source)
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Import):
+                            for alias in node.names:
+                                top_level = alias.name.split('.')[0]
+                                import_names.add(top_level)
+                        elif isinstance(node, ast.ImportFrom):
+                            if node.module:
+                                top_level = node.module.split('.')[0]
+                                import_names.add(top_level)
+                except (SyntaxError, UnicodeDecodeError):
+                    continue
+    except Exception as e:
+        debug_log(f"Error collecting imports from {path_obj}: {e}")
+    return import_names
+
+
+def _filter_and_resolve_dependencies(import_names: Set[str], project_path: Path) -> List[Dict[str, Any]]:
+    """Filter out stdlib and local modules, then resolve external packages."""
+    dependencies: List[Dict[str, Any]] = []
+    project_modules = {f.stem for f in project_path.rglob("*.py") if f.is_file()}
+    for init_file in project_path.rglob("__init__.py"):
+        parts = list(init_file.parent.relative_to(project_path).parts)
+        if parts:
+            project_modules.add(parts[0])
+
+    resolved: Set[str] = set()
+    for module_name in import_names:
+        if module_name in stdlibs.module_names:
+            continue
+        if module_name in project_modules:
+            continue
+        if module_name in resolved:
+            continue
+        package_path = get_local_package_path(module_name, "python")
+        if package_path and os.path.exists(package_path):
+            resolved.add(module_name)
+            dependencies.append({
+                "package_name": module_name,
+                "package_path": package_path,
+                "is_dependency": True
+            })
+    return dependencies
 
 
 def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args) -> Dict[str, Any]:
@@ -90,6 +147,29 @@ def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args)
         
         debug_log(f"Started background job {job_id} for path: {str(path_obj)}, is_dependency: {is_dependency}")
         
+        # If index_dependencies is True, collect imports and queue dependency indexing jobs.
+        dependency_job_ids: List[str] = []
+        index_dependencies = args.get("index_dependencies", False)
+        if index_dependencies:
+            debug_log("Collecting Python imports for dependency indexing...")
+            import_names = _collect_python_imports(path_obj)
+            debug_log(f"Found {len(import_names)} top-level imports: {import_names}")
+            
+            dependencies = _filter_and_resolve_dependencies(import_names, path_obj)
+            
+            for dep in dependencies:
+                dep_job_id = job_manager.create_job(dep["package_path"], True)
+                job_manager.update_job(dep_job_id, total_files=1, estimated_duration=1.0)
+                dep_coro = graph_builder.build_graph_from_path_async(
+                    Path(dep["package_path"]), True, dep_job_id
+                )
+                asyncio.run_coroutine_threadsafe(dep_coro, loop)
+                dependency_job_ids.append(dep_job_id)
+                debug_log(f"Started dependency indexing job {dep_job_id} for package: {dep['package_name']}")
+            
+            if dependency_job_ids:
+                debug_log(f"Started {len(dependency_job_ids)} dependency indexing jobs.")
+        
         return {
             "success": True, "job_id": job_id,
             **({"graph_name": graph_name} if graph_name else {}),
@@ -98,7 +178,8 @@ def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args)
             "estimated_files": total_files,
             "estimated_duration_seconds": round(estimated_time, 2),
             "estimated_duration_human": f"{int(estimated_time // 60)}m {int(estimated_time % 60)}s" if estimated_time >= 60 else f"{int(estimated_time)}s",
-            "instructions": f"Use 'check_job_status' with job_id '{job_id}' to monitor progress"
+            "instructions": f"Use 'check_job_status' with job_id '{job_id}' to monitor progress",
+            **({"dependency_job_ids": dependency_job_ids} if index_dependencies else {})
         }
     
     except Exception as e:

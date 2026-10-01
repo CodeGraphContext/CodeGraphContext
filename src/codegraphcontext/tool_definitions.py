@@ -22,6 +22,11 @@ TOOLS = {
                     "description": "Whether this code is a dependency.",
                     "default": False
                 },
+                "index_dependencies": {
+                    "type": "boolean",
+                    "description": "When true, automatically indexes all external Python packages imported by the project.",
+                    "default": False
+                },
                 "graph_name": _GRAPH_NAME_PROP
             },
             "required": ["repo_path"]

@@ -86,7 +86,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Download cgc-windows.exe artifact
         uses: actions/download-artifact@v4

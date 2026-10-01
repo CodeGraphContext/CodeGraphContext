@@ -190,7 +190,7 @@ class MCPServer:
     - The main JSON-RPC communication loop for interacting with an AI assistant.
     """
 
-    def __init__(self, loop=None, cwd: Path | None = None):
+    def __init__(self, loop=None, cwd: Path | None = None, role_prompt: Optional[str] = None):
         """
         Initializes the MCP server and its components. 
         
@@ -198,11 +198,23 @@ class MCPServer:
             loop: The asyncio event loop to use. If not provided, it gets the current
                   running loop or creates a new one.
             cwd: Working directory used for context resolution. Defaults to Path.cwd().
+            role_prompt: Optional AI role text injected into the ``initialize``
+                response. When None, resolved from CGC_MCP_ROLE / project config.
+                When still None, no role is injected (byte-identical default).
         """
         self.cwd = (cwd or Path.cwd()).resolve()
         self.discovered_child_contexts: List[dict] = []
         self._context_note_pending = False
         self.disabled_tools: Set[str] = set()
+
+        # Resolve role prompt: explicit argument > env/config fallback > None.
+        if role_prompt is None:
+            try:
+                from .roles import resolve_role_prompt
+                role_prompt = resolve_role_prompt(project_root=self.cwd)
+            except Exception:
+                role_prompt = None
+        self._role_prompt = role_prompt
 
         try:
             ctx = resolve_context(cwd=self.cwd)
@@ -826,9 +838,17 @@ class MCPServer:
                 response = {}
                 # Route the request based on the JSON-RPC method.
                 if method == 'initialize':
-                    # Build system prompt with custom prompts if any
-                    system_prompt = build_system_prompt()
-                    
+                    # Build system prompt with custom prompts and role if any
+                    system_prompt = build_system_prompt(role_prompt=self._role_prompt)
+
+                    # When no role is configured, instructions is byte-identical
+                    # to LLM_SYSTEM_PROMPT. When a role is set, prepend it so
+                    # the AI client receives the persona framing.
+                    if self._role_prompt:
+                        instructions = f"{self._role_prompt}\n\n---\n\n{LLM_SYSTEM_PROMPT}"
+                    else:
+                        instructions = LLM_SYSTEM_PROMPT
+
                     response = {
                         "jsonrpc": "2.0", "id": request_id,
                         "result": {
@@ -840,7 +860,7 @@ class MCPServer:
                                 "instructionsAvailable": True,
                             },
                             "capabilities": {"tools": {"listTools": True}},
-                            "instructions": LLM_SYSTEM_PROMPT,
+                            "instructions": instructions,
                         }
                     }
                 elif method == 'tools/list':
