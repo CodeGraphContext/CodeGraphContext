@@ -12,6 +12,7 @@ def test_ai_query_no_api_keys(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ATLASCLOUD_API_KEY", raising=False)
     monkeypatch.delenv("ATLAS_CLOUD_API_KEY", raising=False)
+    monkeypatch.delenv("CHEAPER_INFERENCE_API_KEY", raising=False)
     
     # Mock db_manager
     mock_db = MagicMock()
@@ -78,6 +79,66 @@ def test_call_llm_with_atlas_cloud_alias_defaults(mock_post, monkeypatch):
     _, kwargs = mock_post.call_args
     assert mock_post.call_args.args[0] == "https://api.atlascloud.ai/v1/chat/completions"
     assert kwargs["json"]["model"] == "deepseek-ai/deepseek-v4-pro"
+
+
+@patch("codegraphcontext.viz.server.requests.post")
+def test_call_llm_with_cheaperinference(mock_post, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ATLASCLOUD_API_KEY", raising=False)
+    monkeypatch.delenv("ATLAS_CLOUD_API_KEY", raising=False)
+    monkeypatch.setenv("CHEAPER_INFERENCE_API_KEY", "fake-ci-key")
+    monkeypatch.setenv("CHEAPER_INFERENCE_API_BASE", "https://api.cheaperinference.com/v1/")
+    monkeypatch.setenv("CHEAPER_INFERENCE_MODEL", "claude-sonnet-5")
+
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "choices": [{"message": {"content": "MATCH (n) RETURN n"}}]
+    }
+
+    from codegraphcontext.viz.server import call_llm
+
+    result = call_llm("system prompt", "user prompt")
+
+    assert result == "MATCH (n) RETURN n"
+    mock_post.assert_called_once_with(
+        "https://api.cheaperinference.com/v1/chat/completions",
+        json={
+            "model": "claude-sonnet-5",
+            "messages": [
+                {"role": "system", "content": "system prompt"},
+                {"role": "user", "content": "user prompt"},
+            ],
+        },
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer fake-ci-key",
+        },
+        timeout=30,
+    )
+
+
+@patch("codegraphcontext.viz.server.requests.post")
+def test_call_llm_with_cheaperinference_defaults(mock_post, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ATLASCLOUD_API_KEY", raising=False)
+    monkeypatch.delenv("ATLAS_CLOUD_API_KEY", raising=False)
+    monkeypatch.delenv("CHEAPER_INFERENCE_API_BASE", raising=False)
+    monkeypatch.delenv("CHEAPER_INFERENCE_MODEL", raising=False)
+    monkeypatch.setenv("CHEAPER_INFERENCE_API_KEY", "fake-ci-key")
+
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "choices": [{"message": {"content": "default response"}}]
+    }
+
+    from codegraphcontext.viz.server import call_llm
+
+    assert call_llm("system", "user") == "default response"
+    _, kwargs = mock_post.call_args
+    assert mock_post.call_args.args[0] == "https://api.cheaperinference.com/v1/chat/completions"
+    assert kwargs["json"]["model"] == "gpt-5.4-mini"
 
 
 @patch("codegraphcontext.viz.server.call_llm")
