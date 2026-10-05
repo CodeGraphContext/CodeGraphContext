@@ -47,7 +47,8 @@ A self-contained React project that runs the graphical visualization console.
 The test suite ensures reliability across backends and language parsers:
 
 - **`unit/`**: Validates isolated logic blocks, such as specific regex matches, configuration expansions, or parser AST collections.
-- **`integration/`**: Verifies graph operations against actual database instances (KuzuDB, Neo4j, FalkorDB).
+- **`integration/`**: Verifies graph operations against actual database instances (LadybugDB, legacy KuzuDB,
+  Neo4j, and FalkorDB).
 - **`fixtures/`**: Minimal test codebases (e.g., mock Python classes or Javascript files) used by integration tests to check parser outputs.
 
 ### 4. Enterprise Deployments (`k8s/`)

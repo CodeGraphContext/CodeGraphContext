@@ -8,7 +8,7 @@ class FalkorDBUnavailableError(RuntimeError):
     """
     Raised when FalkorDB Lite is installed but cannot actually run in this
     environment (e.g. falkordb.so not found in a PyInstaller bundle,
-    or GRAPH.QUERY not available). Callers should fall back to KùzuDB.
+    or GRAPH.QUERY not available). Callers should fall back to LadybugDB.
     """
 import os
 import sys
@@ -398,7 +398,7 @@ class FalkorDBManager:
                         last_error = e
 
                 # Any other exit code during startup means this backend is toast.
-                # Raise FalkorDBUnavailableError to trigger the automatic KùzuDB fallback.
+                # Raise FalkorDBUnavailableError to trigger the maintained LadybugDB fallback.
                 raise FalkorDBUnavailableError(
                     f"FalkorDB Lite worker failed to start (Exit Code {returncode}).\n"
                     f"STDOUT: {out.decode().strip()}\n"
@@ -408,7 +408,7 @@ class FalkorDBManager:
             time.sleep(0.5)
             
         # Timeout is also a "backend not usable here" signal — raise the typed
-        # exception so the documented KùzuDB fallback fires instead of crashing.
+        # exception so the documented LadybugDB fallback fires instead of crashing.
         raise FalkorDBUnavailableError(
             f"Timed out waiting for FalkorDB Lite to start. Last error: {last_error}"
         )

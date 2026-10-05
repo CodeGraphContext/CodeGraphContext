@@ -36,6 +36,7 @@ nav:
     - Indexing Codebases: guides/indexing.md
     - Configuration Contexts: guides/contexts.md
     - Portable CGC Bundles: guides/bundles.md
+    - Migrating Legacy KuzuDB Data: guides/migrate-from-kuzudb.md
     - Interactive Visualization: guides/visualization.md
     - Datasource Indexing: guides/datasource-indexing.md
     - Developer Onboarding: guides/onboarding-codebase.md
