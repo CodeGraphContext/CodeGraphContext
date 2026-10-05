@@ -6,10 +6,10 @@ CodeGraphContext (CGC) implements a pluggable database architecture. A common in
 
 ## Backend Comparison Matrix
 
-| Feature / Metric | FalkorDB (Lite, Default) | KuzuDB | LadybugDB | FalkorDB (Remote) | Neo4j |
+| Feature / Metric | FalkorDB (Lite, Default) | LadybugDB | KuzuDB (Legacy) | FalkorDB (Remote) | Neo4j |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Type** | Embedded In-Memory | Embedded C++ | Embedded SQL | Remote Client | Remote Client |
-| **Operating System** | Linux / macOS | Cross-Platform | Cross-Platform | Cross-Platform | Cross-Platform |
+| **Type** | Embedded In-Memory | Embedded Property Graph | Embedded Property Graph | Remote Client | Remote Client |
+| **Operating System** | Linux / macOS | Cross-Platform | Wheel-dependent | Cross-Platform | Cross-Platform |
 | **Setup Overhead** | None | None | None | Low (Docker) | Medium (Docker/Aura) |
 | **Read Latency** | Extremely Low | Very Low | Low | Low | Medium |
 | **Max Capacity** | RAM-Bounded | Large | Medium | Unlimited | Unlimited |
@@ -17,44 +17,46 @@ CodeGraphContext (CGC) implements a pluggable database architecture. A common in
 
 ---
 
-## 1. KuzuDB
+## 1. LadybugDB (maintained embedded backend)
 
-KuzuDB is an in-process property graph database management system. It requires zero configuration and stores graph data inside a directory on your filesystem.
+LadybugDB is the maintained Kuzu fork used for embedded CGC operation. It uses the same CGC adapter and query dialect,
+but it has its own storage format. A Kuzu directory must be migrated rather than opened directly.
 
-- **OLAP Optimized**: Designed for structured graph analysis and multi-hop queries.
-- **Cross-Platform**: Natively supports Windows, Linux, and macOS on Python 3.10+.
-- **Data Directory**: Graphs are saved inside the local `.codegraphcontext/` directory within the workspace.
+- **Zero configuration**: Runs in process and stores data in the local `.codegraphcontext/` directory.
+- **Maintained packaging**: Publishes current wheels across supported CGC platforms.
+- **Version floor**: CGC requires `ladybug>=0.19,<0.20` because older and newer releases have known native failures.
+
+### Setup
+
+```bash
+cgc config db ladybugdb
+```
+
+---
+
+## 2. KuzuDB (legacy opt-in)
+
+KuzuDB is archived upstream and 0.11.3 is its final release. CGC keeps explicit runtime compatibility during the
+migration window, but normal installs and implicit backend selection do not use it.
 
 ### Version Compatibility
 
 | Package | Declared bounds (`pyproject.toml`) | Versions |
 | :--- | :--- | :--- |
-| `kuzu` | Not declared | `0.10.0`, `0.11.0`, `0.11.1`, `0.11.2`, `0.11.3` |
+| `kuzu` | Optional extra with platform marker | `0.11.3` (final upstream release) |
 
 ### Setup
-Ensure the driver is installed:
+Install the legacy extra only when an existing deployment still needs it:
 ```bash
-pip install kuzu
+pip install "codegraphcontext[kuzu]"
 ```
-Select KuzuDB as the default backend:
+Explicitly select KuzuDB only while completing the migration:
 ```bash
 cgc config db kuzudb
 ```
 
----
-
-## 2. LadybugDB
-
-LadybugDB is an embedded graph database engine implemented over relational SQL drivers.
-
-- **Concurreny Safe**: Thread-safe operations suitable for concurrent watcher tasks.
-- **Relational Backend**: Uses SQLite/relational queries underneath to simulate property graph operations.
-
-### Setup
-Select LadybugDB as the default backend:
-```bash
-cgc config db ladybugdb
-```
+To leave the archived engine, follow [Migrating Legacy KuzuDB Data](../guides/migrate-from-kuzudb.md). Reusing the
+same directory is unsafe because Ladybug rejects Kuzu's on-disk format.
 
 ---
 
@@ -158,5 +160,6 @@ When executing commands, CGC automatically resolves the active database connecti
 3. **Global Config File**: Reads the value set via `cgc config db`.
 4. **Fallback Auto-Detection**:
    - If `FALKORDB_HOST` env is present, connects to FalkorDB Remote.
-   - On Unix: Tries to initialize FalkorDB Lite -> KuzuDB -> Neo4j.
-   - On Windows: Tries to initialize KuzuDB -> Neo4j.
+   - On Unix: Tries FalkorDB Lite, then LadybugDB, then configured Neo4j or Nornic.
+   - On Windows: Tries LadybugDB, then configured Neo4j or Nornic.
+   - KuzuDB is never selected implicitly.

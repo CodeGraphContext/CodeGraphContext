@@ -17,7 +17,7 @@ graph TD
 
     subgraph Persistence Layer
         builder --> db_api[Database Abstraction API]
-        db_api --> embedded[Embedded: KuzuDB / LadybugDB / FalkorDB Lite]
+        db_api --> embedded[Embedded: LadybugDB / FalkorDB Lite / legacy KuzuDB]
         db_api --> server[Server: Neo4j / FalkorDB Remote]
     end
 
@@ -51,8 +51,8 @@ The Persistence Layer abstracts database operations so that the engine can inter
 - **Database Abstraction API**: A client layer exposing methods to write batch transactions (`write_nodes`, `write_edges`) and query graph relationships via Cypher or native bindings.
 - **Embedded Engines**:
   - **FalkorDB Lite (Default on Unix)**: Embedded in-memory graph engine when `falkordblite` is installed (Linux/macOS, Python 3.12+).
-  - **KuzuDB (Cross-platform fallback)**: In-process C++ graph engine used automatically on Windows or when FalkorDB Lite is unavailable.
-  - **LadybugDB**: SQL-based embedded graph engine designed for concurrent read/write transactions.
+  - **LadybugDB (Maintained fallback)**: In-process property graph engine used when FalkorDB Lite is unavailable.
+  - **KuzuDB (Legacy opt-in)**: Archived engine retained temporarily for explicit compatibility and migration.
 - **Networked Server Engines**:
   - **FalkorDB Remote**: Remote client linking to FalkorDB instances.
   - **Neo4j**: Enterprise-scale storage supporting distributed clustering and the Neo4j web browser console.
