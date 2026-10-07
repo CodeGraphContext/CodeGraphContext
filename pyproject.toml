@@ -28,7 +28,12 @@ dependencies = [
     "inquirerpy>=0.3.4",
     "python-dotenv>=1.0.0",
     "tree-sitter>=0.24.0,<0.26.0",
-    "tree-sitter-language-pack>=1.6,<2.0",
+    # 上界锁在 1.21 之前：1.21.0 起 Haskell grammar 失效——CI #33/#34/#35
+    # （**同一个 commit 66ab4f1b**，代码零改动）三条 Haskell 用例全红，
+    # golden 报「Missing 39 expected nodes」= 39 个期望节点 0 产出，
+    # 而 #32（装 1.20.0）全绿；tree-sitter 本身仍是 0.25.2 未变。
+    # 上游修好 Haskell 后应放开此上界，并删除本注释。
+    "tree-sitter-language-pack>=1.6,<1.21",
     "tree-sitter-c-sharp>=0.21.0",
     "pyyaml",
     "nbformat",
@@ -88,7 +93,8 @@ dependencies = [
 [project.optional-dependencies]
 parsing = [
     "tree-sitter>=0.24.0,<0.26.0",
-    "tree-sitter-language-pack>=1.6,<2.0",
+    # 与 [project].dependencies 保持同一上界，理由见那里的注释。
+    "tree-sitter-language-pack>=1.6,<1.21",
     "tree-sitter-c-sharp>=0.21.0",
 ]
 # Named backend extras let users (and CI) opt into a single, tested driver
