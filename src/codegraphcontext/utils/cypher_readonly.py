@@ -21,16 +21,28 @@ _FORBIDDEN_KEYWORDS = (
     "GRANT",
     "REVOKE",
 )
+
+# `CALL` is not blocklisted by procedure name (apoc/dbms/db.* prefixes) — that
+# approach is provably incomplete against any procedure library that doesn't
+# share those prefixes, e.g. Neo4j GDS write/mutate procedures
+# (`gds.pageRank.write`, `gds.louvain.mutate`) or neosemantics
+# (`n10s.rdf.import.fetch`, an SSRF and a write in one call). Instead every
+# `CALL` is rejected unless its procedure name is on this explicit allowlist.
+# Keep this list small and read-only; see `_calls_allowed` below.
+_ALLOWED_CALL_PROCEDURES = frozenset({
+    "db.labels",
+    "db.relationshiptypes",
+    "db.propertykeys",
+    "db.schema.visualization",
+    "db.indexes",
+})
+
 _FORBIDDEN_PATTERNS = (
-    re.compile(r"CALL\s+apoc\b", re.IGNORECASE),
-    re.compile(r"CALL\s+dbms\b", re.IGNORECASE),
-    re.compile(r"CALL\s+db\.[a-z0-9_.]*\.(?:create|drop|delete|set|add|remove|alter)\b", re.IGNORECASE),
-    re.compile(r"CALL\s+db\.[a-z0-9_.]*create", re.IGNORECASE),
-    re.compile(r"CALL\s*\{"),
-    # Write-side APOC procedures are blocked explicitly (not only via the bare
-    # `CALL apoc` rule above) so they are also caught when invoked inline, with
-    # a yield/where clause, or in any spacing the `CALL apoc` rule might miss.
-    # These namespaces mutate the graph and must never run on a read path.
+    # Write-side APOC procedures are blocked explicitly (not only via the
+    # CALL allowlist above) so they are also caught when invoked inline as
+    # plain functions with no CALL keyword at all, e.g.
+    # `RETURN apoc.create.uuid()`. These namespaces mutate the graph and
+    # must never run on a read path.
     re.compile(r"\bapoc\.(?:create|merge|refactor|periodic)\b", re.IGNORECASE),
 )
 _STRING_LITERAL_RE = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'')
@@ -80,21 +92,58 @@ def _strip_literals_and_comments(query: str) -> str:
 _TOKEN_RE = re.compile(r"\w+|[^\w\s]")
 
 
+def _in_clause_position(tokens: list[str], i: int) -> bool:
+    prev = tokens[i - 1] if i > 0 else ""
+    return not (prev in (".", ":", "$") or prev.upper() == "AS")
+
+
 def _keyword_in_clause_position(stripped: str, keyword: str) -> bool:
     tokens = _TOKEN_RE.findall(stripped)
     kw = keyword.upper()
     for i, tok in enumerate(tokens):
-        if tok.upper() != kw:
-            continue
-        prev = tokens[i - 1] if i > 0 else ""
-        if prev in (".", ":", "$") or prev.upper() == "AS":
-            continue
-        return True
+        if tok.upper() == kw and _in_clause_position(tokens, i):
+            return True
     return False
 
 
+def _calls_allowed(stripped: str) -> bool:
+    """True only if every `CALL` in *stripped* invokes an allowlisted procedure.
+
+    Fails closed: a `CALL` whose procedure name can't be parsed as a plain
+    dotted identifier — e.g. the `{` that opens a `CALL { ... }` subquery —
+    or that isn't in `_ALLOWED_CALL_PROCEDURES` is treated as a write.
+    """
+    tokens = _TOKEN_RE.findall(stripped)
+    for i, tok in enumerate(tokens):
+        if tok.upper() != "CALL" or not _in_clause_position(tokens, i):
+            continue
+
+        # Consume the dotted procedure name immediately after CALL:
+        # IDENT ('.' IDENT)*
+        name_parts: list[str] = []
+        j = i + 1
+        expect_ident = True
+        while j < len(tokens):
+            t = tokens[j]
+            if expect_ident and re.fullmatch(r"[A-Za-z_]\w*", t):
+                name_parts.append(t)
+                j += 1
+                expect_ident = False
+            elif not expect_ident and t == ".":
+                j += 1
+                expect_ident = True
+            else:
+                break
+
+        procedure_name = ".".join(name_parts).lower()
+        if procedure_name not in _ALLOWED_CALL_PROCEDURES:
+            return False
+    return True
+
+
 def is_read_only_cypher(query: str) -> bool:
-    """Return True when *query* has no write keywords outside string literals."""
+    """Return True when *query* has no write keywords outside string literals
+    and every CALL invokes an allowlisted read-only procedure."""
     if not query or not query.strip():
         return False
     stripped = _strip_literals_and_comments(query)
@@ -106,11 +155,15 @@ def is_read_only_cypher(query: str) -> bool:
     for pattern in _FORBIDDEN_PATTERNS:
         if pattern.search(stripped):
             return False
+    if not _calls_allowed(stripped):
+        return False
     return True
 
 
 def read_only_rejection_message() -> str:
     return (
         "This tool only supports read-only queries. Prohibited keywords like "
-        "CREATE, MERGE, DELETE, SET, ALTER, COPY, etc., are not allowed."
+        "CREATE, MERGE, DELETE, SET, ALTER, COPY, etc., are not allowed, and "
+        "CALL is restricted to a small allowlist of read-only introspection "
+        "procedures."
     )

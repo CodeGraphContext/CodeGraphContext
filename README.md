@@ -180,49 +180,6 @@ flowchart LR
 
 
 ---
-## Architecture Overview
-
-CodeGraphContext transforms source code into a queryable knowledge graph that can be explored through the CLI or AI assistants via MCP.
-
-```mermaid
-flowchart TD
-    A[Code Repository] --> B[Tree-sitter / SCIP Indexing]
-    B --> C[Knowledge Graph]
-    C --> D[Graph Database]
-    D --> E[CLI Toolkit]
-    D --> F[MCP Server]
-    F --> G[AI Assistant]
-```
-
-### Workflow
-
-1. Source code is parsed using Tree-sitter or SCIP indexers.
-2. Relationships between functions, classes, imports, and calls are extracted.
-3. A knowledge graph is generated and stored in a graph database.
-4. Users can query the graph through the CLI or AI assistants using MCP.
-
-## 🏗️ Architecture & Workflow
-
-CodeGraphContext parses your source code and builds a comprehensive knowledge graph. This graph can be queried directly via the CLI toolkit or exposed to AI assistants through the MCP server.
-
-```mermaid
-flowchart TD
-    A[Code Repository] -->|Parsed by| B[Tree-sitter / SCIP Indexing]
-    B -->|Generates| C[Knowledge Graph]
-    C -->|Stored in| D[(Graph Database)]
-    D -->|Queried via| E[CLI Toolkit]
-    D -->|Served by| F[MCP Server]
-    F -->|Provides context to| G[🤖 AI Assistant]
-
-    classDef default fill:#1f2937,stroke:#8b5cf6,stroke-width:2px,color:#fff;
-    classDef db fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    classDef ai fill:#312e81,stroke:#a855f7,stroke-width:2px,color:#fff;
-    
-    D:::db
-    G:::ai
-```
-
----
 
 ## 🏗️ Architecture & Workflow
 

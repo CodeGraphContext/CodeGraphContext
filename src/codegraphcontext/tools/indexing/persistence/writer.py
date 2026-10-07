@@ -1833,6 +1833,55 @@ class GraphWriter:
                     warning_logger(f"Failed to link C++ methods for label {clab}: {e}")
 
         execute_write_operation(self.driver, backend, _work)
+
+    def repair_missing_contains_links(self, repo_path_str: str) -> Dict[str, int]:
+        """Post-index invariant: every symbol under the repo must be reachable
+        from its ``File`` through ``CONTAINS``.
+
+        The per-file linking MERGE keys on the ``occurrence_index`` property
+        (#1393).  On FalkorDB Lite an index created while parallel workers are
+        still writing can come up operational but empty, so those MATCHes
+        silently match zero rows: the symbols persist, but not one
+        ``File-[:CONTAINS]`` edge does, and the scoped ``cgc stats`` counters
+        (which traverse ``Repository-[:CONTAINS*]->Function``) report 0.
+        Detect the label-wise all-unlinked state, warn, and back-fill the
+        edges from the already-stored ``path`` property.  Partially linked
+        labels are left alone — that indicates a different, per-file defect.
+        """
+        repo_path_str = _normalize_path(repo_path_str)
+        backend = get_backend_type(self.driver, self._db_manager)
+        repaired: Dict[str, int] = {}
+
+        def _work(session):
+            for label in ("Function", "Class", "Variable"):
+                symbols = session.run(
+                    f"MATCH (n:{label}) WHERE n.path STARTS WITH $repo_path "
+                    "RETURN count(n) AS c",
+                    repo_path=repo_path_str,
+                ).single()["c"]
+                linked = session.run(
+                    f"MATCH (f:File)-[:CONTAINS]->(n:{label}) "
+                    "WHERE f.path STARTS WITH $repo_path RETURN count(n) AS c",
+                    repo_path=repo_path_str,
+                ).single()["c"]
+                if symbols and not linked:
+                    warning_logger(
+                        f"[INVARIANT] {symbols} {label} node(s) have no "
+                        "File-[:CONTAINS] edge — the per-file linking pass "
+                        "matched nothing (known FalkorDB Lite empty-index "
+                        "race). Back-filling from node paths."
+                    )
+                    session.run(
+                        f"MATCH (f:File) WHERE f.path STARTS WITH $repo_path "
+                        f"MATCH (n:{label}) WHERE n.path = f.path "
+                        "MERGE (f)-[:CONTAINS]->(n)",
+                        repo_path=repo_path_str,
+                    )
+                    repaired[label] = symbols
+            return repaired
+
+        return execute_write_operation(self.driver, backend, _work)
+
     def write_spring_inject_links(self, inject_batch: List[Dict[str, Any]]) -> None:
         """Create INJECTS edges: injector Class -> injected Class (via @Autowired / @Inject)."""
         if not inject_batch:

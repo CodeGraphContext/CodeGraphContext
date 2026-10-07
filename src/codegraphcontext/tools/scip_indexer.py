@@ -682,8 +682,9 @@ class ScipIndexParser:
 
                 else: # Reference
                     if sym not in symbol_def_table: continue
-                    callee_info = symbol_def_table[sym]
                     r = list(occ.range)
+                    if not r: continue
+                    callee_info = symbol_def_table[sym]
                     ref_line_idx = r[0]
                     if len(r) == 4:
                         col_end = r[3]

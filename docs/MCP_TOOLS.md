@@ -31,6 +31,11 @@ cgc mcp   # or configure mcp.json with the same env
 
 Without this variable, sibling directories outside the server cwd are rejected for security.
 
+To disable the sandbox entirely (e.g. containerized setups or dynamic multi-repository
+indexing where maintaining `CGC_ALLOWED_ROOTS` is impractical), set `CGC_ALLOW_ALL_PATHS=true`
+or `CGC_ALLOWED_ROOTS=*`. This permits any valid filesystem path. Sandboxing stays on by
+default; only enable this when you trust every path the server will be asked to touch.
+
 ---
 
 ## Context management
