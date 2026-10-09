@@ -48,7 +48,7 @@ def _probe_embedded_backend(module_name: str):
 
 
 # We run indexing as a subprocess to keep PyBind11 namespace and database environments isolated
-async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_dir: Path) -> Tuple[float, Dict[str, int], list]:
+async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_dir: Path) -> Tuple[float, Dict[str, int], list, list, list]:
     print(f"\n================= RUNNING {db_type.upper()} INDEXING IN SUBPROCESS =================")
     
     db_path = (temp_test_dir / f"{db_type}_test_db").as_posix()
@@ -75,6 +75,8 @@ async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_di
     # Actions step log and GitHub truncates the whole step — including the
     # comparison table. Pass it through a file so only the small diff is logged.
     edges_out_str = (temp_test_dir / f"{db_type}_calls_edges.json").as_posix()
+    contains_out_str = (temp_test_dir / f"{db_type}_contains_edges.json").as_posix()
+    variables_out_str = (temp_test_dir / f"{db_type}_variable_nodes.json").as_posix()
     
     # Construct a python command to run the indexing
     cmd = f"""
@@ -149,10 +151,50 @@ async def run():
         except Exception as _e:
             calls_edges = ["<edge dump failed: " + str(_e) + ">"]
 
+        # Include labels and occurrence indices: name/path/line alone can
+        # collapse distinct symbols. Backend IDs and uids are not portable.
+        contains_edges = []
+        res = session.run(
+            "MATCH (source)-[:CONTAINS]->(target) "
+            "RETURN labels(source)[0] AS sl, source.path AS sp, "
+            "source.name AS sn, source.line_number AS sline, "
+            "source.occurrence_index AS so, labels(target)[0] AS tl, "
+            "target.path AS tp, target.name AS tn, "
+            "target.line_number AS tline, target.occurrence_index AS tor"
+        )
+        base = str(project_path).replace(chr(92), '/').rstrip('/')
+        def relative_path(value):
+            if value is None:
+                return None
+            value = str(value).replace(chr(92), '/')
+            if value == base:
+                return '.'
+            return value[len(base) + 1:] if value.startswith(base + '/') else value
+        for rec in res:
+            d = dict(rec)
+            contains_edges.append([
+                [d.get('sl'), relative_path(d.get('sp')), d.get('sn'), d.get('sline'), d.get('so')],
+                [d.get('tl'), relative_path(d.get('tp')), d.get('tn'), d.get('tline'), d.get('tor')],
+            ])
+        variable_nodes = []
+        for rec in session.run(
+            "MATCH (n:Variable) RETURN n.name AS name, n.path AS path, "
+            "n.line_number AS line, n.occurrence_index AS occurrence, n.uid AS uid"
+        ):
+            d = dict(rec)
+            variable_nodes.append({{
+                'identity': ['Variable', relative_path(d.get('path')), d.get('name'), d.get('line'), d.get('occurrence')],
+                'uid': str(d['uid']).replace(base, '<repo>') if d.get('uid') is not None else None,
+            }})
+
     db_mgr.close_driver()
     stats["REL_CALLS_DISTINCT"] = len(set(calls_edges))
     with open(r'{edges_out_str}', "w") as _f:
         json.dump(calls_edges, _f)
+    with open(r'{contains_out_str}', "w") as _f:
+        json.dump(contains_edges, _f)
+    with open(r'{variables_out_str}', "w") as _f:
+        json.dump(variable_nodes, _f)
     print("STATS_JSON:" + json.dumps(stats))
 
 async def main():
@@ -199,7 +241,13 @@ asyncio.run(main())
     except (OSError, ValueError):
         pass
 
-    return duration, stats, calls_edges
+    # A missing containment dump must remain visible rather than becoming an
+    # empty set that looks like a backend with no containment relationships.
+    with open(contains_out_str) as _f:
+        contains_edges = json.load(_f)
+    with open(variables_out_str) as _f:
+        variable_nodes = json.load(_f)
+    return duration, stats, calls_edges, contains_edges, variable_nodes
 
 
 @pytest.mark.e2e
@@ -266,11 +314,13 @@ async def _run_database_parity_e2e(temp_test_dir):
     
     for db_type in db_types:
         try:
-            duration, stats, calls_edges = await run_indexing_in_process(db_type, project_path, temp_test_dir)
+            duration, stats, calls_edges, contains_edges, variable_nodes = await run_indexing_in_process(db_type, project_path, temp_test_dir)
             results[db_type] = {
                 "duration": duration,
                 "stats": stats,
                 "calls_edges": calls_edges,
+                "contains_edges": contains_edges,
+                "variable_nodes": variable_nodes,
             }
         except Exception as e:
             if db_type == "neo4j" and "failed to connect" in str(e).lower():
@@ -298,17 +348,6 @@ async def _run_database_parity_e2e(temp_test_dir):
     # REL_CALLS: KuzuDB/LadybugDB may drop ≤1 edge when the Neo4j fast/slow MATCH
     # split cannot bind an exact called_line_number (binder/UNWIND fallback).
     allowed_spread = {"REL_IMPORTS": 6, "REL_CALLS": 1}
-    # 已知**上游**偏差：LadybugDB 在 CI(Python 3.14/cp314) 下 REL_CONTAINS 少写 51 条
-    # （2026-10-08 实测，DB Parity #13）。LadybugDB 与 KùzuDB 共用
-    # src/codegraphcontext/core/database_embedded_kuzu.py 的实现，差异源自 ladybug 库本身，
-    # 非本仓库逻辑分支。
-    #
-    # 结构：{统计键: (预期偏低的后端, 该后端允许的最大偏差条数)}
-    # 放行需**同时**满足：① 恰好指定后端偏低 ② 其余后端彼此完全一致
-    #                ③ 偏差不超过上限（实测 51，留约 25% 余量）
-    # ⇒ 偏差扩大到 64 条以上、或多个后端不一致、或偏差换到别的键，仍会失败。
-    # 上游 ladybug 修复后请删除本条目，删除后该键立即恢复硬失败。
-    _KNOWN_BACKEND_DEVIATIONS = {"REL_CONTAINS": ("ladybugdb", 64)}
     all_match = True
     
     for key in keys_to_compare:
@@ -316,25 +355,12 @@ async def _run_database_parity_e2e(temp_test_dir):
         
         spread = max(vals) - min(vals) if vals else 0
         matches = spread <= allowed_spread.get(key, 0)
-        note = ""
-        if not matches and key in _KNOWN_BACKEND_DEVIATIONS:
-            low_db, max_dev = _KNOWN_BACKEND_DEVIATIONS[key]
-            present = {db: results[db]["stats"].get(key, 0)
-                       for db in db_types if db in results}
-            others = [v for db, v in present.items() if db != low_db]
-            dev = (others[0] - present[low_db]
-                   if low_db in present and others and len(set(others)) == 1
-                   and present[low_db] < others[0] else None)
-            if dev is not None and dev <= max_dev:
-                matches = True
-                note = (f"  [KNOWN-DEVIATION] {low_db} 低 {dev} 条"
-                        f"（上限 {max_dev}），按已知上游偏差放行")
         match_str = "YES" if matches else "NO"
         if not matches:
             all_match = False
             
         vals_str = "".join(f"{v:<10} | " for v in vals)
-        print(f"{key:<25} | {vals_str}{match_str}{note}")
+        print(f"{key:<25} | {vals_str}{match_str}")
         
     print("-" * (35 + 13 * len(db_types)))
     
@@ -342,8 +368,50 @@ async def _run_database_parity_e2e(temp_test_dir):
     print(f"{'Indexing Duration (s)':<25} | {dur_str}-")
 
     _report_calls_edge_diff(results, db_types)
+    diagnostics_dir = Path(os.environ.get('CGC_PARITY_DIAGNOSTICS_DIR', str(temp_test_dir)))
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (diagnostics_dir / 'containment-parity.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
+    contains_match = _report_contains_edge_diff(results, db_types)
 
     assert all_match, "❌ Database statistics do not match!"
+    assert contains_match, "Database CONTAINS edge identities do not match!"
+
+
+def _report_contains_edge_diff(results, db_types):
+    """Compare actual containment edges, retaining duplicates in the artifact."""
+    edge_sets = {
+        db: {json.dumps(edge, ensure_ascii=True) for edge in results[db]['contains_edges']}
+        for db in db_types if db in results
+    }
+    union = set().union(*edge_sets.values())
+    print("\n================= CONTAINS EDGE DIAGNOSTICS =================")
+    for db, edges in edge_sets.items():
+        raw = results[db]['contains_edges']
+        missing = sorted(union - edges)
+        print(f"{db}: total={len(raw)} distinct={len(edges)} duplicates={len(raw) - len(edges)} missing={len(missing)}")
+        # Group every deficit by source label/path, even when the edge samples
+        # below are truncated. The complete edge lists are uploaded by CI.
+        from collections import Counter
+        groups = Counter(tuple(json.loads(edge)[0][:2]) for edge in missing)
+        for (label, path), count in groups.most_common(20):
+            print(f"    missing source {label} {path}: {count}")
+        if 'variable_nodes' in results[db]:
+            nodes = results[db]['variable_nodes']
+            identities = {json.dumps(node['identity']) for node in nodes}
+            missing_variables = [json.loads(edge)[1] for edge in missing if json.loads(edge)[1][0] == 'Variable']
+            absent = [identity for identity in missing_variables if json.dumps(identity) not in identities]
+            print(f"    missing Variable endpoints: present={len(missing_variables) - len(absent)} absent={len(absent)}")
+            for identity in absent[:40]:
+                print(f"    absent Variable identity: {json.dumps(identity)}")
+            suspect_paths = {identity[1] for identity in missing_variables}
+            suspects = [node for node in nodes if any(path and path in str(node.get('uid')) for path in suspect_paths)]
+            for node in suspects[:80]:
+                print(f"    Variable node: {json.dumps(node)}")
+        for edge in missing[:40]:
+            print(f"    {edge}")
+        if len(missing) > 40:
+            print(f"    ... and {len(missing) - 40} more; see containment-parity.json")
+    return all(edges == union for edges in edge_sets.values())
 
 
 def _report_calls_edge_diff(results, db_types):
