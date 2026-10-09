@@ -595,6 +595,26 @@ class TestAddFileToGraph:
             {"class_name": "Worker", "class_line": 7, "func_name": "run", "func_line": 8},
         ]
 
+    @pytest.mark.parametrize('collection,label', [('functions', 'Function'), ('variables', 'Variable'), ('modules', 'Module')])
+    def test_file_contains_binds_identities_without_discarding_node_payload(self, collection, label):
+        session = _RecordingSession(responses=[_FakeResult()])
+        gb, _ = _make_graph_builder(session)
+        payload = 'large source/value ' * 200
+        items = [{'name': 'same', 'line_number': 3, 'source': payload, 'value': payload},
+                 {'name': 'same', 'line_number': 3 if label == 'Function' else 4,
+                  'source': payload, 'value': payload}]
+        gb.add_file_to_graph({'path': '/repo/a.ts', 'lang': 'typescript', collection: items},
+                             'my_repo', {}, repo_path_str='/repo')
+        node_call = next(c for c in session.calls if f'MERGE (n:{label}' in c['query'])
+        contains_call = next(c for c in session.calls if f'MATCH (n:{label}' in c['query'])
+        nodes = node_call['kwargs']['batch']
+        edges = contains_call['kwargs']['batch']
+        keys = ('name',) if label == 'Module' else ('name', 'line_number', 'occurrence_index')
+        assert edges == [{key: node[key] for key in keys} for node in nodes]
+        assert all(node['source'] == payload and node['value'] == payload for node in nodes)
+        if label == 'Function':
+            assert [row['occurrence_index'] for row in edges] == [0, 1]
+
     def test_non_javascript_import_rows_are_schema_complete(self):
         """Imports without full_import_name/source parity should not break Kuzu UNWIND."""
         session = _RecordingSession(responses=[_FakeResult()])

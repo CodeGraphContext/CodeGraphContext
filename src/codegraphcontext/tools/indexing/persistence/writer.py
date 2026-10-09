@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ....utils.debug_log import info_logger, warning_logger
 from ....utils.git_utils import get_repo_commit_hash
-from ..sanitize import sanitize_props, sanitize_props_with_secrets
+from ..sanitize import sanitize_props_with_secrets
 from ..schema_contract import NODE_LABELS
 from .utils import get_backend_type, execute_write_operation, execute_read_operation
 
@@ -617,6 +617,13 @@ class GraphWriter:
                     batch=batch,
                     file_path=file_path_str,
                 )
+                # Relationship binding needs only the MATCH identity. Passing
+                # source/value/context fields through UNWIND adds large, nullable
+                # struct columns to embedded planners without using them. Keep
+                # the node properties above, and bind edges with a uniform key
+                # vector (including ordinals for same-name/same-line symbols).
+                contains_keys = ("name", "line_number", "occurrence_index") if keyed_by_position else ("name",)
+                contains_batch = [{key: row.get(key) for key in contains_keys} for row in batch]
                 session.run(
                     f"""
                     UNWIND $batch AS row
@@ -624,7 +631,7 @@ class GraphWriter:
                     {match_clause}
                     MERGE (f)-[:CONTAINS]->(n)
                 """,
-                    batch=batch,
+                    batch=contains_batch,
                     file_path=file_path_str,
                 )
 
