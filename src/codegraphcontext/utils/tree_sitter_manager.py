@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, Optional
 import threading
-import sys
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Parser
@@ -31,12 +30,6 @@ _get_language = None
 
 def _missing_tree_sitter_error(import_error: ImportError) -> ImportError:
     """Return an actionable error for optional tree-sitter dependencies."""
-    if sys.version_info >= (3, 13):
-        return ImportError(
-            "Tree-sitter parsing is not available on Python 3.13 because "
-            "tree-sitter-language-pack does not publish cp313 wheels. "
-            "Install CodeGraphContext with Python 3.12 or 3.14 to use indexing/parsing."
-        )
     return ImportError(
         "tree-sitter and tree-sitter-language-pack are required for code parsing. "
         "Install them with: pip install codegraphcontext[parsing]"
@@ -54,16 +47,7 @@ def _load_tree_sitter_dependencies():
         from tree_sitter import Language as ImportedLanguage, Parser as ImportedParser
         try:
             from tree_sitter_language_pack import get_language as imported_get_language
-            # Test it immediately using a version-agnostic pattern
-            test_lang = imported_get_language('python')
-            try:
-                # 0.22+ style
-                test_parser = ImportedParser(test_lang)
-            except (TypeError, ValueError):
-                # < 0.22 style
-                test_parser = ImportedParser()
-                test_parser.set_language(test_lang)
-        except (ImportError, Exception):
+        except ImportError:
             # Fallback to tree_sitter_languages
             from tree_sitter_languages import get_language as imported_get_language
     except ImportError as e:
@@ -220,9 +204,9 @@ class TreeSitterManager:
                     f"This may be due to a missing or experimental grammar."
                 )
             except Exception as e:
-                raise Exception(
+                raise RuntimeError(
                     f"Failed to load language '{canonical_name}': {e}"
-                )
+                ) from e
     
     def create_parser(self, lang: str) -> Parser:
         """

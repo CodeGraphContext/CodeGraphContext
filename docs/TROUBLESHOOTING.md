@@ -104,3 +104,12 @@ JSON document. Full recipe: `docs/CI_INTEGRATION.md`.
 Open an issue with: your `cgc --version`, the backend line from startup, the
 exact command, and the full output. The Discord invite in the README is the
 fastest route for questions that aren't bugs.
+
+### Parser initialization failures
+
+Failure to initialize a supported source parser is an indexing error, rather
+than an unsupported file. A failure during the import pre-scan fails the job
+with the original grammar or cache error included. A per-file initialization
+failure contributes to failed_files and the job's error list. Dependency
+loading no longer downloads Python's grammar when another language is requested.
+Check the grammar cache ownership and network access before reinstalling packages.
