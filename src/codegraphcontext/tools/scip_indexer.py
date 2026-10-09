@@ -489,6 +489,7 @@ class ScipIndexParser:
         except Exception as e:
             error_logger(f"Failed to import codegraphcontext.tools.scip_pb2: {e}")
             return {}
+        Kind = scip_pb2.SymbolInformation
 
         try:
             with open(index_scip_path, "rb") as f:
@@ -577,7 +578,7 @@ class ScipIndexParser:
                         if 0 < line_num <= len(source):
                             src_line = source[line_num - 1].strip().lower()
                             if src_line.startswith("interface "):
-                                kind = 20  # Interface
+                                kind = Kind.Interface
                             elif src_line.startswith("trait "):
                                 kind = 53  # Trait
                     info["kind"] = kind
@@ -587,7 +588,9 @@ class ScipIndexParser:
             # Apply Rust implementations if available
             rust_impls = symbol_def_table.get("rust_impls", {})
             name = self._name_from_symbol(sym)
-            if name in rust_impls and info.get("kind") in (7, 18, 20, 49, 53, 54):
+            if name in rust_impls and info.get("kind") in (
+                Kind.Class, Kind.Enum, Kind.Interface, Kind.Struct, Kind.Trait, Kind.Protocol
+            ):
                 info["bases"] = list(set(info.get("bases", []) + list(rust_impls[name])))
 
         for doc in index.documents:
@@ -632,7 +635,7 @@ class ScipIndexParser:
                             src = doc_source_lines.get(rel_path, [])
                             src_line = src[line - 1].strip().lower() if 0 < line <= len(src) else ""
                             if src_line.startswith("interface "):
-                                kind = 20
+                                kind = Kind.Interface
                             elif src_line.startswith("trait "):
                                 kind = 53
                             elif sym.startswith("scip-go") or sym.startswith("rust-analyzer"):
@@ -657,12 +660,12 @@ class ScipIndexParser:
                         node["bases"] = [self._name_from_symbol(b) for b in defn.get("bases", [])]
                         node["context"] = None
                         file_data["classes"].append(node)
-                    elif kind == 20 or kind == 54: # Interface or Protocol
+                    elif kind in (Kind.Interface, Kind.Protocol):
                         node["bases"] = [self._name_from_symbol(b) for b in defn.get("bases", [])]
                         node["context"] = None
                         if "interfaces" not in file_data: file_data["interfaces"] = []
                         file_data["interfaces"].append(node)
-                    elif kind == 18: # Enum
+                    elif kind == Kind.Enum:
                         node["context"] = None
                         if "enums" not in file_data: file_data["enums"] = []
                         file_data["enums"].append(node)
@@ -756,7 +759,8 @@ class ScipIndexParser:
             if 0 < line <= len(source_lines):
                 src_line = source_lines[line - 1].strip().lower()
             if "enum " in src_line or src_line.startswith("enum"):
-                return 18
+                from . import scip_pb2
+                return scip_pb2.SymbolInformation.Enum
             if src_line.startswith("union "):
                 return 49
             if src_line.startswith("struct "):
