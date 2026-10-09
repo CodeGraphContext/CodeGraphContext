@@ -23,6 +23,10 @@ DEFAULT_IGNORE_PATTERNS = [
     # estate, all of them merging into the same global Module namespace.
     ".terraform/",
     ".terragrunt-cache/",
+    # .terraform.lock.hcl, written by `init` next to every root module: provider hashes, not
+    # code, whose `provider "registry.terraform.io/..."` blocks would otherwise index as one
+    # Class per stack.
+    "*.lock.hcl",
     ".git/",
     "__pycache__/",
     "*.png",

@@ -249,3 +249,13 @@ def test_default_patterns_cover_dotnet_obj_dir():
     from codegraphcontext.cli.config_manager import DEFAULT_CGCIGNORE_PATTERNS
     assert "obj/" in DEFAULT_IGNORE_PATTERNS
     assert "obj/" in DEFAULT_CGCIGNORE_PATTERNS.splitlines()
+
+
+@pytest.mark.parametrize("pattern", [".terraform/", ".terragrunt-cache/", "*.lock.hcl"])
+def test_default_patterns_cover_terraform_generated_files(pattern):
+    """`terraform init` and Terragrunt vendor every remote module into .terraform/ and
+    .terragrunt-cache/, and write a provider lock file next to each root module."""
+    from codegraphcontext.tools.indexing.constants import DEFAULT_IGNORE_PATTERNS
+    from codegraphcontext.cli.config_manager import DEFAULT_CGCIGNORE_PATTERNS
+    assert pattern in DEFAULT_IGNORE_PATTERNS
+    assert pattern in DEFAULT_CGCIGNORE_PATTERNS.splitlines()

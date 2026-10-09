@@ -275,6 +275,9 @@ build/
 target/
 out/
 obj/
+.terraform/
+.terragrunt-cache/
+*.lock.hcl
 .git/
 .idea/
 .vscode/
