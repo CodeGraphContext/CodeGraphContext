@@ -144,7 +144,7 @@ class TestTerragrunt:
 
     def test_a_relative_path_resolves_against_its_own_file(self, terragrunt):
         resolved = [s for s in {i["source"] for i in terragrunt["imports"]} if s.endswith("/vault")]
-        assert resolved and all(s.startswith("/") for s in resolved)
+        assert resolved and all(Path(s).is_absolute() for s in resolved)
 
     def test_top_level_inputs_become_a_variable(self, terragrunt):
         assert "inputs" in {v["name"] for v in terragrunt["variables"]}
@@ -159,7 +159,43 @@ class TestInterpolatedPaths:
         names = {i["source"] for i in parse(parser, tmp_path, "terragrunt.hcl", source)["imports"]}
         assert "${get_repo_root()}/common/shared.hcl" in names
         assert not any("get_terragrunt_dir" in n for n in names)
-        assert any(n.startswith("/") and n.endswith("/this") for n in names), names
+        assert any(Path(n).is_absolute() and n.endswith("/this") for n in names), names
+
+
+class TestTerragruntDependencies:
+    def test_every_literal_path_of_a_dependencies_block_is_an_import(self, parser, tmp_path):
+        source = 'dependencies {\n  paths = ["../vpc", "../db", local.computed]\n}\n'
+        names = {i["name"] for i in parse(parser, tmp_path, "terragrunt.hcl", source)["imports"]}
+        assert {(tmp_path.parent / "vpc").resolve().as_posix(),
+                (tmp_path.parent / "db").resolve().as_posix()} == names
+
+
+class TestStrings:
+    def test_a_comparison_of_two_strings_is_not_a_string(self, parser, tmp_path):
+        """`"a" == "b"` starts and ends with a quote, but names no single target."""
+        source = 'dependency "x" {\n  config_path = "../a" == "" ? "../b" : "../c"\n}\n'
+        assert parse(parser, tmp_path, "terragrunt.hcl", source)["imports"] == []
+
+    def test_a_heredoc_description_is_the_docstring(self, parser, tmp_path):
+        source = ('variable "name" {\n  description = <<-EOT\n    First line.\n'
+                  '    Second line.\n  EOT\n}\n')
+        variable = parse(parser, tmp_path, "variables.tf", source)["variables"][0]
+        assert variable["docstring"] == "First line.\nSecond line."
+
+    def test_a_description_built_from_an_expression_is_not_a_docstring(self, parser, tmp_path):
+        source = 'variable "name" {\n  description = join(" ", ["a", "b"])\n}\n'
+        assert parse(parser, tmp_path, "variables.tf", source)["variables"][0]["docstring"] is None
+
+
+class TestAddresses:
+    def test_a_bare_identifier_label_counts_as_a_label(self, parser, tmp_path):
+        source = 'resource aws_s3_bucket "this" {}\n'
+        assert [c["name"] for c in parse(parser, tmp_path, "main.tf", source)["classes"]] == ["aws_s3_bucket.this"]
+
+    def test_an_ephemeral_resource_is_addressed_like_a_data_source(self, parser, tmp_path):
+        source = 'ephemeral "random_password" "db" {}\n'
+        assert [c["name"] for c in parse(parser, tmp_path, "main.tf", source)["classes"]] == [
+            "ephemeral.random_password.db"]
 
 
 class TestTfvars:

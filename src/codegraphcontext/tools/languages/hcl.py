@@ -5,17 +5,18 @@ Covers Terraform / OpenTofu (`.tf`, `.tfvars`) and Terragrunt (`.hcl`). Blocks b
 Class nodes under their canonical Terraform address (`azurerm_key_vault.this`,
 `module.network`, `data.azurerm_client_config.current`), inputs and locals become
 Variable nodes, and anything that names another unit of code -- a module `source`, a
-Terragrunt `terraform { source }`, `include { path }` or `dependency { config_path }` --
-becomes an import when it is written as a literal, so "which stacks consume this module" is a
-graph query.
+Terragrunt `terraform { source }`, `include { path }`, `dependency { config_path }` or
+`dependencies { paths }` -- becomes an import when it is written as a literal, so "which stacks
+consume this module" is a graph query.
 """
 
 import re
+import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # `resource "azurerm_key_vault" "this"`: the first label is the type, the second the name.
-_TYPE_AND_NAME_BLOCKS = {"resource", "data"}
+_TYPE_AND_NAME_BLOCKS = {"resource", "data", "ephemeral"}
 # Terragrunt attribute holding a path to another configuration, per block type.
 _PATH_ATTRIBUTES = {"include": "path", "dependency": "config_path", "terraform": "source"}
 # Terragrunt functions for "the directory of this file". A reference built on one of them points
@@ -37,8 +38,15 @@ class HclTreeSitterParser:
         return node.text.decode("utf-8", errors="replace")
 
     def _labels(self, block) -> List[str]:
-        """The quoted labels of a block, unquoted: `resource "a" "b"` -> ["a", "b"]."""
-        return [self._text(c).strip('"') for c in block.children if c.type == "string_lit"]
+        """The labels of a block, unquoted: `resource "a" "b"` -> ["a", "b"]. HCL also accepts a
+        bare identifier as a label, so every identifier after the block type counts."""
+        labels: List[str] = []
+        seen_type = False
+        for child in block.children:
+            if child.type == "string_lit" or (child.type == "identifier" and seen_type):
+                labels.append(self._text(child).strip('"'))
+            seen_type = seen_type or child.type == "identifier"
+        return labels
 
     def _body(self, block):
         for child in block.children:
@@ -59,27 +67,59 @@ class HclTreeSitterParser:
                 found.setdefault(name, child)
         return found
 
-    def _value_of(self, attribute) -> Optional[str]:
-        """The right-hand side of `name = expression`, as written."""
+    def _expression(self, attribute):
         if attribute is None:
             return None
-        expression = next((c for c in attribute.children if c.type == "expression"), None)
+        return next((c for c in attribute.children if c.type == "expression"), None)
+
+    def _value_of(self, attribute) -> Optional[str]:
+        """The right-hand side of `name = expression`, as written."""
+        expression = self._expression(attribute)
         return self._text(expression).strip() if expression is not None else None
 
-    def _unquoted(self, value: Optional[str]) -> Optional[str]:
-        """Strips the quotes of a string literal; leaves any other expression as written."""
-        if value and len(value) > 1 and value.startswith('"') and value.endswith('"'):
-            return value[1:-1]
-        return value
+    def _string(self, expression) -> Optional[str]:
+        """The content of an expression that is a single string, interpolations kept as written,
+        and None for anything else. An expression such as `find_in_parent_folders("root.hcl")`
+        names no single target: taken literally it would merge every stack that uses the idiom
+        onto one Module node, since imports merge by name. Decided on the tree, not the text,
+        because `"a" == "b"` also starts and ends with a quote."""
+        if expression is None or expression.child_count != 1:
+            return None
+        node = expression.children[0]
+        if node.type == "literal_value":
+            node = node.children[0] if node.child_count == 1 else None
+            return self._text(node)[1:-1] if node is not None and node.type == "string_lit" else None
+        if node.type != "template_expr" or node.child_count != 1:
+            return None
+        template = node.children[0]
+        if template.type == "quoted_template":
+            return self._text(template)[1:-1]
+        if template.type == "heredoc_template":
+            lines = self._text(template).split("\n")[1:-1]
+            content = "\n".join(lines)
+            indented = any(c.type == "heredoc_start" and "-" in self._text(c) for c in template.children)
+            return textwrap.dedent(content) if indented else content
+        return None
 
     def _literal(self, attribute) -> Optional[str]:
-        """The value of an attribute only when it is a string literal. An expression such as
-        `find_in_parent_folders("root.hcl")` names no single target: taken literally it would
-        merge every stack that uses the idiom onto one Module node, since imports merge by name."""
-        value = self._value_of(attribute)
-        if value and value.startswith('"') and value.endswith('"'):
-            return value[1:-1]
-        return None
+        """The value of an attribute only when it is a single string."""
+        return self._string(self._expression(attribute))
+
+    def _literals(self, attribute) -> List[str]:
+        """The string elements of a list attribute such as `paths = ["../vpc", "../db"]`."""
+        expression = self._expression(attribute)
+        collection = expression.children[0] if expression is not None and expression.child_count == 1 else None
+        if collection is None or collection.type != "collection_value":
+            return []
+        found = []
+        for sequence in collection.children:
+            if sequence.type != "tuple":
+                continue
+            for element in sequence.children:
+                value = self._string(element) if element.type == "expression" else None
+                if value:
+                    found.append(value)
+        return found
 
     def _address(self, block_type: str, labels: List[str]) -> str:
         if block_type in _TYPE_AND_NAME_BLOCKS and len(labels) >= 2:
@@ -199,6 +239,9 @@ class HclTreeSitterParser:
             path_attribute = _PATH_ATTRIBUTES.get(block_type)
             if path_attribute:
                 imports.append(self._import(self._literal(attributes.get(path_attribute)), child, path))
+            if block_type == "dependencies":
+                for reference in self._literals(attributes.get("paths")):
+                    imports.append(self._import(reference, child, path))
 
         return self._result(path, classes, variables, [i for i in imports if i], is_dependency)
 
