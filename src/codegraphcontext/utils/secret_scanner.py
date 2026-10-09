@@ -122,7 +122,7 @@ def scan_props_and_redact(
     redact: bool = False,
     sensitive_keys: Optional[set[str]] = None,
 ) -> Tuple[dict, list[Tuple[str, Optional[str]]]]:
-    """Scan all string values in *props* for secrets.
+    """Scan content values in *props* without rewriting graph identities.
 
     Parameters
     ----------
@@ -142,6 +142,11 @@ def scan_props_and_redact(
     findings: list[Tuple[str, Optional[str]]] = []
     result = {}
     for key, val in props.items():
+        # Symbols, paths and relation endpoints participate in MERGE keys or
+        # later resolution. Treat identifiers as identifiers, not credentials.
+        if key in {"name", "path", "uid", "lang"} or key.endswith(("_name", "_path")):
+            result[key] = val
+            continue
         if isinstance(val, str):
             redacted_val, was_secret, pattern = scan_and_redact(val, redact=redact)
             if was_secret:
