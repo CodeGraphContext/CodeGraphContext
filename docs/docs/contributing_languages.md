@@ -182,17 +182,34 @@ A future semantic indexer could reuse those heuristics in a dedicated batch wrap
 ### HCL smoke check
 
 `.tf`, `.tfvars` and `.hcl` are parsed by `languages/hcl.py` (Terraform, OpenTofu, Terragrunt).
+The `hcl` grammar ships with every `tree-sitter-language-pack` release in the declared range.
 
 ```bash
 cgc index ./tests/fixtures/sample_projects/sample_project_hcl --force
-cgc query "MATCH (c:Class) RETURN c.name, c.node_type"
-cgc query "MATCH (f:File)-[:IMPORTS]->(m:Module) RETURN f.name, m.name"
+cgc query "MATCH (c:Class) WHERE c.lang = 'hcl' RETURN c.name, c.node_type"
+cgc query "MATCH (f:File)-[:IMPORTS]->(m:Module) RETURN f.relative_path, m.name"
 ```
 
 Expect blocks under their Terraform address (`aws_s3_bucket.artifacts`,
-`data.aws_caller_identity.current`, `module.network`), variables as they are referenced
+`data.aws_caller_identity.current`, `module.logs`), variables as they are referenced
 (`var.bucket_name`, `output.bucket_arn`, `local.tags`) and one import per literal module source,
-`include` path and `dependency` config path.
+`include` path, `dependency` config path and `dependencies` path. `modules/bucket` is imported
+by both `main.tf` and `live/app/terragrunt.hcl`; the `.terraform.lock.hcl` is not indexed. The
+graph is pinned by `tests/fixtures/goldens/sample_project_hcl` and
+`tests/integration/test_hcl_indexing_smoke.py`.
+
+### HCL graph schema
+
+| Graph element | HCL source | Properties |
+| :--- | :--- | :--- |
+| `File` | `.tf`, `.tfvars`, `.hcl` | `language = 'hcl'` |
+| `Class` | every labelled block other than `variable` and `output` | `name` = Terraform address, `node_type` = block type, `docstring` = literal or heredoc `description`, `line_number`, `end_line`, `lang = 'hcl'` |
+| `Variable` | `variable`, `output`, each `locals` entry, bare top-level assignments (`.tfvars`, Terragrunt `inputs`) | `name` = `var.x` / `output.x` / `local.x` / `x`, `value` = default or value as written, `docstring` |
+| `Module` | the target of a literal reference | `name` = registry or git address as written, or the absolute path of a local one, which equals that directory's `Directory.path` |
+| `(File)-[:CONTAINS]->(Class\|Variable)` | every extracted block and variable | |
+| `(File)-[:IMPORTS]->(Module)` | `module { source }`, Terragrunt `terraform { source }`, `include { path }`, `dependency { config_path }`, `dependencies { paths }` | `line_number` of the block |
+
+`Advanced_language_query` serves these through `query_tool_languages/hcl_toolkit.py`.
 
 ### HCL limitations (v1)
 

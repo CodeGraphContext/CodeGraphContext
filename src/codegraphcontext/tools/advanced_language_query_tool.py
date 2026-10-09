@@ -18,6 +18,7 @@ from ..tools.query_tool_languages.dart_toolkit import DartToolkit
 from ..tools.query_tool_languages.elisp_toolkit import ElispToolkit
 from ..tools.query_tool_languages.perl_toolkit import PerlToolkit
 from ..tools.query_tool_languages.solidity_toolkit import SolidityToolkit
+from ..tools.query_tool_languages.hcl_toolkit import HclToolkit
 
 if TYPE_CHECKING:
     from ..core.database import DatabaseManager
@@ -49,6 +50,7 @@ class Advanced_language_query:
         "elisp": ElispToolkit,
         "perl": PerlToolkit,
         "solidity": SolidityToolkit,
+        "hcl": HclToolkit,
     }
     Supported_queries = {
         "repository": "Repository",
