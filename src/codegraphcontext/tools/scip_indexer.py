@@ -581,7 +581,7 @@ class ScipIndexParser:
                             elif src_line.startswith("trait "):
                                 kind = 53  # Trait
                     info["kind"] = kind
-                elif sym.endswith("()."):
+                elif self._is_callable_symbol(sym):
                     info["kind"] = 26 if "#" in sym else 17
             
             # Apply Rust implementations if available
@@ -623,9 +623,9 @@ class ScipIndexParser:
                             kind = ck
                     if kind == 0:
                         # Check method before function: methods have # in symbol
-                        if sym.endswith("().") and "#" in sym:
+                        if self._is_callable_symbol(sym) and "#" in sym:
                             kind = 26  # Method
-                        elif sym.endswith("()."):
+                        elif self._is_callable_symbol(sym):
                             kind = 17  # Function
                         elif sym.endswith("#"):
                             # Check source to distinguish class/interface/trait
@@ -716,6 +716,11 @@ class ScipIndexParser:
 
         return {"files": files_data, "symbol_table": symbol_def_table}
 
+    @staticmethod
+    def _is_callable_symbol(sym: str) -> bool:
+        import re
+        return re.search(r"\((?:\+\d+)?\)\.$", sym) is not None
+
     def _name_from_symbol(self, symbol: str) -> str:
         import re
         # scip-clang appends a hash in parentheses to disambiguate overloads / template args
@@ -723,8 +728,8 @@ class ScipIndexParser:
         # Strip parameter descriptors: .($param), .($p1).($p2), etc.
         s = re.sub(r"\.\(\$?[^)]*\)", "", s)
         s = s.rstrip(".#")
-        # Remove function/method call markers: ()
-        s = re.sub(r"\(\)\.?$", "", s)
+        # Remove function/method call markers: () and the scip-dotnet overload marker (+N)
+        s = re.sub(r"\((?:\+\d+)?\)\.?$", "", s)
         parts = re.split(r"[/#]", s)
         name = parts[-1] if parts else symbol
         name = re.sub(r"^`([^`]+)`$", r"\1", name)

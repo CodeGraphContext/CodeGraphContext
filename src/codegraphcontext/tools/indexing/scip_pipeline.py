@@ -127,8 +127,9 @@ async def run_scip_index_async(
                     ts_data = ts_parser.parse(file_path, is_dependency, index_source=True)
                     if "error" not in ts_data:
                         ts_funcs = {f["name"]: f for f in ts_data.get("functions", [])}
+                        ts_funcs_at = {(f["name"], f["line_number"]): f for f in ts_data.get("functions", [])}
                         for f in file_data.get("functions", []):
-                            ts_f = ts_funcs.get(f["name"])
+                            ts_f = ts_funcs_at.get((f["name"], f["line_number"])) or ts_funcs.get(f["name"])
                             if ts_f:
                                 f.update(
                                     {
@@ -137,6 +138,8 @@ async def run_scip_index_async(
                                         "decorators": ts_f.get("decorators", []),
                                     }
                                 )
+                                if not f.get("args") and ts_f.get("args"):
+                                    f["args"] = ts_f["args"]
 
                         ts_item_map = {}
                         ts_key_map = {}
