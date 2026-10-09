@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { FolderUp, FileArchive, Github, Loader2, Settings, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -153,6 +153,9 @@ const fetchWithFallbackProxies = async (url: string): Promise<Response> => {
 export default function LocalUploader({ onComplete, plain }: { onComplete: (data: unknown) => void, plain?: boolean }) {
   const navigate = useNavigate();
   const [isParsing, setIsParsing] = useState(false);
+  // True from the Scan & Visualize click until the Explore route (which does the actual
+  // fetch + index) has rendered. Ends by itself, so it can never leave the button stuck.
+  const [isScanning, startScan] = useTransition();
   const [progress, setProgress] = useState({ text: "", value: 0 });
   const [activeTab, setActiveTab] = useState<'folder' | 'zip' | 'cgc' | 'remote'>('remote');
   const [remoteRepoUrl, setRemoteRepoUrl] = useState("");
@@ -451,6 +454,8 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
   };
 
   const handleRemoteRepoFetch = async () => {
+    if (isScanning) return;
+
     const input = remoteRepoUrl.trim();
     if (!input) {
       alert("Please enter a GitHub or GitLab URL, or owner/repo.");
@@ -463,7 +468,7 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
       return;
     }
 
-    navigate(getExploreRoute(ref));
+    startScan(() => navigate(getExploreRoute(ref)));
   };
 
   return (
@@ -570,8 +575,15 @@ export default function LocalUploader({ onComplete, plain }: { onComplete: (data
                 )}
               </div>
 
-              <Button onClick={handleRemoteRepoFetch} className="bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] w-full rounded-xl py-6 text-lg font-semibold shadow-[0_0_20px_rgba(255,255,255,0.1)]">
-                Scan & Visualize
+              <Button onClick={handleRemoteRepoFetch} disabled={isScanning} className="bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] w-full rounded-xl py-6 text-lg font-semibold shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+                {isScanning ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Scanning repository...
+                  </>
+                ) : (
+                  "Scan & Visualize"
+                )}
               </Button>
             </motion.div>
           )}
