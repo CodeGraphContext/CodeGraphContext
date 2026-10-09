@@ -104,3 +104,13 @@ JSON document. Full recipe: `docs/CI_INTEGRATION.md`.
 Open an issue with: your `cgc --version`, the backend line from startup, the
 exact command, and the full output. The Discord invite in the README is the
 fastest route for questions that aren't bugs.
+
+### Failed background indexing jobs
+
+`check_job_status` and `list_jobs` include additive `error_type` and `traceback`
+fields for indexing exceptions. The existing `errors[0]` message is preserved.
+Tracebacks are capped at 32,768 characters; oversized values start with a
+truncation marker and retain the final frames. Jobs presumed stalled have no
+exception traceback. These diagnostics are held in memory and disappear after
+job cleanup or a server restart. Review tracebacks before sharing them: exception
+messages and source lines may contain repository information.

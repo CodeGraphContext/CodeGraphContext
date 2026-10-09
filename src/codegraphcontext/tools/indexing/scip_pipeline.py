@@ -6,9 +6,10 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 from ...core.cgcignore import build_ignore_spec
 from ...core.jobs import JobManager, JobStatus
@@ -342,8 +343,6 @@ async def run_scip_index_async(
     except RuntimeError:
         raise
     except Exception as e:
-        error_logger(f"SCIP indexing failed for {path}: {e}")
+        error_logger(f"SCIP indexing failed for {path}: {e}\n{traceback.format_exc()}")
         if job_id:
-            job_manager.update_job(
-                job_id, status=JobStatus.FAILED, end_time=datetime.now(), errors=[str(e)]
-            )
+            job_manager.fail_job(job_id, e)

@@ -5,11 +5,15 @@ background jobs, such as code indexing.
 """
 import uuid
 import threading
+import traceback as traceback_module
 from datetime import datetime, timedelta
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from pathlib import Path
+
+
+MAX_TRACEBACK_CHARS = 32_768
 
 
 class JobStatus(Enum):
@@ -41,6 +45,8 @@ class JobInfo:
     path: Optional[str] = None
     is_dependency: bool = False
     last_update_time: Optional[datetime] = None
+    error_type: Optional[str] = None
+    traceback: Optional[str] = None
 
     def __post_init__(self):
         """Ensures the errors list is initialized after the object is created."""
@@ -95,6 +101,21 @@ class JobManager:
                     if hasattr(job, key):
                         setattr(job, key, value)
                 job.last_update_time = datetime.now()
+
+    def fail_job(self, job_id: str, error: Exception, status: JobStatus = JobStatus.FAILED):
+        """Record bounded diagnostics while preserving the existing errors[0] contract."""
+        trace = "".join(traceback_module.format_exception(type(error), error, error.__traceback__))
+        if len(trace) > MAX_TRACEBACK_CHARS:
+            marker = "[traceback truncated; showing final frames]\n"
+            trace = marker + trace[-(MAX_TRACEBACK_CHARS - len(marker)):]
+        self.update_job(
+            job_id,
+            status=status,
+            end_time=datetime.now(),
+            errors=[str(error)],
+            error_type=type(error).__name__,
+            traceback=trace,
+        )
 
     def get_job(self, job_id: str) -> Optional[JobInfo]:
         """Retrieves the information for a single job."""

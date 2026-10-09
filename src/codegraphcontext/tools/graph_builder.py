@@ -9,8 +9,7 @@ parsers, persistence, resolution, and schema management.
 from __future__ import annotations
 
 import asyncio
-import os
-from datetime import datetime
+import traceback
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
@@ -19,8 +18,8 @@ if TYPE_CHECKING:
     from ..core.database import DatabaseManager
 from ..core.jobs import JobManager, JobStatus
 from ..utils.debug_log import debug_log, error_logger, info_logger, warning_logger
-from .indexing.constants import DEFAULT_IGNORE_PATTERNS
-from .indexing.persistence.writer import GraphWriter, sort_import_rows_for_metadata
+from .indexing.constants import DEFAULT_IGNORE_PATTERNS  # noqa: F401 - compatibility export
+from .indexing.persistence.writer import GraphWriter, sort_import_rows_for_metadata  # noqa: F401 - compatibility export
 from .indexing.pipeline import run_tree_sitter_index_async
 from .indexing.pre_scan import pre_scan_for_imports
 from .indexing.resolution.calls import build_function_call_groups, resolve_function_call
@@ -612,7 +611,7 @@ class GraphBuilder:
                 from .scip_indexer import ScipIndexer, detect_project_lang, is_scip_available
 
                 scip_langs_str = get_config_value("SCIP_LANGUAGES") or "python,typescript,javascript,go,rust,java,dart,cpp,c,csharp,php,ruby,kotlin,swift,elixir"
-                scip_languages = [l.strip() for l in scip_langs_str.split(",") if l.strip()]
+                scip_languages = [language.strip() for language in scip_langs_str.split(",") if language.strip()]
                 detected_lang = detect_project_lang(path, scip_languages)
 
                 if (
@@ -670,7 +669,7 @@ class GraphBuilder:
             )
         except Exception as e:
             error_message = str(e)
-            error_logger(f"Failed to build graph for path {path}: {error_message}")
+            error_logger(f"Failed to build graph for path {path}: {error_message}\n{traceback.format_exc()}")
             if job_id:
                 if (
                     "no such file found" in error_message
@@ -681,9 +680,7 @@ class GraphBuilder:
                 else:
                     status = JobStatus.FAILED
 
-                self.job_manager.update_job(
-                    job_id, status=status, end_time=datetime.now(), errors=[str(e)]
-                )
+                self.job_manager.fail_job(job_id, e, status=status)
 
     def add_minimal_file_node(self, file_path: Path, repo_path: Path, is_dependency: bool = False) -> None:
         """Create a minimal File node without parsing (for unsupported file types).
