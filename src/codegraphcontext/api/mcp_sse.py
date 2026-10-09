@@ -1,23 +1,20 @@
 # src/codegraphcontext/api/mcp_sse.py
 import json
-import asyncio
 import logging
+
 import anyio
 from fastapi import Request, Response
 from mcp.server import Server
-from mcp.server.models import InitializationOptions
-from mcp.types import Tool, TextContent, ServerCapabilities, ToolsCapability
 from mcp.server.sse import SseServerTransport
+from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
+
 from codegraphcontext.api.router import get_server
 from codegraphcontext.server import _strip_workspace_prefix, _apply_response_token_limit
 
 logger = logging.getLogger(__name__)
 
-# Create the MCP Server instance using the SDK
-mcp_server = Server("CodeGraphContext")
 
-@mcp_server.list_tools()
-async def handle_list_tools() -> list[Tool]:
+async def handle_list_tools(ctx, params) -> ListToolsResult:
     """List available tools (honors disabledTools from mcp.json)."""
     server = get_server()
     tools = []
@@ -27,25 +24,42 @@ async def handle_list_tools() -> list[Tool]:
             description=defn["description"],
             inputSchema=defn["inputSchema"]
         ))
-    return tools
+    return ListToolsResult(tools=tools)
 
-@mcp_server.call_tool()
-async def handle_call_tool(name: str, arguments: dict | None) -> list[TextContent]:
+
+async def handle_call_tool(ctx, params) -> CallToolResult:
     """Handle tool execution."""
     server = get_server()
-    args = arguments or {}
-    
-    result = await server.handle_tool_call(name, args)
-    result = _strip_workspace_prefix(result)
-    
-    if "error" in result:
-        return [TextContent(type="text", text=f"Error: {result['error']}")]
-    
-    response_text = json.dumps(result, indent=2)
-    response_text = _apply_response_token_limit(name, response_text)
-    return [TextContent(type="text", text=response_text)]
+    args = params.arguments or {}
 
-# Create the SSE transport.
+    result = await server.handle_tool_call(params.name, args)
+    result = _strip_workspace_prefix(result)
+
+    if "error" in result:
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"Error: {result['error']}")],
+            isError=True,
+        )
+
+    response_text = json.dumps(result, indent=2)
+    response_text = _apply_response_token_limit(params.name, response_text)
+    return CallToolResult(content=[TextContent(type="text", text=response_text)])
+
+
+# Streamable HTTP server (spec 2026-07-28), mounted at /api/v1/mcp in app.py.
+mcp_server = Server(
+    "CodeGraphContext",
+    version="0.1.0",
+    on_list_tools=handle_list_tools,
+    on_call_tool=handle_call_tool,
+)
+
+
+# --- Deprecated HTTP+SSE transport (2024-11-05) -----------------------------
+# Kept alongside the Streamable HTTP mount above so clients still configured
+# with the old /api/v1/mcp/sse URL (see docs/INTEGRATION_GUIDE.md) keep
+# working. New clients should use the single /api/v1/mcp endpoint instead;
+# this is eligible for removal once existing client configs have migrated.
 sse = SseServerTransport("/api/v1/mcp/messages")
 
 
@@ -55,9 +69,9 @@ class _AlreadySentResponse(Response):
     Both handlers below hand the raw ASGI ``send`` to the SDK, which emits the
     complete response. FastAPI still does ``await endpoint(request)`` followed
     by ``await response(...)``, so returning ``None`` raises ``TypeError:
-    'NoneType' object is not callable`` and returning a real ``Response`` starts
-    a second response on a finished ASGI cycle. This satisfies FastAPI while
-    putting nothing on the wire.
+    'NoneType' object is not callable`` and returning a real ``Response``
+    starts a second response on a finished ASGI cycle. This satisfies FastAPI
+    while putting nothing on the wire.
     """
 
     async def __call__(self, scope, receive, send) -> None:
@@ -78,21 +92,15 @@ class _SendTracker:
 
 
 async def handle_sse(request: Request):
-    """Entry point for the SSE connection."""
-    logger.info("SSE client connected")
+    """Entry point for the legacy SSE connection."""
+    logger.info("Legacy SSE client connected")
     sender = _SendTracker(request._send)
     try:
         async with sse.connect_sse(request.scope, request.receive, sender) as (read_stream, write_stream):
             await mcp_server.run(
                 read_stream,
                 write_stream,
-                InitializationOptions(
-                    server_name="CodeGraphContext",
-                    server_version="0.1.0",
-                    capabilities=ServerCapabilities(
-                        tools=ToolsCapability(listChanged=False)
-                    )
-                )
+                mcp_server.create_initialization_options(),
             )
     except anyio.EndOfStream:
         logger.debug("SSE client disconnected cleanly (stream ended)")
@@ -107,7 +115,7 @@ async def handle_sse(request: Request):
 
 
 async def handle_messages(request: Request):
-    """Endpoint for receiving messages from the client.
+    """Legacy endpoint for receiving messages from the client.
 
     Uses a buffer framing collector to ensure the full JSON-RPC payload
     is received before processing. This prevents crashes caused by large
