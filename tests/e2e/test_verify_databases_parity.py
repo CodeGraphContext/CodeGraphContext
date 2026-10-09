@@ -259,6 +259,22 @@ async def _run_database_parity_e2e(temp_test_dir):
             print(f"Skipping {reason}")
             skip_reasons.append(reason)
             continue
+        if db == "ladybugdb":
+            # Installed is not runnable: some ladybug wheels (Windows, #1731)
+            # ship without the native engine.
+            from codegraphcontext.core import ladybugdb_unavailable_reason
+            reason = ladybugdb_unavailable_reason()
+            if reason is not None:
+                print(f"Skipping {db}: {reason}")
+                continue
+        if db == "falkordb":
+            # The falkordb client imports everywhere, but FalkorDB Lite does
+            # not run on Windows; indexing would silently fall back to another
+            # backend and the leg would measure the wrong database.
+            from codegraphcontext.core import is_falkordb_usable
+            if not is_falkordb_usable():
+                print(f"Skipping {db}: FalkorDB Lite is not usable on this platform.")
+                continue
         db_types_to_run.append(db)
         
     db_types = db_types_to_run
