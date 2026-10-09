@@ -19,7 +19,7 @@ mcp_server = Server("CodeGraphContext")
 @mcp_server.list_tools()
 async def handle_list_tools() -> list[Tool]:
     """List available tools (honors disabledTools from mcp.json)."""
-    server = get_server()
+    server = await get_server()
     tools = []
     for name, defn in server.tools.items():
         tools.append(Tool(
@@ -32,7 +32,7 @@ async def handle_list_tools() -> list[Tool]:
 @mcp_server.call_tool()
 async def handle_call_tool(name: str, arguments: dict | None) -> list[TextContent]:
     """Handle tool execution."""
-    server = get_server()
+    server = await get_server()
     args = arguments or {}
     
     result = await server.handle_tool_call(name, args)
