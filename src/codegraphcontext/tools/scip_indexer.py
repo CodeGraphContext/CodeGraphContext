@@ -477,6 +477,17 @@ class ScipIndexer:
         return None
 
 
+def _occurrence_range(occ, typed: str = "typed_range", legacy: str = "range") -> List[int]:
+    """[line, start, end] or [start_line, start, end_line, end]; the typed range wins over the deprecated list."""
+    which = occ.WhichOneof(typed)
+    if which is None:
+        return list(getattr(occ, legacy))
+    r = getattr(occ, which)
+    if which.startswith("single_line"):
+        return [r.line, r.start_character, r.end_character]
+    return [r.start_line, r.start_character, r.end_line, r.end_character]
+
+
 class ScipIndexParser:
     """
     Parses an index.scip (Protobuf) file and extracts function calls,
@@ -506,9 +517,10 @@ class ScipIndexParser:
                     continue
                 role = getattr(occ, "symbol_roles", getattr(occ, "role", 0))
                 if role & 1: # Definition
+                    r = _occurrence_range(occ)
                     symbol_def_table[occ.symbol] = {
                         "file": doc.relative_path,
-                        "line": occ.range[0] + 1 if occ.range else 0,
+                        "line": r[0] + 1 if r else 0,
                     }
                     
                 # Rust trait implementation extraction from symbol string
@@ -611,7 +623,8 @@ class ScipIndexParser:
             for occ in doc.occurrences:
                 sym = occ.symbol
                 if sym.startswith("local ") or sym == "rust_impls": continue
-                line = occ.range[0] + 1 if occ.range else 0
+                r = _occurrence_range(occ)
+                line = r[0] + 1 if r else 0
                 role = getattr(occ, "symbol_roles", getattr(occ, "role", 0))
 
                 if role & 1:  # Definition
@@ -682,7 +695,6 @@ class ScipIndexParser:
 
                 else: # Reference
                     if sym not in symbol_def_table: continue
-                    r = list(occ.range)
                     if not r: continue
                     callee_info = symbol_def_table[sym]
                     ref_line_idx = r[0]
@@ -792,7 +804,7 @@ class ScipIndexParser:
         best_enclosing_start = -1
         for occ in definition_occurrences:
             if occ.symbol.endswith("/"): continue
-            er = list(getattr(occ, "enclosing_range", []))
+            er = _occurrence_range(occ, "typed_enclosing_range", "enclosing_range")
             if not er: continue
             enc_start, enc_end = (er[0] + 1, er[2] + 1) if len(er) == 4 else (er[0] + 1, er[0] + 1)
             if enc_start <= ref_line <= enc_end and enc_start > best_enclosing_start:
