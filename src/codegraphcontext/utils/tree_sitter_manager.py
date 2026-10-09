@@ -46,7 +46,19 @@ def _load_tree_sitter_dependencies():
     try:
         from tree_sitter import Language as ImportedLanguage, Parser as ImportedParser
         try:
-            from tree_sitter_language_pack import get_language as imported_get_language
+            import tree_sitter_language_pack as language_pack
+
+            # get_language in language-pack 1.20 performs cold-cache network
+            # I/O while holding the GIL. prefetch releases it, so a parser
+            # initialized by an indexing worker cannot freeze the gateway.
+            # Older bundled packs may not expose prefetch and need no download.
+            prefetch = getattr(language_pack, "prefetch", None)
+            if prefetch is None:
+                imported_get_language = language_pack.get_language
+            else:
+                def imported_get_language(name):
+                    prefetch([name])
+                    return language_pack.get_language(name)
         except ImportError:
             # Fallback to tree_sitter_languages
             from tree_sitter_languages import get_language as imported_get_language

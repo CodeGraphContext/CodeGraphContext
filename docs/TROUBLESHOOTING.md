@@ -113,3 +113,29 @@ with the original grammar or cache error included. A per-file initialization
 failure contributes to failed_files and the job's error list. Dependency
 loading no longer downloads Python's grammar when another language is requested.
 Check the grammar cache ownership and network access before reinstalling packages.
+
+### Gateway health stalls during indexing
+
+Indexing runs discovery, parser initialization, import pre-scans, graph writes
+and resolution in workers so the serving event loop can answer `/health` and
+job-status requests. SCIP's blocking CLI and augmentation phases also run in a
+worker. Writes remain sequential within each indexing job.
+
+On a cold cache, language-pack 1.20's `get_language` can hold Python's interpreter
+lock during network I/O. CGC uses `prefetch` before loading each requested
+grammar; that download path releases the lock. A pre-scan initialization failure
+fails the job before per-file parsing, with the original error included.
+
+For offline deployment, populate the cache at build time using the same pinned
+language-pack version and supported platform, for example:
+
+```bash
+python -c 'from tree_sitter_language_pack import prefetch; prefetch(["python", "typescript"])'
+```
+
+Choose the languages your deployment uses and make the resulting cache available
+to the runtime user. A missing grammar can still wait for the downloader's
+network timeout, but the serving loop remains available. Cancelling a worker
+cannot interrupt an in-flight native/subprocess call or roll back graph writes;
+SCIP stops subsequent phases when that call returns. Transactional cancellation
+is tracked separately in #829.

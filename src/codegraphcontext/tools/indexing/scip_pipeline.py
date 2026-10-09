@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 from ...core.cgcignore import build_ignore_spec
 from ...core.jobs import JobManager, JobStatus
@@ -44,7 +45,47 @@ async def run_scip_index_async(
     cgcignore_path: Optional[str] = None,
     index_summary: Optional[dict] = None,
 ) -> None:
+    """Run blocking SCIP phases on one worker, including thread-local parsers.
+
+    Cancellation stops subsequent phases when the current native/subprocess
+    call returns. It cannot roll back or interrupt an already-running write.
+    """
+    cancelled = threading.Event()
+    try:
+        await asyncio.to_thread(
+            _run_scip_index,
+            path, is_dependency, job_id, lang, writer, job_manager,
+            parsers_keys, get_parser, scip_indexer_mod, cgcignore_path,
+            index_summary, cancellation_event=cancelled,
+        )
+    except asyncio.CancelledError:
+        cancelled.set()
+        raise
+
+
+def _run_scip_index(
+    path: Path,
+    is_dependency: bool,
+    job_id: Optional[str],
+    lang: str,
+    writer: GraphWriter,
+    job_manager: JobManager,
+    parsers_keys: Any,
+    get_parser: Callable[[str], Any],
+    scip_indexer_mod: Any,
+    cgcignore_path: Optional[str] = None,
+    index_summary: Optional[dict] = None,
+    *,
+    cancellation_event: threading.Event,
+) -> None:
     """Run SCIP CLI, write graph, supplement with Tree-sitter, write SCIP CALLS edges."""
+
+    def check_cancelled():
+        job = job_manager.get_job(job_id) if job_id else None
+        if cancellation_event.is_set() or (job is not None and job.status == JobStatus.CANCELLED):
+            raise asyncio.CancelledError
+
+    check_cancelled()
     ScipIndexer = scip_indexer_mod.ScipIndexer
     ScipIndexParser = scip_indexer_mod.ScipIndexParser
 
@@ -52,6 +93,7 @@ async def run_scip_index_async(
         job_manager.update_job(job_id, status=JobStatus.RUNNING)
 
     repo_root = path if path.is_dir() else path.parent.resolve()
+    check_cancelled()
     writer.add_repository_to_graph(repo_root, is_dependency)
     repo_name = repo_root.name
     index_root = path.resolve() if path.is_dir() else path.parent.resolve()
@@ -107,6 +149,7 @@ async def run_scip_index_async(
         }
         file_paths = [Path(p) for p in files_data.keys() if Path(p).exists()]
 
+        check_cancelled()
         imports_map = pre_scan_for_imports(file_paths, parsers_keys, get_parser)
 
         if job_id:
@@ -114,6 +157,7 @@ async def run_scip_index_async(
 
         processed = 0
         for abs_path_str, file_data in files_data.items():
+            check_cancelled()
             file_path = Path(abs_path_str)
             if should_skip_file(file_path):
                 continue
@@ -173,6 +217,7 @@ async def run_scip_index_async(
                     debug_log(f"Tree-sitter supplement failed for {abs_path_str}: {e}")
 
             try:
+                check_cancelled()
                 writer.add_file_to_graph(file_data, repo_name, imports_map)
             except Exception as e:
                 # One unwritable file must not abort the run, and it must
@@ -189,13 +234,14 @@ async def run_scip_index_async(
             if job_id:
                 job_manager.update_job(job_id, processed_files=processed)
             if processed % 50 == 0:
-                await asyncio.sleep(0)
+                check_cancelled()
 
         # ── Supplementary pass: Tree-sitter-only for files SCIP missed ───
         # Some SCIP indexers (e.g. scip-php with Composer classmap) only
         # index a subset of repo files. Discover remaining parseable files
         # and index them via Tree-sitter so the graph has full coverage.
         scip_abs_paths = set(files_data.keys())
+        check_cancelled()
         supplemented = 0
         from .discovery import discover_files_to_index
         supplementary_files, _ = discover_files_to_index(
@@ -213,6 +259,7 @@ async def run_scip_index_async(
             job_manager.update_job(job_id, total_files=new_total)
         minimal_nodes = 0
         for repo_file in supplementary_files:
+            check_cancelled()
             abs_str = str(repo_file.resolve())
             if abs_str in scip_abs_paths:
                 continue
@@ -230,8 +277,8 @@ async def run_scip_index_async(
                 # count against the discovery count and reported "only N of M
                 # files indexed. Continuing." on every run, forever.
                 try:
-                    await asyncio.to_thread(
-                        writer.add_minimal_file_node,
+                    check_cancelled()
+                    writer.add_minimal_file_node(
                         repo_file,
                         index_root,
                         is_dependency,
@@ -251,15 +298,15 @@ async def run_scip_index_async(
                     # Same accounting rule as the Tree-sitter pipeline: a file
                     # that failed to parse still gets a minimal File node so
                     # the graph count converges with discovery (#1673).
-                    await asyncio.to_thread(
-                        writer.add_minimal_file_node, repo_file, index_root, is_dependency
-                    )
+                    check_cancelled()
+                    writer.add_minimal_file_node(repo_file, index_root, is_dependency)
                     minimal_nodes += 1
                     processed += 1
                     continue
                 ts_data["repo_path"] = str(index_root)
                 ts_data.setdefault("function_calls_scip", [])
                 ts_data.setdefault("module_level_calls_scip", [])
+                check_cancelled()
                 writer.add_file_to_graph(ts_data, repo_name, imports_map)
                 # Also include in files_data so inheritance/calls resolution sees them
                 files_data[abs_str] = ts_data
@@ -272,14 +319,14 @@ async def run_scip_index_async(
             except Exception as e:
                 debug_log(f"Tree-sitter supplement (non-SCIP file) failed for {abs_str}: {e}")
                 try:
-                    await asyncio.to_thread(
-                        writer.add_minimal_file_node, repo_file, index_root, is_dependency
-                    )
+                    check_cancelled()
+                    writer.add_minimal_file_node(repo_file, index_root, is_dependency)
                     minimal_nodes += 1
                     processed += 1
                 except Exception as e2:
                     debug_log(f"Minimal node fallback also failed for {abs_str}: {e2}")
         if supplemented:
+            check_cancelled()
             # Re-run pre_scan with the expanded file list so imports_map is complete
             all_paths = [Path(p) for p in files_data.keys() if Path(p).exists()]
             imports_map = pre_scan_for_imports(all_paths, parsers_keys, get_parser)
@@ -291,12 +338,14 @@ async def run_scip_index_async(
                 f"[SCIP+TS] Recorded {minimal_nodes} non-code file(s) as minimal File nodes"
             )
 
+        check_cancelled()
         info_logger(
             f"[INHERITS] Resolving inheritance links across {len(files_data)} files..."
         )
         inheritance_batch, csharp_files = build_inheritance_and_csharp_files(
             list(files_data.values()), imports_map
         )
+        check_cancelled()
         writer.write_inheritance_links(inheritance_batch, csharp_files, imports_map)
 
         all_file_data = list(files_data.values())
@@ -307,9 +356,11 @@ async def run_scip_index_async(
         if job_id:
             job_manager.update_job(job_id, status_message="Resolving function CALLS edges...")
         resolved_calls = build_function_call_groups(all_file_data, imports_map, None)
+        check_cancelled()
         writer.write_function_call_groups(*resolved_calls)
         info_logger(f"[CALLS] Tree-sitter call resolution complete in {time.time() - t_calls:.1f}s")
 
+        check_cancelled()
         writer.write_scip_call_edges(files_data, name_from_symbol)
 
         # CLI-facing summary — the SCIP path never populated one, so
@@ -337,6 +388,7 @@ async def run_scip_index_async(
             })
 
         if job_id:
+            check_cancelled()
             job_manager.update_job(job_id, status=JobStatus.COMPLETED, end_time=datetime.now())
 
     except RuntimeError:
