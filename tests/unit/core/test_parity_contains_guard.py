@@ -30,7 +30,7 @@ async def test_contains_deficit_is_not_accepted(monkeypatch, tmp_path, deficit, 
 
     async def indexed_stats(db_type, project_path, temp_test_dir):
         indexed_backends.append(db_type)
-        return 0.0, {'NODE_File': 292, 'REL_CONTAINS': 4727 - (deficit if db_type == 'ladybugdb' else 0)}, [], []
+        return 0.0, {'NODE_File': 292, 'REL_CONTAINS': 4727 - (deficit if db_type == 'ladybugdb' else 0)}, [], [], []
 
     monkeypatch.setattr(parity, 'run_indexing_in_process', indexed_stats)
     if deficit:
@@ -48,7 +48,7 @@ async def test_equal_counts_with_different_edges_fail_and_save_diagnostics(monke
     wrong = [source, ['Function', 'example.py', 'work', 1, 1]]
 
     async def indexed_stats(db_type, project_path, temp_test_dir):
-        return 0.0, {'REL_CONTAINS': 1}, [], [wrong if db_type == 'ladybugdb' else right]
+        return 0.0, {'REL_CONTAINS': 1}, [], [wrong if db_type == 'ladybugdb' else right], []
 
     monkeypatch.setattr(parity, 'run_indexing_in_process', indexed_stats)
     artifact_dir = tmp_path / 'diagnostics'
@@ -71,3 +71,18 @@ def test_contains_samples_are_bounded_but_group_counts_include_every_edge(parity
     assert 'missing source File example.py: 51' in output
     assert output.count('    [["File"') == 40
     assert '11 more; see containment-parity.json' in output
+
+
+def test_missing_variable_endpoint_diagnostics(parity, capsys):
+    source = ['File', 'example.py', 'example.py', None, None]
+    present = ['Variable', 'example.py', 'found', 1, 0]
+    absent = ['Variable', 'example.py', 'missing', 2, 0]
+    results = {
+        'kuzudb': {'contains_edges': [[source, present], [source, absent]]},
+        'ladybugdb': {'contains_edges': [], 'variable_nodes': [{'identity': present, 'uid': 'found<repo>/example.py10'}]},
+    }
+    assert not parity._report_contains_edge_diff(results, list(results))
+    output = capsys.readouterr().out
+    assert 'missing Variable endpoints: present=1 absent=1' in output
+    assert 'absent Variable identity: ["Variable", "example.py", "missing", 2, 0]' in output
+    assert 'Variable node:' in output

@@ -48,7 +48,7 @@ def _probe_embedded_backend(module_name: str):
 
 
 # We run indexing as a subprocess to keep PyBind11 namespace and database environments isolated
-async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_dir: Path) -> Tuple[float, Dict[str, int], list, list]:
+async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_dir: Path) -> Tuple[float, Dict[str, int], list, list, list]:
     print(f"\n================= RUNNING {db_type.upper()} INDEXING IN SUBPROCESS =================")
     
     db_path = (temp_test_dir / f"{db_type}_test_db").as_posix()
@@ -76,6 +76,7 @@ async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_di
     # comparison table. Pass it through a file so only the small diff is logged.
     edges_out_str = (temp_test_dir / f"{db_type}_calls_edges.json").as_posix()
     contains_out_str = (temp_test_dir / f"{db_type}_contains_edges.json").as_posix()
+    variables_out_str = (temp_test_dir / f"{db_type}_variable_nodes.json").as_posix()
     
     # Construct a python command to run the indexing
     cmd = f"""
@@ -175,6 +176,16 @@ async def run():
                 [d.get('sl'), relative_path(d.get('sp')), d.get('sn'), d.get('sline'), d.get('so')],
                 [d.get('tl'), relative_path(d.get('tp')), d.get('tn'), d.get('tline'), d.get('tor')],
             ])
+        variable_nodes = []
+        for rec in session.run(
+            "MATCH (n:Variable) RETURN n.name AS name, n.path AS path, "
+            "n.line_number AS line, n.occurrence_index AS occurrence, n.uid AS uid"
+        ):
+            d = dict(rec)
+            variable_nodes.append({{
+                'identity': ['Variable', relative_path(d.get('path')), d.get('name'), d.get('line'), d.get('occurrence')],
+                'uid': str(d['uid']).replace(base, '<repo>') if d.get('uid') is not None else None,
+            }})
 
     db_mgr.close_driver()
     stats["REL_CALLS_DISTINCT"] = len(set(calls_edges))
@@ -182,6 +193,8 @@ async def run():
         json.dump(calls_edges, _f)
     with open(r'{contains_out_str}', "w") as _f:
         json.dump(contains_edges, _f)
+    with open(r'{variables_out_str}', "w") as _f:
+        json.dump(variable_nodes, _f)
     print("STATS_JSON:" + json.dumps(stats))
 
 async def main():
@@ -232,7 +245,9 @@ asyncio.run(main())
     # empty set that looks like a backend with no containment relationships.
     with open(contains_out_str) as _f:
         contains_edges = json.load(_f)
-    return duration, stats, calls_edges, contains_edges
+    with open(variables_out_str) as _f:
+        variable_nodes = json.load(_f)
+    return duration, stats, calls_edges, contains_edges, variable_nodes
 
 
 @pytest.mark.e2e
@@ -299,12 +314,13 @@ async def _run_database_parity_e2e(temp_test_dir):
     
     for db_type in db_types:
         try:
-            duration, stats, calls_edges, contains_edges = await run_indexing_in_process(db_type, project_path, temp_test_dir)
+            duration, stats, calls_edges, contains_edges, variable_nodes = await run_indexing_in_process(db_type, project_path, temp_test_dir)
             results[db_type] = {
                 "duration": duration,
                 "stats": stats,
                 "calls_edges": calls_edges,
                 "contains_edges": contains_edges,
+                "variable_nodes": variable_nodes,
             }
         except Exception as e:
             if db_type == "neo4j" and "failed to connect" in str(e).lower():
@@ -379,6 +395,18 @@ def _report_contains_edge_diff(results, db_types):
         groups = Counter(tuple(json.loads(edge)[0][:2]) for edge in missing)
         for (label, path), count in groups.most_common(20):
             print(f"    missing source {label} {path}: {count}")
+        if 'variable_nodes' in results[db]:
+            nodes = results[db]['variable_nodes']
+            identities = {json.dumps(node['identity']) for node in nodes}
+            missing_variables = [json.loads(edge)[1] for edge in missing if json.loads(edge)[1][0] == 'Variable']
+            absent = [identity for identity in missing_variables if json.dumps(identity) not in identities]
+            print(f"    missing Variable endpoints: present={len(missing_variables) - len(absent)} absent={len(absent)}")
+            for identity in absent[:40]:
+                print(f"    absent Variable identity: {json.dumps(identity)}")
+            suspect_paths = {identity[1] for identity in missing_variables}
+            suspects = [node for node in nodes if any(path and path in str(node.get('uid')) for path in suspect_paths)]
+            for node in suspects[:80]:
+                print(f"    Variable node: {json.dumps(node)}")
         for edge in missing[:40]:
             print(f"    {edge}")
         if len(missing) > 40:
