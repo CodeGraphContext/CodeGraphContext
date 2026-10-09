@@ -99,7 +99,10 @@ def terragrunt(parser, tmp_path_factory):
     return parse(parser, tmp_path_factory.mktemp("tg"), "terragrunt.hcl", TERRAGRUNT)
 
 
-@pytest.mark.parametrize("name", ["main.tf", "terragrunt.hcl", "terraform.tfvars"])
+@pytest.mark.parametrize("name", [
+    "main.tf", "terraform.tfvars", "modules/bucket/main.tf", "root.hcl",
+    "live/vpc/terragrunt.hcl", "live/app/terragrunt.hcl",
+])
 def test_the_sample_project_parses(parser, name):
     result = parser.parse(str(FIXTURE / name))
     assert result["classes"] or result["variables"]

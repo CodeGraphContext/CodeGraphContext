@@ -1,4 +1,8 @@
-# Terraform side: a resource, a data source, a module and the variables around them.
+# Terraform side: resources, a data source, a registry module, a local module and the variables around them.
+provider "aws" {
+  region = var.region
+}
+
 resource "aws_s3_bucket" "artifacts" {
   bucket = var.bucket_name
   tags   = local.tags
@@ -11,8 +15,21 @@ module "network" {
   name   = var.bucket_name
 }
 
+module "logs" {
+  source = "./modules/bucket"
+  name   = "${var.bucket_name}-logs"
+}
+
+variable "region" {
+  type    = string
+  default = "eu-central-1"
+}
+
 variable "bucket_name" {
-  description = "Name of the artifact bucket"
+  description = <<-EOT
+    Name of the artifact bucket.
+    Must be globally unique.
+  EOT
   type        = string
   default     = "example-artifacts"
 }
