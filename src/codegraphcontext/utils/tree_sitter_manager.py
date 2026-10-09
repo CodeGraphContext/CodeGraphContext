@@ -94,6 +94,10 @@ LANGUAGE_ALIASES = {
     "lua": "lua",
     
     # Canonical names (map to themselves for consistency)
+    "hcl": "hcl",
+    "terraform": "hcl",
+    "tf": "hcl",
+
     "python": "python",
     "javascript": "javascript",
     "typescript": "typescript",

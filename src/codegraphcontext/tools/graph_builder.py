@@ -102,6 +102,9 @@ class GraphBuilder:
             ".css": "css",
             ".svelte": "svelte",
             ".vue": "vue",
+            ".tf": "hcl",
+            ".tfvars": "hcl",
+            ".hcl": "hcl",
         }
         
         # Files that should be added to the graph as minimal File nodes, even if not parsed
