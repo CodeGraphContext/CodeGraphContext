@@ -151,12 +151,19 @@ async def test_scip_health_during_blocking_phase(tmp_path, monkeypatch, stage):
 
 
 @pytest.mark.asyncio
-async def test_cancelled_scip_worker_does_not_start_graph_writes(tmp_path, monkeypatch):
+@pytest.mark.parametrize("stage", ["indexer", "failed_write"])
+async def test_cancelled_scip_worker_does_not_start_more_graph_writes(tmp_path, monkeypatch, stage):
     source = (tmp_path / "app.py").resolve()
     source.write_text("pass\n")
     phase = BlockingPhase()
     stopped = threading.Event()
     writer = MagicMock()
+    monkeypatch.setattr(scip_pipeline, "pre_scan_for_imports", lambda *args: {})
+    if stage == "failed_write":
+        def failed_write(*args, **kwargs):
+            phase.run()
+            raise OSError("write failed after cancellation")
+        writer.add_file_to_graph.side_effect = failed_write
     original = scip_pipeline._run_scip_index
 
     def worker(*args, **kwargs):
@@ -170,7 +177,7 @@ async def test_cancelled_scip_worker_does_not_start_graph_writes(tmp_path, monke
     job_id = jobs.create_job(str(tmp_path))
     task = asyncio.create_task(scip_pipeline.run_scip_index_async(
         tmp_path, True, job_id, "python", writer, jobs, {".py"},
-        lambda suffix: None, fake_scip_module(source, phase),
+        lambda suffix: None, fake_scip_module(source, phase if stage == "indexer" else None),
     ))
     try:
         await asyncio.wait_for(wait_for_phase(phase), timeout=3)
@@ -180,7 +187,11 @@ async def test_cancelled_scip_worker_does_not_start_graph_writes(tmp_path, monke
     finally:
         phase.release.set()
     assert await asyncio.to_thread(stopped.wait, 3)
-    writer.add_file_to_graph.assert_not_called()
+    if stage == "indexer":
+        writer.add_file_to_graph.assert_not_called()
+    else:
+        writer.add_file_to_graph.assert_called_once()
+    writer.add_minimal_file_node.assert_not_called()
     writer.write_scip_call_edges.assert_not_called()
     assert jobs.get_job(job_id).status != JobStatus.COMPLETED
 

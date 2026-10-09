@@ -226,6 +226,7 @@ def _run_scip_index(
                 # files indexed. Continuing." on every run, forever (#1673).
                 warning_logger(f"SCIP file write failed for {abs_path_str}: {e}; recording minimal node")
                 try:
+                    check_cancelled()
                     writer.add_minimal_file_node(Path(abs_path_str), index_root, is_dependency)
                 except Exception as e2:
                     debug_log(f"Minimal node fallback also failed for {abs_path_str}: {e2}")
@@ -394,6 +395,7 @@ def _run_scip_index(
     except RuntimeError:
         raise
     except Exception as e:
+        check_cancelled()
         error_logger(f"SCIP indexing failed for {path}: {e}")
         if job_id:
             job_manager.update_job(
