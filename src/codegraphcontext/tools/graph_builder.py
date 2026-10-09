@@ -144,8 +144,7 @@ class GraphBuilder:
             try:
                 self._parsed_cache.parsers[lang_name] = TreeSitterParser(lang_name)
             except Exception as e:
-                warning_logger(f"Failed to initialize parser for {lang_name}: {e}")
-                return None
+                raise RuntimeError(f"Failed to initialize parser for {lang_name}: {e}") from e
         return self._parsed_cache.parsers[lang_name]
 
     def create_schema(self, graph_name: str = None) -> None:
@@ -490,7 +489,10 @@ class GraphBuilder:
             debug_log(f"[parse_file] Adding generic file node for {path}")
             return {"path": str(path), "error": f"Generic file type {ext or path.name}", "unsupported": False}
 
-        parser = self.get_parser(ext)
+        try:
+            parser = self.get_parser(ext)
+        except Exception as error:
+            return {"path": str(path), "error": str(error), "parse_failed": True}
         if not parser:
             warning_logger(f"No parser found for file extension {ext}. Skipping {path}")
             return {"path": str(path), "error": f"No parser for {ext}", "unsupported": True}
