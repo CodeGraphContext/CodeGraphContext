@@ -39,7 +39,10 @@ case "$TEST_TYPE" in
     
     "e2e"|"3")
         echo -e "${YELLOW}Running E2E User Journeys (Slow)...${NC}"
-        pytest tests/e2e/ -v
+        # -rs: pytest 的逐行 verbose 输出会按终端宽度截断/省略 skip 原因
+        # （CI 里测试 id 长于可用宽度时，整条原因被省略成裸 "SKIPPED"）。
+        # 短摘要区不截断，必须加上，否则"为什么跳过"在 CI 日志里不可见。
+        pytest tests/e2e/ -v -rs
         ;;
     
     "fast")

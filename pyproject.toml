@@ -28,7 +28,24 @@ dependencies = [
     "inquirerpy>=0.3.4",
     "python-dotenv>=1.0.0",
     "tree-sitter>=0.24.0,<0.26.0",
-    "tree-sitter-language-pack>=1.6,<2.0",
+    # ------------------------------------------------------------------
+    # tree-sitter-language-pack upper bound (Haskell golden regression)
+    #
+    # 1.21.0 (released 2026-10-04) reshapes the Haskell tree-sitter grammar:
+    # `class ... where` and `data ... = ...` declarations stop being
+    # surfaced, so the Haskell parser emits **no Class nodes at all**.
+    # Evidence, all on the same commit 642c3215f8 with no code change:
+    #   2026-10-02 green  -> installed tree-sitter-language-pack 1.20.0
+    #   2026-10-06 red    -> installed tree-sitter-language-pack 1.21.0
+    # Breaks three suites on every supported Python version (3.12/3.13/3.14):
+    #   tests/integration/test_parser_goldens.py::test_language_golden[sample_project_haskell]
+    #       Nodes regression mismatch: Missing 39 expected nodes (all Class)
+    #   tests/unit/parsers/test_1538_spurious_records.py::test_haskell_curried_application_is_one_call
+    #   tests/unit/tools/test_cross_lang_call_resolution_patterns.py::
+    #       ...::test_haskell_typeclass_instances_and_constructor_call
+    # Keep <1.21.0 until the Haskell extractor is taught the 1.21 node layout.
+    # ------------------------------------------------------------------
+    "tree-sitter-language-pack>=1.6,<1.21.0",
     "tree-sitter-c-sharp>=0.21.0",
     "pyyaml",
     "nbformat",
@@ -88,7 +105,8 @@ dependencies = [
 [project.optional-dependencies]
 parsing = [
     "tree-sitter>=0.24.0,<0.26.0",
-    "tree-sitter-language-pack>=1.6,<2.0",
+    # See the pin note under [project].dependencies.
+    "tree-sitter-language-pack>=1.6,<1.21.0",
     "tree-sitter-c-sharp>=0.21.0",
 ]
 # Named backend extras let users (and CI) opt into a single, tested driver
