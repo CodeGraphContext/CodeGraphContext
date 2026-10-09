@@ -8,6 +8,7 @@ literals and variable values before they are persisted.
 
 from __future__ import annotations
 
+import bisect
 import math
 import re
 from collections import Counter
@@ -107,50 +108,124 @@ def is_likely_secret(value: str) -> Tuple[bool, Optional[str]]:
     return False, None
 
 
-# Spacing as tolerant as the BEGIN patterns above, or a block is tracked from nowhere.
-_PEM_BEGIN = re.compile(r"-----BEGIN\s+(?:[A-Z]+\s+)*PRIVATE\s+KEY-----")
-_PEM_END = re.compile(r"-----END\s+(?:[A-Z]+\s+)*PRIVATE\s+KEY-----")
+_BODY_KEYS = frozenset({"source", "docstring"})
+
+_PEM_BEGIN = re.compile(r"-----BEGIN\s+(?:[A-Z0-9]+\s+)*PRIVATE\s+KEY(?:\s+BLOCK)?-----")
+_PEM_END = re.compile(r"-----END\s+(?:[A-Z0-9]+\s+)*PRIVATE\s+KEY(?:\s+BLOCK)?-----")
+_STRING_LITERAL = re.compile(r"""(["'`])((?:\\.|(?!\1)[^\\\n])*)\1""")
+_TOKEN = re.compile(r"[A-Za-z0-9+/_~\-]{%d,}=*" % _MIN_ENTROPY_LEN)
+_IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+_HEX = re.compile(r"[0-9a-fA-F]+")
+_UUID = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")
+_NAME_BEFORE = re.compile(r"([A-Za-z_][\w.\-]*)['\"]?\s*[=:,(]\s*['\"]?\Z")
+
+_MIN_CLASS_SWITCH_RATE = 0.3
+_HEX_ENTROPY_WITH_HINT_THRESHOLD = 3.0
 
 
-def _scan_body(value: str, redact: bool) -> Tuple[str, bool, Optional[str]]:
-    """Scan a multi-line value line by line and redact only the lines that carry a secret.
+def _class_switches(chars: list[str]) -> int:
+    """Count changes between digit, lower and upper case, not counting a capital starting a word."""
+    classes = [0 if c.isdigit() else 1 if c.islower() else 2 for c in chars]
+    return sum(a != b and (a, b) != (2, 1) for a, b in zip(classes, classes[1:]))
 
-    Entropy is not applied here. A body of source clears its threshold on its own: any code
-    containing one of the hint words scores above 3.8 bits, which is what made whole functions
-    and classes disappear. Nothing replaces it for a body, which is a real reduction in what is
-    detected -- see the pull request. A value with no newline never reaches here.
+
+def _is_opaque_token(token: str, prefix: str) -> bool:
+    """Apply the entropy test to one token rather than to the text around it.
+
+    The token must mix letters and digits. Like ``is_likely_secret``, a hint word lowers the bar,
+    but only in the name the token is assigned to, not anywhere in the body. Without one, the
+    token must also switch between digit, lower and upper case often, which random strings do
+    and identifiers, paths and prose do not, and must not be a UUID. Hex cannot exceed 4 bits, so
+    a named hex token is held to a lower threshold.
     """
-    # `\s` matches a newline, so most patterns are written to span one: `password =` on one line
-    # and its quoted value on the next is a single match here and none on any line. That has to be
-    # checked whatever the line pass finds, or a second credential in the body switches it off.
+    chars = [c for c in token if c.isalnum()]
+    if not (any(c.isdigit() for c in chars) and any(c.isalpha() for c in chars)):
+        return False
+    name = _NAME_BEFORE.search(prefix)
+    named = bool(name and _KEY_HINT_RE.search(name.group(1)))
+    entropy = _shannon_entropy(token)
+    if entropy >= _ENTROPY_WITH_HINT_THRESHOLD:
+        if named:
+            return True
+        if _UUID.fullmatch(token):
+            return False
+        return _class_switches(chars) >= _MIN_CLASS_SWITCH_RATE * (len(chars) - 1)
+    return named and entropy >= _HEX_ENTROPY_WITH_HINT_THRESHOLD and bool(_HEX.fullmatch(token))
+
+
+def _secret_spans(value: str) -> Tuple[list[Tuple[int, int]], Optional[str]]:
+    spans: list[Tuple[int, int]] = []
+    labels: list[str] = []
+
+    for begin in _PEM_BEGIN.finditer(value):
+        end = _PEM_END.search(value, begin.end())
+        spans.append((begin.start(), end.end() if end else len(value)))
+        labels.append("pem-block")
+
     for index, pattern in enumerate(_SECRET_PATTERNS):
-        match = pattern.search(value)
-        if match and "\n" in match.group(0):
-            return (REDACTED if redact else value), True, f"regex:{index}"
+        for match in pattern.finditer(value):
+            if not pattern.groups:
+                spans.append(match.span())
+            elif (
+                value[match.start(1) - 1] not in "'\""
+                and _IDENTIFIER.fullmatch(match.group(1))
+                and not _is_opaque_token(match.group(1), "")
+            ):
+                continue
+            else:
+                spans.append(match.span(1))
+            labels.append(f"regex:{index}")
 
-    lines = value.split("\n")
-    found: Optional[str] = None
-    in_key_block = False
+    literals = [match.span(2) for match in _STRING_LITERAL.finditer(value)]
+    literal_starts = [start for start, _ in literals]
+    for match in _TOKEN.finditer(value):
+        start, end = match.span()
+        index = bisect.bisect_right(literal_starts, start) - 1
+        literal = literals[index] if index >= 0 and end <= literals[index][1] else None
+        if literal is None and _IDENTIFIER.fullmatch(match.group(0)):
+            continue
+        line_start = value.rfind("\n", 0, start) + 1
+        if _is_opaque_token(match.group(0), value[line_start:start]):
+            spans.append(literal or (start, end))
+            labels.append("entropy")
 
-    for index, line in enumerate(lines):
-        if in_key_block:
-            hit = "pem-block"
-            in_key_block = not _PEM_END.search(line)
-        elif _PEM_BEGIN.search(line):
-            # The key material between BEGIN and END matches no pattern of its own.
-            hit = "pem-block"
-            in_key_block = not _PEM_END.search(line)
-        else:
-            hit = next((f"regex:{i}" for i, p in enumerate(_SECRET_PATTERNS) if p.search(line)), None)
-        if hit:
-            found = found or hit
-            if redact:
-                # split() leaves the \r of a CRLF body on the line it belongs to.
-                lines[index] = REDACTED + ("\r" if line.endswith("\r") else "")
+    return spans, (labels[0] if labels else None)
 
-    if not found:
+
+def scan_body_and_redact(value: str, redact: bool = False) -> Tuple[str, bool, Optional[str]]:
+    """Scan a multi-line code body and optionally redact only the parts that hold a secret.
+
+    A pattern match replaces its captured value, or the whole match when the pattern captures
+    nothing; an unquoted captured value that is a plain identifier names a variable and is left
+    alone unless it looks opaque. A private key is replaced from BEGIN through END, or to the end
+    of the value when END is missing. An opaque token (see ``_is_opaque_token``) replaces the
+    string literal it sits in, or only itself outside one; a bare identifier is never a candidate.
+
+    Returns
+    -------
+    (str, bool, str or None)
+        ``(result_value, was_secret, pattern_name)``
+    """
+    spans, label = _secret_spans(value)
+    if not spans:
         return value, False, None
-    return ("\n".join(lines) if redact else value), True, found
+    if not redact:
+        return value, True, label
+
+    merged: list[list[int]] = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    parts = []
+    cursor = 0
+    for start, end in merged:
+        parts.append(value[cursor:start])
+        parts.append(REDACTED)
+        cursor = end
+    parts.append(value[cursor:])
+    return "".join(parts), True, label
 
 
 def scan_and_redact(value: str, redact: bool = False) -> Tuple[str, bool, Optional[str]]:
@@ -161,9 +236,6 @@ def scan_and_redact(value: str, redact: bool = False) -> Tuple[str, bool, Option
     (str, bool, str or None)
         ``(result_value, was_secret, pattern_name)``
     """
-    if isinstance(value, str) and "\n" in value:
-        # A body of code or documentation: replacing all of it over one line loses the rest.
-        return _scan_body(value, redact)
     detected, pattern = is_likely_secret(value)
     if detected and redact:
         return REDACTED, True, pattern
@@ -196,7 +268,8 @@ def scan_props_and_redact(
     result = {}
     for key, val in props.items():
         if isinstance(val, str):
-            redacted_val, was_secret, pattern = scan_and_redact(val, redact=redact)
+            scan = scan_body_and_redact if key in _BODY_KEYS and "\n" in val else scan_and_redact
+            redacted_val, was_secret, pattern = scan(val, redact=redact)
             if was_secret:
                 findings.append((key, pattern))
                 result[key] = redacted_val
