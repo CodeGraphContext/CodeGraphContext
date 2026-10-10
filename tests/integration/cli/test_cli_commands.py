@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 import codegraphcontext.cli.main as cli_main
 import codegraphcontext.cli.cli_helpers as cli_helpers
 from codegraphcontext.cli.main import app, _load_credentials
+from codegraphcontext.core import graph_snapshot
 
 runner = CliRunner()
 
@@ -102,6 +103,53 @@ class _FakeSession:
     def run(self, query, **kwargs):
         if "MATCH (n:File)" in query:
             return [{"name": "main.py", "path": "repo/main.py", "is_dependency": False}]
+        # `cgc snapshot save`/`cgc diff` (#1312) read the whole graph with the
+        # same two queries bundle export uses; answer them with a one-file,
+        # one-function graph so the smoke matrix exercises the real code path.
+        if query == graph_snapshot.NODE_QUERY:
+            return [
+                {
+                    "labels": ["File"],
+                    "n": {"path": "repo/main.py", "name": "main.py", "relative_path": "main.py"},
+                },
+                {
+                    "labels": ["Function"],
+                    "n": {
+                        "uid": "demorepo/main.py10",
+                        "name": "demo",
+                        "path": "repo/main.py",
+                        "line_number": 1,
+                    },
+                },
+                {
+                    "labels": ["Parameter"],
+                    "n": {
+                        "uid": "argrepo/main.py10",
+                        "name": "arg",
+                        "path": "repo/main.py",
+                        "function_line_number": 1,
+                    },
+                },
+            ]
+        if query == graph_snapshot.EDGE_QUERY:
+            return [
+                {
+                    "rel_type": "CONTAINS",
+                    "source_labels": ["File"],
+                    "target_labels": ["Function"],
+                    "a": {"path": "repo/main.py", "name": "main.py"},
+                    "b": {"uid": "demorepo/main.py10", "name": "demo", "path": "repo/main.py", "line_number": 1},
+                    "r": {},
+                },
+                {
+                    "rel_type": "HAS_PARAMETER",
+                    "source_labels": ["Function"],
+                    "target_labels": ["Parameter"],
+                    "a": {"uid": "demorepo/main.py10", "name": "demo", "path": "repo/main.py", "line_number": 1},
+                    "b": {"uid": "argrepo/main.py10", "name": "arg", "path": "repo/main.py", "function_line_number": 1},
+                    "r": {},
+                },
+            ]
         return [{"type": "Function", "name": "demo", "path": "repo/main.py", "line_number": 1, "is_dependency": False}]
 
 
@@ -514,6 +562,11 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs, 
         ["export", bundle_export],
         ["load", bundle_file],
         ["report"],
+        # `diff` must come after `snapshot save`: with no snapshot saved it
+        # exits 1, and this matrix asserts every command exits 0.
+        ["snapshot", "save", "--name", "smoke"],
+        ["snapshot", "list"],
+        ["diff"],
     ]
 
     source_inventory = _inventory_from_main_source()
