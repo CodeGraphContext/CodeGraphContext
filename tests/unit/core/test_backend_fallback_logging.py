@@ -37,22 +37,22 @@ def _only_backend(monkeypatch, available):
     monkeypatch.setattr(core, "_is_nornic_configured", lambda: available == "nornic")
 
 
-def test_falkordb_to_kuzu_fallback_names_kuzu(monkeypatch, fallback_log):
-    """The Failure Mode 1 from #1331: FalkorDB unusable, Kùzu takes over silently."""
+def test_falkordb_to_ladybug_fallback_names_ladybug(monkeypatch, fallback_log):
+    """An unavailable FalkorDB must name its maintained replacement."""
     monkeypatch.setenv("CGC_RUNTIME_DB_TYPE", "falkordb")
     monkeypatch.setattr(core, "is_falkordb_usable", lambda: False)
-    _only_backend(monkeypatch, "kuzudb")
+    _only_backend(monkeypatch, "ladybugdb")
 
     sentinel = object()
-    fake = type(sys)("codegraphcontext.core.database_kuzu")
-    fake.KuzuDBManager = lambda db_path=None: sentinel
-    monkeypatch.setitem(sys.modules, "codegraphcontext.core.database_kuzu", fake)
+    fake = type(sys)("codegraphcontext.core.database_ladybug")
+    fake.LadybugDBManager = lambda db_path=None: sentinel
+    monkeypatch.setitem(sys.modules, "codegraphcontext.core.database_ladybug", fake)
 
     assert core.get_database_manager() is sentinel
 
     joined = " ".join(fallback_log)
     assert "fallback" in joined.lower(), f"no fallback logged: {fallback_log!r}"
-    assert "Kùzu" in joined, f"fallback did not name the backend it landed on: {fallback_log!r}"
+    assert "LadybugDB" in joined, f"fallback did not name the backend it landed on: {fallback_log!r}"
 
 
 def test_kuzu_missing_fallback_names_the_replacement(monkeypatch, fallback_log):
@@ -74,5 +74,19 @@ def test_no_backend_available_still_raises(monkeypatch, fallback_log):
     monkeypatch.setenv("CGC_RUNTIME_DB_TYPE", "kuzudb")
     _only_backend(monkeypatch, "none-of-them")
 
-    with pytest.raises(ValueError, match="Kùzu is not installed"):
+    with pytest.raises(ValueError, match="Kuzu is not installed"):
         core.get_database_manager()
+
+
+def test_explicit_legacy_kuzu_warns_when_driver_is_available(monkeypatch, fallback_log):
+    """Existing users retain an opt-in window, with the exit path made explicit."""
+    monkeypatch.setenv("CGC_RUNTIME_DB_TYPE", "kuzudb")
+    monkeypatch.setattr(core, "_is_kuzudb_available", lambda: True)
+
+    sentinel = object()
+    fake = type(sys)("codegraphcontext.core.database_kuzu")
+    fake.KuzuDBManager = lambda db_path=None: sentinel
+    monkeypatch.setitem(sys.modules, "codegraphcontext.core.database_kuzu", fake)
+
+    assert core.get_database_manager() is sentinel
+    assert any("legacy backend archived upstream" in message for message in fallback_log)

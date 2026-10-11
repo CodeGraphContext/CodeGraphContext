@@ -47,7 +47,7 @@ pool than 0.19.x for the same graph. Raise `CGC_EMBEDDED_BUFFER_POOL_MB`
 ### Which backend am I actually using?
 `cgc config show` prints the resolved backend and its source. FalkorDB is
 the default where its native library loads; environments where it cannot
-load fall back to KùzuDB — the startup line names the backend in use.
+load fall back to LadybugDB — the startup line names the backend in use.
 
 ### The visualizer shows nodes but no edges
 Fixed in 0.6.9 (#1689) for FalkorDB. If you see this on another backend,

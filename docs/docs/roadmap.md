@@ -22,10 +22,11 @@ Below is the inventory of features currently implemented, shipped, and operation
 - **`.cgcignore` Filter**: Custom pattern matcher adhering to `.gitignore`-style rules to prevent noise (vendor folders, binaries) from entering the graph database.
 
 ### 1.2 Graph Persistence & Schemas
-- **Database Adapters**: Consistent connection wrappers for 5 backend drivers:
+- **Database Adapters**: Consistent connection wrappers for 6 backend drivers:
   - **FalkorDB Lite**: Local embedded UNIX DB via Redislite.
   - **FalkorDB Remote**: Remote FalkorDB client.
-  - **KuzuDB**: Local embedded relational-graph DB (default for Windows).
+  - **LadybugDB**: Maintained local embedded property-graph DB and Windows fallback.
+  - **KuzuDB**: Archived local embedded backend retained for explicit migration compatibility.
   - **Neo4j**: Server-side graph database (AuraDB/Docker compatible).
   - **Nornic DB**: Neo4j-compatible embedded database driver.
 - **Graph Schema**: Schema contracts enforcing 17 node labels (e.g., `Repository`, `File`, `Function`, `Class`, `Variable`, `Interface`, `Enum`, `Parameter`) and 7 relationship types (`CONTAINS`, `CALLS`, `IMPORTS`, `INHERITS`, `IMPLEMENTS`, `HAS_PARAMETER`, `INCLUDES`).
@@ -68,8 +69,8 @@ Below is the inventory of features currently implemented, shipped, and operation
 | **L3** | Arch | **In-Memory Job Manager** | Medium | Background indexing job states are lost on server restart, leading to broken job polling. |
 | **L4** | Arch | **Monolithic `cli/main.py`** | Medium | CLI commands are structured in a single 2386-line file, increasing maintenance overhead and making testing difficult. |
 | **L5** | Arch | **Monolithic `CodeGraphViewer.tsx`** | High | Renders layout, handles Cytoscape/Force-graph state, and processes files in a single 1579-line file. |
-| **L6** | DB | **FalkorDB UNIX Restriction** | Medium | FalkorDB Lite is blocked on Windows due to redislite binaries, causing silent fallbacks. |
-| **L7** | DB | **KuzuDB Cypher Dialect Discrepancies** | High | Specific Cypher queries (e.g. `UNWIND`, aggregations) behave differently between Kuzu and Neo4j, resulting in query failures. |
+| **L6** | DB | **FalkorDB UNIX Restriction** | Medium | FalkorDB Lite is blocked on Windows due to redislite binaries, requiring the LadybugDB fallback. |
+| **L7** | DB | **Embedded Kuzu-Dialect Discrepancies** | High | Specific Cypher queries (e.g. `UNWIND`, aggregations) behave differently in Ladybug/legacy Kuzu and Neo4j, resulting in query failures. |
 | **L8** | Parse | **Syntactic Boundary** | Medium | Tree-sitter has no type solver; dynamic imports or duplicate class names across folders can result in false connections in the call graph. |
 | **L9** | Parse | **Stubbed Advanced Toolkits** | High | All 16 language `*Toolkit` classes in `query_tool_languages/` raise `NotImplementedError` when advanced queries are invoked. |
 | **L10** | Test | **Flaky Integration Tests** | Medium | `test_cgcignore_patterns.py` requires a fully installed workspace and a live DB, leading to CI failures. |

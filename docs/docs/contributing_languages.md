@@ -110,14 +110,14 @@ Once the parser is registered, verify graph extraction using sample source files
 
 Emacs Lisp support uses the `elisp` grammar already distributed by `tree-sitter-language-pack`; no external Emacs process or manual grammar compilation is required for the Tree-sitter path.
 
-To smoke-test the checked-in two-file fixture against an isolated Kuzu database:
+To smoke-test the checked-in two-file fixture against an isolated Ladybug database:
 
 ```bash
 tmpdir=$(mktemp -d)
 export PYTHONPATH=src
-export DEFAULT_DATABASE=kuzudb
-export CGC_RUNTIME_DB_TYPE=kuzudb
-export CGC_RUNTIME_DB_PATH="$tmpdir/kuzu.db"
+export DEFAULT_DATABASE=ladybugdb
+export CGC_RUNTIME_DB_TYPE=ladybugdb
+export CGC_RUNTIME_DB_PATH="$tmpdir/ladybug.db"
 
 uv run python -m codegraphcontext index tests/fixtures/sample_projects/sample_project_elisp --force
 
@@ -139,9 +139,9 @@ Solidity support uses the `solidity` grammar from `tree-sitter-language-pack` (J
 ```bash
 tmpdir=$(mktemp -d)
 export PYTHONPATH=src
-export DEFAULT_DATABASE=kuzudb
-export CGC_RUNTIME_DB_TYPE=kuzudb
-export CGC_RUNTIME_DB_PATH="$tmpdir/kuzu.db"
+export DEFAULT_DATABASE=ladybugdb
+export CGC_RUNTIME_DB_TYPE=ladybugdb
+export CGC_RUNTIME_DB_PATH="$tmpdir/ladybug.db"
 
 uv run python -m codegraphcontext index tests/fixtures/sample_projects/sample_project_solidity --force
 

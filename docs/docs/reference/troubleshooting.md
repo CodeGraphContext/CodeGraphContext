@@ -6,28 +6,26 @@ This guide detail procedures for identifying, diagnosing, and resolving issues w
 
 ## 1. Engine Installation & Compilation Issues
 
-### KuzuDB Installation Errors (C++ Compiler Required)
-KuzuDB relies on a compiled C++ engine core. If `pip install kuzu` fails:
-- **Reason**: The pre-compiled wheel is not available for your system architecture/Python version, forcing a compile from source without build tools.
-- **Resolution**:
-  - **Linux**: Install build essentials: `sudo apt-get install build-essential python3-dev`
-  - **macOS**: Install developer CLI tools: `xcode-select --install`
-  - **Windows**: Install [Visual C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) via Visual Studio Installer.
+### KuzuDB Installation Errors
+KuzuDB is archived, and its final release does not publish wheels for every current Python/platform combination. If
+`codegraphcontext[kuzu]` falls back to a native source build, do not make Kuzu a prerequisite for a normal CGC install.
+Use LadybugDB for maintained embedded operation. For an existing Kuzu store, follow the
+[migration guide](../guides/migrate-from-kuzudb.md) with a compatible interpreter or container.
 
 ### FalkorDB Lite Unix Dependencies
 FalkorDB Lite only runs on Linux/macOS and requires **Python 3.12+**.
 - **Reason**: Underlying shared libraries are not compiled for Windows or older Python interpreter versions.
-- **Resolution**: Switch the active database context backend to `kuzudb` which is fully cross-platform.
+- **Resolution**: Switch the active database context backend to `ladybugdb`.
 
 ---
 
 ## 2. Database Connection Failures
 
 ### "No database backend available"
-- **Reason**: CGC is looking for KuzuDB, FalkorDB, or Neo4j, but the respective Python client packages are missing from the current virtual environment.
+- **Reason**: No maintained embedded backend is available and no remote backend is configured.
 - **Resolution**: Verify package installations:
   ```bash
-  pip install kuzu neo4j falkordb
+  pip install "codegraphcontext[ladybug]"
   ```
 
 ### Neo4j Connection Refused / Auth Failures

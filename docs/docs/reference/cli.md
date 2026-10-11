@@ -12,7 +12,7 @@ These flags apply to most subcommands:
 
 | Option | Shorthand | Description |
 | :--- | :--- | :--- |
-| `--database` | `--db`, `-db` | Override the active backend for this invocation (`neo4j`, `falkordb`, `falkordb-remote`, `kuzudb`, `nornic`, `ladybugdb`). |
+| `--database` | `--db`, `-db` | Override the active backend for this invocation (`neo4j`, `falkordb`, `falkordb-remote`, `nornic`, `ladybugdb`, or legacy `kuzudb`). |
 | `--db-path` | | Override the on-disk storage directory for embedded engines. |
 | `--context` | `-c` | Target a named context workspace. |
 | `--visual` | `--viz`, `-V` | Open results in the interactive graph visualization UI. |
@@ -112,7 +112,7 @@ Manage isolation modes and named workspaces. See [Configuration Contexts](../gui
 ```bash
 cgc context list
 cgc context mode <global|per-repo|named>
-cgc context create <name> [--database kuzudb] [--db-path /path]
+cgc context create <name> [--database ladybugdb] [--db-path /path]
 cgc context delete <name>
 cgc context default <name>
 ```
@@ -128,7 +128,8 @@ cgc config db <backend>
 cgc config reset
 ```
 
-Valid backends: `kuzudb`, `ladybugdb`, `falkordb`, `falkordb-remote`, `neo4j`, `nornic`. See [Configuration Reference](config.md).
+Valid backends: `ladybugdb`, `falkordb`, `falkordb-remote`, `neo4j`, `nornic`, and legacy opt-in `kuzudb`. See
+[Configuration Reference](config.md).
 
 ---
 

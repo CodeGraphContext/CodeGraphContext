@@ -495,11 +495,12 @@ def _load_credentials(cli_context_flag: Optional[str] = None):
         try:
             from codegraphcontext.core import get_database_manager
             _mgr = get_database_manager()
-            default_db = _mgr.get_backend_type()   # e.g. 'falkordb' / 'kuzudb'
+            default_db = _mgr.get_backend_type()   # e.g. 'falkordb' / 'ladybugdb'
         except Exception:
             # Factory failed entirely — still show a best-guess
             from codegraphcontext.core import _is_falkordb_available
-            default_db = "falkordb" if _is_falkordb_available() else "kuzudb"
+
+            default_db = "falkordb" if _is_falkordb_available() else "ladybugdb"
         db_source = "auto-detect"
 
     # Print selection banner
@@ -1508,10 +1509,10 @@ def doctor():
             from importlib.util import find_spec
 
             if find_spec("kuzu") is not None:
-                console.print("   [green]✓[/green] KuzuDB is installed")
+                console.print("   [yellow]⚠[/yellow] KuzuDB is installed as a legacy backend")
             else:
                 console.print("   [red]✗[/red] KuzuDB is not installed")
-                console.print("       Run: pip install kuzu")
+                console.print("       Run: pip install 'codegraphcontext[kuzu]' (legacy migration only)")
                 all_checks_passed = False
         elif default_db == "ladybugdb":
             from importlib.util import find_spec
