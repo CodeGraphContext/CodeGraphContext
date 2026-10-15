@@ -50,9 +50,13 @@ def test_dependency_import_does_not_download_unrelated_python_grammar(monkeypatc
         monkeypatch.setattr(manager, name, None)
     loader = MagicMock(side_effect=PermissionError('manifest download denied'))
     monkeypatch.setattr(tree_sitter_language_pack, 'get_language', loader)
+    prefetch = MagicMock()
+    monkeypatch.setattr(tree_sitter_language_pack, 'prefetch', prefetch)
     manager._load_tree_sitter_dependencies()
     loader.assert_not_called()
+    prefetch.assert_not_called()
     with pytest.raises(RuntimeError, match='manifest download denied') as failure:
         manager.TreeSitterManager().get_language_safe('java')
     assert isinstance(failure.value.__cause__, PermissionError)
     loader.assert_called_once_with('java')
+    prefetch.assert_called_once_with(['java'])
