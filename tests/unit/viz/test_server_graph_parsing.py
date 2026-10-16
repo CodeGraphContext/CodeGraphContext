@@ -22,6 +22,10 @@ real Python package directly — this is not a guess:
 lowercase spelling, so every LadybugDB row was silently dropped and the
 live web graph rendered empty (issue #1458).
 """
+import asyncio
+from pathlib import PureWindowsPath
+from unittest.mock import MagicMock
+
 from codegraphcontext.viz import server
 
 
@@ -88,3 +92,20 @@ def test_parse_rel_resolves_ladybug_src_dst():
     edges = []
     server.parse_rel(LADYBUG_REL, edges)
     assert edges == [{"id": "1:0", "source": "0:1", "target": "0:2", "type": "CONTAINS"}]
+
+
+def test_get_graph_normalizes_windows_repo_path_for_index_lookup(monkeypatch):
+    """Repository paths passed to the graph query use the indexed POSIX form."""
+    manager = MagicMock()
+    manager.get_backend_type.return_value = "kuzudb"
+    session = manager.get_driver.return_value.session.return_value.__enter__.return_value
+    session.run.return_value = []
+    path_factory = MagicMock()
+    path_factory.return_value.resolve.return_value = PureWindowsPath(r"D:\work\repo")
+
+    monkeypatch.setattr(server, "db_manager", manager)
+    monkeypatch.setattr(server, "Path", path_factory)
+
+    asyncio.run(server.get_graph(repo_path=r"D:\work\repo"))
+
+    assert session.run.call_args.kwargs["repo_path"] == "D:/work/repo"
