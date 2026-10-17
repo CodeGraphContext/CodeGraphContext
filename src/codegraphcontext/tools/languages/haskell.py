@@ -28,6 +28,7 @@ HASKELL_QUERIES = {
     """,
     "calls": """
         (apply) @apply_node
+        (infix operator: (infix_id)) @infix_node
     """,
     "instances": """
         (instance) @instance_node
@@ -450,9 +451,14 @@ class HaskellTreeSitterParser:
         seen_calls: set = set()
 
         for node, cap in captures:
-            if cap != "apply_node" or node.type != "apply":
+            if cap == "infix_node":
+                operator = node.child_by_field_name('operator')
+                callee = next((c for c in operator.named_children
+                               if c.type in ('variable', 'qualified')), None) if operator is not None else None
+            elif cap == "apply_node" and node.type == "apply":
+                callee = self._apply_callee(node)
+            else:
                 continue
-            callee = self._apply_callee(node)
             call_name = (self._get_node_text(callee) or None) if callee is not None else None
             if not call_name:
                 continue
@@ -472,7 +478,9 @@ class HaskellTreeSitterParser:
                     "name": call_name,
                     "full_name": call_name,
                     "line_number": start_line,
-                    "args": [],
+                    "args": [self._get_node_text(node.child_by_field_name(key))
+                             for key in ('left_operand', 'right_operand')]
+                            if cap == 'infix_node' else [],
                     "inferred_obj_type": None,
                     "context": (ctx_name, ctx_type, ctx_line),
                     "class_context": (ctx_name, ctx_line)
@@ -486,23 +494,30 @@ class HaskellTreeSitterParser:
 
 
 def pre_scan_haskell(files: list[Path], parser_wrapper) -> dict:
-    """Map declared names to file paths using lightweight regex (no full parse)."""
-    name_to_files: dict = {}
-    patterns = [
-        (re.compile(r"^(\w+)\s*::", re.MULTILINE), None),
-        (re.compile(r"^data\s+(\w+)", re.MULTILINE), None),
-        (re.compile(r"^class\s+(\w+)", re.MULTILINE), None),
-        (re.compile(r"^newtype\s+(\w+)", re.MULTILINE), None),
-        (re.compile(r"^type\s+(\w+)", re.MULTILINE), None),
-    ]
+    """Index declarations with or without signatures, without matching comments."""
+    names = {}
+    query = '\n'.join(HASKELL_QUERIES[k] for k in ('functions', 'classes', 'variables'))
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-            for rx, _ in patterns:
-                for m in rx.finditer(content):
-                    name = m.group(1)
-                    name_to_files.setdefault(name, []).append(str(path))
-        except Exception:
-            pass
-    return name_to_files
+            root = parser_wrapper.parser.parse(path.read_bytes()).root_node
+            for node, capture in execute_query(parser_wrapper.language, query, root):
+                if not capture.endswith('_node'):
+                    continue
+                parent = node.parent
+                local = False
+                while parent is not None:
+                    if parent.type in ('function', 'bind'):
+                        local = True
+                        break
+                    parent = parent.parent
+                if local:
+                    continue
+                name_node = node.child_by_field_name('name')
+                if name_node is not None:
+                    name = name_node.text.decode('utf-8')
+                    paths = names.setdefault(name, [])
+                    if str(path) not in paths:
+                        paths.append(str(path))
+        except Exception as exc:
+            warning_logger(f"Haskell pre-scan failed for {path}: {exc}")
+    return names
