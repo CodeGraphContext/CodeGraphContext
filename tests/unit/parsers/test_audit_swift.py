@@ -76,3 +76,22 @@ def test_initializer_and_deinitializer_calls_keep_distinct_owners(tmp_path):
     assert calls['setup']['context'][0] == 'init'
     assert calls['cleanup']['context'][0] == 'deinit'
     assert calls['cleanup']['class_context'] == ('S', 1)
+
+
+def test_requirement_stays_indexed_but_default_implementation_receives_the_call(tmp_path):
+    from codegraphcontext.tools.indexing.resolution.calls import build_function_call_groups
+    path = tmp_path / 'default.swift'
+    path.write_text('protocol Draw { func draw() }\nextension Draw { func draw() {} }\nfunc run(x: Draw) { x.draw() }\n')
+    result = TreeSitterParser('swift').parse(path)
+    assert len([f for f in result['functions'] if f['name'] == 'draw']) == 2
+    edges, *_ = build_function_call_groups([result], {})
+    calls = [e for e in edges if e['caller_name'] == 'run' and e['called_name'] == 'draw']
+    assert len(calls) == 1 and calls[0]['called_line_number'] == 2
+
+
+def test_parameter_types_and_internal_labels_drive_receiver_resolution(tmp_path):
+    path = tmp_path / 'labels.swift'
+    path.write_text('class S { func work() {} }\nfunc run(_ service: S) { service.work() }\n')
+    result = TreeSitterParser('swift').parse(path)
+    assert next(f for f in result['functions'] if f['name'] == 'run')['args'] == ['service']
+    assert next(v for v in result['variables'] if v['name'] == 'service')['type'] == 'S'

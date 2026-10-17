@@ -270,11 +270,17 @@ class SwiftTreeSitterParser:
                                 parameters.append(param_name)
                     
                     source_text = self._get_node_text(node)
+                    signature_parameters = [
+                        re.sub(r'\s+', '', self._get_node_text(child).split('=', 1)[0])
+                        for child in node.named_children if child.type == 'parameter'
+                    ]
                     context_name, context_type, context_line = self._get_parent_context(node)
 
                     func_data = {
                         "name": func_name,
                         "args": parameters,
+                        "is_declaration": node.type == 'protocol_function_declaration',
+                        "signature": func_name + '(' + ','.join(signature_parameters) + ')',
                         "line_number": start_line,
                         "end_line": end_line,
                         "path": str(path),
@@ -418,15 +424,17 @@ class SwiftTreeSitterParser:
                             if res: return res
                         return None
                     
-                    var_name = find_id(node) or "unknown"
+                    var_name = (self._extract_parameter_name(node) if node.type == 'parameter' else find_id(node)) or "unknown"
                     
-                    # Try to extract type annotation
-                    for child in node.children:
-                        if child.type == "type_annotation":
-                            for subchild in child.children:
-                                if subchild.type == "type_identifier":
-                                    var_type = self._get_node_text(subchild)
-                                    break
+                    # Swift wraps named/generic types in user_type, while a
+                    # parameter carries that type directly rather than in an annotation.
+                    for child in node.named_children:
+                        if child.type == 'type_annotation':
+                            var_type = self._get_node_text(child).lstrip(':').strip()
+                            break
+                        if node.type == 'parameter' and (child.type.endswith('_type') or child.type == 'type_identifier'):
+                            var_type = self._get_node_text(child)
+                            break
 
                     if var_type == "Unknown":
                         for child in node.children:
@@ -587,13 +595,14 @@ class SwiftTreeSitterParser:
         return calls
 
     def _extract_parameter_name(self, param_node: Any) -> Optional[str]:
-        """Extract parameter name from a parameter node."""
-        # Swift parameters can have external and internal names
-        # parameter: external_name? internal_name: type
+        """Use the internal name, after an optional external label or underscore."""
+        names = []
         for child in param_node.children:
-            if child.type == "simple_identifier":
-                return self._get_node_text(child)
-        return None
+            if child.type == ':':
+                break
+            if child.type == 'simple_identifier':
+                names.append(self._get_node_text(child))
+        return names[-1] if names else None
 
 def pre_scan_swift(files: list[Path], parser_wrapper) -> dict:
     """Pre-scan Swift files to build a map of class/struct/enum/protocol names to file paths."""
