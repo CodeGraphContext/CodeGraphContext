@@ -6,7 +6,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from codegraphcontext.utils.debug_log import error_logger, info_logger
 
