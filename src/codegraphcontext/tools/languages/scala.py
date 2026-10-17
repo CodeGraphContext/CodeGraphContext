@@ -11,6 +11,7 @@ SCALA_QUERIES = {
             name: (identifier) @name
             parameters: (parameters)? @params
         ) @function_node
+        (function_declaration name: (identifier) @name parameters: (parameters)? @params) @function_node
     """,
     "classes": """
         [
@@ -142,7 +143,7 @@ class ScalaTreeSitterParser:
     def _get_parent_context(self, node: Any) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
-            if curr.type == "function_definition":
+            if curr.type in ("function_definition", "function_declaration"):
                 name_node = curr.child_by_field_name("name")
                 return (
                     self._get_node_text(name_node) if name_node else None,
@@ -182,11 +183,14 @@ class ScalaTreeSitterParser:
                     if name_node:
                         func_name = self._get_node_text(name_node)
                         
-                        params_node = node.child_by_field_name("parameters")
                         parameters = []
-                        if params_node:
-                            params_text = self._get_node_text(params_node)
-                            parameters = self._extract_parameter_names(params_text)
+                        for clause in node.named_children:
+                            if clause.type != 'parameters':
+                                continue
+                            for parameter in clause.named_children:
+                                name = parameter.child_by_field_name('name')
+                                if name is not None:
+                                    parameters.append(self._get_node_text(name))
 
                         source_text = self._get_node_text(node)
                         
@@ -352,34 +356,37 @@ class ScalaTreeSitterParser:
 
     def _parse_imports(self, captures: list, source_code: str) -> List[dict]:
         imports = []
-        
-        for node, capture_name in captures:
-            if capture_name == "import":
-                try:
-                    # Scala imports can be complex: import java.util.{Date, List} or import java.util._
-                    # We will try to extract the base path.
-                    import_text = self._get_node_text(node)
-                    # Simple heuristic: remove 'import ' and handle one level
-                    clean_text = import_text.replace("import ", "").strip()
-                    
-                    # Split logic for multiple imports in one line not handled perfectly here yet
-                    # Just storing the whole text as name for now is better than crashing
-                    
-                    path = clean_text
-                    
+        for node, capture in captures:
+            if capture != 'import':
+                continue
+            segments = [self._get_node_text(n) for n in node.children_by_field_name('path') if n.is_named]
+            prefix = '.'.join(segments)
+            selectors = next((n for n in node.named_children if n.type == 'namespace_selectors'), None)
+            renamed = next((n for n in node.named_children if n.type == 'as_renamed_identifier'), None)
+            members = selectors.named_children if selectors is not None else ([renamed] if renamed is not None else [])
+            paths = []
+            for member in members:
+                if member.type in ('arrow_renamed_identifier', 'as_renamed_identifier'):
+                    original = member.child_by_field_name('name')
+                    alias = member.child_by_field_name('alias')
+                    if original is None or alias is None or alias.type == 'wildcard':
+                        continue
+                    paths.append((prefix + '.' + self._get_node_text(original), self._get_node_text(alias)))
+                elif member.type == 'identifier':
+                    paths.append((prefix + '.' + self._get_node_text(member), None))
+                elif member.type in ('wildcard', 'namespace_wildcard'):
+                    paths.append((prefix + '._', None))
+            if selectors is None and renamed is None:
+                wildcard = any(n.type == 'namespace_wildcard' for n in node.named_children)
+                paths.append((prefix + '._' if wildcard else prefix, None))
+            for path, alias in paths:
+                if path:
                     imports.append({
-                        "name": path,
-                        "full_import_name": path,
-                        "line_number": node.start_point[0] + 1,
-                        "alias": None,
-                        "context": (None, None),
-                        "lang": self.language_name,
-                        "is_dependency": False,
+                        'name': path, 'full_import_name': path,
+                        'line_number': node.start_point[0] + 1,
+                        'alias': alias, 'context': (None, None),
+                        'lang': self.language_name, 'is_dependency': False,
                     })
-                except Exception as e:
-                    error_logger(f"Error parsing import: {e}")
-                    continue
-
         return imports
 
     def _parse_calls(self, captures: list, source_code: str, path: Path, variables: List[Dict] = []) -> List[Dict]:
@@ -495,38 +502,25 @@ class ScalaTreeSitterParser:
 
 
 def pre_scan_scala(files: list[Path], parser_wrapper) -> dict:
-    name_to_files = {}
-    
+    names = {}
+    query = SCALA_QUERIES['classes'] + SCALA_QUERIES['functions']
     for path in files:
         try:
-            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-            
-            # package matches
-            package_name = ""
-            pkg_match = re.search(r'^\s*package\s+([\w\.]+)', content, re.MULTILINE)
-            if pkg_match:
-                package_name = pkg_match.group(1)
-            
-            # class/object/trait matches
-            class_matches = re.finditer(r'\b(class|object|trait)\s+(\w+)', content)
-            for match in class_matches:
-                name = match.group(2)
-                type_ = match.group(1)
-                
-                # Simple mapping
-                if name not in name_to_files:
-                    name_to_files[name] = []
-                name_to_files[name].append(str(path))
-                
-                # FQN mapping
-                if package_name:
-                    fqn = f"{package_name}.{name}"
-                    if fqn not in name_to_files:
-                        name_to_files[fqn] = []
-                    name_to_files[fqn].append(str(path))
-                
-        except Exception as e:
-            error_logger(f"Error pre-scanning Scala file {path}: {e}")
-            
-    return name_to_files
+            content = path.read_text(encoding='utf-8', errors='ignore')
+            root = parser_wrapper.parser.parse(content.encode('utf-8')).root_node
+            package = re.search(r'^\s*package\s+([\w.]+)', content, re.MULTILINE)
+            for node, capture in execute_query(parser_wrapper.language, query, root):
+                if capture not in ('class', 'function_node'):
+                    continue
+                name_node = node.child_by_field_name('name')
+                if name_node is None:
+                    continue
+                short = name_node.text.decode('utf-8')
+                candidates = (short, package.group(1) + '.' + short) if package else (short,)
+                for name in candidates:
+                    paths = names.setdefault(name, [])
+                    if str(path) not in paths:
+                        paths.append(str(path))
+        except Exception as exc:
+            warning_logger(f"Scala pre-scan failed for {path}: {exc}")
+    return names
