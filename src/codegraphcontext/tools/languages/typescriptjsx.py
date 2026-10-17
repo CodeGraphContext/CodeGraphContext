@@ -10,6 +10,7 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
     # Use the same queries as TypeScript
     query_strings = [
         "(class_declaration) @class",
+        "(abstract_class_declaration) @class",
         "(function_declaration) @function",
         "(variable_declarator) @var_decl",
         "(method_definition) @method",
@@ -37,7 +38,7 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
                             name_node = node.child_by_field_name('name')
                             value_node = node.child_by_field_name('value')
                             if name_node and value_node:
-                                if value_node.type in ('function', 'arrow_function'):
+                                if value_node.type in ('function', 'function_expression', 'arrow_function'):
                                     name = name_node.text.decode('utf-8')
                         elif capture_name == 'method':
                             name_node = node.child_by_field_name('name')
@@ -129,6 +130,8 @@ class TypescriptJSXTreeSitterParser(TypescriptTreeSitterParser):
         for query_str in query_strings:
             for node, capture_name in execute_query(self.language, query_str, root_node):
                 if capture_name == 'name':
+                    if not self._is_react_component(node.parent):
+                        continue
                     name = node.text.decode('utf-8')
                     line_number = node.start_point[0] + 1
                     component_data = {
@@ -150,3 +153,48 @@ class TypescriptJSXTreeSitterParser(TypescriptTreeSitterParser):
 
                     components.append(component_data)
         return components
+
+    def _is_react_component(self, declaration):
+        """Require JSX return evidence or a React component base, not just a name."""
+        function_types = {'function_declaration', 'function_expression', 'arrow_function', 'method_definition'}
+
+        def returns_jsx(function):
+            body = function.child_by_field_name('body')
+            if body is None:
+                return False
+            if body.type in ('jsx_element', 'jsx_self_closing_element', 'jsx_fragment'):
+                return True
+            stack = [body]
+            while stack:
+                node = stack.pop()
+                if node.type in function_types or node.type in ('class', 'class_declaration'):
+                    continue
+                if node.type == 'return_statement':
+                    values = list(node.named_children)
+                    while values:
+                        value = values.pop()
+                        if value.type in ('jsx_element', 'jsx_self_closing_element', 'jsx_fragment'):
+                            return True
+                        if value.type not in function_types:
+                            values.extend(value.named_children)
+                    continue
+                stack.extend(node.named_children)
+            return False
+
+        if declaration.type == 'class_declaration':
+            heritage = next((n for n in declaration.named_children if n.type == 'class_heritage'), None)
+            if heritage is not None:
+                for clause in heritage.named_children:
+                    base = clause.child_by_field_name('value')
+                    if base is not None and self._get_node_text(base) in (
+                        'Component', 'PureComponent', 'React.Component', 'React.PureComponent'
+                    ):
+                        return True
+            body = declaration.child_by_field_name('body')
+            return body is not None and any(
+                n.type == 'method_definition' and n.child_by_field_name('name') is not None
+                and self._get_node_text(n.child_by_field_name('name')) == 'render' and returns_jsx(n)
+                for n in body.named_children
+            )
+        function = declaration.child_by_field_name('value') if declaration.type == 'variable_declarator' else declaration
+        return function is not None and returns_jsx(function)
