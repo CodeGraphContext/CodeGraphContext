@@ -605,22 +605,32 @@ class SwiftTreeSitterParser:
         return names[-1] if names else None
 
 def pre_scan_swift(files: list[Path], parser_wrapper) -> dict:
-    """Pre-scan Swift files to build a map of class/struct/enum/protocol names to file paths."""
-    name_to_files = {}
+    """Index real type and top-level function declarations, including inline ones."""
+    names = {}
+    query = SWIFT_QUERIES['classes'] + SWIFT_QUERIES['functions']
     for path in files:
         try:
-            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-            
-            # Extract classes, structs, enums, protocols
-            matches = re.finditer(r'\b(class|struct|enum|protocol)\s+(\w+)', content)
-            
-            for match in matches:
-                name = match.group(2)
-                if name not in name_to_files:
-                    name_to_files[name] = []
-                name_to_files[name].append(str(path))
-                    
-        except Exception:
-            pass
-    return name_to_files
+            root = parser_wrapper.parser.parse(path.read_bytes()).root_node
+            for node, capture in execute_query(parser_wrapper.language, query, root):
+                if capture not in ('class_decl', 'protocol', 'function_node'):
+                    continue
+                if any(c.type == 'extension' for c in node.children):
+                    continue
+                if capture == 'function_node':
+                    parent = node.parent
+                    while parent is not None and parent.type not in (
+                        'class_declaration', 'protocol_declaration', 'function_declaration',
+                        'init_declaration', 'deinit_declaration'
+                    ):
+                        parent = parent.parent
+                    if parent is not None:
+                        continue
+                name_node = node.child_by_field_name('name')
+                if name_node is not None:
+                    name = name_node.text.decode('utf-8')
+                    paths = names.setdefault(name, [])
+                    if str(path) not in paths:
+                        paths.append(str(path))
+        except Exception as exc:
+            warning_logger(f"Swift pre-scan failed for {path}: {exc}")
+    return names

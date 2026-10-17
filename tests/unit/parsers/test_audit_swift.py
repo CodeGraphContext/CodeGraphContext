@@ -95,3 +95,34 @@ def test_parameter_types_and_internal_labels_drive_receiver_resolution(tmp_path)
     result = TreeSitterParser('swift').parse(path)
     assert next(f for f in result['functions'] if f['name'] == 'run')['args'] == ['service']
     assert next(v for v in result['variables'] if v['name'] == 'service')['type'] == 'S'
+
+
+@pytest.mark.parametrize("name,source", [('repeated_same_line', 'func run() { helper(1); helper(2); }\n'),
+ ('nested_arguments', 'func run() { helper(inner(1, 2), 3); }\n')])
+@pytest.mark.parametrize("variant", ["plain", "crlf", "padded", "dependency_source", "reuse"])
+def test_invocation_identity_and_arguments(tmp_path, name, source, variant):
+    parser = TreeSitterParser('swift')
+    if variant == "padded":
+        source = '// π\n' + source
+    elif variant == "crlf":
+        source = source.replace("\n", "\r\n")
+    path = tmp_path / "calls.swift"
+    path.write_bytes(source.encode("utf-8"))
+    if variant == "reuse":
+        parser.parse(path, index_source=True)
+    result = parser.parse(path, is_dependency=variant == "dependency_source", index_source=variant == "dependency_source")
+    calls = [c for c in result["function_calls"] if c["name"] == "helper"]
+    if name == "repeated_same_line":
+        assert len(calls) == 2, calls
+    else:
+        assert len(calls) == 1, calls
+        assert calls[0]["args"] == ['inner(1, 2)', "3"], calls
+
+
+def test_prescan_indexes_top_level_functions_without_comment_or_member_phantoms(tmp_path):
+    from codegraphcontext.tools.languages.swift import pre_scan_swift
+    path = tmp_path / 'scan.swift'
+    path.write_text('// class Ghost {}\nfunc run() { func inner() {} }\nclass S { func member() {} }\n')
+    scan = pre_scan_swift([path], TreeSitterParser('swift'))
+    assert {'run', 'S'} <= scan.keys()
+    assert not {'inner', 'member', 'Ghost'} & scan.keys()

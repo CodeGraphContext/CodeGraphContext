@@ -3006,7 +3006,6 @@ def build_function_call_groups(
             )
             if not resolved:
                 continue
-
             # Annotate C++ calls with concrete Neo4j labels so the writer can use
             # label-specific MATCH queries instead of the slow label-OR scan.
             # Non-C++ languages (Java, Python, etc.) are intentionally excluded —
