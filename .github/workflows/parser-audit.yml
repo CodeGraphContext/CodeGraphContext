@@ -1,0 +1,51 @@
+name: Parser audit
+on:
+  push:
+    branches: [codex/parser-audit-20261018]
+permissions:
+  contents: read
+concurrency:
+  group: parser-audit-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CGC_EMBEDDED_BUFFER_POOL_MB: "512"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project
+        run: python -m pip install ".[dev,parsing]"
+      - name: Run parser regressions and resolution tests
+        run: >-
+          python -m pytest tests/unit/parsers tests/unit/languages
+          tests/unit/tools/test_cross_lang_call_resolution_patterns.py
+          tests/unit/tools/test_python_call_resolution_patterns.py
+          -q --tb=short --junitxml=parser-audit-baseline.xml
+      - name: Run adversarial audit
+        continue-on-error: true
+        if: always()
+        run: |
+          if test -f scripts/audit_language_parsers.py; then
+            python scripts/audit_language_parsers.py --output parser-audit.json
+          fi
+      - name: Run build and mapper extractor audit
+        continue-on-error: true
+        if: always()
+        run: python scripts/audit_build_parsers.py
+      - name: Save audit evidence and grammar cache
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parser-audit-evidence
+          path: |
+            parser-audit*.xml
+            parser-audit.json
+            build-parser-audit.json
+            ~/.cache/tree-sitter-language-pack
+          retention-days: 7
