@@ -130,3 +130,25 @@ def test_nested_jsx_does_not_mark_the_outer_utility_as_a_component(tmp_path):
     path.write_text('function util() { function View() { return <div/>; } return 1; }\nconst App = () => <View/>;\nclass Legacy extends React.Component {}\n')
     result = TreeSitterParser('tsx').parse(path)
     assert {c['name'] for c in result['components']} == {'View', 'App', 'Legacy'}
+
+
+@pytest.mark.parametrize("name,source", [('repeated_same_line', 'function run() { helper(1); helper(2); }\n'),
+ ('nested_arguments', 'function run() { helper(inner(1, 2), 3); }\n')])
+@pytest.mark.parametrize("variant", ["plain", "crlf", "padded", "dependency_source", "reuse"])
+def test_invocation_identity_and_arguments(tmp_path, name, source, variant):
+    parser = TreeSitterParser('tsx')
+    if variant == "padded":
+        source = '// π\n' + source
+    elif variant == "crlf":
+        source = source.replace("\n", "\r\n")
+    path = tmp_path / "calls.tsx"
+    path.write_bytes(source.encode("utf-8"))
+    if variant == "reuse":
+        parser.parse(path, index_source=True)
+    result = parser.parse(path, is_dependency=variant == "dependency_source", index_source=variant == "dependency_source")
+    calls = [c for c in result["function_calls"] if c["name"] == "helper"]
+    if name == "repeated_same_line":
+        assert len(calls) == 2, calls
+    else:
+        assert len(calls) == 1, calls
+        assert calls[0]["args"] == ['inner(1, 2)', "3"], calls

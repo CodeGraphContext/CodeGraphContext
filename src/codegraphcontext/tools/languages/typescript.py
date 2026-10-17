@@ -602,11 +602,11 @@ class TypescriptTreeSitterParser:
             '(variable_declarator name: (identifier) @name value: (function_expression) @fn)',
             '(function_declaration name: (identifier) @name)',
         ]
-        
+
         # We only treat it as a component if it's in a .jsx file or contains JSX
         # For simplicity, if we find JSX elements in the file, we're more likely to treat these as components
         has_jsx = len(execute_query(self.language, TS_QUERIES['jsx_elements'], root_node)) > 0
-        
+
         if not has_jsx:
             return []
 
