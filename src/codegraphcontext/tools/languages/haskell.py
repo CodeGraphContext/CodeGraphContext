@@ -456,6 +456,10 @@ class HaskellTreeSitterParser:
                 callee = next((c for c in operator.named_children
                                if c.type in ('variable', 'qualified')), None) if operator is not None else None
             elif cap == "apply_node" and node.type == "apply":
+                # Always read the whole curried application, even when the
+                # query first presents an inner apply with the same callee.
+                while node.parent is not None and node.parent.type == 'apply' and node.parent.child_by_field_name('function') == node:
+                    node = node.parent
                 callee = self._apply_callee(node)
             else:
                 continue
@@ -471,6 +475,16 @@ class HaskellTreeSitterParser:
                 continue
             seen_calls.add(key)
 
+            args = []
+            if cap == 'infix_node':
+                args = [self._get_node_text(node.child_by_field_name(key)) for key in ('left_operand', 'right_operand')]
+            else:
+                application = node
+                while application is not None and application.type == 'apply':
+                    argument = application.child_by_field_name('argument')
+                    if argument is not None:
+                        args.insert(0, self._get_node_text(argument))
+                    application = application.child_by_field_name('function')
             start_line = node.start_point[0] + 1
             ctx_name, ctx_type, ctx_line = self._get_enclosing_function_context(node)
             calls.append(
@@ -478,9 +492,7 @@ class HaskellTreeSitterParser:
                     "name": call_name,
                     "full_name": call_name,
                     "line_number": start_line,
-                    "args": [self._get_node_text(node.child_by_field_name(key))
-                             for key in ('left_operand', 'right_operand')]
-                            if cap == 'infix_node' else [],
+                    "args": args,
                     "inferred_obj_type": None,
                     "context": (ctx_name, ctx_type, ctx_line),
                     "class_context": (ctx_name, ctx_line)
