@@ -89,7 +89,7 @@ case("java", "record", "record Point(int x, int y) { int sum() { return add(x,y)
 case("java", "static_import", "import static java.util.Collections.emptyList;\nclass S { void run() { emptyList(); } }\n", imports=["java.util.Collections.emptyList"], function_calls=["emptyList"])
 
 case("c_sharp", "nested_context", "namespace Demo { class Outer { class Inner { void Run() { Helper(); } } } }\n", classes=["Outer", "Inner"], functions=["Run"], function_calls=["Helper"], attrs=[("function_calls", "Helper", "class_context.0", "Inner")])
-case("c_sharp", "record", "record Point(int X, int Y) { int Sum() => Add(X, Y); }\n", classes=["Point"], functions=["Sum"], function_calls=["Add"])
+case("c_sharp", "record", "record Point(int X, int Y) { int Sum() => Add(X, Y); }\n", records=["Point"], functions=["Sum"], function_calls=["Add"])
 case("c_sharp", "local_function", "class S { void Outer() { void Inner() { Helper(); } Inner(); } }\n", functions=["Outer", "Inner"], function_calls=["Helper", "Inner"], attrs=[("function_calls", "Helper", "context.0", "Inner")])
 case("c_sharp", "generic_bases", "class Child : Map<string, int>, IOne, ITwo {}\n", classes=["Child"], attrs=[("classes", "Child", "bases", ["Map<string, int>", "IOne", "ITwo"])])
 case("c_sharp", "constructor", "class S { public S(int x) { Helper(x); } }\n", functions=["S"], function_calls=["Helper"])
@@ -173,6 +173,101 @@ case("solidity", "imports", 'pragma solidity ^0.8.0;\nimport {One as First, Two}
 case("hcl", "blocks", 'resource "aws_instance" "web" {\n ami = "ami-test"\n}\nmodule "network" {\n source = "./modules/network"\n}\n', classes=["aws_instance.web", "module.network"], import_suffixes=["/modules/network"])
 case("hcl", "variables_locals", 'variable "region" {\n default = "us-east-1"\n}\nlocals {\n name = "demo"\n}\n', variables=["var.region", "local.name"])
 case("hcl", "computed_source", 'module "network" {\n source = var.module_source\n}\n', classes=["module.network"], absent=[("imports", "var.module_source")])
+
+# Cross-language invocation identity and nested argument boundary oracles.
+EXTRA_CALL_CASES = [{'lang': 'python', 'name': 'repeated_same_line', 'source': 'def run(): helper(1); helper(2);\n'},
+ {'lang': 'python', 'name': 'nested_arguments', 'source': 'def run(): helper(inner(1, 2), 3);\n'},
+ {'lang': 'javascript', 'name': 'repeated_same_line', 'source': 'function run() { helper(1); helper(2); }\n'},
+ {'lang': 'javascript', 'name': 'nested_arguments', 'source': 'function run() { helper(inner(1, 2), 3); }\n'},
+ {'lang': 'typescript', 'name': 'repeated_same_line', 'source': 'function run() { helper(1); helper(2); }\n'},
+ {'lang': 'typescript', 'name': 'nested_arguments', 'source': 'function run() { helper(inner(1, 2), 3); }\n'},
+ {'lang': 'tsx', 'name': 'repeated_same_line', 'source': 'function run() { helper(1); helper(2); }\n'},
+ {'lang': 'tsx', 'name': 'nested_arguments', 'source': 'function run() { helper(inner(1, 2), 3); }\n'},
+ {'lang': 'go',
+  'name': 'repeated_same_line',
+  'source': 'package demo\nfunc run() { helper(1); helper(2); }\n'},
+ {'lang': 'go',
+  'name': 'nested_arguments',
+  'source': 'package demo\nfunc run() { helper(inner(1, 2), 3); }\n'},
+ {'lang': 'rust', 'name': 'repeated_same_line', 'source': 'fn run() { helper(1); helper(2); }\n'},
+ {'lang': 'rust', 'name': 'nested_arguments', 'source': 'fn run() { helper(inner(1, 2), 3); }\n'},
+ {'lang': 'c', 'name': 'repeated_same_line', 'source': 'void run(void) { helper(1); helper(2); }\n'},
+ {'lang': 'c', 'name': 'nested_arguments', 'source': 'void run(void) { helper(inner(1, 2), 3); }\n'},
+ {'lang': 'cpp', 'name': 'repeated_same_line', 'source': 'void run() { helper(1); helper(2); }\n'},
+ {'lang': 'cpp', 'name': 'nested_arguments', 'source': 'void run() { helper(inner(1, 2), 3); }\n'},
+ {'lang': 'java',
+  'name': 'repeated_same_line',
+  'source': 'class S { void run() { helper(1); helper(2); } }\n'},
+ {'lang': 'java',
+  'name': 'nested_arguments',
+  'source': 'class S { void run() { helper(inner(1, 2), 3); } }\n'},
+ {'lang': 'c_sharp',
+  'name': 'repeated_same_line',
+  'source': 'class S { void run() { helper(1); helper(2); } }\n'},
+ {'lang': 'c_sharp',
+  'name': 'nested_arguments',
+  'source': 'class S { void run() { helper(inner(1, 2), 3); } }\n'},
+ {'lang': 'ruby', 'name': 'repeated_same_line', 'source': 'def run; helper(1); helper(2);; end\n'},
+ {'lang': 'ruby', 'name': 'nested_arguments', 'source': 'def run; helper(inner(1, 2), 3);; end\n'},
+ {'lang': 'php', 'name': 'repeated_same_line', 'source': '<?php function run() { helper(1); helper(2); }\n'},
+ {'lang': 'php', 'name': 'nested_arguments', 'source': '<?php function run() { helper(inner(1, 2), 3); }\n'},
+ {'lang': 'lua', 'name': 'repeated_same_line', 'source': 'function run() helper(1); helper(2); end\n'},
+ {'lang': 'lua', 'name': 'nested_arguments', 'source': 'function run() helper(inner(1, 2), 3); end\n'},
+ {'lang': 'kotlin', 'name': 'repeated_same_line', 'source': 'fun run() { helper(1); helper(2); }\n'},
+ {'lang': 'kotlin', 'name': 'nested_arguments', 'source': 'fun run() { helper(inner(1, 2), 3); }\n'},
+ {'lang': 'scala',
+  'name': 'repeated_same_line',
+  'source': 'object S { def run() = { helper(1); helper(2); } }\n'},
+ {'lang': 'scala',
+  'name': 'nested_arguments',
+  'source': 'object S { def run() = { helper(inner(1, 2), 3); } }\n'},
+ {'lang': 'swift', 'name': 'repeated_same_line', 'source': 'func run() { helper(1); helper(2); }\n'},
+ {'lang': 'swift', 'name': 'nested_arguments', 'source': 'func run() { helper(inner(1, 2), 3); }\n'},
+ {'lang': 'haskell',
+  'name': 'repeated_same_line',
+  'source': 'module Demo where\nrun = (helper 1, helper 2)\n'},
+ {'lang': 'haskell', 'name': 'nested_arguments', 'source': 'module Demo where\nrun = helper (inner 1 2) 3\n'},
+ {'lang': 'dart', 'name': 'repeated_same_line', 'source': 'void run() { helper(1); helper(2); }\n'},
+ {'lang': 'dart', 'name': 'nested_arguments', 'source': 'void run() { helper(inner(1, 2), 3); }\n'},
+ {'lang': 'perl', 'name': 'repeated_same_line', 'source': 'sub run { helper(1); helper(2); }\n'},
+ {'lang': 'perl', 'name': 'nested_arguments', 'source': 'sub run { helper(inner(1, 2), 3); }\n'},
+ {'lang': 'elixir',
+  'name': 'repeated_same_line',
+  'source': 'defmodule Demo do\n def run do\n helper(1); helper(2);\n end\nend\n'},
+ {'lang': 'elixir',
+  'name': 'nested_arguments',
+  'source': 'defmodule Demo do\n def run do\n helper(inner(1, 2), 3);\n end\nend\n'},
+ {'lang': 'elisp', 'name': 'repeated_same_line', 'source': '(defun run () (helper 1) (helper 2))\n'},
+ {'lang': 'elisp', 'name': 'nested_arguments', 'source': '(defun run () (helper (inner 1 2) 3))\n'},
+ {'lang': 'vue',
+  'name': 'repeated_same_line',
+  'source': '<script> function run() { helper(1); helper(2); } </script>\n'},
+ {'lang': 'vue',
+  'name': 'nested_arguments',
+  'source': '<script> function run() { helper(inner(1, 2), 3); } </script>\n'},
+ {'lang': 'svelte',
+  'name': 'repeated_same_line',
+  'source': '<script> function run() { helper(1); helper(2); } </script>\n'},
+ {'lang': 'svelte',
+  'name': 'nested_arguments',
+  'source': '<script> function run() { helper(inner(1, 2), 3); } </script>\n'},
+ {'lang': 'solidity',
+  'name': 'repeated_same_line',
+  'source': 'pragma solidity ^0.8.0; contract S { function run() public { helper(1); helper(2); } }\n'},
+ {'lang': 'solidity',
+  'name': 'nested_arguments',
+  'source': 'pragma solidity ^0.8.0; contract S { function run() public { helper(inner(1, 2), 3); } }\n'}]
+for item in EXTRA_CALL_CASES:
+    if item["name"] == "repeated_same_line":
+        case(**item, counts=[("function_calls", "helper", 2)])
+        identical_source = (item["source"].replace("helper(2)", "helper(1)")
+                            .replace("(helper 2)", "(helper 1)")
+                            .replace("helper 2", "helper 1"))
+        case(item["lang"], "repeated_identical_same_line", identical_source,
+             counts=[("function_calls", "helper", 2)])
+    else:
+        inner = "(inner 1 2)" if item["lang"] in ("haskell", "elisp") else "inner(1, 2)"
+        case(**item, attrs=[("function_calls", "helper", "args", [inner, "3"])])
 
 EXTENSIONS = dict(python="py", javascript="js", typescript="ts", tsx="tsx", go="go", rust="rs", c="c", cpp="cpp", java="java", c_sharp="cs", ruby="rb", php="php", lua="lua", kotlin="kt", scala="scala", swift="swift", haskell="hs", dart="dart", perl="pl", elixir="ex", elisp="el", html="html", css="css", vue="vue", svelte="svelte", solidity="sol", hcl="tf")
 COMMENTS = {lang: "// audit π\n" for lang in EXTENSIONS}
