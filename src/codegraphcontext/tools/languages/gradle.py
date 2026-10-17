@@ -9,52 +9,117 @@ from typing import Any, Dict, List, Optional
 
 from codegraphcontext.utils.debug_log import error_logger, info_logger
 
-# Matches: implementation("group:artifact:version") or compile 'g:a:v'
-_DEP_PATTERN = re.compile(
-    r"""(?:implementation|api|compile|testImplementation|runtimeOnly|compileOnly|testRuntimeOnly|annotationProcessor)\s*[\('"]([\w.\-]+):([\w.\-]+):?([\w.\-]*)['"\)]""",
-    re.MULTILINE,
-)
 
-# Matches: project(':module-name') or project(":feature:module-name")
-_PROJECT_DEP_PATTERN = re.compile(r"""project\(['"]:([\w.\-/:]+)['"]\)""")
+def _gradle_tokens(source: str):
+    """Tokenize static DSL values without interpreting comments or string contents."""
+    index = 0
+    while index < len(source):
+        if source[index].isspace():
+            index += 1
+            continue
+        if source.startswith('//', index):
+            end = source.find('\n', index + 2)
+            index = len(source) if end < 0 else end
+            continue
+        if source.startswith('/*', index):
+            index += 2
+            depth = 1
+            while index < len(source) and depth:
+                if source.startswith('/*', index):
+                    depth += 1
+                    index += 2
+                elif source.startswith('*/', index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            continue
+        if source[index] in ('"', "'"):
+            quote = source[index]
+            delimiter = quote * 3 if source.startswith(quote * 3, index) else quote
+            index += len(delimiter)
+            start = index
+            while index < len(source) and not source.startswith(delimiter, index):
+                index += 2 if source[index] == '\\' else 1
+            if index < len(source):
+                yield ('string', source[start:index])
+                index += len(delimiter)
+            continue
+        match = re.match(r'[A-Za-z_$][\w$]*', source[index:])
+        if match:
+            yield ('identifier', match.group())
+            index += len(match.group())
+        else:
+            yield ('punctuation', source[index])
+            index += 1
 
-# Matches a whole `include(...)` / `include ...` statement (parenthesized or
-# bare Groovy form, single or comma-separated multi-arg) up to its closing
-# quote, e.g.:
-#   include(":feature:symptoms")
-#   include ':app'
-#   include(":a", ":b")
-# The quoted tokens are pulled out separately with _QUOTED_STRING_PATTERN so
-# that colon-delimited (`:feature:symptoms`) paths survive intact.
-_INCLUDE_STATEMENT_PATTERN = re.compile(
-    r"""\binclude\s*\(?\s*((?:['"][^'"]+['"]\s*,\s*)*['"][^'"]+['"])"""
-)
-_QUOTED_STRING_PATTERN = re.compile(r"""['"]([^'"]+)['"]""")
 
-# configuration keyword for inter-module deps
-_CONFIG_PREFIX_PATTERN = re.compile(
-    r"""^(implementation|api|compile|testImplementation|runtimeOnly|compileOnly)\s+project""",
-    re.MULTILINE,
-)
-
+def _dependency_notations(source: str):
+    tokens = list(_gradle_tokens(source))
+    blocks = []
+    used = set()
+    known = {'implementation', 'api', 'compile', 'testImplementation', 'runtimeOnly',
+             'compileOnly', 'testRuntimeOnly', 'annotationProcessor', 'classpath'}
+    wrappers = {'platform', 'enforcedPlatform', 'testFixtures'}
+    for index, (kind, value) in enumerate(tokens):
+        if value == '{' and kind == 'punctuation':
+            blocks.append(tokens[index - 1][1] if index else '')
+        elif value == '}' and kind == 'punctuation':
+            if blocks:
+                blocks.pop()
+        if kind != 'identifier' or 'constraints' in blocks:
+            continue
+        if value not in known and 'dependencies' not in blocks:
+            continue
+        if index and tokens[index - 1][1] == '.':
+            continue
+        config = value
+        cursor = index + 1
+        if cursor < len(tokens) and tokens[cursor][1] == '(':
+            cursor += 1
+        if config == 'add' and cursor + 2 < len(tokens) and tokens[cursor][0] == 'string' and tokens[cursor + 1][1] == ',':
+            config = tokens[cursor][1]
+            cursor += 2
+        while cursor + 1 < len(tokens) and tokens[cursor][0] == 'identifier' and tokens[cursor][1] in wrappers and tokens[cursor + 1][1] == '(':
+            cursor += 2
+        if cursor in used or cursor >= len(tokens):
+            continue
+        if tokens[cursor] == ('identifier', 'project'):
+            cursor += 1
+            if cursor < len(tokens) and tokens[cursor][1] == '(':
+                cursor += 1
+            if cursor < len(tokens) and tokens[cursor][0] == 'string':
+                target = tokens[cursor][1]
+                if target.startswith(':') and '$' not in target:
+                    used.add(cursor)
+                    yield config, 'project', target
+            continue
+        if tokens[cursor][0] == 'string':
+            coordinate = tokens[cursor][1]
+            parts = coordinate.split(':')
+            if len(parts) >= 2 and all(re.fullmatch(r'[\w.\-]+', p) for p in parts[:2]) and '$' not in coordinate:
+                used.add(cursor)
+                yield config, 'external', coordinate
+            continue
+        # Literal named-argument notation in either DSL: group =/ : "g".
+        fields = {}
+        while cursor + 2 < len(tokens) and tokens[cursor][0] == 'identifier' and tokens[cursor + 1][1] in ('=', ':') and tokens[cursor + 2][0] == 'string':
+            fields[tokens[cursor][1]] = tokens[cursor + 2][1]
+            cursor += 3
+            if cursor < len(tokens) and tokens[cursor][1] == ',':
+                cursor += 1
+            else:
+                break
+        if fields.get('group') and fields.get('name') and not any('$' in v for v in fields.values()):
+            yield config, 'external', ':'.join((fields['group'], fields['name'], fields.get('version', '')))
 
 def _parse_settings_includes(repo_root: Path) -> Dict[str, str]:
     """Parse settings.gradle(.kts) at *repo_root* and return a map of
     module directory (relative to repo_root, POSIX-separated, e.g.
     "feature/symptoms") -> canonical Gradle path (e.g. ":feature:symptoms").
 
-    Statements may be parenthesized or bare Groovy form, single or
-    comma-separated multi-arg, and may span multiple lines (including with
-    a trailing comma) — `_INCLUDE_STATEMENT_PATTERN`'s `\\s*` matches
-    newlines.
-
-    Include tokens are normalized to colon-separated form (":" +
-    segments joined with ":") regardless of whether the raw token itself
-    used "/" or ":" as a separator, so this map's values always agree with
-    the equally-normalized inter-module dependency targets built in
-    `GradleParser.parse` — two different code paths that must construct the
-    same canonical string can't be trusted to coincide just because they
-    happen to for colon-only input.
+    Parenthesized and bare include statements may span lines. Tokenization
+    excludes comments and quoted documentation before reading literal arguments.
     """
     includes: Dict[str, str] = {}
     for fname in ("settings.gradle.kts", "settings.gradle"):
@@ -66,12 +131,22 @@ def _parse_settings_includes(repo_root: Path) -> Dict[str, str]:
         except Exception as exc:
             error_logger(f"[GRADLE] Cannot read {settings_path}: {exc}")
             continue
-        for stmt_match in _INCLUDE_STATEMENT_PATTERN.finditer(source):
-            for token in _QUOTED_STRING_PATTERN.findall(stmt_match.group(1)):
-                if not token.startswith(":"):
-                    continue
-                rel_dir = token[1:].replace(":", "/")
-                includes[rel_dir] = ":" + token[1:].replace("/", ":")
+        tokens = list(_gradle_tokens(source))
+        for index, token in enumerate(tokens):
+            if token != ('identifier', 'include'):
+                continue
+            cursor = index + 1
+            if cursor < len(tokens) and tokens[cursor][1] == '(':
+                cursor += 1
+            while cursor < len(tokens) and tokens[cursor][0] == 'string':
+                value = tokens[cursor][1]
+                if value.startswith(':') and '$' not in value:
+                    includes[value[1:].replace(':', '/')] = ':' + value[1:].replace('/', ':')
+                cursor += 1
+                if cursor < len(tokens) and tokens[cursor][1] == ',':
+                    cursor += 1
+                else:
+                    break
     return includes
 
 
@@ -148,40 +223,19 @@ class GradleParser:
         inter_module_deps: List[Dict[str, Any]] = []
         external_libs: List[Dict[str, Any]] = []
 
-        # Extract external dependencies
-        for m in _DEP_PATTERN.finditer(source):
-            group_id, artifact_id, version = m.group(1), m.group(2), m.group(3)
-            # Determine configuration from the full line
-            line_start = source.rfind("\n", 0, m.start()) + 1
-            line_text = source[line_start : source.find("\n", m.start())]
-            cfg_match = re.match(r"\s*(\w+)\s", line_text)
-            configuration = cfg_match.group(1) if cfg_match else "implementation"
-            external_libs.append({
-                "src_name": module_name,
-                "group_id": group_id,
-                "artifact_id": artifact_id,
-                "version": version,
-                "configuration": configuration,
-            })
-
-        # Extract inter-module project dependencies. The configuration may be
-        # followed by whitespace (Groovy: `implementation project(":x")`) or an
-        # opening paren (Kotlin DSL: `implementation(project(":x"))`); requiring
-        # whitespace made every Kotlin-DSL module dependency invisible, which
-        # left MODULE_DEPENDS_ON empty on standard Android projects (#1603).
-        for m in re.finditer(r"""(\w+)\s*\(?\s*project\(['"]:([\w.\-/:]+)['"]\)""", source):
-            configuration = m.group(1)
-            # Canonical target identity — same construction as module_name,
-            # so both endpoints of MODULE_DEPENDS_ON agree by construction.
-            # (Not the settings-derived lookup: the target module's own
-            # settings.gradle entry is what defines its canonical name, and
-            # project(...) already spells it out directly.)
-            tgt_name = ":" + m.group(2).lstrip("/").replace("/", ":")
-            inter_module_deps.append({
-                "src_name": module_name,
-                "tgt_name": tgt_name,
-                "configuration": configuration,
-            })
+        for configuration, kind, value in _dependency_notations(source):
+            if kind == 'project':
+                target = ':' + value[1:].lstrip('/').replace('/', ':')
+                inter_module_deps.append({'src_name': module_name, 'tgt_name': target,
+                                          'configuration': configuration})
+            else:
+                parts = value.split(':')
+                version = parts[2].split('@', 1)[0] if len(parts) > 2 else ''
+                external_libs.append({
+                    'src_name': module_name, 'group_id': parts[0],
+                    'artifact_id': parts[1], 'version': version,
+                    'configuration': configuration,
+                })
 
         return {
             "modules": [module_record],
@@ -202,6 +256,8 @@ def parse_repo_gradle(repo_root: Path) -> Dict[str, Any]:
     module_includes = _parse_settings_includes(repo_root)
 
     for gradle_path in sorted(repo_root.rglob("build.gradle*")):
+        if gradle_path.name not in ('build.gradle', 'build.gradle.kts'):
+            continue
         relative = gradle_path.relative_to(repo_root)
         if any(part in ("build", ".gradle", ".git") for part in relative.parts):
             continue
