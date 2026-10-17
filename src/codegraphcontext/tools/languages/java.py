@@ -925,7 +925,7 @@ class JavaTreeSitterParser:
                         call_node = node
 
                     # Avoid duplicates
-                    call_key = f"{call_name}_{line_number}"
+                    call_key = (call_node.start_byte, call_node.end_byte)
                     if call_key in seen_calls:
                         continue
                     seen_calls.add(call_key)
