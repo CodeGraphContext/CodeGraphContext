@@ -53,15 +53,15 @@ class HTMLTreeSitterParser:
         # Find tags, classes, and ids
         # We can use a simpler traversal or queries
         query_str = """
-            (element
-                (start_tag
-                    (tag_name) @tag_name
-                )
-            ) @element
+            (start_tag (tag_name) @tag_name)
+            (self_closing_tag (tag_name) @tag_name)
             
             (attribute
                 (attribute_name) @attr_name
-                (quoted_attribute_value (attribute_value) @attr_value)
+                [
+                    (quoted_attribute_value (attribute_value) @attr_value)
+                    (attribute_value) @attr_value
+                ]
             ) @attribute
         """
         
@@ -78,7 +78,11 @@ class HTMLTreeSitterParser:
                     # Attribute value is the next capture
                     pass 
             elif capture_name == 'attr_value':
-                parent_attr = node.parent.parent # quoted_attribute_value -> attribute
+                parent_attr = node.parent
+                while parent_attr is not None and parent_attr.type != 'attribute':
+                    parent_attr = parent_attr.parent
+                if parent_attr is None:
+                    continue
                 # The HTML grammar exposes no 'name' field on attribute nodes;
                 # locate the attribute_name child by type instead.
                 attr_name_node = next(
