@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -24,143 +25,116 @@ def _text(element: Any, tag: str, default: str = "") -> str:
     return (child.text or "").strip() if child is not None else default
 
 
+def _find(element, tag):
+    child = element.find(_ns(tag))
+    return element.find(tag) if child is None else child
+
+
 class MavenParser:
-    """Parses a pom.xml file and returns structured build graph data."""
+    """Read static POM declarations; repository membership is resolved in a second pass."""
 
     def parse(self, pom_path: Path) -> Optional[Dict[str, Any]]:
-        """Parse *pom_path* and return a dict compatible with GraphWriter.write_maven_build_graph().
-
-        Keys returned:
-            modules         List[dict]  — MavenModule node records
-            inter_module_deps  List[dict]  — inter-module MODULE_DEPENDS_ON records
-            external_libs   List[dict]  — ExternalLibrary node + USES_LIBRARY records
-            child_relations List[dict]  — CHILD_MODULE edge records
-        """
         try:
-            tree = ET.parse(pom_path)
-            root = tree.getroot()
+            root = ET.parse(pom_path).getroot()
         except Exception as exc:
             error_logger(f"[MAVEN] Cannot parse {pom_path}: {exc}")
             return None
-
-        # Resolve effective groupId/version — may be inherited from parent
-        parent_el = root.find(_ns("parent"))
-        parent_group = _text(parent_el, "groupId") if parent_el is not None else ""
-        parent_version = _text(parent_el, "version") if parent_el is not None else ""
-
-        group_id = _text(root, "groupId") or parent_group
-        artifact_id = _text(root, "artifactId")
-        version = _text(root, "version") or parent_version
-        packaging = _text(root, "packaging") or "jar"
-
-        if not artifact_id:
+        parent = _find(root, 'parent')
+        parent_group = _text(parent, 'groupId') if parent is not None else ''
+        parent_version = _text(parent, 'version') if parent is not None else ''
+        group = _text(root, 'groupId') or parent_group
+        artifact = _text(root, 'artifactId')
+        version = _text(root, 'version') or parent_version
+        if not artifact:
             return None
-
-        this_module = {
-            "group_id": group_id,
-            "artifact_id": artifact_id,
-            "version": version,
-            "packaging": packaging,
-            "pom_path": str(pom_path),
+        properties = {}
+        property_node = _find(root, 'properties')
+        if property_node is not None:
+            properties = {p.tag.rsplit('}', 1)[-1]: (p.text or '').strip() for p in property_node}
+        values = {
+            **properties,
+            'project.groupId': group, 'pom.groupId': group,
+            'project.artifactId': artifact, 'pom.artifactId': artifact,
+            'project.version': version, 'pom.version': version,
+            'project.parent.groupId': parent_group, 'parent.groupId': parent_group,
+            'project.parent.version': parent_version, 'parent.version': parent_version,
+            'project.basedir': str(pom_path.parent), 'basedir': str(pom_path.parent),
         }
 
-        # ── Child modules declared in <modules> section ───────────────────
-        child_artifact_ids: List[str] = []
-        modules_el = root.find(_ns("modules"))
-        if modules_el is None:
-            modules_el = root.find("modules")
-        if modules_el is not None:
-            for mod_el in modules_el:
-                child_dir = (mod_el.text or "").strip()
-                if child_dir:
-                    # Use directory name as a proxy for artifactId when we don't know yet
-                    child_artifact_ids.append(child_dir)
+        def resolve(text, seen=frozenset()):
+            def substitute(match):
+                key = match.group(1)
+                if key in seen or key not in values:
+                    return match.group(0)
+                return resolve(values[key], seen | {key})
+            return re.sub(r'\$\{([^}]+)\}', substitute, text)
 
-        # ── Dependencies ─────────────────────────────────────────────────
-        inter_module_deps: List[Dict[str, Any]] = []
-        external_libs: List[Dict[str, Any]] = []
-
-        # Property interpolation for common version placeholders
-        properties: Dict[str, str] = {}
-        props_el = root.find(_ns("properties"))
-        if props_el is None:
-            props_el = root.find("properties")
-        if props_el is not None:
-            for prop in props_el:
-                tag = prop.tag.replace(f"{{{_MVN_NS}}}", "")
-                properties[tag] = (prop.text or "").strip()
-
-        def _resolve_version(v: str) -> str:
-            if v.startswith("${") and v.endswith("}"):
-                key = v[2:-1]
-                return properties.get(key, v)
-            return v
-
-        deps_container = root.find(_ns("dependencies"))
-        if deps_container is None:
-            deps_container = root.find("dependencies")
-
-        if deps_container is not None:
-            for dep in deps_container:
-                dep_group = _text(dep, "groupId")
-                dep_artifact = _text(dep, "artifactId")
-                dep_version = _resolve_version(_text(dep, "version"))
-                dep_scope = _text(dep, "scope") or "compile"
-
-                if not dep_artifact:
-                    continue
-
-                # Heuristic: if groupId matches this POM's group → inter-module dep
-                if dep_group and dep_group == group_id:
-                    inter_module_deps.append({
-                        "src_artifact_id": artifact_id,
-                        "tgt_artifact_id": dep_artifact,
-                        "scope": dep_scope,
-                    })
-                else:
-                    external_libs.append({
-                        "src_artifact_id": artifact_id,
-                        "group_id": dep_group,
-                        "artifact_id": dep_artifact,
-                        "version": dep_version,
-                        "scope": dep_scope,
-                    })
-
-        child_relations = [
-            {"parent_artifact_id": artifact_id, "child_artifact_id": c}
-            for c in child_artifact_ids
-        ]
-
-        return {
-            "modules": [this_module],
-            "inter_module_deps": inter_module_deps,
-            "external_libs": external_libs,
-            "child_relations": child_relations,
+        module = {
+            'group_id': resolve(group), 'artifact_id': resolve(artifact),
+            'version': resolve(version), 'packaging': resolve(_text(root, 'packaging') or 'jar'),
+            'pom_path': str(pom_path),
         }
+        dependencies = []
+        container = _find(root, 'dependencies')
+        if container is not None:
+            for dependency in container:
+                target = resolve(_text(dependency, 'artifactId'))
+                if target:
+                    dependencies.append({
+                        'src_artifact_id': module['artifact_id'],
+                        'group_id': resolve(_text(dependency, 'groupId')),
+                        'artifact_id': target, 'version': resolve(_text(dependency, 'version')),
+                        'scope': resolve(_text(dependency, 'scope')) or 'compile',
+                    })
+        children = []
+        container = _find(root, 'modules')
+        if container is not None:
+            for child in container:
+                directory = resolve((child.text or '').strip())
+                if directory:
+                    children.append({
+                        'parent_artifact_id': module['artifact_id'],
+                        'child_artifact_id': directory,
+                        'child_pom_path': str((pom_path.parent / directory / 'pom.xml').resolve()),
+                    })
+        return {'modules': [module], 'inter_module_deps': [],
+                'external_libs': dependencies, 'child_relations': children}
 
 
 def parse_repo_maven(repo_root: Path) -> Dict[str, Any]:
-    """Walk *repo_root* for all pom.xml files and merge into a single build graph dict."""
     parser = MavenParser()
-    merged: Dict[str, Any] = {
-        "modules": [],
-        "inter_module_deps": [],
-        "external_libs": [],
-        "child_relations": [],
-    }
-
-    for pom_path in sorted(repo_root.rglob("pom.xml")):
-        # Skip very deep paths (e.g. target/ directories)
-        relative = pom_path.relative_to(repo_root)
-        if any(part in ("target", "build", ".git") for part in relative.parts):
+    parsed = []
+    for path in sorted(repo_root.rglob('pom.xml')):
+        if any(part in ('target', 'build', '.git') for part in path.relative_to(repo_root).parts):
             continue
-        result = parser.parse(pom_path)
-        if result:
-            for key in merged:
-                merged[key].extend(result.get(key, []))
-
-    info_logger(
-        f"[MAVEN] Discovered {len(merged['modules'])} pom.xml modules, "
-        f"{len(merged['external_libs'])} external lib references."
-    )
-    return merged
+        data = parser.parse(path)
+        if data:
+            parsed.append(data)
+    modules = [module for data in parsed for module in data['modules']]
+    by_coordinate = {}
+    by_path = {}
+    for module in modules:
+        by_coordinate.setdefault((module['group_id'], module['artifact_id']), []).append(module)
+        by_path[Path(module['pom_path']).resolve()] = module
+    result = {'modules': modules, 'inter_module_deps': [], 'external_libs': [], 'child_relations': []}
+    for data in parsed:
+        for dependency in data['external_libs']:
+            targets = by_coordinate.get((dependency['group_id'], dependency['artifact_id']), [])
+            if len(targets) == 1 and not (
+                dependency['version'] and targets[0]['version'] and dependency['version'] != targets[0]['version']
+            ):
+                result['inter_module_deps'].append({
+                    'src_artifact_id': dependency['src_artifact_id'],
+                    'tgt_artifact_id': targets[0]['artifact_id'], 'scope': dependency['scope'],
+                })
+            else:
+                result['external_libs'].append(dependency)
+        for relation in data['child_relations']:
+            child = by_path.get(Path(relation['child_pom_path']))
+            if child is not None:
+                result['child_relations'].append({
+                    'parent_artifact_id': relation['parent_artifact_id'],
+                    'child_artifact_id': child['artifact_id'],
+                })
+    info_logger(f"[MAVEN] Discovered {len(modules)} Maven modules and {len(result['external_libs'])} external libraries.")
+    return result
