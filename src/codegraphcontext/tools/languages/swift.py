@@ -9,7 +9,9 @@ SWIFT_QUERIES = {
     "functions": """
         [
             (function_declaration) @function_node
+            (protocol_function_declaration) @function_node
             (init_declaration) @init_node
+            (deinit_declaration) @deinit_node
         ]
     """,
     "classes": """
@@ -133,7 +135,7 @@ class SwiftTreeSitterParser:
             if types is not None and curr.type not in types:
                 curr = curr.parent
                 continue
-            if curr.type == "function_declaration":
+            if curr.type in ("function_declaration", "protocol_function_declaration"):
                 name_node = curr.child_by_field_name("name")
                 if not name_node:
                     for child in curr.children:
@@ -177,20 +179,8 @@ class SwiftTreeSitterParser:
                                     context_type,
                                     curr.start_point[0] + 1,
                                 )
-            if curr.type == "init_declaration":
-                # For initializers, return the parent class/struct name
-                parent = curr.parent
-                if parent and parent.type in ("class_body", "struct_body"):
-                    grandparent = parent.parent
-                    if grandparent:
-                        for child in grandparent.children:
-                            if child.type == "type_identifier":
-                                return (
-                                    self._get_node_text(child),
-                                    grandparent.type,
-                                    grandparent.start_point[0] + 1,
-                                )
-                return ("init", curr.type, curr.start_point[0] + 1)
+            if curr.type in ("init_declaration", "deinit_declaration"):
+                return ("init" if curr.type == "init_declaration" else "deinit", curr.type, curr.start_point[0] + 1)
             curr = curr.parent
         return None, None, None
 
@@ -247,7 +237,7 @@ class SwiftTreeSitterParser:
         seen_nodes = set()
 
         for node, capture_name in captures:
-            if capture_name in ("function_node", "init_node"):
+            if capture_name in ("function_node", "init_node", "deinit_node"):
                 node_id = (node.start_byte, node.end_byte, node.type)
                 if node_id in seen_nodes:
                     continue
@@ -258,7 +248,7 @@ class SwiftTreeSitterParser:
                     end_line = node.end_point[0] + 1
                     
                     # Get function name
-                    func_name = "init" if capture_name == "init_node" else None
+                    func_name = {"init_node": "init", "deinit_node": "deinit"}.get(capture_name)
                     if capture_name == "function_node":
                         for child in node.children:
                             if child.type == "simple_identifier":
