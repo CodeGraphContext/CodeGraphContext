@@ -17,6 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from codegraphcontext.tools.tree_sitter_parser import TreeSitterParser
+from codegraphcontext.tools.indexing.pre_scan import pre_scan_for_imports
 
 CASES = []
 
@@ -24,7 +25,9 @@ CASES = []
 def case(lang, name, source, **expected):
     checks = []
     for bucket, names in expected.items():
-        if bucket == "attrs":
+        if bucket == "import_suffixes":
+            checks.extend(("suffix", "imports", n) for n in names)
+        elif bucket == "attrs":
             checks.extend(("attr", *row) for row in names)
         elif bucket == "absent":
             checks.extend(("absent", *row) for row in names)
@@ -37,8 +40,8 @@ def case(lang, name, source, **expected):
 
 # Definitions, binding forms, ownership, calls, imports and negative controls.
 case("python", "nested_async", "async def outer(x):\n    def inner(y):\n        return helper(y)\n    return inner(x)\n", functions=["outer", "inner"], function_calls=["helper", "inner"], attrs=[("function_calls", "helper", "context.0", "inner")])
-case("python", "decorated_class", "@decorate\nclass Child(Base):\n    @staticmethod\n    def run(x):\n        return helper(x)\n", classes=["Child"], functions=["run"], attrs=[("classes", "Child", "bases", ["Base"]), ("functions", "run", "line_number", 5)])
-case("python", "import_bindings", "import os.path as path\nfrom ..pkg import one as first, two\n", imports=["path", "first", "two"], attrs=[("imports", "first", "full_import_name", "..pkg.one")])
+case("python", "decorated_class", "@decorate\nclass Child(Base):\n    @staticmethod\n    def run(x):\n        return helper(x)\n", classes=["Child"], functions=["run"], attrs=[("classes", "Child", "bases", ["Base"]), ("functions", "run", "line_number", 4)])
+case("python", "import_bindings", "import os.path as path\nfrom ..pkg import one as first, two\n", imports=["os.path", "one", "two"], attrs=[("imports", "one", "alias", "first"), ("imports", "one", "full_import_name", "..pkg.one")])
 case("python", "destructuring", "a, (b, c) = (1, (2, 3))\n", variables=["a", "b", "c"])
 case("python", "lambda_owner", "def outer():\n    cb = lambda x: helper(x)\n    return cb(1)\n", functions=["outer", "cb"], function_calls=["helper", "cb"], attrs=[("function_calls", "helper", "context.0", "cb")])
 case("python", "annotations_are_not_calls", "def run(x: list[int]) -> str:\n    return helper(x)\n", functions=["run"], function_calls=["helper"], absent=[("function_calls", "list"), ("function_calls", "str")])
@@ -47,7 +50,7 @@ for lang in ("javascript", "typescript", "tsx"):
     case(lang, "nested_arrows", "function outer() {\n  const inner = (x) => helper(x);\n  return inner(1);\n}\n", functions=["outer", "inner"], function_calls=["helper", "inner"], attrs=[("function_calls", "helper", "context.0", "inner")])
     case(lang, "function_expression", "const build = function named(x) { return helper(x); };\n", functions=["build"], function_calls=["helper"])
     case(lang, "class_methods", "class Child extends Base {\n  run(x) { return this.helper(x); }\n  static build() { return new Child(); }\n}\n", classes=["Child"], functions=["run", "build"], function_calls=["helper", "Child"], attrs=[("function_calls", "helper", "class_context.0", "Child")])
-    case(lang, "imports", "import main, {one as first, two} from './lib';\nimport * as ns from './other';\n", imports=["main", "first", "two", "ns"], attrs=[("imports", "first", "source", "./lib")])
+    case(lang, "imports", "import main, {one as first, two} from './lib';\nimport * as ns from './other';\n", imports=["default", "one", "two", "*"], attrs=[("imports", "one", "alias", "first"), ("imports", "one", "source", "./lib"), ("imports", "default", "alias", "main"), ("imports", "*", "alias", "ns")])
     case(lang, "destructure", "const {one: first, two, ...rest} = input;\nconst [a, b] = values;\n", variables=["first", "two", "rest", "a", "b"], absent=[("variables", "one")])
     case(lang, "optional_calls", "function run(obj) { obj?.work?.(1); obj.work(2); }\n", functions=["run"], counts=[("function_calls", "work", 2)])
     case(lang, "template_and_comments", "const text = 'fake()';\n// phantom()\nfunction run() { return `${helper()}`; }\n", functions=["run"], function_calls=["helper"], absent=[("function_calls", "fake"), ("function_calls", "phantom")])
@@ -58,7 +61,7 @@ case("tsx", "component_precision", "function util(x: number) { return x + 1; }\n
 case("tsx", "component_reference", "import {Button} from './Button';\nfunction View() { return <Button />; }\n", components=["View"], imports=["Button"])
 
 case("go", "receiver", "package demo\ntype Service struct {}\nfunc (s *Service) Run(x int) int { return helper(x) }\nfunc helper(x int) int { return x }\n", functions=["Run", "helper"], structs=["Service"], function_calls=["helper"], attrs=[("functions", "Run", "class_context", "Service")])
-case("go", "imports_aliases", 'package demo\nimport (\n alias "example.com/one"\n "fmt"\n)\n', imports=["alias", "fmt"])
+case("go", "imports_aliases", 'package demo\nimport (\n alias "example.com/one"\n "fmt"\n)\n', imports=["one", "fmt"], attrs=[("imports", "one", "alias", "alias")])
 case("go", "generic_invocation", "package demo\nfunc run() { identity[int](1) }\n", functions=["run"], function_calls=["identity"])
 case("go", "closure_owner", "package demo\nfunc outer() {\n inner := func() { helper() }\n inner()\n}\n", functions=["outer", "inner"], function_calls=["helper", "inner"], attrs=[("function_calls", "helper", "context.0", "inner")])
 case("go", "interface", "package demo\ntype Reader interface { Read(p []byte) (int, error) }\n", interfaces=["Reader"])
@@ -79,11 +82,11 @@ case("cpp", "constructor_destructor", "class S { public: S() { init(); } ~S() { 
 case("cpp", "generic_call", "void run() { identity<int>(1); }\n", functions=["run"], function_calls=["identity"])
 
 case("java", "nested_types", "package demo;\nclass Outer {\n class Inner { void run() { helper(); } }\n}\n", classes=["Outer", "Inner"], functions=["run"], function_calls=["helper"], attrs=[("function_calls", "helper", "class_context.0", "Inner")])
-case("java", "generic_inheritance", "class Child extends Parent<String> implements A, B {}\n", classes=["Child"], attrs=[("classes", "Child", "bases", ["Parent", "A", "B"])])
+case("java", "generic_inheritance", "class Child extends Parent<String> implements A, B {}\n", classes=["Child"], attrs=[("classes", "Child", "bases", ["Parent<String>", "A", "B"])])
 case("java", "constructor", "class S { S(int x) { helper(x); } }\n", functions=["S"], function_calls=["helper"])
 case("java", "interface", "interface S { void run(); default void go() { run(); } }\n", interfaces=["S"], functions=["run", "go"], function_calls=["run"])
 case("java", "record", "record Point(int x, int y) { int sum() { return add(x,y); } }\n", classes=["Point"], functions=["sum"], function_calls=["add"], attrs=[("functions", "sum", "class_context", "Point")])
-case("java", "static_import", "import static java.util.Collections.emptyList;\nclass S { void run() { emptyList(); } }\n", imports=["emptyList"], function_calls=["emptyList"])
+case("java", "static_import", "import static java.util.Collections.emptyList;\nclass S { void run() { emptyList(); } }\n", imports=["java.util.Collections.emptyList"], function_calls=["emptyList"])
 
 case("c_sharp", "nested_context", "namespace Demo { class Outer { class Inner { void Run() { Helper(); } } } }\n", classes=["Outer", "Inner"], functions=["Run"], function_calls=["Helper"], attrs=[("function_calls", "Helper", "class_context.0", "Inner")])
 case("c_sharp", "record", "record Point(int X, int Y) { int Sum() => Add(X, Y); }\n", classes=["Point"], functions=["Sum"], function_calls=["Add"])
@@ -92,34 +95,34 @@ case("c_sharp", "generic_bases", "class Child : Map<string, int>, IOne, ITwo {}\
 case("c_sharp", "constructor", "class S { public S(int x) { Helper(x); } }\n", functions=["S"], function_calls=["Helper"])
 
 case("ruby", "singleton", "class S\n def self.build(x)\n  helper(x)\n end\nend\n", classes=["S"], functions=["build"], function_calls=["helper"])
-case("ruby", "module_context", "module Demo\n class S\n  def run\n   helper\n  end\n end\nend\n", classes=["Demo", "S"], functions=["run"], function_calls=["helper"])
+case("ruby", "module_context", "module Demo\n class S\n  def run\n   helper\n  end\n end\nend\n", modules=["Demo"], classes=["S"], functions=["run"], function_calls=["helper"])
 case("ruby", "attribute_variables", "class S\n @@count = 0\n def run\n  @name = 'x'\n end\nend\n$flag = true\n", variables=["@@count", "@name", "$flag"])
 case("ruby", "imports", "require 'json'\nrequire_relative './helper'\n", imports=["json", "./helper"])
 
 case("php", "namespace", "<?php\nnamespace Demo;\nclass S { function run() { helper(); } }\n", classes=["S"], functions=["run"], function_calls=["helper"], attrs=[("function_calls", "helper", "class_context.0", "S")])
 case("php", "enum", "<?php\nenum Status: string { case Ok = 'ok'; public function label() { return helper(); } }\n", classes=["Status"], functions=["label"], function_calls=["helper"])
-case("php", "trait", "<?php\ntrait Work { function run() { helper(); } }\n", classes=["Work"], functions=["run"], function_calls=["helper"])
+case("php", "trait", "<?php\ntrait Work { function run() { helper(); } }\n", traits=["Work"], functions=["run"], function_calls=["helper"])
 case("php", "imports", "<?php\nuse Vendor\\Package\\Thing as T;\nuse Vendor\\Package\\{One, Two as Second};\n", imports=["T", "One", "Second"])
 case("php", "arrow_function", "<?php\nfunction outer() { $cb = fn($x) => helper($x); return $cb(1); }\n", functions=["outer", "cb"], function_calls=["helper"])
 
-case("lua", "dot_colon_methods", "local M = {}\nfunction M.run(x) return helper(x) end\nfunction M:work(x) return helper(x) end\n", functions=["M.run", "M.work"], function_calls=["helper"])
+case("lua", "dot_colon_methods", "local M = {}\nfunction M.run(x) return helper(x) end\nfunction M:work(x) return helper(x) end\n", functions=["run", "work"], function_calls=["helper"], attrs=[("functions", "run", "class_context", "M"), ("functions", "work", "class_context", "M")])
 case("lua", "assigned_functions", "local build = function(x) return helper(x) end\n", functions=["build"], function_calls=["helper"])
 case("lua", "imports", "local json = require('json')\nlocal util = require 'util'\n", imports=["json", "util"])
 case("lua", "nested_owner", "local function outer()\n local function inner() helper() end\n inner()\nend\n", functions=["outer", "inner"], function_calls=["helper", "inner"], attrs=[("function_calls", "helper", "context.0", "inner")])
 
 case("kotlin", "extension", "fun String.clean(): String = trim()\n", functions=["clean"], function_calls=["trim"])
 case("kotlin", "nested_context", "class Outer {\n class Inner { fun run() { helper() } }\n}\n", classes=["Outer", "Inner"], functions=["run"], function_calls=["helper"], attrs=[("function_calls", "helper", "class_context.0", "Inner")])
-case("kotlin", "companion", "class S { companion object { fun build() = S() } }\n", classes=["S"], functions=["build"], function_calls=["S"])
+case("kotlin", "companion", "class S {\n companion object {\n  fun build() = S()\n }\n}\n", classes=["S"], functions=["build"], function_calls=["S"])
 case("kotlin", "destructuring", "fun run() { val (first, second) = pair() }\n", functions=["run"], variables=["first", "second"], function_calls=["pair"])
 case("kotlin", "interface", "interface Draw { fun draw() }\n", interfaces=["Draw"], functions=["draw"])
 
-case("scala", "definitions", "object S {\n def run = helper()\n def helper(): Int = 1\n}\n", classes=["S"], functions=["run", "helper"], function_calls=["helper"])
-case("scala", "trait_signatures", "trait Draw {\n def draw(x: Int): Unit\n}\n", classes=["Draw"], functions=["draw"])
+case("scala", "definitions", "object S {\n def run = helper()\n def helper(): Int = 1\n}\n", objects=["S"], functions=["run", "helper"], function_calls=["helper"])
+case("scala", "trait_signatures", "trait Draw {\n def draw(x: Int): Unit\n}\n", traits=["Draw"], functions=["draw"])
 case("scala", "curried_parameters", "def add(x: Int)(y: Int): Int = x + y\n", functions=["add"], attrs=[("functions", "add", "args", ["x", "y"])])
-case("scala", "imports", "import scala.collection.{mutable, immutable}\n", imports=["mutable", "immutable"])
+case("scala", "imports", "import scala.collection.{mutable, immutable}\n", imports=["scala.collection.mutable", "scala.collection.immutable"])
 
-case("swift", "struct_method", "struct S {\n func run() { helper() }\n}\n", classes=["S"], functions=["run"], function_calls=["helper"], attrs=[("function_calls", "helper", "class_context.0", "S")])
-case("swift", "protocol_signature", "protocol Draw {\n func draw(x: Int)\n}\n", classes=["Draw"], functions=["draw"])
+case("swift", "struct_method", "struct S {\n func run() { helper() }\n}\n", structs=["S"], functions=["run"], function_calls=["helper"], attrs=[("function_calls", "helper", "class_context.0", "S")])
+case("swift", "protocol_signature", "protocol Draw {\n func draw(x: Int)\n}\n", traits=["Draw"], functions=["draw"])
 case("swift", "extension", "extension String {\n func clean() { helper() }\n}\n", functions=["clean"], function_calls=["helper"], attrs=[("functions", "clean", "class_context", "String")])
 case("swift", "init_deinit", "class S {\n init() { setup() }\n deinit { cleanup() }\n}\n", functions=["init", "deinit"], function_calls=["setup", "cleanup"])
 
@@ -138,8 +141,8 @@ case("perl", "imports", "use strict;\nuse JSON;\n", imports=["strict", "JSON"])
 case("perl", "variables", "my $count = 1;\nmy @items = (1, 2);\nmy %map = (a => 1);\n", variables=["count", "items", "map"])
 case("perl", "multiple_packages", "package First;\nsub one { helper(); }\npackage Second;\nsub two { helper(); }\n", classes=["First", "Second"], functions=["one", "two"], attrs=[("functions", "one", "class_context", "First"), ("functions", "two", "class_context", "Second")])
 
-case("elixir", "module_functions", "defmodule Demo do\n def run(x), do: helper(x)\n defp helper(x), do: x\nend\n", classes=["Demo"], functions=["run", "helper"], function_calls=["helper"])
-case("elixir", "aliases", "defmodule Demo do\n alias MyApp.{One, Two}\n alias MyApp.Three, as: Third\nend\n", imports=["One", "Two", "Third"])
+case("elixir", "module_functions", "defmodule Demo do\n def run(x), do: helper(x)\n defp helper(x), do: x\nend\n", modules=["Demo"], functions=["run", "helper"], function_calls=["helper"])
+case("elixir", "aliases", "defmodule Demo do\n alias MyApp.{One, Two}\n alias MyApp.Three, as: Third\nend\n", imports=["MyApp.One", "MyApp.Two", "MyApp.Three"], attrs=[("imports", "MyApp.Three", "alias", "Third")])
 case("elixir", "pipeline", "defmodule Demo do\n def run(x), do: x |> helper() |> finish()\nend\n", function_calls=["helper", "finish"], counts=[("function_calls", "helper", 1)])
 case("elixir", "guards_not_definitions", "defmodule Demo do\n def run(x) when is_integer(x), do: helper(x)\nend\n", functions=["run"], function_calls=["helper"], absent=[("functions", "is_integer")])
 
@@ -164,11 +167,11 @@ for lang in ("vue", "svelte"):
     case(lang, "template_is_not_script", "<p>phantom()</p>\n<style>.ghost {color:red}</style>\n", absent=[("function_calls", "phantom"), ("functions", "ghost")])
 
 case("solidity", "contract", "pragma solidity ^0.8.0;\ncontract S { function run(uint x) public { helper(x); } function helper(uint x) internal {} }\n", classes=["S"], functions=["run", "helper"], function_calls=["helper"])
-case("solidity", "interface", "pragma solidity ^0.8.0;\ninterface Draw { function draw() external; }\n", classes=["Draw"], functions=["draw"])
+case("solidity", "interface", "pragma solidity ^0.8.0;\ninterface Draw { function draw() external; }\n", interfaces=["Draw"], functions=["draw"])
 case("solidity", "library", "pragma solidity ^0.8.0;\nlibrary Math { function add(uint a,uint b) internal pure returns(uint) { return a+b; } }\n", classes=["Math"], functions=["add"])
-case("solidity", "imports", 'pragma solidity ^0.8.0;\nimport {One as First, Two} from "./lib.sol";\n', imports=["First", "Two"])
-case("hcl", "blocks", 'resource "aws_instance" "web" {\n ami = "ami-test"\n}\nmodule "network" {\n source = "./modules/network"\n}\n', classes=["aws_instance.web", "module.network"], imports=["./modules/network"])
-case("hcl", "variables_locals", 'variable "region" {\n default = "us-east-1"\n}\nlocals {\n name = "demo"\n}\n', variables=["region", "local.name"])
+case("solidity", "imports", 'pragma solidity ^0.8.0;\nimport {One as First, Two} from "./lib.sol";\n', imports=["One", "Two"], attrs=[("imports", "One", "alias", "First")])
+case("hcl", "blocks", 'resource "aws_instance" "web" {\n ami = "ami-test"\n}\nmodule "network" {\n source = "./modules/network"\n}\n', classes=["aws_instance.web", "module.network"], import_suffixes=["/modules/network"])
+case("hcl", "variables_locals", 'variable "region" {\n default = "us-east-1"\n}\nlocals {\n name = "demo"\n}\n', variables=["var.region", "local.name"])
 case("hcl", "computed_source", 'module "network" {\n source = var.module_source\n}\n', classes=["module.network"], absent=[("imports", "var.module_source")])
 
 EXTENSIONS = dict(python="py", javascript="js", typescript="ts", tsx="tsx", go="go", rust="rs", c="c", cpp="cpp", java="java", c_sharp="cs", ruby="rb", php="php", lua="lua", kotlin="kt", scala="scala", swift="swift", haskell="hs", dart="dart", perl="pl", elixir="ex", elisp="el", html="html", css="css", vue="vue", svelte="svelte", solidity="sol", hcl="tf")
@@ -195,7 +198,9 @@ def check_result(result, checks, line_offset=0):
     for check in checks:
         op, bucket, name, *rest = check
         rows = [r for r in result.get(bucket, []) if isinstance(r, dict) and r.get("name") == name]
-        if op == "has":
+        if op == "suffix":
+            ok = any(r.get("name", "").endswith(name) for r in result.get(bucket, []))
+        elif op == "has":
             ok = bool(rows)
         elif op == "absent":
             ok = not rows
@@ -233,8 +238,9 @@ def audit(languages=None):
                         errors.append(dict(check="dict_without_error", actual=data))
                     if blank_name != "recovery":
                         for bucket in ("functions", "classes", "imports", "variables", "function_calls", "structs", "traits", "interfaces", "enums", "components"):
-                            if data.get(bucket):
-                                errors.append(dict(check=["empty", bucket], actual=data[bucket]))
+                            unexpected = [r for r in data.get(bucket, []) if not r.get("is_synthetic")]
+                            if unexpected:
+                                errors.append(dict(check=["empty", bucket], actual=unexpected))
                     results.append(dict(lang=lang, name=blank_name, failures=errors))
                 except Exception:
                     results.append(dict(lang=lang, name=blank_name, exception=traceback.format_exc()))
@@ -264,6 +270,27 @@ def audit(languages=None):
                     except Exception:
                         record["exception"] = traceback.format_exc()
                     results.append(record)
+                # The full parser and cross-file pre-scan must agree on ordinary
+                # top-level declarations. Keep this separate from call extraction.
+                path.write_text(item["source"], encoding="utf-8")
+                try:
+                    data = parser.parse(path)
+                    ext = "." + EXTENSIONS[lang]
+                    scanned = pre_scan_for_imports([path], {ext}, lambda _: parser)
+                    missing = []
+                    if lang not in ("html", "css", "hcl"):
+                        for bucket in ("functions", "classes", "structs", "traits", "interfaces", "enums", "modules", "objects", "type_aliases"):
+                            for declaration in data.get(bucket, []):
+                                contexts = [declaration.get(k) for k in ("context", "class_context", "module_context")]
+                                contexts = [v[0] if isinstance(v, (tuple, list)) and v else v for v in contexts]
+                                if any(contexts) or declaration.get("is_synthetic"):
+                                    continue
+                                name = declaration.get("name")
+                                if name and name not in scanned:
+                                    missing.append(dict(check=["prescan", bucket, name], actual=sorted(scanned)))
+                    results.append(dict(lang=lang, name=item["name"], variant="prescan", source=item["source"], failures=missing))
+                except Exception:
+                    results.append(dict(lang=lang, name=item["name"], variant="prescan", source=item["source"], exception=traceback.format_exc()))
             failed = sum(bool(x.get("failures") or x.get("exception")) for x in results if x["lang"] == lang)
             total = sum(x["lang"] == lang for x in results)
             print(f"{lang}: {total - failed}/{total} cases passed", flush=True)
@@ -283,7 +310,7 @@ def main():
     versions = {name: importlib.metadata.version(name) for name in ("codegraphcontext", "tree-sitter", "tree-sitter-language-pack")}
     failures = [r for r in results if r.get("failures") or r.get("exception")]
     args.output.write_text(json.dumps(dict(versions=versions, results=results), indent=2, default=str), encoding="utf-8")
-    print(json.dumps(dict(total=len(results), failing=len(failures), by_language=dict(Counter(r["lang"] for r in failures))), flush=True)
+    print(json.dumps(dict(total=len(results), failing=len(failures), by_language=dict(Counter(r["lang"] for r in failures)))), flush=True)
     for r in failures:
         if r.get("variant") not in (None, "plain"):
             continue

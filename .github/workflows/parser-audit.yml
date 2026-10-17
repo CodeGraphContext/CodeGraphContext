@@ -33,6 +33,9 @@ jobs:
           if test -f scripts/audit_language_parsers.py; then
             python scripts/audit_language_parsers.py --output parser-audit.json
           fi
+      - name: Run build and mapper extractor audit
+        if: always()
+        run: python scripts/audit_build_parsers.py
       - name: Save audit evidence and grammar cache
         if: always()
         uses: actions/upload-artifact@v4
@@ -41,5 +44,6 @@ jobs:
           path: |
             parser-audit*.xml
             parser-audit.json
+            build-parser-audit.json
             ~/.cache/tree-sitter-language-pack
           retention-days: 7
