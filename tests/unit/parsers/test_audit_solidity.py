@@ -33,3 +33,11 @@ def test_commas_inside_strings_and_nested_calls_do_not_split_arguments(tmp_path)
     result = TreeSitterParser('solidity').parse(path)
     call = next(c for c in result['function_calls'] if c['name'] == 'helper')
     assert call['args'] == ['"a,b"', 'inner(1, 2)', '3']
+
+
+def test_inline_contract_prescan_does_not_invent_commented_types(tmp_path):
+    from codegraphcontext.tools.languages.solidity import pre_scan_solidity
+    path = tmp_path / 'scan.sol'
+    path.write_text('pragma solidity ^0.8.0; contract S {} // contract Ghost {}\n')
+    scan = pre_scan_solidity([path], TreeSitterParser('solidity'))
+    assert 'S' in scan and 'Ghost' not in scan
