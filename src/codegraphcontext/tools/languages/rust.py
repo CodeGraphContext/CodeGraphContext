@@ -30,6 +30,11 @@ RUST_QUERIES = {
                 (scoped_identifier name: (identifier) @name)
             ]
         )
+        (call_expression function: (generic_function function: [
+            (identifier) @name
+            (field_expression field: (field_identifier) @name)
+            (scoped_identifier name: (identifier) @name)
+        ]))
     """,
 }
 
@@ -127,12 +132,17 @@ class RustTreeSitterParser:
 
     def _find_functions(self, root_node: Any) -> list[Dict[str, Any]]:
         functions = []
-        query_str = "(function_item) @f"
+        query_str = "[(function_item) (function_signature_item)] @f"
         seen_ids: set[int] = set()
 
         for func_node, cap in execute_query(self.language, query_str, root_node):
             if func_node.id in seen_ids:
                 continue
+            ancestor = func_node.parent
+            while ancestor is not None and ancestor.type != 'foreign_mod_item':
+                ancestor = ancestor.parent
+            if ancestor is not None:
+                continue  # The extern pass preserves is_extern metadata.
             seen_ids.add(func_node.id)
 
             name_node = func_node.child_by_field_name("name")
@@ -160,11 +170,21 @@ class RustTreeSitterParser:
                 class_context_line = None
                 curr = func_node.parent
                 while curr:
-                    if curr.type == "impl_item":
-                        type_node = curr.child_by_field_name("type")
+                    if curr.type in ("impl_item", "trait_item"):
+                        type_node = curr.child_by_field_name("type" if curr.type == "impl_item" else "name")
+                        while type_node is not None and type_node.type == "generic_type":
+                            type_node = type_node.child_by_field_name("type")
                         if type_node is not None:
                             class_context = self._get_node_text(type_node)
-                            class_context_line = curr.start_point[0] + 1
+                            # An impl's line is not the type declaration's line.
+                            candidates = [n for n, _ in execute_query(
+                                self.language, RUST_QUERIES["classes"], root_node
+                            ) if n.type in ('struct_item', 'enum_item', 'trait_item')
+                                and n.child_by_field_name('name') is not None
+                                and self._get_node_text(n.child_by_field_name('name')) == class_context
+                                and self._module_path_for_node(n) == module_context]
+                            if len(candidates) == 1:
+                                class_context_line = candidates[0].start_point[0] + 1
                         break
                     curr = curr.parent
 
@@ -402,10 +422,14 @@ class RustTreeSitterParser:
                 inferred_obj_type = None
                 if call_node and call_node.type == 'call_expression':
                     fn_node = call_node.child_by_field_name('function')
+                    if fn_node is not None and fn_node.type == 'generic_function':
+                        fn_node = fn_node.child_by_field_name('function')
                     if fn_node is not None and fn_node.type == 'scoped_identifier':
                         scope_node = fn_node.child_by_field_name('path')
                         if scope_node is not None:
-                            scope_text = self._get_node_text(scope_node)
+                            while scope_node is not None and scope_node.type == 'generic_type':
+                                scope_node = scope_node.child_by_field_name('type')
+                            scope_text = self._get_node_text(scope_node) if scope_node is not None else ''
                             # `Vec::<T>::new` styles: keep the last plain segment
                             inferred_obj_type = scope_text.split('::')[-1] or None
 
