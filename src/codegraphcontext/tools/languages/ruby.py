@@ -529,6 +529,85 @@ class RubyTreeSitterParser:
                     "is_dependency": False,
                 })
 
+        calls.extend(self._find_bare_calls(root_node))
+        return calls
+
+    def _find_bare_calls(self, root_node):
+        """Ruby vcall identifiers are calls unless a lexical local is in scope."""
+        scopes = {'program', 'class', 'module', 'method', 'singleton_method', 'block', 'do_block', 'lambda'}
+        closures = {'block', 'do_block', 'lambda'}
+        cache = {}
+
+        def targets(pattern):
+            if pattern is None:
+                return
+            if pattern.type == 'identifier':
+                yield pattern
+                return
+            name = pattern.child_by_field_name('name')
+            if name is not None:
+                yield from targets(name)
+            elif pattern.type in ('method_parameters', 'block_parameters', 'lambda_parameters',
+                                  'left_assignment_list', 'destructured_parameter', 'splat_parameter',
+                                  'hash_splat_parameter', 'rest_assignment'):
+                for child in pattern.named_children:
+                    yield from targets(child)
+
+        def bindings(scope):
+            if scope.id in cache:
+                return cache[scope.id]
+            found = {}
+            parameters = scope.child_by_field_name('parameters')
+            if parameters is not None:
+                for target in targets(parameters):
+                    found.setdefault(self._get_node_text(target), []).append(-1)
+            stack = list(scope.named_children)
+            while stack:
+                current = stack.pop()
+                if current.type in scopes:
+                    continue
+                if current.type in ('assignment', 'operator_assignment'):
+                    for target in targets(current.child_by_field_name('left')):
+                        found.setdefault(self._get_node_text(target), []).append(target.start_byte)
+                elif current.type == 'for':
+                    for target in targets(current.child_by_field_name('pattern')):
+                        found.setdefault(self._get_node_text(target), []).append(target.start_byte)
+                stack.extend(current.named_children)
+            cache[scope.id] = found
+            return found
+
+        calls = []
+        stack = [root_node]
+        while stack:
+            node = stack.pop()
+            stack.extend(reversed(node.named_children))
+            if node.type != 'identifier' or node.parent is None:
+                continue
+            parent = node.parent
+            if parent.type == 'call' and parent.child_by_field_name('method') == node:
+                continue
+            if parent.type in ('method', 'singleton_method') and parent.child_by_field_name('name') == node:
+                continue
+            name = self._get_node_text(node)
+            scope = parent
+            bound = False
+            while scope is not None:
+                if scope.type in scopes:
+                    if any(position <= node.start_byte for position in bindings(scope).get(name, [])):
+                        bound = True
+                        break
+                    if scope.type not in closures:
+                        break
+                scope = scope.parent
+            if bound:
+                continue
+            context = self._get_parent_context(node)
+            class_context, _, _ = self._get_parent_context(node, ('class', 'module'))
+            calls.append({
+                'name': name, 'full_name': name, 'line_number': node.start_point[0] + 1,
+                'args': [], 'context': context, 'class_context': class_context,
+                'inferred_obj_type': None, 'lang': self.language_name, 'is_dependency': False,
+            })
         return calls
 
     def _find_variables(self, root_node: Any) -> list[Dict[str, Any]]:
