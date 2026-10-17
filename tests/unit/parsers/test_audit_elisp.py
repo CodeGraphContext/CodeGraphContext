@@ -64,3 +64,25 @@ def test_load_forms_ignore_quoted_and_dynamic_targets(tmp_path):
     path.write_text('(load-file "one.el")\n(load-library "two")\n(load target)\n\'(load "ghost")\n')
     result = TreeSitterParser('elisp').parse(path)
     assert {(i['name'], i['line_number']) for i in result['imports']} == {('one.el', 1), ('two', 2)}
+
+
+@pytest.mark.parametrize("name,source", [('repeated_same_line', '(defun run () (helper 1) (helper 2))\n'),
+ ('nested_arguments', '(defun run () (helper (inner 1 2) 3))\n')])
+@pytest.mark.parametrize("variant", ["plain", "crlf", "padded", "dependency_source", "reuse"])
+def test_invocation_identity_and_arguments(tmp_path, name, source, variant):
+    parser = TreeSitterParser('elisp')
+    if variant == "padded":
+        source = '; π\n' + source
+    elif variant == "crlf":
+        source = source.replace("\n", "\r\n")
+    path = tmp_path / "calls.elisp"
+    path.write_bytes(source.encode("utf-8"))
+    if variant == "reuse":
+        parser.parse(path, index_source=True)
+    result = parser.parse(path, is_dependency=variant == "dependency_source", index_source=variant == "dependency_source")
+    calls = [c for c in result["function_calls"] if c["name"] == "helper"]
+    if name == "repeated_same_line":
+        assert len(calls) == 2, calls
+    else:
+        assert len(calls) == 1, calls
+        assert calls[0]["args"] == ['(inner 1 2)', "3"], calls
