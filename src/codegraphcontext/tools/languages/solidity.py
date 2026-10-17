@@ -963,6 +963,10 @@ class SolidityTreeSitterParser:
             if args_node is not None:
                 for arg in args_node.named_children:
                     args.append(self._get_node_text(arg))
+            else:
+                # language-pack 1.20 uses direct call_argument children.
+                args = [self._get_node_text(arg) for arg in node.named_children
+                        if arg.type == 'call_argument']
 
             calls.append(
                 {
