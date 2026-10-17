@@ -117,3 +117,10 @@ def test_prescan_keeps_declarations(tmp_path, source, name):
     parser = TreeSitterParser('typescript')
     result = pre_scan_for_imports([path], {".ts"}, lambda _: parser)
     assert name in result, result
+
+
+def test_abstract_method_belongs_to_its_abstract_class(tmp_path):
+    path = tmp_path / 'base.ts'
+    path.write_text('abstract class Base { abstract run(): void; }\n')
+    result = TreeSitterParser('typescript').parse(path)
+    assert next(f for f in result['functions'] if f['name'] == 'run')['class_context'] == 'Base'

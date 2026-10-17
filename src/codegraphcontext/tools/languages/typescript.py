@@ -109,7 +109,7 @@ class TypescriptTreeSitterParser:
     def _get_node_text(self, node) -> str:
         return node.text.decode('utf-8')
 
-    def _get_parent_context(self, node, types=('function_declaration', 'class_declaration', 'method_definition', 'function_expression', 'arrow_function')):
+    def _get_parent_context(self, node, types=('function_declaration', 'class_declaration', 'abstract_class_declaration', 'method_definition', 'abstract_method_signature', 'function_expression', 'arrow_function')):
         curr = node.parent
         while curr:
             if curr.type in types:
