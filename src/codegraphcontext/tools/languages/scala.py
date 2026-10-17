@@ -425,7 +425,7 @@ class ScalaTreeSitterParser:
                          continue
 
                     # Avoid duplicates
-                    call_key = f"{call_name}_{start_line}"
+                    call_key = (node.start_byte, node.end_byte)
                     if call_key in seen_calls:
                         continue
                     seen_calls.add(call_key)
@@ -460,7 +460,8 @@ class ScalaTreeSitterParser:
                         "name": call_name,
                         "full_name": full_name,
                         "line_number": start_line,
-                        "args": [],
+                        "args": [self._get_node_text(arg) for arg in node.child_by_field_name('arguments').named_children]
+                                if node.child_by_field_name('arguments') is not None else [],
                         "inferred_obj_type": inferred_type,
                         "context": (ctx_name, ctx_type, ctx_line),
                         "class_context": (ctx_name, ctx_line) if ctx_type and ("class" in str(ctx_type) or "object" in str(ctx_type)) else (None, None),
