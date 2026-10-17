@@ -564,7 +564,10 @@ class DartTreeSitterParser:
             if receiver_name and receiver_name != name:
                 full_name = f"{receiver_name}.{name}"
 
-            args = []
+            selector = node if node.type == 'selector' else target_node.next_named_sibling
+            part = next((c for c in selector.named_children if c.type == 'argument_part'), None) if selector is not None else None
+            arguments = next((c for c in part.named_children if c.type == 'arguments'), None) if part is not None else None
+            args = [self._get_node_text(arg) for arg in arguments.named_children] if arguments is not None else []
 
             context, context_type, context_line = self._get_parent_context(target_node)
 
