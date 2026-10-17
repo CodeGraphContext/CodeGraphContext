@@ -121,6 +121,7 @@ JAVA_QUERIES = {
     "classes": """
         [
             (class_declaration name: (identifier) @name)
+            (record_declaration name: (identifier) @name)
             (interface_declaration name: (identifier) @name)
             (enum_declaration name: (identifier) @name)
             (annotation_type_declaration name: (identifier) @name)
@@ -299,7 +300,7 @@ class JavaTreeSitterParser:
                     curr.type,
                     curr.start_point[0] + 1,
                 )
-            if curr.type in ("class_declaration", "interface_declaration", "enum_declaration", "annotation_type_declaration"):
+            if curr.type in ("class_declaration", "interface_declaration", "enum_declaration", "annotation_type_declaration", "record_declaration"):
                 name_node = curr.child_by_field_name("name")
                 return (
                     self._get_node_text(name_node) if name_node else None,
@@ -384,12 +385,12 @@ class JavaTreeSitterParser:
                             "path": str(path),
                             "lang": self.language_name,
                             "context": context_name,
-                            "class_context": context_name if context_type in ("class_declaration", "interface_declaration", "enum_declaration", "annotation_type_declaration") else None
+                            "class_context": context_name if context_type in ("class_declaration", "interface_declaration", "enum_declaration", "annotation_type_declaration", "record_declaration") else None
                         }
 
                         if package_name:
                             func_data["package_name"] = package_name
-                            class_ctx = context_name if context_type in ("class_declaration", "interface_declaration", "enum_declaration", "annotation_type_declaration") else None
+                            class_ctx = context_name if context_type in ("class_declaration", "interface_declaration", "enum_declaration", "annotation_type_declaration", "record_declaration") else None
                             if class_ctx:
                                 func_data["qualified_name"] = f"{package_name}.{class_ctx}.{func_name}"
                             else:
@@ -589,7 +590,7 @@ class JavaTreeSitterParser:
                         "path": str(path),
                         "lang": self.language_name,
                         "context": ctx_name,
-                        "class_context": ctx_name if ctx_type in ("class_declaration", "interface_declaration", "enum_declaration", "annotation_type_declaration") else None
+                        "class_context": ctx_name if ctx_type in ("class_declaration", "interface_declaration", "enum_declaration", "annotation_type_declaration", "record_declaration") else None
                      })
 
         return variables
@@ -633,7 +634,7 @@ class JavaTreeSitterParser:
 
         def _walk(node: Any) -> None:  # noqa: C901
             # ── CLASS-LEVEL annotations ────────────────────────────────────
-            if node.type in ("class_declaration", "interface_declaration", "annotation_type_declaration"):
+            if node.type in ("class_declaration", "interface_declaration", "annotation_type_declaration", "record_declaration"):
                 annotations = self._get_node_annotations(node)
                 ann_map = {n: args for n, args in annotations}
                 line = node.start_point[0] + 1
@@ -924,7 +925,7 @@ class JavaTreeSitterParser:
                         call_node = node
 
                     # Avoid duplicates
-                    call_key = f"{call_name}_{line_number}"
+                    call_key = (call_node.start_byte, call_node.end_byte)
                     if call_key in seen_calls:
                         continue
                     seen_calls.add(call_key)
@@ -963,7 +964,7 @@ class JavaTreeSitterParser:
                     cls_name, cls_type, cls_line = self._get_parent_context(
                         node,
                         types=("class_declaration", "interface_declaration",
-                               "enum_declaration", "annotation_type_declaration"),
+                               "enum_declaration", "annotation_type_declaration", "record_declaration"),
                     )
 
                     debug_log(f"Found call: {call_name} (full_name: {full_name}, inferred_obj_type: {inferred_obj_type}, args: {args}) in context {ctx_name}")
@@ -1136,43 +1137,40 @@ class JavaTreeSitterParser:
 
 
 def pre_scan_java(files: list[Path], parser_wrapper) -> dict:
+    """Index actual type declarations, including records, without regex phantoms."""
     name_to_files = {}
-    
+    type_nodes = {'class_declaration', 'record_declaration', 'interface_declaration',
+                  'enum_declaration', 'annotation_type_declaration'}
     for path in files:
         try:
-            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-
-            # Extract package for FQN construction (e.g. com.ea.nexus.billing.BillingService)
-            pkg_match = re.search(r'^\s*package\s+([\w.]+)\s*;', content, re.MULTILINE)
-            file_package = pkg_match.group(1) if pkg_match else None
-
-            class_matches = re.finditer(r'\b(?:public\s+|private\s+|protected\s+)?(?:static\s+)?(?:abstract\s+)?(?:final\s+)?class\s+(\w+)', content)
-            for match in class_matches:
-                class_name = match.group(1)
-                if class_name not in name_to_files:
-                    name_to_files[class_name] = []
-                name_to_files[class_name].append(str(path))
-                # Also register under FQN so Phase 2 qualified-import lookups resolve
-                if file_package:
-                    fqn = f"{file_package}.{class_name}"
-                    if fqn not in name_to_files:
-                        name_to_files[fqn] = []
-                    name_to_files[fqn].append(str(path))
-            
-            interface_matches = re.finditer(r'\b(?:public\s+|private\s+|protected\s+)?interface\s+(\w+)', content)
-            for match in interface_matches:
-                interface_name = match.group(1)
-                if interface_name not in name_to_files:
-                    name_to_files[interface_name] = []
-                name_to_files[interface_name].append(str(path))
-                if file_package:
-                    fqn = f"{file_package}.{interface_name}"
-                    if fqn not in name_to_files:
-                        name_to_files[fqn] = []
-                    name_to_files[fqn].append(str(path))
-                
-        except Exception as e:
-            error_logger(f"Error pre-scanning Java file {path}: {e}")
-            
+            content = path.read_text(encoding='utf-8', errors='ignore')
+            root = parser_wrapper.parser.parse(content.encode('utf-8')).root_node
+            package = next((c for c in root.named_children if c.type == 'package_declaration'), None)
+            package_name = ''
+            if package is not None:
+                name = next((c for c in package.named_children
+                             if c.type in ('identifier', 'scoped_identifier')), None)
+                package_name = name.text.decode('utf-8') if name is not None else ''
+            for node, capture in execute_query(parser_wrapper.language, JAVA_QUERIES['classes'], root):
+                if capture != 'class':
+                    continue
+                name_node = node.child_by_field_name('name')
+                if name_node is None:
+                    continue
+                short_name = name_node.text.decode('utf-8')
+                scopes = [short_name]
+                parent = node.parent
+                while parent is not None:
+                    if parent.type in type_nodes:
+                        owner = parent.child_by_field_name('name')
+                        if owner is not None:
+                            scopes.insert(0, owner.text.decode('utf-8'))
+                    parent = parent.parent
+                qualified = '.'.join(([package_name] if package_name else []) + scopes)
+                for name in dict.fromkeys((short_name, qualified)):
+                    paths = name_to_files.setdefault(name, [])
+                    if str(path) not in paths:
+                        paths.append(str(path))
+        except Exception as exc:
+            error_logger(f"Error pre-scanning Java file {path}: {exc}")
     return name_to_files
