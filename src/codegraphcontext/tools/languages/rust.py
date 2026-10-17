@@ -134,6 +134,15 @@ class RustTreeSitterParser:
         functions = []
         query_str = "[(function_item) (function_signature_item)] @f"
         seen_ids: set[int] = set()
+        owner_declarations = {}
+        for declaration, capture in execute_query(self.language, RUST_QUERIES['classes'], root_node):
+            if capture != 'type_node':
+                continue
+            name_node = declaration.child_by_field_name('name')
+            if name_node is not None:
+                key = (self._module_path_for_node(declaration), self._get_node_text(name_node))
+                owner_declarations.setdefault(key, []).append(declaration.start_point[0] + 1)
+
 
         for func_node, cap in execute_query(self.language, query_str, root_node):
             if func_node.id in seen_ids:
@@ -177,14 +186,9 @@ class RustTreeSitterParser:
                         if type_node is not None:
                             class_context = self._get_node_text(type_node)
                             # An impl's line is not the type declaration's line.
-                            candidates = [n for n, _ in execute_query(
-                                self.language, RUST_QUERIES["classes"], root_node
-                            ) if n.type in ('struct_item', 'enum_item', 'trait_item')
-                                and n.child_by_field_name('name') is not None
-                                and self._get_node_text(n.child_by_field_name('name')) == class_context
-                                and self._module_path_for_node(n) == module_context]
+                            candidates = owner_declarations.get((module_context, class_context), [])
                             if len(candidates) == 1:
-                                class_context_line = candidates[0].start_point[0] + 1
+                                class_context_line = candidates[0]
                         break
                     curr = curr.parent
 
