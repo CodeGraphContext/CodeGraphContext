@@ -497,9 +497,7 @@ class RubyTreeSitterParser:
                 
                 elif capture_name == 'args':
                     if node == call_node.child_by_field_name('arguments'):
-                        args_text = self._get_node_text(node)
-                        # Simple heuristic: split by comma
-                        captures_by_call[call_id]['args'] = [a.strip() for a in args_text.strip("()").split(',') if a.strip()]
+                        captures_by_call[call_id]['args'] = [self._get_node_text(arg) for arg in node.named_children]
 
         for call_data in captures_by_call.values():
             call_node = call_data['node']

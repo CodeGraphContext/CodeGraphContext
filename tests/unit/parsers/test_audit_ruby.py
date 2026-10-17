@@ -69,3 +69,25 @@ def test_bare_calls_distinguish_parameters_locals_and_earlier_vcalls(tmp_path):
     result = TreeSitterParser('ruby').parse(path)
     bare = [c for c in result['function_calls'] if c['name'] in {'x', 'item', 'items', 'before', 'helper'}]
     assert [(c['name'], c['line_number']) for c in bare] == [('before', 3), ('helper', 7), ('helper', 9)]
+
+
+@pytest.mark.parametrize("name,source", [('repeated_same_line', 'def run; helper(1); helper(2);; end\n'),
+ ('nested_arguments', 'def run; helper(inner(1, 2), 3);; end\n')])
+@pytest.mark.parametrize("variant", ["plain", "crlf", "padded", "dependency_source", "reuse"])
+def test_invocation_identity_and_arguments(tmp_path, name, source, variant):
+    parser = TreeSitterParser('ruby')
+    if variant == "padded":
+        source = '# π\n' + source
+    elif variant == "crlf":
+        source = source.replace("\n", "\r\n")
+    path = tmp_path / "calls.ruby"
+    path.write_bytes(source.encode("utf-8"))
+    if variant == "reuse":
+        parser.parse(path, index_source=True)
+    result = parser.parse(path, is_dependency=variant == "dependency_source", index_source=variant == "dependency_source")
+    calls = [c for c in result["function_calls"] if c["name"] == "helper"]
+    if name == "repeated_same_line":
+        assert len(calls) == 2, calls
+    else:
+        assert len(calls) == 1, calls
+        assert calls[0]["args"] == ['inner(1, 2)', "3"], calls
