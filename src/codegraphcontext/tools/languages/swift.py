@@ -9,7 +9,9 @@ SWIFT_QUERIES = {
     "functions": """
         [
             (function_declaration) @function_node
+            (protocol_function_declaration) @function_node
             (init_declaration) @init_node
+            (deinit_declaration) @deinit_node
         ]
     """,
     "classes": """
@@ -133,7 +135,7 @@ class SwiftTreeSitterParser:
             if types is not None and curr.type not in types:
                 curr = curr.parent
                 continue
-            if curr.type == "function_declaration":
+            if curr.type in ("function_declaration", "protocol_function_declaration"):
                 name_node = curr.child_by_field_name("name")
                 if not name_node:
                     for child in curr.children:
@@ -177,20 +179,8 @@ class SwiftTreeSitterParser:
                                     context_type,
                                     curr.start_point[0] + 1,
                                 )
-            if curr.type == "init_declaration":
-                # For initializers, return the parent class/struct name
-                parent = curr.parent
-                if parent and parent.type in ("class_body", "struct_body"):
-                    grandparent = parent.parent
-                    if grandparent:
-                        for child in grandparent.children:
-                            if child.type == "type_identifier":
-                                return (
-                                    self._get_node_text(child),
-                                    grandparent.type,
-                                    grandparent.start_point[0] + 1,
-                                )
-                return ("init", curr.type, curr.start_point[0] + 1)
+            if curr.type in ("init_declaration", "deinit_declaration"):
+                return ("init" if curr.type == "init_declaration" else "deinit", curr.type, curr.start_point[0] + 1)
             curr = curr.parent
         return None, None, None
 
@@ -247,7 +237,7 @@ class SwiftTreeSitterParser:
         seen_nodes = set()
 
         for node, capture_name in captures:
-            if capture_name in ("function_node", "init_node"):
+            if capture_name in ("function_node", "init_node", "deinit_node"):
                 node_id = (node.start_byte, node.end_byte, node.type)
                 if node_id in seen_nodes:
                     continue
@@ -258,7 +248,7 @@ class SwiftTreeSitterParser:
                     end_line = node.end_point[0] + 1
                     
                     # Get function name
-                    func_name = "init" if capture_name == "init_node" else None
+                    func_name = {"init_node": "init", "deinit_node": "deinit"}.get(capture_name)
                     if capture_name == "function_node":
                         for child in node.children:
                             if child.type == "simple_identifier":
@@ -280,11 +270,17 @@ class SwiftTreeSitterParser:
                                 parameters.append(param_name)
                     
                     source_text = self._get_node_text(node)
+                    signature_parameters = [
+                        re.sub(r'\s+', '', self._get_node_text(child).split('=', 1)[0])
+                        for child in node.named_children if child.type == 'parameter'
+                    ]
                     context_name, context_type, context_line = self._get_parent_context(node)
 
                     func_data = {
                         "name": func_name,
                         "args": parameters,
+                        "is_declaration": node.type == 'protocol_function_declaration',
+                        "signature": func_name + '(' + ','.join(signature_parameters) + ')',
                         "line_number": start_line,
                         "end_line": end_line,
                         "path": str(path),
@@ -428,15 +424,17 @@ class SwiftTreeSitterParser:
                             if res: return res
                         return None
                     
-                    var_name = find_id(node) or "unknown"
+                    var_name = (self._extract_parameter_name(node) if node.type == 'parameter' else find_id(node)) or "unknown"
                     
-                    # Try to extract type annotation
-                    for child in node.children:
-                        if child.type == "type_annotation":
-                            for subchild in child.children:
-                                if subchild.type == "type_identifier":
-                                    var_type = self._get_node_text(subchild)
-                                    break
+                    # Swift wraps named/generic types in user_type, while a
+                    # parameter carries that type directly rather than in an annotation.
+                    for child in node.named_children:
+                        if child.type == 'type_annotation':
+                            var_type = self._get_node_text(child).lstrip(':').strip()
+                            break
+                        if node.type == 'parameter' and (child.type.endswith('_type') or child.type == 'type_identifier'):
+                            var_type = self._get_node_text(child)
+                            break
 
                     if var_type == "Unknown":
                         for child in node.children:
@@ -597,31 +595,42 @@ class SwiftTreeSitterParser:
         return calls
 
     def _extract_parameter_name(self, param_node: Any) -> Optional[str]:
-        """Extract parameter name from a parameter node."""
-        # Swift parameters can have external and internal names
-        # parameter: external_name? internal_name: type
+        """Use the internal name, after an optional external label or underscore."""
+        names = []
         for child in param_node.children:
-            if child.type == "simple_identifier":
-                return self._get_node_text(child)
-        return None
+            if child.type == ':':
+                break
+            if child.type == 'simple_identifier':
+                names.append(self._get_node_text(child))
+        return names[-1] if names else None
 
 def pre_scan_swift(files: list[Path], parser_wrapper) -> dict:
-    """Pre-scan Swift files to build a map of class/struct/enum/protocol names to file paths."""
-    name_to_files = {}
+    """Index real type and top-level function declarations, including inline ones."""
+    names = {}
+    query = SWIFT_QUERIES['classes'] + SWIFT_QUERIES['functions']
     for path in files:
         try:
-            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-            
-            # Extract classes, structs, enums, protocols
-            matches = re.finditer(r'\b(class|struct|enum|protocol)\s+(\w+)', content)
-            
-            for match in matches:
-                name = match.group(2)
-                if name not in name_to_files:
-                    name_to_files[name] = []
-                name_to_files[name].append(str(path))
-                    
-        except Exception:
-            pass
-    return name_to_files
+            root = parser_wrapper.parser.parse(path.read_bytes()).root_node
+            for node, capture in execute_query(parser_wrapper.language, query, root):
+                if capture not in ('class_decl', 'protocol', 'function_node'):
+                    continue
+                if any(c.type == 'extension' for c in node.children):
+                    continue
+                if capture == 'function_node':
+                    parent = node.parent
+                    while parent is not None and parent.type not in (
+                        'class_declaration', 'protocol_declaration', 'function_declaration',
+                        'init_declaration', 'deinit_declaration'
+                    ):
+                        parent = parent.parent
+                    if parent is not None:
+                        continue
+                name_node = node.child_by_field_name('name')
+                if name_node is not None:
+                    name = name_node.text.decode('utf-8')
+                    paths = names.setdefault(name, [])
+                    if str(path) not in paths:
+                        paths.append(str(path))
+        except Exception as exc:
+            warning_logger(f"Swift pre-scan failed for {path}: {exc}")
+    return names
