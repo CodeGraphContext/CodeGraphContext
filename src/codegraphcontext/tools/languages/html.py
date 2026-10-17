@@ -65,7 +65,9 @@ class HTMLTreeSitterParser:
             ) @attribute
         """
         
-        for node, capture_name in execute_query(self.language, query_str, root_node):
+        captures = sorted(execute_query(self.language, query_str, root_node),
+                          key=lambda item: (item[0].start_byte, item[0].end_byte, item[1]))
+        for node, capture_name in captures:
             if capture_name == 'tag_name':
                 tag_name = self._get_node_text(node).lower()
                 tags.append({
