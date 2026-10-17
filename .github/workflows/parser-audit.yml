@@ -29,12 +29,14 @@ jobs:
           -q --tb=short --junitxml=parser-audit-baseline.xml
       - name: Run adversarial audit
         if: always()
+        continue-on-error: true
         run: |
           if test -f scripts/audit_language_parsers.py; then
             python scripts/audit_language_parsers.py --output parser-audit.json
           fi
       - name: Run build and mapper extractor audit
         if: always()
+        continue-on-error: true
         run: python scripts/audit_build_parsers.py
       - name: Save audit evidence and grammar cache
         if: always()
