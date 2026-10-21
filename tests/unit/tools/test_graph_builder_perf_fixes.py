@@ -625,14 +625,16 @@ class TestAddFileToGraph:
             if "MERGE (f)-[r:IMPORTS {line_number: row.line_number" in c["query"]
         )
         assert "m.alias" not in import_call["query"]
+        # every row carries every key (writer.build_import_rows), whatever the language
         assert import_call["kwargs"]["batch"] == [
             {
                 "name": "fmt",
                 "full_import_name": "fmt",
                 "imported_name": "fmt",
-                "alias": None,
+                "alias": "",
                 "line_number": 3,
                 "lang": "go",
+                "module_lang": "go",
             }
         ]
 
@@ -666,7 +668,9 @@ class TestAddFileToGraph:
             for c in session.calls
             if "MERGE (m:Module {name: row.name})" in c["query"] and "IMPORTS" not in c["query"]
         )
-        assert "m.lang = coalesce(m.lang, row.lang)" in module_call["query"]
+        # the node's lang is the record's language (row.module_lang; the edge's row.lang
+        # is the record's own), null on JS/TS rows so their write leaves it alone
+        assert "m.lang = coalesce(m.lang, row.module_lang)" in module_call["query"]
         assert "m.full_import_name = coalesce(m.full_import_name, row.full_import_name)" in module_call["query"]
         import_call = next(
             c
@@ -847,23 +851,17 @@ class TestAddFileToGraph:
             repo_path_str="/repo",
         )
 
-        python_call = next(
+        # one IMPORTS write for every language, keyed on line + name
+        python_call, js_call = [
             c
             for c in session.calls
             if "MERGE (f)-[r:IMPORTS {line_number: row.line_number, imported_name: row.imported_name}]" in c["query"]
-        )
-        js_call = next(
-            c
-            for c in session.calls
-            if "MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)" in c["query"]
-            and "row.module_name" in c["query"]
-        )
+        ]
 
         assert python_call["kwargs"]["batch"][0]["lang"] == "python"
         assert js_call["kwargs"]["batch"][0]["lang"] == "typescript"
-        assert js_call["kwargs"]["batch"][0]["module_name"] == "shared"
+        assert js_call["kwargs"]["batch"][0]["name"] == "shared"
         assert "r.lang = row.lang" in python_call["query"]
-        assert "r.lang = row.lang" in js_call["query"]
 
 
 # ---------------------------------------------------------------------------

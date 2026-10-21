@@ -80,3 +80,23 @@ CLASS_MERGE_KEYS = ("name", "path", "line_number", "occurrence_index")
 FILE_MERGE_KEYS = ("path",)
 REPOSITORY_MERGE_KEYS = ("path",)
 DIRECTORY_MERGE_KEYS = ("path",)
+
+# IMPORTS (File -> Module). One edge per imported NAME: the key is the line plus
+# the imported name, in every language. JS/TS used to be keyed on the line
+# alone, so `import { a, b } from './x'` kept only the last name.
+# Every IMPORTS MERGE must use exactly these keys (enforced by
+# tests/unit/tools/test_imports_contract.py).
+IMPORTS_MERGE_KEYS = ("line_number", "imported_name")
+
+# The properties an IMPORTS edge may carry. Each one is the IMPORTING file's own
+# data, read from its source text -- never something derived from another file
+# (a resolved target path, a canonical module name), which would go stale when
+# that other file is created, renamed or deleted without the importer being
+# re-indexed. Enforced by tests/unit/tools/test_imports_contract.py.
+IMPORTS_PROPERTIES = frozenset({
+    "line_number",       # key
+    "imported_name",     # key: the imported binding (`default`, `*`, a name, or the specifier)
+    "alias",             # the local name ("" when none)
+    "full_import_name",  # non-JS languages: the qualified name as written (`app.services.proxy_service`)
+    "lang",              # the language of the import statement (a Vue/Svelte script block's)
+})
