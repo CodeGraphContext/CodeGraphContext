@@ -320,3 +320,6 @@
 {"from": {"offset": 6, "table": 5}, "to": {"offset": 35, "table": 4}, "type": "CONTAINS", "properties": {}}
 {"from": {"offset": 3, "table": 5}, "to": {"offset": 0, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
 {"from": {"offset": 4, "table": 5}, "to": {"offset": 0, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "defaultExport", "imported_name": "default", "lang": "javascript"}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "exportedFunction", "lang": "javascript"}}
+{"from": {"offset": 11, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 1, "alias": "", "imported_name": "ExportedClass", "lang": "javascript"}}

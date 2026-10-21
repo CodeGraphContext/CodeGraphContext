@@ -1495,3 +1495,15 @@
 {"from": {"offset": 19, "table": 5}, "to": {"offset": 110, "table": 4}, "type": "DECORATED_BY", "properties": {"line_number": 324}}
 {"from": {"offset": 19, "table": 5}, "to": {"offset": 90, "table": 4}, "type": "DECORATED_BY", "properties": {"line_number": 324}}
 {"from": {"offset": 19, "table": 5}, "to": {"offset": 111, "table": 4}, "type": "DECORATED_BY", "properties": {"line_number": 324}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 4, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 22, "alias": "", "imported_name": "EventEmitter", "lang": "typescript"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 3, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 20, "alias": "", "imported_name": "Person", "lang": "typescript"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 3, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 20, "alias": "", "imported_name": "Employee", "lang": "typescript"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 9, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 23, "alias": "", "imported_name": "ValidationError", "lang": "typescript"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 9, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 23, "alias": "", "imported_name": "Result", "lang": "typescript"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 9, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 23, "alias": "", "imported_name": "Ok", "lang": "typescript"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 5, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 21, "alias": "", "imported_name": "Stack", "lang": "typescript"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 5, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 21, "alias": "", "imported_name": "Queue", "lang": "typescript"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 2, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 19, "alias": "", "imported_name": "User", "lang": "typescript"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 2, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 19, "alias": "", "imported_name": "Shape", "lang": "typescript"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 10, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 24, "alias": "", "imported_name": "StringUtils", "lang": "typescript"}}
+{"from": {"offset": 9, "table": 1}, "to": {"offset": 10, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 24, "alias": "", "imported_name": "ArrayUtils", "lang": "typescript"}}
