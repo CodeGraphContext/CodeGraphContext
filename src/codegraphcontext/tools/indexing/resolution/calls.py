@@ -54,7 +54,7 @@ _SUFFIX_TO_LANG = {
     ".java": "java",
     ".py": "python", ".ipynb": "python",
     ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
-    ".ts": "typescript", ".tsx": "typescript",
+    ".ts": "typescript", ".tsx": "typescript", ".mts": "typescript", ".cts": "typescript",
     ".go": "go",
     ".rs": "rust",
     ".cpp": "cpp", ".hpp": "cpp", ".hh": "cpp",
@@ -72,6 +72,13 @@ _SUFFIX_TO_LANG = {
     ".ex": "elixir", ".exs": "elixir",
     ".el": "elisp",
     ".sol": "solidity",
+    # Parsed, but never callers: their "functions" (CSS selectors, HTML handlers)
+    # must not be taken for a callback of another language. An unknown suffix
+    # stays compatible with everything (languages_are_compatible).
+    ".css": "css", ".scss": "css", ".sass": "css", ".less": "css",
+    ".html": "html", ".htm": "html",
+    # A Vue/Svelte component's script block is JavaScript or TypeScript (one family).
+    ".vue": "javascript", ".svelte": "javascript",
 }
 
 def detect_lang_from_path(path: str) -> Optional[str]:
@@ -2097,6 +2104,13 @@ def build_function_call_groups(
                 "haskell":    {".hs"},
                 "elixir":     {".ex", ".exs"},
                 "solidity":   {".sol"},
+                # An unlisted language saw the unfiltered map, i.e. every other
+                # language's definitions: Vue and Svelte script blocks are
+                # JavaScript or TypeScript and import from both and from other
+                # components.
+                "elisp":      {".el"},
+                "vue":        {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".vue", ".svelte"},
+                "svelte":     {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".vue", ".svelte"},
             }
             exts = _LANG_EXTS.get(caller_lang)
             if not exts:
@@ -2131,14 +2145,31 @@ def build_function_call_groups(
     def functions_named(name: str) -> List[Tuple[str, Dict[str, Any]]]:
         return _functions_by_name.get(name, [])
 
+    # Both name lookups below are global, across every language of the
+    # repository. A Python call `f(cb)` matched a JavaScript `f` and a JavaScript
+    # `cb` (plus JS/Python -> CSS selector "functions"). A call can only reach a
+    # function, and pass a function, of its own language family, so both the
+    # callee and the callback candidates are restricted to languages compatible
+    # with the call site's.
+    _path_lang: Dict[str, Optional[str]] = {}
+
+    def same_language(caller_lang: Optional[str], path: str) -> bool:
+        lang = _path_lang.get(path)
+        if lang is None and path not in _path_lang:
+            lang = _path_lang[path] = detect_lang_from_path(path)
+        return languages_are_compatible(caller_lang, lang)
+
     for fd in all_file_data:
         caller_fp = _resolved_posix(fd["path"])
+        caller_site_lang = detect_lang_from_path(caller_fp)
         for call in fd.get("function_calls", []):
             callee_name = call.get("name")
             if not callee_name:
                 continue
             call_args = call.get("args") or []
             for callee_fp, callee_fn in functions_named(callee_name):
+                if not same_language(caller_site_lang, callee_fp):
+                    continue
                 params = callee_fn.get("args") or callee_fn.get("parameters") or []
                 for param_index, param in enumerate(params):
                     if param_index >= len(call_args):
@@ -2146,7 +2177,10 @@ def build_function_call_groups(
                     arg_text = str(call_args[param_index]).strip()
                     if not re.fullmatch(r"[A-Za-z_]\w*", arg_text):
                         continue
-                    callback_matches = functions_named(arg_text)
+                    callback_matches = [
+                        match for match in functions_named(arg_text)
+                        if same_language(caller_site_lang, match[0])
+                    ]
                     if len(callback_matches) > 1:
                         same_file = [
                             match for match in callback_matches if match[0] == caller_fp
