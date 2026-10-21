@@ -1660,6 +1660,14 @@ def resolve_function_call(
     }
 
 
+def _calls_the_name_itself(full_name: Optional[str], name: str) -> bool:
+    """The call expression calls *name* directly (``fn(…)``, ``fn``, ``await fn(…)``),
+    not a member of something else that happens to share the name (``Math.min(…)``)."""
+    text = (full_name or name).strip()
+    text = re.sub(r"^(?:await|new)\s+", "", text)
+    return bool(re.match(r"^" + re.escape(name) + r"(?:\s*[(<!?]|\s*$)", text))
+
+
 def build_function_call_groups(
     all_file_data: List[Dict[str, Any]],
     imports_map: dict,
@@ -2749,6 +2757,13 @@ def build_function_call_groups(
                 param_names = enclosing_fn.get("args") or enclosing_fn.get("parameters") or []
                 called_name = call_to_resolve.get("name")
                 if called_name and called_name in param_names:
+                    if not _calls_the_name_itself(call_to_resolve.get("full_name"), called_name):
+                        # `Math.min(…)` inside `function clamp(value, min, max)`, or
+                        # `obj.message()` inside `function send(message)`: a member call
+                        # calls a PROPERTY, not the parameter — neither a callback of what
+                        # callers pass as `min` / `message` nor a Function->Parameter edge.
+                        # Such a member call stays unresolved, as it was.
+                        continue
                     callback_targets = callback_arg_targets.get(
                         (caller_file_path, enclosing_fn["name"], called_name),
                         [],
