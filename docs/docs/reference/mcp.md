@@ -1,194 +1,121 @@
-# MCP Tool Reference
+# MCP workflows and result interpretation
 
-When running the CodeGraphContext (CGC) MCP server, it registers a suite of **25 JSON-RPC tools** that AI assistants can use to analyze and query the code graph.
+CodeGraphContext's MCP server is an interface to the same Python package used
+by the CLI. It accepts tool calls, schedules indexing jobs, and delegates
+parsing, graph writes and queries to shared components. It is not a CSV model
+training or forecasting service. Source repositories and portable graph
+bundles are its primary inputs.
 
----
+## Discover the installed contract
 
-## Code Ingestion & System Control
+Use `tools/list` on the running server. The [generated catalog](mcp-catalog.md)
+is rebuilt from the complete source registry on every documentation build and
+shows the source package version, all tools, every input property, required
+arguments, defaults, enums and nested constraints. It replaces manually
+maintained tool counts and old version labels. The connected server remains
+authoritative for its installed version and `disabledTools` configuration.
 
-### `add_code_to_graph`
-Indexes a local directory or file into the active database context.
-- **Parameters**:
-  - `path` (string, required): Absolute filesystem path.
-  - `is_dependency` (boolean, optional): Marks the code as an external library.
+See [MCP setup](../getting-started/mcp-setup.md) for client configuration and
+[operating notes](mcp-operating-notes.md) for backend, memory, offline and
+lifecycle limitations.
 
-### `add_package_to_graph`
-Discovers, downloads (if needed), and indexes a third-party package.
-- **Parameters**:
-  - `package_name` (string, required): Name of the package (e.g., `requests`, `express`).
-  - `language` (string, required): Language syntax parser (`python`, `javascript`, `typescript`, `java`, `c`, `go`, `ruby`, `php`, `cpp`).
-  - `is_dependency` (boolean, optional): Marks the package as an external library (default: true).
+## Index, wait, query, watch
 
-### `watch_directory`
-Launches a directory watcher for incremental updates.
-- **Parameters**:
-  - `path` (string, required): Directory path to watch.
+1. Start the server with `cgc start` from your workspace. Verify the actual
+   backend in server diagnostics; a requested engine can fall back.
+2. Discover `tools/list` and use its exact argument names.
+3. Call `add_code_to_graph` with `repo_path`. A job ID means accepted work,
+   not completed indexing.
+4. Poll `check_job_status` with that ID until completed or failed. Inspect
+   `errors`, `error_type` and `traceback` on failure. Jobs are held in memory;
+   they are not durable across server restarts.
+5. Call `find_code`, then `analyze_code_relationships`, with an explicit
+   `repo_path` when multiple repositories have matching symbol names.
+6. Call `watch_directory` with `repo_path` for ongoing updates. Allow for the
+   two-second debounce. Check actual query convergence after edits.
+7. Call `unwatch_directory` before managing the store externally. Its successful
+   result is a message; it does not promise a `success` boolean.
 
-### `unwatch_directory`
-Stops file monitoring on a folder path.
-- **Parameters**:
-  - `path` (string, required): Directory path.
+Example tool arguments (MCP clients supply the JSON-RPC envelope):
 
-### `list_watched_paths`
-Lists all directories currently monitored by watchers.
+```json
+{"name":"add_code_to_graph","arguments":{"repo_path":"/work/demo"}}
+```
 
-### `delete_repository`
-Removes a repository's code structures from the graph.
-- **Parameters**:
-  - `repo_path` (string, required): Repository path.
+```json
+{"name":"check_job_status","arguments":{"job_id":"<returned job_id>"}}
+```
 
-### `list_indexed_repositories`
-Returns a list of all repositories stored in the active database.
+```json
+{"name":"analyze_code_relationships","arguments":{"query_type":"call_chain","target":"entry->normalize","context":"4","repo_path":"/work/demo"}}
+```
 
-### `get_repository_stats`
-Retrieves ingestion metrics (counts of files, functions, classes, modules).
-- **Parameters**:
-  - `repo_path` (string, optional): Restricts stats to a specific repository.
+Check returned path rows against source. An echoed target or a successful empty
+collection is not proof that the expected path was found. Results can carry
+truncation and result-limit metadata. Backend errors and input errors must be
+treated as failures, including on older versions that wrap an inner error in
+an outer success object.
 
----
+## Relationship analysis
 
-## Background Job Controller
+The generated schema enumerates all supported modes. `context` here is
+query-specific: for a call chain it is a depth string; for other modes it can
+be a class/module disambiguator. It is not a database-context switch.
 
-Some operations (like indexing large codebases) execute as background tasks. Use these tools to monitor task states:
+| Mode family | Target and interpretation |
+| --- | --- |
+| Direct callers/callees | A symbol name; inspect returned paths and source lines. |
+| Transitive callers/callees | A symbol name plus bounded `depth`; recursive queries require more memory. |
+| Call chain | `start_function->end_function`; results contain ordered functions and call-site data. |
+| Class hierarchy/overrides | A class or method with its class context. |
+| Importers/module dependencies | A module name, with repository scope when needed. |
+| Argument/decorator lookup | Stored argument/decorator text; decorators use forms such as `@route`. Exact annotation membership differs from dead-code substring exclusions. |
+| `who_modifies` | Legacy name for stored variable bindings and their containing scopes. It does not perform general write-site, alias or dataflow analysis. |
+| Complexity | Stored per-function scores and rankings; inspect the language's decision model. |
+| Dead code | A heuristic candidate list with confidence/reason, not permission to delete a function. Dynamic/framework/external uses can be missing. |
 
-### `list_jobs`
-Lists all background jobs and their execution states.
+## Other tool families
 
-### `check_job_status`
-Queries progress and logs for a specific job.
-- **Parameters**:
-  - `job_id` (string, required): Target job ID.
+- **Jobs and lifecycle:** `list_jobs`, `list_watched_paths`,
+  `list_indexed_repositories`, `delete_repository`. Deletion is destructive,
+  requires explicit server opt-in, and should be scoped to the intended repo.
+- **Dependencies and portability:** `add_package_to_graph`, `load_bundle`,
+  `search_registry_bundles`. Package discovery depends on the language resolver
+  and installed tooling. A registry search can legitimately return no match.
+  Test a known bundle identifier before claiming registry download success.
+- **Contexts:** `discover_codegraph_contexts`, `switch_context`, `list_graphs`.
+  `repo_path` filters data in the active store; it does not select another
+  store. `list_graphs` can return an explicit unsupported message on a
+  single-graph engine. Context switching is blocked while indexing is active.
+- **Reports and visualization:** `get_repository_stats`, `generate_report`,
+  `visualize_graph_query`. A generated Playground URL does not establish that
+  a visualization server is running. Reports inherit stored graph omissions
+  and metric limitations; report output paths obey the root policy.
+- **Java and datasources:** `find_java_spring_endpoints`,
+  `find_java_spring_beans`, `find_datasource_nodes`. These query stored graph
+  metadata. They do not establish live MySQL/Cassandra/Redis connectivity.
+  Spring query rows have a cap and expose truncation metadata. The current
+  parser uses one route literal per mapping; array/composed-annotation and
+  general dependency-injection semantics are not complete.
+- **Architecture:** `simulate_metrics`, `simulate_architectural_change`,
+  `analyze_architectural_evolution`. Metrics are implementation-defined.
+  Simulations use in-memory graph copies. Inspect mutation match/change counts;
+  missing or ambiguous references need explicit IDs. Use `switch_context`
+  explicitly before a simulation rather than relying on an ignored optional
+  `context` argument in older versions. Evolution requires a real Git history;
+  commit counts do not establish merge/churn semantics for every workflow.
 
----
+## Errors and output size
 
-## Code Search & Relationship Analysis
+Current input schemas are the client contract. Missing required fields,
+incorrect types and unknown enum values must be corrected before retrying.
+MCP tool failures use `isError`; JSON-RPC parsing/request failures are a
+separate protocol layer. Older releases have transport-specific envelopes,
+so inspect error payloads as well as the outer status.
 
-### `find_code`
-Searches symbol definitions, file names, or source code for keyword matches.
-- **Parameters**:
-  - `query` (string, required): Target keyword or pattern.
-  - `fuzzy_search` (boolean, optional): Enables fuzzy matching.
-  - `edit_distance` (number, optional): Levenshtein distance limit (0-2).
-  - `repo_path` (string, optional): Restricts search scope.
-
-### `analyze_code_relationships`
-The primary tool for traversing structural relationships in the graph.
-- **Parameters**:
-  - `query_type` (string, required): The traversal type. Must be one of:
-    - `find_callers`: Find immediate caller functions.
-    - `find_callees`: Find immediate functions called by target.
-    - `find_all_callers`: Deep search up the invocation chain.
-    - `find_all_callees`: Deep search down the execution path.
-    - `find_importers`: Find files importing the target symbol/module.
-    - `who_modifies`: Trace variables or structures written to.
-    - `class_hierarchy`: Resolves superclass and subclass trees.
-    - `overrides`: Finds functions overriding parent methods.
-    - `dead_code`: Scans context for unused subroutines.
-    - `call_chain`: Traces invocation chains between source and destination.
-    - `module_deps`: Identifies dependencies between modules.
-    - `variable_scope`: Tracks variable bindings.
-    - `find_complexity`: Returns cyclomatic complexity score.
-    - `find_functions_by_argument`: Searches for functions declaring the target parameter name or type.
-    - `find_functions_by_decorator`: Searches for functions decorated with target.
-  - `target` (string, required): The identifier to analyze. For `find_functions_by_argument`, this may be a parameter name or type.
-  - `context` (string, optional): Specific file path to resolve target namespace conflicts.
-  - `repo_path` (string, optional): Restricts search scope.
-
-### `calculate_cyclomatic_complexity`
-Computes the complexity score of a function.
-- **Parameters**:
-  - `function_name` (string, required): Function identifier.
-  - `path` (string, optional): File path containing definition.
-  - `repo_path` (string, optional): Restricts search scope.
-
-### `find_most_complex_functions`
-Returns methods with the highest cyclomatic complexity scores.
-- **Parameters**:
-  - `limit` (integer, optional): Maximum rows to return (default: 10).
-  - `repo_path` (string, optional): Restricts search scope.
-
-### `find_dead_code`
-Scans for unreferenced code declarations.
-- **Parameters**:
-  - `exclude_decorated_with` (array of strings, optional): Excludes functions carrying specified decorator annotations (e.g., `@app.route`, or `Composable` for Kotlin). Matching is by substring, so `Preview` matches `@Preview(showBackground = true)`.
-  - `repo_path` (string, optional): Restricts search scope.
-- For Android codebases, `ANDROID_DECORATOR_PRESET` (`codegraphcontext.tools.code_finder.ANDROID_DECORATOR_PRESET`) is a preset tuple of Compose/JUnit/Hilt/Room/tooling annotation names to pass as `exclude_decorated_with`. Same substring matching applies.
-
----
-
-## Workspace Context Management
-
-### `discover_codegraph_contexts`
-Scans subdirectories for existing `.codegraphcontext/` directories.
-- **Parameters**:
-  - `path` (string, optional): Scan root directory.
-  - `max_depth` (integer, optional): Folder depth limit (default: 1).
-
-### `switch_context`
-Reconnects the MCP session to a different graph database.
-- **Parameters**:
-  - `context_path` (string, required): Path to the target repository root containing `.codegraphcontext/`.
-  - `save` (boolean, optional): Persists configuration mapping (default: true).
-
----
-
-## Advanced Querying & Reporting
-
-### `execute_cypher_query`
-Executes raw Cypher queries directly against the graph database.
-- **Parameters**:
-  - `cypher_query` (string, required): Cypher statement.
-
-### `visualize_graph_query`
-Generates a Neo4j visualization link.
-- **Parameters**:
-  - `cypher_query` (string, required): Cypher statement to render.
-
-### `generate_report`
-Compiles a markdown quality report (`CGC_REPORT.md`).
-- **Parameters**:
-  - `output_path` (string, optional): Output report path.
-  - `include_java` (boolean, optional): Appends Spring endpoints and bean tables.
-  - `god_node_limit` (integer, optional): Limit for high fan-in symbol rows.
-  - `complexity_limit` (integer, optional): Limit for complex method rows.
-  - `cross_module_limit` (integer, optional): Limit for module coupling rows.
-
----
-
-## Portability & Registries
-
-### `load_bundle`
-Imports a portable `.cgc` file, downloading it from the registry if needed.
-- **Parameters**:
-  - `bundle_name` (string, required): Package name (e.g., `requests`) or file name.
-  - `clear_existing` (boolean, optional): Purges active context before loading.
-
-### `search_registry_bundles`
-Searches the public CGC bundle server database.
-- **Parameters**:
-  - `query` (string, optional): Name or description keywords.
-  - `unique_only` (boolean, optional): Returns only the latest version of packages.
-
----
-
-## Frameworks & Datasource Extensions
-
-### `find_java_spring_endpoints`
-Searches Spring controller REST mappings.
-- **Parameters**:
-  - `http_method` (string, optional): Method filter (`GET`, `POST`, etc.).
-  - `path_pattern` (string, optional): URL path substring.
-  - `repo_path` (string, optional): Restricts search scope.
-
-### `find_java_spring_beans`
-Returns registered Spring stereotype beans.
-- **Parameters**:
-  - `stereotype` (string, optional): Stereotype filter (`SERVICE`, `REPOSITORY`, etc.).
-  - `repo_path` (string, optional): Restricts search scope.
-
-### `find_datasource_nodes`
-Returns ingested MySQL, Cassandra, or Redis schema nodes.
-- **Parameters**:
-  - `kind` (string, optional): Datasource kind (`mysql`, `cassandra`, `redis`).
-  - `name` (string, optional): Substring filter for names.
-  - `include_columns` (boolean, optional): Appends table columns/key patterns (default: false).
+The serialized-budget fix in [PR #1836](https://github.com/CodeGraphContext/CodeGraphContext/pull/1836) makes `MAX_PROMPT_CHARS` include its wrapper and escaping. Earlier versions can exceed the configured maximum. `MAX_TOOL_RESPONSE_TOKENS`
+uses a four-characters-per-token approximation; it is not an exact tokenizer
+budget. The stricter nonzero value wins. A truncated preview is not the full
+result; narrow the query or increase the configured budget. Optional GCF
+encoding applies to stdio, while HTTP returns JSON. Size savings vary with
+response shape; no fixed token reduction or model-accuracy benefit is implied.
