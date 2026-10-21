@@ -466,10 +466,6 @@ TOOLS = {
                 "repo_path": {
                     "type": "string",
                     "description": "Path to the repository (defaults to current workspace)."
-                },
-                "context": {
-                    "type": "string",
-                    "description": "Optional: Specific CGC context to use."
                 }
             }
         }
@@ -516,12 +512,13 @@ TOOLS = {
                                 "description": "For remove_node: node id, path, or name to delete."
                             }
                         },
+                        "allOf": [
+                            {"if": {"properties": {"type": {"enum": ["add_dependency", "remove_dependency"]}}}, "then": {"required": ["source", "target"]}},
+                            {"if": {"properties": {"type": {"const": "remove_node"}}}, "then": {"required": ["node_id"]}},
+                            {"if": {"properties": {"type": {"const": "decompose"}}}, "then": {"required": ["mapping"]}}
+                        ],
                         "required": ["type"]
                     }
-                },
-                "context": {
-                    "type": "string",
-                    "description": "Optional: Specific CGC context to use."
                 }
             },
             "required": ["changes"]
@@ -542,10 +539,6 @@ TOOLS = {
                     "type": "integer",
                     "description": "Number of commits to analyze (default: 50).",
                     "default": 50
-                },
-                "context": {
-                    "type": "string",
-                    "description": "Optional: Specific CGC context to use."
                 }
             }
         }

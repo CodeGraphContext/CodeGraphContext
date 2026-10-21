@@ -1,3 +1,6 @@
+hooks:
+  - hooks/mcp_catalog.py
+
 site_name: CodeGraphContext
 repo_url: https://github.com/CodeGraphContext/CodeGraphContext
 repo_name: CodeGraphContext/CodeGraphContext
@@ -42,7 +45,9 @@ nav:
   - Reference:
     - CLI Reference: reference/cli.md
     - HTTP API Reference: reference/api.md
-    - MCP Tool Reference: reference/mcp.md
+    - MCP Workflows: reference/mcp.md
+    - MCP Input Schemas: reference/mcp-catalog.md
+    - MCP Operating Notes: reference/mcp-operating-notes.md
     - Configuration: reference/config.md
     - Troubleshooting: reference/troubleshooting.md
   - Community:

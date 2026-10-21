@@ -44,8 +44,7 @@ PY_QUERIES = {
             function: (attribute attribute: (identifier) @name) @full_call)
     """,
     "variables": """
-        (assignment
-            left: (identifier) @name)
+        (assignment) @assignment
     """,
     "lambda_assignments": """
         (assignment
@@ -80,6 +79,12 @@ class PythonTreeSitterParser:
     def _get_parent_context(self, node, types=('function_definition', 'class_definition')):
         curr = node.parent
         while curr:
+            if curr.type == 'lambda' and 'function_definition' in types:
+                assignment = curr.parent
+                if assignment is not None and assignment.type == 'assignment':
+                    target = assignment.child_by_field_name('left')
+                    if target is not None and target.type == 'identifier':
+                        return self._get_node_text(target), 'lambda', target.start_point[0] + 1
             if curr.type in types:
                 name_node = curr.child_by_field_name('name')
                 return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
@@ -87,9 +92,17 @@ class PythonTreeSitterParser:
         return None, None, None
 
     def _calculate_complexity(self, node):
+        """Score decisions owned by this function, excluding nested scopes.
+
+        Each if/elif, loop, exception handler, with statement, boolean
+        operator, comprehension, match case and conditional expression adds
+        one to the base score of one. Nested functions/classes/lambdas are
+        separate scopes; their bodies do not contribute to the parent.
+        """
         from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         complexity_nodes = {
-            "if_statement", "for_statement", "while_statement", "except_clause",
+            "if_statement", "elif_clause", "conditional_expression",
+            "for_statement", "while_statement", "except_clause",
             "with_statement", "boolean_operator", "list_comprehension", 
             "generator_expression", "case_clause"
         }
@@ -100,6 +113,8 @@ class PythonTreeSitterParser:
             nonlocal count, skipped
             if depth > MAX_AST_DEPTH:
                 skipped = True
+                return
+            if n is not node and n.type in {"function_definition", "class_definition", "lambda"}:
                 return
             if n.type in complexity_nodes:
                 count += 1
@@ -559,11 +574,43 @@ class PythonTreeSitterParser:
     def _find_calls(self, root_node, local_names=None):
         calls = []
         self._walk_call_tree(root_node, None, calls, local_names)
+        calls.extend(self._find_decorator_calls(root_node))
 
         # Dictionary-based method references (indirect calls)
         dict_method_calls = self._find_dict_method_references(root_node)
         calls.extend(dict_method_calls)
 
+        return calls
+
+    def _find_decorator_calls(self, root_node):
+        """Bare @decorator references invoke the decorator at definition time.
+
+        A @factory(...) expression is already a normal call; its returned
+        callable cannot be inferred here, so do not invent another edge.
+        """
+        calls = []
+        pending = [root_node]
+        while pending:
+            node = pending.pop()
+            pending.extend(reversed(node.named_children))
+            if node.type != "decorator" or not node.named_children:
+                continue
+            target = node.named_children[0]
+            if target.type not in {"identifier", "attribute"}:
+                continue
+            definition = node.parent.named_children[-1]
+            decorated_name = definition.child_by_field_name("name")
+            calls.append({
+                "name": self._extract_call_name(target),
+                "full_name": self._get_node_text(target),
+                "line_number": node.start_point[0] + 1,
+                "args": [self._get_node_text(decorated_name)] if decorated_name else [],
+                "inferred_obj_type": None,
+                "context": self._get_parent_context(node, types=("function_definition",)),
+                "class_context": self._get_parent_context(node, types=("class_definition",))[:2],
+                "lang": self.language_name,
+                "is_dependency": False,
+            })
         return calls
     
     def _find_dict_method_references(self, root_node):
@@ -649,39 +696,38 @@ class PythonTreeSitterParser:
 
     def _find_variables(self, root_node):
         variables = []
-        query_str = PY_QUERIES['variables']
-        for match in execute_query(self.language, query_str, root_node):
-            capture_name = match[1]
-            node = match[0]
 
-            if capture_name == 'name':
-                assignment_node = node.parent
+        def bindings(pattern):
+            if pattern is None:
+                return
+            if pattern.type == 'identifier':
+                yield pattern
+            elif pattern.type in ('pattern_list', 'tuple_pattern', 'list_pattern', 'list_splat_pattern'):
+                for child in pattern.named_children:
+                    yield from bindings(child)
+            # Attribute/subscript writes do not declare their receiver or index.
 
-                # Skip lambda assignments, they are handled by _find_lambda_assignments
-                right_node = assignment_node.child_by_field_name('right')
-                if right_node and right_node.type == 'lambda':
-                    continue
-
-                name = self._get_node_text(node)
-                value = self._get_node_text(right_node) if right_node else None
-                
-                type_node = assignment_node.child_by_field_name('type')
-                type_text = self._get_node_text(type_node) if type_node else None
-
+        for assignment, capture in execute_query(self.language, PY_QUERIES['variables'], root_node):
+            if capture != 'assignment':
+                continue
+            target = assignment.child_by_field_name('left')
+            right = assignment.child_by_field_name('right')
+            if right is not None and right.type == 'lambda':
+                continue  # Named lambdas are Function records.
+            annotation = assignment.child_by_field_name('type')
+            for node in bindings(target):
                 context, _, _ = self._get_parent_context(node)
                 class_context, _, _ = self._get_parent_context(node, types=('class_definition',))
-
-                variable_data = {
-                    "name": name,
+                variables.append({
+                    "name": self._get_node_text(node),
                     "line_number": node.start_point[0] + 1,
-                    "value": value,
-                    "type": type_text,
+                    "value": self._get_node_text(right) if right is not None else None,
+                    "type": self._get_node_text(annotation) if annotation is not None else None,
                     "context": context,
                     "class_context": class_context,
                     "lang": self.language_name,
                     "is_dependency": False,
-                }
-                variables.append(variable_data)
+                })
         return variables
 
 def pre_scan_python(files: list[Path], parser_wrapper) -> dict:

@@ -36,6 +36,7 @@ from .cli.config_manager import (
 
 # Import Tool Definitions and Handlers
 from .tool_definitions import TOOLS
+from jsonschema import Draft202012Validator
 from .tools.handlers import (
     analysis_handlers,
     indexing_handlers,
@@ -161,21 +162,28 @@ def _apply_response_token_limit(tool_name: str, text: str) -> str:
         flush=True,
     )
 
-    budget = max(0, max_chars - 200)
     try:
-        payload = json.loads(text)
-        preview = json.dumps(payload, indent=2)
-        if len(preview) <= budget:
-            return preview
-        return json.dumps(
-            {"truncated": True, "preview": preview[:budget], "notice": notice},
-            indent=2,
-        )
+        preview = json.dumps(json.loads(text), indent=2)
     except json.JSONDecodeError:
-        return json.dumps(
-            {"truncated": True, "preview": text[:budget], "notice": notice},
-            indent=2,
-        )
+        preview = text
+
+    def encoded(size, message=notice):
+        return json.dumps({"truncated": True, "preview": preview[:size], "notice": message}, separators=(",", ":"))
+
+    if len(encoded(0)) > max_chars:
+        notice = f"[CGC] Response truncated: {label}; tool={tool_name}"
+    if len(encoded(0, notice)) > max_chars:
+        minimal = json.dumps({"truncated": True}, separators=(",", ":"))
+        return minimal if len(minimal) <= max_chars else ("null" if max_chars >= 4 else "0")
+    low, high = 0, len(preview)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if len(encoded(middle, notice)) <= max_chars:
+            low = middle
+        else:
+            high = middle - 1
+    return encoded(low, notice)
+
 
 
 class MCPServer:
@@ -448,6 +456,8 @@ class MCPServer:
         return analysis_handlers.find_datasource_nodes(self.code_finder, **args)
 
     def simulate_metrics_tool(self, **args) -> Dict[str, Any]:
+        if args.get("context"):
+            return {"error": "Simulation uses the active context. Call switch_context explicitly first.", "unsupported_argument": "context"}
         from .core.simulator import CodeGraphTwin
         repo_path = args.get("repo_path") or args.get("path") or str(self.cwd)
         try:
@@ -457,6 +467,8 @@ class MCPServer:
             return {"error": f"Failed to calculate simulation metrics: {e}"}
 
     def simulate_architectural_change_tool(self, **args) -> Dict[str, Any]:
+        if args.get("context"):
+            return {"error": "Simulation uses the active context. Call switch_context explicitly first.", "unsupported_argument": "context"}
         from .core.simulator import CodeGraphTwin
         repo_path = args.get("repo_path") or args.get("path") or str(self.cwd)
         changes = args.get("changes", [])
@@ -464,20 +476,25 @@ class MCPServer:
             baseline = CodeGraphTwin(repo_path).load_from_db(self.db_manager)
             simulated = CodeGraphTwin(repo_path).load_from_db(self.db_manager)
             
-            for step in changes:
+            operations = []
+            for index, step in enumerate(changes):
                 stype = step.get("type")
                 if stype == "decompose":
-                    simulated.decompose_service(step.get("mapping", {}))
+                    changed = simulated.decompose_service(step.get("mapping", {}))
                 elif stype == "remove_dependency":
-                    simulated.remove_dependency(step.get("source"), step.get("target"), step.get("rel_type"))
+                    changed = simulated.remove_dependency(step.get("source"), step.get("target"), step.get("rel_type"))
                 elif stype == "add_dependency":
-                    simulated.add_dependency(step.get("source"), step.get("target"), step.get("rel_type"))
+                    changed = simulated.add_dependency(step.get("source"), step.get("target"), step.get("rel_type"))
                 elif stype == "remove_node":
-                    simulated.remove_node(step.get("node_id"))
+                    changed = simulated.remove_node(step.get("node_id"))
+                else:
+                    raise ValueError(f"Unknown simulation step type: {stype!r}")
+                operations.append({"index": index, "type": stype, "changed_count": changed})
                     
             diff = baseline.compare_scenarios(simulated)
             return {
                 "status": "ok",
+                "operations": operations,
                 "baseline_metrics": baseline.get_metrics_summary(),
                 "simulated_metrics": simulated.get_metrics_summary(),
                 "comparison": diff
@@ -486,6 +503,8 @@ class MCPServer:
             return {"error": f"Failed to simulate architectural change: {e}"}
 
     def analyze_architectural_evolution_tool(self, **args) -> Dict[str, Any]:
+        if args.get("context"):
+            return {"error": "Simulation uses the active context. Call switch_context explicitly first.", "unsupported_argument": "context"}
         from .core.simulator import EvolutionTimeline
         repo_path = args.get("repo_path") or args.get("path") or str(self.cwd)
         commits = int(args.get("commits", 50))
@@ -709,6 +728,8 @@ class MCPServer:
         """
         Routes a tool call from the AI assistant to the appropriate handler function. 
         """
+        if not isinstance(tool_name, str):
+            return {"error": "Tool name must be a string", "error_type": "invalid_arguments"}
         if tool_name in self.disabled_tools:
             return {"error": f"Tool '{tool_name}' is disabled in mcp.json (disabledTools)."}
 
@@ -727,6 +748,17 @@ class MCPServer:
                 args["path"] = args["repo_path"]
             elif "path" in args and "repo_path" not in args and not path_means_file:
                 args["repo_path"] = args["path"]
+
+        definition = TOOLS.get(tool_name) if isinstance(tool_name, str) else None
+        if definition is None:
+            return {"error": f"Unknown tool: {tool_name}", "error_type": "unknown_tool"}
+        errors = sorted(Draft202012Validator(definition["inputSchema"]).iter_errors(args), key=lambda e: str(list(e.absolute_path)))
+        if errors:
+            return {
+                "error": "Invalid tool arguments",
+                "error_type": "invalid_arguments",
+                "details": [{"path": list(e.absolute_path), "message": e.message} for e in errors],
+            }
 
         tool_map: Dict[str, Coroutine] = {
             "add_package_to_graph": self.add_package_to_graph_tool,
@@ -762,6 +794,8 @@ class MCPServer:
         handler = tool_map.get(tool_name)
         if handler:
             result = await asyncio.to_thread(handler, **args)
+            if isinstance(result, dict) and isinstance(result.get("results"), dict) and result["results"].get("error"):
+                result = {**result, "success": False, "error": result["results"]["error"]}
 
             if self._context_note_pending and tool_name not in (
                 "discover_codegraph_contexts", "switch_context"
@@ -796,7 +830,7 @@ class MCPServer:
             # Release watcher/DB resources even when stdin reaches EOF or the
             # loop exits unexpectedly.
             try:
-                self.shutdown()
+                await self.shutdown_async()
             except Exception as exc:
                 warning_logger(f"Error during server shutdown: {exc}")
 
@@ -818,6 +852,16 @@ class MCPServer:
                     break
                 
                 request = json.loads(line.strip())
+                if not isinstance(request, dict) or request.get("jsonrpc") != "2.0" or not isinstance(request.get("method"), str):
+                    request_id = request.get("id") if isinstance(request, dict) else None
+                    if not isinstance(request_id, (str, int)) or isinstance(request_id, bool):
+                        request_id = None
+                    print(json.dumps({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32600, "message": "Invalid Request"}}), flush=True)
+                    continue
+                if "params" in request and not isinstance(request["params"], dict):
+                    if "id" in request:
+                        print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "error": {"code": -32602, "message": "params must be an object"}}), flush=True)
+                    continue
                 method = request.get('method')
                 params = request.get('params', {})
                 request_id = request.get('id')
@@ -856,18 +900,11 @@ class MCPServer:
                     result = await self.handle_tool_call(tool_name, args)
                     result = _strip_workspace_prefix(result)
 
-                    if "error" in result:
-                        response = {
-                            "jsonrpc": "2.0", "id": request_id,
-                            "error": {"code": -32000, "message": "Tool execution error", "data": result}
-                        }
-                    else:
-                        response_text = encode_response(result)
-                        response_text = _apply_response_token_limit(tool_name, response_text)
-                        response = {
-                            "jsonrpc": "2.0", "id": request_id,
-                            "result": {"content": [{"type": "text", "text": response_text}]}
-                        }
+                    response_text = _apply_response_token_limit(tool_name, encode_response(result))
+                    response = {
+                        "jsonrpc": "2.0", "id": request_id,
+                        "result": {"content": [{"type": "text", "text": response_text}], "isError": "error" in result},
+                    }
                 elif method == 'notifications/initialized':
                     # This is a notification, no response needed.
                     pass
@@ -888,7 +925,7 @@ class MCPServer:
                 # JSON-RPC: parse errors respond with id null and -32700;
                 # errors while handling a parsed request keep that request's id.
                 request_id = request.get('id') if isinstance(request, dict) else None
-                is_parse_error = not isinstance(request, dict)
+                is_parse_error = isinstance(e, json.JSONDecodeError)
 
                 error_response = {
                     "jsonrpc": "2.0", "id": request_id,
@@ -902,8 +939,18 @@ class MCPServer:
                 }
                 print(json.dumps(error_response), flush=True)
 
+    async def shutdown_async(self):
+        """Stop producers, finish scheduled indexing, then release native DBs."""
+        self.code_watcher.stop()
+        futures = self.job_manager.pending_futures()
+        if futures:
+            await asyncio.gather(*(asyncio.wrap_future(future) for future in futures), return_exceptions=True)
+        self.shutdown()
+
     def shutdown(self):
         """Gracefully shuts down the server and its components."""
         debug_logger("Shutting down server...")
         self.code_watcher.stop()
+        if self.job_manager.pending_futures():
+            raise RuntimeError("Indexing is still active; await shutdown_async() before closing the database")
         _teardown_db_manager(self.db_manager)

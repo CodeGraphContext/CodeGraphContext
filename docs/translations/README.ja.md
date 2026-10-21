@@ -3,7 +3,7 @@
 **コードリポジトリを AI エージェントが問い合わせ可能なグラフに変換します。**
 
 🌐 **言語:**
-- 🇬🇧 [English](README.md)
+- 🇬🇧 [English](../../README.md)
 - 🇨🇳 [中文](README.zh-CN.md)
 - 🇰🇷 [한국어](README.kor.md)
 - 🇺🇦 [Українська](README.uk.md)
@@ -100,7 +100,7 @@
 ## プロジェクト概要
 - **バージョン:** 0.4.16
 - **作者:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
-- **ライセンス:** MIT License（詳細は [LICENSE](LICENSE) を参照）
+- **ライセンス:** MIT License（詳細は [LICENSE](../../LICENSE) を参照）
 - **ウェブサイト:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
 
 ---
@@ -131,7 +131,7 @@
 ## 機能
 -   **コードのインデックス処理:** コードを解析し、その構成要素のナレッジグラフを構築します。
 -   **関係性の解析:** 呼び出し元、呼び出し先、クラス階層、コールチェーンなどを問い合わせできます。
--   **事前インデックス済みバンドル:** `.cgc` バンドルで著名なリポジトリを即座にロード。インデックス不要！（[詳細](docs/BUNDLES.md)）
+-   **事前インデックス済みバンドル:** `.cgc` バンドルで著名なリポジトリを即座にロード。インデックス不要！（[詳細](../docs/guides/bundles.md)）
 -   **ライブファイル監視:** ディレクトリの変更を監視し、グラフをリアルタイムで自動更新します（`codegraphcontext watch`）。
 -   **インタラクティブなセットアップ:** ユーザーフレンドリーなコマンドラインウィザードで簡単に設定できます。
 -   **デュアルモード:** 開発者向けのスタンドアロン **CLI ツールキット**、および AI エージェント向けの **MCP サーバー** の両方として動作します。
@@ -271,7 +271,7 @@ codegraphcontext watch .
 codegraphcontext help
 ```
 
-  **利用可能なすべてのコマンドと使用例については [CLI コマンドガイド](docs/CLI_COMPLETE_REFERENCE.md) を参照してください。**
+  **利用可能なすべてのコマンドと使用例については [CLI コマンドガイド](../CLI_COMPLETE_REFERENCE.md) を参照してください。**
 
 ### 🎨 プレミアムなインタラクティブ可視化
 CodeGraphContext は、コードを表す美しくインタラクティブなナレッジグラフを生成できます。静的な図とは異なり、これらはプレミアム品質の Web ベースエクスプローラーです。
@@ -471,7 +471,7 @@ codegraphcontext find pattern "Auth" --viz
 ## コントリビューション
 
 コントリビューションを歓迎します！🎉  
-詳細なガイドラインについては [CONTRIBUTING.md](CONTRIBUTING.md)（日本語版: [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md)）を参照してください。
+詳細なガイドラインについては [CONTRIBUTING.md](../../.github/CONTRIBUTING.md)（日本語版: [CONTRIBUTING.md](../../.github/CONTRIBUTING.md)）を参照してください。
 新機能、連携、改善のアイデアがあれば、[Issue を作成](https://github.com/CodeGraphContext/CodeGraphContext/issues)するか、Pull Request を送ってください。
 
 ぜひディスカッションに参加し、CodeGraphContext の未来を一緒に作っていきましょう。

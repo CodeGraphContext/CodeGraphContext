@@ -1242,6 +1242,14 @@ class CodeFinder:
         """Find call chains between two functions"""
         repo_path = self._normalize_repo_path_filter(repo_path)
         with self.driver.session() as session:
+            # Kùzu/Ladybug lists use one-based indexes; Neo4j/FalkorDB use zero-based indexes.
+            backend = getattr(self.db_manager, "get_backend_type", lambda: "neo4j")()
+            path_end_index = (
+                "size(func_nodes)"
+                if backend in {"kuzudb", "ladybugdb"}
+                else "size(func_nodes)-1"
+            )
+
             # Build match clauses based on whether files are specified
             start_props = "{name: $start_function" + (", path: $start_file}" if start_file else "}")
             end_props = "{name: $end_function" + (", path: $end_file}" if end_file else "}")
@@ -1255,7 +1263,7 @@ class CodeFinder:
                 WITH start as start, end_target as end_target
                 MATCH path = (start)-[:CALLS|HEURISTIC_CALLS*1..{max_depth}]->()
                 WITH path as path, end_target as end_target, nodes(path) as func_nodes, relationships(path) as call_rels
-                WITH path as path, func_nodes as func_nodes, call_rels as call_rels, end_target as end_target, func_nodes[size(func_nodes)-1] as path_end
+                WITH path as path, func_nodes as func_nodes, call_rels as call_rels, end_target as end_target, func_nodes[{path_end_index}] as path_end
                 WHERE path_end.name = end_target.name AND (end_target.path IS NULL OR path_end.path = end_target.path)
                 RETURN func_nodes as function_nodes, call_rels as call_nodes, size(call_rels) as chain_length
                 ORDER BY chain_length ASC
@@ -1627,6 +1635,8 @@ class CodeFinder:
 
                 return {
                     "query_type": "who_modifies", "target": target, "results": results,
+                    "analysis_kind": "variable_binding_containers",
+                    "limitations": "This locates stored variable bindings and their containers; it does not trace write sites, aliases or dataflow.",
                     "summary": summary, "truncated": truncated, "result_limit": req_limit
                 }
             

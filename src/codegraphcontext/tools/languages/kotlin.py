@@ -43,6 +43,7 @@ KOTLIN_QUERIES = {
                 (simple_identifier) @name
             )
         ) @variable
+        (property_declaration (multi_variable_declaration)) @variable
         (class_parameter
             (binding_pattern_kind)
             (simple_identifier) @name
@@ -1561,31 +1562,43 @@ class KotlinTreeSitterParser:
                     ctx_name, ctx_type, ctx_line = self._get_parent_context(node)
                     node_text = self._get_node_text(node)
 
-                    # Destructuring declaration
-                    destructuring_match = re.match(
-                        r'\s*(?:val|var)\s*\(([^)]+)\)\s*=\s*(.+)',
-                        node_text,
-                        re.S,
-                    )
-                    if destructuring_match:
-                        initializer_text = destructuring_match.group(2).strip()
-                        initializer_inferred_type = self._extract_initializer_type(initializer_text)
-                        for raw_name in destructuring_match.group(1).split(","):
-                            var_name = raw_name.strip()
-                            if not var_name or var_name == "_":
+                    # Read binding nodes instead of matching an entire source line.
+                    # The initializer's Pair/container type is not either component's type.
+                    multi = next((c for c in node.named_children
+                                  if c.type == 'multi_variable_declaration'), None)
+                    if multi is not None:
+                        initializer_text = self._extract_initializer_text(node_text) or ''
+                        container_type = self._extract_initializer_type(initializer_text)
+                        component_types = {
+                            f['name']: f.get('return_type') for f in (functions or [])
+                            if f.get('class_context') == container_type and f.get('name', '').startswith('component')
+                        }
+                        partition_type = 'List' if re.search(r'\.partition\s*\{', initializer_text) else None
+                        for index, declaration in enumerate(multi.named_children, 1):
+                            name_node = next((c for c in declaration.named_children
+                                              if c.type == 'simple_identifier'), None)
+                            if name_node is None:
                                 continue
-                            variable_data = {
-                                "name": var_name,
-                                "type": initializer_inferred_type or "Unknown",
-                                "line_number": start_line,
+                            name = self._get_node_text(name_node)
+                            if name == '_':
+                                continue
+                            annotation = next((c for c in declaration.named_children
+                                               if c.type in ('user_type', 'nullable_type', 'function_type')), None)
+                            inferred_type = component_types.get(f'component{index}') or partition_type
+                            variable = {
+                                "name": name,
+                                "type": self._get_node_text(annotation) if annotation is not None else inferred_type or "Unknown",
+                                "line_number": name_node.start_point[0] + 1,
                                 "path": str(path),
                                 "lang": self.language_name,
                                 "context": ctx_name,
-                                "class_context": ctx_name if ctx_type and ("class" in ctx_type or "interface" in ctx_type or "object" in ctx_type) else None
+                                "class_context": ctx_name if ctx_type and any(
+                                    kind in ctx_type for kind in ('class', 'interface', 'object')
+                                ) else None,
                             }
-                            if initializer_inferred_type:
-                                variable_data["initializer_inferred_type"] = initializer_inferred_type
-                            variables.append(variable_data)
+                            if inferred_type:
+                                variable['initializer_inferred_type'] = inferred_type
+                            variables.append(variable)
                         continue
 
                     # Regular property/variable

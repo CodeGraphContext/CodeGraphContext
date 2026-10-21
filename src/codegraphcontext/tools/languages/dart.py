@@ -95,10 +95,19 @@ class DartTreeSitterParser:
         if not node: return ""
         return node.text.decode('utf-8')
 
+    def _signature_name(self, node):
+        if node.type in ('constructor_signature', 'factory_constructor_signature'):
+            parts = [self._get_node_text(c) for c in node.named_children if c.type == 'identifier']
+            return '.'.join(parts) if parts else None
+        name = node.child_by_field_name('name')
+        return self._get_node_text(name) if name is not None else None
+
     def _get_parent_context(self, node, types=SIGNATURE_TYPES + CONTAINER_TYPES):
         curr = node.parent
         while curr:
             if curr.type in types:
+                if curr.type in ('constructor_signature', 'factory_constructor_signature'):
+                    return self._signature_name(curr), curr.type, curr.start_point[0] + 1
                 name_node = curr.child_by_field_name('name')
                 if name_node is None:
                     for child in curr.children:
@@ -129,6 +138,8 @@ class DartTreeSitterParser:
                                 target = child
                                 break
 
+                        if target.type in ('constructor_signature', 'factory_constructor_signature'):
+                            return self._signature_name(target), target.type, target.start_point[0] + 1
                         name_node = target.child_by_field_name("name")
                         if name_node is None:
                             for child in target.children:
@@ -385,7 +396,11 @@ class DartTreeSitterParser:
                 seen_nodes.add(node_id)
 
                 name_node = node.child_by_field_name('name')
-                if name_node:
+                if node.type in ('constructor_signature', 'factory_constructor_signature'):
+                    name = self._signature_name(node)
+                    if not name:
+                        continue
+                elif name_node:
                     name = self._get_node_text(name_node)
                 elif node.type == 'factory_constructor_signature':
                     # No `name` field; the name is the identifier sequence,
@@ -549,7 +564,10 @@ class DartTreeSitterParser:
             if receiver_name and receiver_name != name:
                 full_name = f"{receiver_name}.{name}"
 
-            args = []
+            selector = node if node.type == 'selector' else target_node.next_named_sibling
+            part = next((c for c in selector.named_children if c.type == 'argument_part'), None) if selector is not None else None
+            arguments = next((c for c in part.named_children if c.type == 'arguments'), None) if part is not None else None
+            args = [self._get_node_text(arg) for arg in arguments.named_children] if arguments is not None else []
 
             context, context_type, context_line = self._get_parent_context(target_node)
 

@@ -1944,6 +1944,14 @@ def build_function_call_groups(
         context_names.extend(companion_owner_context_names(fd, func, package_name))
         return list(dict.fromkeys(context_names))
 
+    # Keep protocol requirements as graph nodes, but prefer their matching
+    # concrete Swift extension implementation when resolving a call target.
+    swift_implementations = {
+        (func.get('class_context') or func.get('context'), func.get('signature'))
+        for fd in all_file_data if fd.get('lang') == 'swift'
+        for func in fd.get('functions', [])
+        if func.get('signature') and not func.get('is_declaration')
+    }
     for fd in all_file_data:
         file_path = _resolved_posix(fd["path"])
         package_name = file_package(fd)
@@ -1966,6 +1974,10 @@ def build_function_call_groups(
             for class_name in class_keys:
                 global_class_bases[class_name] = base_types
         for func in fd.get("functions", []):
+            if fd.get('lang') == 'swift' and func.get('is_declaration') and (
+                func.get('class_context') or func.get('context'), func.get('signature')
+            ) in swift_implementations:
+                continue
             indexed_func = {**func, "path": fd["path"], "package": package_name}
             function_index.setdefault((file_path, func["name"]), []).append(indexed_func)
             
@@ -2994,6 +3006,16 @@ def build_function_call_groups(
             )
             if not resolved:
                 continue
+            if call_to_resolve.get('call_kind') == 'generic_or_conversion':
+                target_path = resolved.get('called_file_path')
+                definitions = function_index.get((_resolved_posix(target_path), resolved.get('called_name')), []) if target_path else []
+                actual_generic = [fn for fn in definitions if fn.get('is_generic') and (
+                    resolved.get('called_line_number') in (None, 0, fn.get('line_number'))
+                )]
+                if not actual_generic:
+                    continue  # Type conversions and unknown externals are not function edges.
+                if '.' not in call_to_resolve.get('full_name', '') and Path(target_path).parent != Path(caller_file_path).parent:
+                    continue  # Bare Go functions belong to this package directory.
 
             # Annotate C++ calls with concrete Neo4j labels so the writer can use
             # label-specific MATCH queries instead of the slow label-OR scan.

@@ -77,7 +77,23 @@ class JobManager:
     """
     def __init__(self):
         self.jobs: Dict[str, JobInfo] = {}
+        self._futures = set()
         self.lock = threading.Lock() # A lock to ensure thread-safe access to the jobs dictionary.
+
+    def track_future(self, future):
+        """Keep scheduled indexing work alive until graceful shutdown drains it."""
+        with self.lock:
+            self._futures.add(future)
+
+        def finished(done):
+            with self.lock:
+                self._futures.discard(done)
+
+        future.add_done_callback(finished)
+
+    def pending_futures(self):
+        with self.lock:
+            return list(self._futures)
 
     def create_job(self, path: str, is_dependency: bool = False) -> str:
         """Creates a new job, assigns it a unique ID, and stores it."""
