@@ -83,6 +83,10 @@ class RepositoryEventHandler(FileSystemEventHandler):
             warning_logger(f"Could not load ignore rules: {e}")
 
     def _should_ignore(self, path: str | Path) -> bool:
+        from ..utils.path_sandbox import is_index_path_allowed
+
+        if not is_index_path_allowed(Path(path), self.repo_path):
+            return True
         path_obj = Path(path).resolve()
         ignore_root = getattr(self, "ignore_root", self.repo_path)
 
