@@ -483,6 +483,11 @@ class GraphBuilder:
             Parsed file data with keys for functions, classes, imports, etc.
             On failure, returns a dict with an ``error`` key.
         """
+        from ..utils.path_sandbox import is_index_path_allowed
+
+        if not is_index_path_allowed(path, repo_path):
+            return {"path": str(path), "error": "File resolves outside allowed indexing roots", "unsupported": True, "parse_failed": True}
+        path = path.resolve()
         ext = path.suffix
         if path.name.endswith(".d.ts"):
             ext = ".d.ts"
