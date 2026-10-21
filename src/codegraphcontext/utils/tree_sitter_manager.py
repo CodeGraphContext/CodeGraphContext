@@ -337,10 +337,38 @@ _QUERY_LOCK = threading.Lock()
 
 def execute_query(language: Language, query_string: str, node):
     """
-    Execute a tree-sitter query and return captures in backward-compatible format.
+    Execute a tree-sitter query and return its captures in document order.
 
-    This function provides compatibility with the old tree-sitter 0.20.x API where
-    you could call query.captures(node). The new 0.22+ API uses QueryCursor.
+    Returns a list of ``(node, capture_name)`` tuples — the shape of the old
+    0.20.x ``query.captures(node)`` — ordered by the captured node's position
+    in the tree (pre-order: start byte, then outer before inner — longer span
+    first, ancestor first when parent and child span the same bytes), then by
+    pattern index, then by the capture's position in its match. That is the
+    order tree-sitter's C cursor (``ts_query_cursor_next_capture``) yields in
+    the common case: it walks the tree in pre-order and breaks a tie on one
+    node by pattern index. It is *not* identical to it in every case: the C
+    order also depends on *when* overlapping matches finish (e.g. a
+    lower-index pattern on an inner node can be yielded before a higher-index
+    pattern's capture of its parent when both matches finish together); here
+    position always wins. The set of ``(node, name)`` pairs is exactly
+    ``captures()``'s, each pair once, and the order in which each capture name
+    is *first seen* matches ``captures()``'s dict key order (the only part of
+    its answer that keeps the C order).
+
+    Why not ``captures()``: py-tree-sitter 0.24+ returns ``{name: [nodes]}``,
+    built through a per-name *set* of nodes, so the order of the nodes inside a
+    name is the set's hash order — node ids, i.e. memory addresses — and differs
+    on every parse of the same file.
+    Flattening it also groups the captures by name, so a capture's neighbours
+    were never its own match's other captures. Every consumer keeping the first
+    or last match therefore attributed nondeterministically. ``matches()``
+    returns its matches in a deterministic order and tags each with its pattern
+    index; the result is sorted from it.
+
+    The order is total and does not depend on hash seeds, memory layout,
+    threads or the py-tree-sitter version: every API branch below goes through
+    ``_ordered_captures``. Nothing else may call ``QueryCursor.captures`` /
+    ``matches`` (enforced by tests/unit/utils/test_execute_query_order.py).
 
     Thread-safe: query construction and execution are serialised (see
     `_QUERY_LOCK`), because doing them concurrently segfaults the native
@@ -352,7 +380,7 @@ def execute_query(language: Language, query_string: str, node):
         node: Tree-sitter Node to query
 
     Returns:
-        List of (node, capture_name) tuples, compatible with old API
+        List of (node, capture_name) tuples in document order (see above).
     """
     try:
         from tree_sitter import Query
@@ -361,6 +389,72 @@ def execute_query(language: Language, query_string: str, node):
 
     with _QUERY_LOCK:
         return _execute_query_locked(Query, language, query_string, node)
+
+
+def _ordered_captures(matches, capture_names=None):
+    """Flatten ``matches()`` output into document order (see `execute_query`).
+
+    *matches* is a sequence of ``(pattern_index, captures)`` where *captures*
+    is ``{name: [node, …]}`` (0.24/0.25), ``{name: node}`` (0.21–0.23) or a
+    list of ``(node, name_or_index)`` pairs; *capture_names* maps integer
+    capture indices to names.
+
+    Sort key: ``(start_byte, -end_byte, depth, pattern_index, match ordinal,
+    capture ordinal)`` — tree pre-order position: an outer node before an
+    inner one that starts at the same byte, and, when parent and child span
+    exactly the same bytes (``expression_statement`` around a ``call``), the
+    ancestor first (``depth``, computed only for such equal spans); then
+    pattern index for captures of one node; the two ordinals (positions in the
+    deterministic ``matches()`` output) make the key total. Duplicate
+    ``(node, name)`` pairs — one node captured under one name by several
+    matches — keep their first occurrence.
+    """
+    entries = []
+    for match_ordinal, (pattern_index, captures) in enumerate(matches):
+        if isinstance(captures, dict):
+            pairs = []
+            for name, nodes in captures.items():
+                if isinstance(nodes, (list, tuple)):
+                    pairs.extend((n, name) for n in nodes)
+                else:
+                    pairs.append((nodes, name))
+        else:
+            pairs = list(captures)
+        for capture_ordinal, (n, name) in enumerate(pairs):
+            if isinstance(name, int) and capture_names is not None:
+                name = capture_names[name]
+            entries.append((n, name, pattern_index, match_ordinal, capture_ordinal))
+
+    # Depth only breaks ties between *different* nodes with one span, so it is
+    # computed only where such a tie exists (walking parents is O(depth)).
+    span_nodes: dict = {}
+    for n, *_ in entries:
+        span_nodes.setdefault((n.start_byte, n.end_byte), set()).add(n.id)
+    depth_cache: dict = {}
+
+    def depth(n) -> int:
+        if len(span_nodes[(n.start_byte, n.end_byte)]) < 2:
+            return 0
+        key = n.id
+        if key not in depth_cache:
+            d, cur = 0, n.parent
+            while cur is not None:
+                d, cur = d + 1, cur.parent
+            depth_cache[key] = d
+        return depth_cache[key]
+
+    keyed = [((n.start_byte, -n.end_byte, depth(n), pattern_index, match_ordinal, capture_ordinal), n, name)
+             for n, name, pattern_index, match_ordinal, capture_ordinal in entries]
+    keyed.sort(key=lambda item: item[0])
+    seen = set()
+    ordered = []
+    for _, n, name in keyed:
+        ident = (n.start_byte, n.end_byte, n.type, name, n)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        ordered.append((n, name))
+    return ordered
 
 
 def _execute_query_locked(Query, language: Language, query_string: str, node):
@@ -377,51 +471,35 @@ def _execute_query_locked(Query, language: Language, query_string: str, node):
         except Exception as e:
             raise Exception(f"Failed to create query: {e}")
 
-    # 2. Execute the query
-    try:
-        from tree_sitter import QueryCursor
-        # Modern API (0.22+)
-        try:
-            # 0.25.2 style: QueryCursor(query).captures(node) 
-            # returns dict {name: [nodes]} in some versions or list of tuples in others
-            cursor = QueryCursor(query)
-            res = cursor.captures(node)
-            
-            if isinstance(res, dict):
-                captures = []
-                for name, nodes in res.items():
-                    for n in nodes:
-                        captures.append((n, name))
-                return captures
-            
-            # Fallback for list of (node, capture_index) or (node, name)
-            # Try to map indices back to names if they are integers
-            if res and len(res) > 0 and isinstance(res[0][1], int):
-                return [(n, query.capture_names[idx]) for n, idx in res]
-            return res
-            
-        except (TypeError, ValueError):
-            # 0.22 style: QueryCursor().captures(query, node)
-            cursor = QueryCursor()
-            res = cursor.captures(query, node)
-            if isinstance(res, dict):
-                captures = []
-                for name, nodes in res.items():
-                    for n in nodes:
-                        captures.append((n, name))
-                return captures
-            if res and len(res) > 0 and isinstance(res[0][1], int):
-                return [(n, query.capture_names[idx]) for n, idx in res]
-            return res
-        
-    except (ImportError, AttributeError, NameError, TypeError):
-        # Fallback to old API (< 0.22) or if QueryCursor failed
-        try:
-            return query.captures(node)
-        except Exception as e:
-            # Final failure if all paths fail
-            raise Exception(
-                f"Failed to execute query: {e}\n"
-                f"Query string: {query_string[:100]}..."
-            )
+    capture_names = _capture_names(query)
 
+    # 2. Execute the query: always through matches(), never captures() — see
+    # execute_query for why. 0.25: QueryCursor(query).matches(node);
+    # 0.24 and older: query.matches(node).
+    try:
+        try:
+            from tree_sitter import QueryCursor
+        except ImportError:
+            QueryCursor = None
+        if QueryCursor is not None:
+            matches = QueryCursor(query).matches(node)
+        else:
+            matches = query.matches(node)
+    except Exception as e:
+        raise Exception(
+            f"Failed to execute query: {e}\n"
+            f"Query string: {query_string[:100]}..."
+        )
+    return _ordered_captures(matches, capture_names)
+
+
+def _capture_names(query):
+    """Capture index -> name, across py-tree-sitter versions (None if unavailable)."""
+    names = getattr(query, "capture_names", None)
+    if names is not None:
+        return list(names)
+    count = getattr(query, "capture_count", None)
+    name_of = getattr(query, "capture_name", None)
+    if isinstance(count, int) and callable(name_of):
+        return [name_of(i) for i in range(count)]
+    return None
