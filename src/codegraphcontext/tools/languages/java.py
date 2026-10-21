@@ -408,7 +408,19 @@ class JavaTreeSitterParser:
                                     # @RequestMapping: try to read method= attribute
                                     m = re.search(r'method\s*=\s*RequestMethod\.(\w+)', ann_args)
                                     func_data["http_method"] = m.group(1) if m else "ANY"
-                                func_data["http_path"] = _extract_annotation_path(ann_args)
+                                method_path = _extract_annotation_path(ann_args) or ""
+                                owner = node.parent
+                                while owner and owner.type not in {"class_declaration", "interface_declaration", "enum_declaration", "record_declaration"}:
+                                    owner = owner.parent
+                                prefix = ""
+                                if owner:
+                                    for owner_name, owner_args in self._get_node_annotations(owner):
+                                        if owner_name == "RequestMapping":
+                                            prefix = _extract_annotation_path(owner_args) or ""
+                                            break
+                                func_data["http_path"] = (
+                                    prefix.rstrip("/") + "/" + method_path.lstrip("/")
+                                ) if method_path else (prefix or "/")
                             elif ann_name == "Transactional":
                                 func_data["transactional"] = True
 

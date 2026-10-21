@@ -293,7 +293,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("Module", "name STRING, lang STRING, full_import_name STRING, path STRING, line_number INT64, PRIMARY KEY (name)"),
             # For types with composite keys (name, path, line_number), we use a 'uid'
             ("Function", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, cyclomatic_complexity INT64, context STRING, context_type STRING, class_context STRING, class_context_line INT64, module_context STRING, is_dependency BOOLEAN, decorators STRING[], args STRING[], arg_types STRING[], http_method STRING, http_path STRING, embedding DOUBLE[], visibility STRING, modifiers STRING[], is_composable BOOLEAN, PRIMARY KEY (uid)"),
-            ("Class", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, node_type STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
+            ("Class", "uid STRING, spring_stereotype STRING, request_mapping_prefix STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, node_type STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
             ("Variable", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, source STRING, docstring STRING, lang STRING, value STRING, context STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Trait", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, PRIMARY KEY (uid)"),
             ("Interface", "uid STRING, name STRING, path STRING, line_number INT64, occurrence_index INT64, end_line INT64, source STRING, docstring STRING, lang STRING, is_dependency BOOLEAN, decorators STRING[], visibility STRING, modifiers STRING[], PRIMARY KEY (uid)"),
@@ -509,6 +509,8 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("Function", "module_context", "STRING"),
             ("Function", "embedding", "DOUBLE[]"),
             ("Class", "node_type", "STRING"),
+            ("Class", "spring_stereotype", "STRING"),
+            ("Class", "request_mapping_prefix", "STRING"),
             # Visibility/modifiers columns and Interface/Object decorators
             ("Function", "visibility", "STRING"),
             ("Function", "modifiers", "STRING[]"),
@@ -1181,7 +1183,7 @@ class EmbeddedSessionWrapper:
             'Directory': {'path', 'name'},
             'Module': {'name', 'lang', 'full_import_name', 'path', 'line_number'},
             'Function': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'cyclomatic_complexity', 'context', 'context_type', 'class_context', 'class_context_line', 'module_context', 'is_dependency', 'decorators', 'args', 'arg_types', 'http_method', 'http_path', 'visibility', 'modifiers', 'is_composable'},
-            'Class': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'node_type', 'is_dependency', 'decorators', 'visibility', 'modifiers'},
+            'Class': {'uid', 'spring_stereotype', 'request_mapping_prefix', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'node_type', 'is_dependency', 'decorators', 'visibility', 'modifiers'},
             'Variable': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'source', 'docstring', 'lang', 'value', 'context', 'is_dependency'},
             'Trait': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency'},
             'Interface': {'uid', 'name', 'path', 'line_number', 'occurrence_index', 'end_line', 'source', 'docstring', 'lang', 'is_dependency', 'decorators', 'visibility', 'modifiers'},
