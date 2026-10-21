@@ -2396,12 +2396,23 @@ class GraphWriter:
         info_logger(f"[SPRING_DATA] Written {written} READS/WRITES derived-query edges")
 
     def delete_repository_from_graph(self, repo_path: str) -> bool:
-        # Normalize to forward slashes — paths are always stored normalized.
-        # The old .replace("\\", "/") band-aid is replaced by _normalize_path
-        # which uses Path.resolve().as_posix() for consistent cross-platform output.
-        # See: https://github.com/CodeGraphContext/CodeGraphContext/issues/1080
-        repo_path_str = _normalize_path(repo_path)
-        path_prefix = _normalize_prefix(repo_path)
+        """Resolve an explicit user path before deleting its graph."""
+        return self._delete_repository(repo_path, resolve_path=True)
+
+    def delete_indexed_repository_from_graph(self, stored_path: str) -> bool:
+        """Delete the exact key returned by repository listing."""
+        return self._delete_repository(stored_path, resolve_path=False)
+
+    def _delete_repository(self, repo_path: str, *, resolve_path: bool) -> bool:
+        if resolve_path:
+            repo_path_str = _normalize_path(repo_path)
+            path_prefix = _normalize_prefix(repo_path)
+        else:
+            repo_path_str = repo_path
+            # Old Windows graph keys use backslashes. Derive the boundary
+            # lexically; Path.resolve() could retarget a selected symlink.
+            separator = "\\" if "\\" in repo_path and "/" not in repo_path else "/"
+            path_prefix = repo_path.rstrip("/\\") + separator
 
         backend = get_backend_type(self.driver, self._db_manager)
 
@@ -2414,8 +2425,9 @@ class GraphWriter:
 
         found = execute_write_operation(self.driver, backend, _existence_check)
 
-        # Backward-compat: old CGC versions stored Windows paths with backslashes.
-        if not found:
+        # Backward-compat applies only to explicit paths. A selected key
+        # that disappears must never fall back to a different repository.
+        if not found and resolve_path:
             native = str(Path(repo_path).resolve())
             if native != repo_path_str:
 

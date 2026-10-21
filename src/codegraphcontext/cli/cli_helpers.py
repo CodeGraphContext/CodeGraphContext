@@ -31,6 +31,7 @@ from ..tools.package_resolver import get_local_package_path
 from ..utils.debug_log import info_logger, warning_logger
 from ..core.database import Neo4jConnectionError
 from ..utils.repo_path import any_repo_matches_path
+from .repository_selection import select_repository
 from .config_manager import (
     resolve_context,
     ResolvedContext,
@@ -506,6 +507,44 @@ def list_repos_helper(context: Optional[str] = None):
         console.print(table)
     except Exception as e:
         console.print(f"[bold red]An error occurred:[/bold red] {e}")
+    finally:
+        db_manager.close_driver()
+
+
+def delete_selected_repository_helper(context: Optional[str] = None):
+    """Select and confirm an indexed key while keeping its database open."""
+    services = _initialize_services(context)
+    if not all(services[:3]):
+        _fail_services_init()
+    db_manager, graph_builder, code_finder, _ = services
+    try:
+        repositories = code_finder.list_indexed_repositories()
+        if not repositories:
+            console.print("[yellow]No repositories to delete.[/yellow]")
+            raise typer.Exit(code=1)
+        repo_path = select_repository(repositories)
+        if repo_path is None:
+            console.print("[yellow]Deletion cancelled.[/yellow]")
+            raise typer.Exit(code=1)
+        console.print("About to delete the graph for: " + repo_path, markup=False)
+        console.print("[dim]This is irreversible; re-indexing is the only way back.[/dim]")
+        if not typer.confirm("Proceed?", default=False):
+            console.print("[yellow]Deletion cancelled.[/yellow]")
+            raise typer.Exit(code=1)
+        # The selection is a database identity, not a path supplied by the user.
+        # Resolving it again could follow a new symlink to a different repository.
+        if not graph_builder.delete_indexed_repository_from_graph(repo_path):
+            console.print("Repository not found in graph: " + repo_path, markup=False)
+            raise typer.Exit(code=1)
+        console.print("Successfully deleted repository: " + repo_path, markup=False)
+    except (KeyboardInterrupt, EOFError, typer.Abort):
+        console.print("[yellow]Deletion cancelled.[/yellow]")
+        raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[bold red]An error occurred:[/bold red] {e}")
+        raise typer.Exit(code=1)
     finally:
         db_manager.close_driver()
 
