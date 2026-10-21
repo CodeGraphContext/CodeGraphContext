@@ -75,6 +75,54 @@ def test_pool_failed_borrow_does_not_prevent_close():
     pool.quiesce(timeout=0)
 
 
+def test_abandoned_session_returns_its_connection():
+    import gc
+    from codegraphcontext.core.database_embedded_kuzu import EmbeddedSessionWrapper
+    pool = EmbeddedConnectionPool()
+    connection = object()
+    pool.put(connection)
+    value = EmbeddedSessionWrapper(pool)
+    assert pool._borrowed == 1
+    del value
+    gc.collect()
+    pool.quiesce(timeout=0)
+    assert pool.get_nowait() is connection
+
+
+def test_file_delete_removes_orphan_symbols_but_preserves_shared_module(tmp_path, monkeypatch):
+    import os
+    from codegraphcontext.core.database_kuzu import KuzuDBManager
+    from codegraphcontext.core.database_ladybug import LadybugDBManager
+    from codegraphcontext.tools.indexing.persistence.writer import GraphWriter
+    kind = LadybugDBManager if os.getenv("CGC_TEST_EMBEDDED_BACKEND") == "ladybugdb" else KuzuDBManager
+    pytest.importorskip(kind.BACKEND_SPEC.python_module)
+    monkeypatch.setenv("CGC_EMBEDDED_BUFFER_POOL_MB", "1024")
+    manager = kind(str(tmp_path / "db"))
+    driver = manager.get_driver()
+    path = (tmp_path / "deleted.py").as_posix()
+    try:
+        with driver.session() as session:
+            session.run("CREATE (f:File {path: $path})", path=path)
+            session.run("CREATE (fn:Function {uid: 'orphan', name: 'stale', path: $path})", path=path)
+            session.run("CREATE (p:Parameter {uid: 'orphan-param', name: 'x', path: $path})", path=path)
+            session.run("CREATE (m:Module {name: 'shared', path: $path})", path=path)
+            session.run("CREATE (f:File {path: $other})", other=(tmp_path / "other.py").as_posix())
+            session.run("MATCH (f:File {path: $other}), (m:Module {name: 'shared'}) MERGE (f)-[:IMPORTS]->(m)", other=(tmp_path / "other.py").as_posix())
+            session.run("CREATE (fn:Function {uid: 'linked', name: 'linked', path: $path})", path=path)
+            session.run("MATCH (f:File {path: $path}), (fn:Function {uid: 'linked'}) MERGE (f)-[:CONTAINS]->(fn)", path=path)
+        with driver.session() as session:
+            assert session.run("MATCH (fn:Function {path: $path}) RETURN count(fn) AS n", path=path).single()["n"] == 2
+            assert session.run("MATCH (p:Parameter {path: $path}) RETURN count(p) AS n", path=path).single()["n"] == 1
+            assert session.run("MATCH (m:Module {name: 'shared'}) RETURN count(m) AS n").single()["n"] == 1
+        GraphWriter(driver, manager).delete_file_from_graph(path)
+        with driver.session() as session:
+            assert session.run("MATCH (fn:Function {path: $path}) RETURN count(fn) AS n", path=path).single()["n"] == 0
+            assert session.run("MATCH (p:Parameter {path: $path}) RETURN count(p) AS n", path=path).single()["n"] == 0
+            assert session.run("MATCH (m:Module {name: 'shared'}) RETURN count(m) AS n").single()["n"] == 1
+    finally:
+        manager.close_driver()
+
+
 def test_async_shutdown_waits_for_indexing_before_teardown(monkeypatch):
     value = MCPServer.__new__(MCPServer)
     value.code_watcher = MagicMock()

@@ -843,6 +843,15 @@ class EmbeddedSessionWrapper:
     def __enter__(self):
         """Enter context manager - return self for 'with' statement."""
         return self
+
+    def __del__(self):
+        # Introspection and abandoned context managers may never enter a
+        # `with` block. Return their borrowed connection on collection too.
+        try:
+            if getattr(self, "_pool", None) is not None and getattr(self, "conn", None) is not None:
+                self.__exit__(None, None, None)
+        except Exception:
+            pass  # Destructors also run during interpreter teardown.
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Exit context manager - Return connection to the pool."""
