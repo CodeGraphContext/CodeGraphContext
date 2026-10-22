@@ -122,6 +122,9 @@ DEFAULT_CONFIG = {
     # JSON object mapping tool names to integer result-count limits.
     # Example: {"find_code": 20, "analyze_code_relationships": 10, "find_dead_code": 30}
     "TOOL_RESULT_LIMITS": "{}",
+    # JSON object mapping tool names to per-statement read time ceilings, seconds
+    # (0 = none). Neo4j/Nornic only. Example: {"default": 60, "find_dead_code": 600}
+    "TOOL_QUERY_TIMEOUTS": "{}",
     # Post-indexing resolution phases (default off)
     "ENABLE_INHERIT_RESOLVE": "false",
     "ENABLE_VECTOR_RESOLVE": "false",
@@ -172,6 +175,14 @@ CONFIG_DESCRIPTIONS = {
     "MAX_TOOL_RESPONSE_TOKENS": "Maximum tokens per MCP tool response (0 = unlimited). Truncates oversized payloads and appends a notice.",
     "MAX_PROMPT_CHARS": "Maximum characters per MCP tool response (0 = unlimited). When set alongside MAX_TOOL_RESPONSE_TOKENS the stricter limit wins. Truncated payloads receive a visible [CGC] notice and a stdout warning is emitted.",
     "TOOL_RESULT_LIMITS": "JSON object mapping tool names to max result counts, e.g. {\"find_code\": 20, \"analyze_code_relationships\": 10}. Missing keys use built-in defaults.",
+    "TOOL_QUERY_TIMEOUTS": (
+        "JSON object mapping tool names to the time ceiling, in seconds, of each read query the tool "
+        "runs (Neo4j/Nornic only; the database aborts a statement that runs longer and the tool returns a "
+        "timeout error). Names are MCP tool names, plus export_diagram for `cgc export`. Resolution: the "
+        "tool's own entry, else its built-in ceiling (300 s for find_dead_code, generate_report, "
+        "get_repository_stats, export_diagram and execute_cypher_query), else \"default\", else 120 s. "
+        "0 disables the ceiling. Example: {\"default\": 60, \"find_dead_code\": 600}."
+    ),
     # Post-indexing resolution phases
     "ENABLE_INHERIT_RESOLVE": (
         "[Phase 5] Re-resolve ambiguous same-file CALLS edges using the inheritance graph (INHERITS relationships). "
@@ -607,6 +618,18 @@ def validate_config_value(key: str, value: str) -> tuple[bool, Optional[str]]:
                     return False, f"TOOL_RESULT_LIMITS: value for '{k}' must be a positive integer"
         except _json.JSONDecodeError:
             return False, "TOOL_RESULT_LIMITS must be valid JSON, e.g. {\"find_code\": 20, \"find_dead_code\": 30}"
+    
+    if key == "TOOL_QUERY_TIMEOUTS":
+        import json as _json
+        try:
+            parsed = _json.loads(value)
+        except _json.JSONDecodeError:
+            return False, "TOOL_QUERY_TIMEOUTS must be valid JSON, e.g. {\"default\": 60, \"find_dead_code\": 600}"
+        if not isinstance(parsed, dict):
+            return False, "TOOL_QUERY_TIMEOUTS must be a JSON object, e.g. {\"default\": 60}"
+        for k, v in parsed.items():
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+                return False, f"TOOL_QUERY_TIMEOUTS: value for '{k}' must be a number of seconds >= 0 (0 = no ceiling)"
     
     if key == "MAX_DEPTH":
         if value.lower() != "unlimited":
