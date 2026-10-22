@@ -372,18 +372,16 @@ class GoTreeSitterParser:
         struct_query_str = GO_QUERIES['structs']
         for node, capture_name in execute_query(self.language, struct_query_str, root_node):
             if capture_name == 'name':
-                struct_node = self._find_type_declaration_for_name(node)
+                # This name's own type_spec — not the first type_spec of the
+                # enclosing type_declaration: a grouped `type ( A struct{…};
+                # B struct{…} )` gave every struct the first one's bases.
+                type_spec = node.parent
+                struct_node = self._type_unit(type_spec)
                 if struct_node:
                     name = self._get_node_text(node)
                     
                     # Find embedded fields as bases
                     bases = []
-                    # In tree-sitter-go, type_declaration usually has a type_spec child
-                    type_spec = None
-                    for child in struct_node.children:
-                        if child.type == 'type_spec':
-                            type_spec = child
-                            break
                     
                     if type_spec:
                         struct_body = None
@@ -471,36 +469,19 @@ class GoTreeSitterParser:
     def _find_interfaces(self, root_node):
         interfaces = []
         interface_query_str = GO_QUERIES['interfaces']
-        pending: Dict[int, Dict[str, Any]] = {}
+        # One entry per type_spec (the query matches each spec of a grouped
+        # `type ( A interface{…}; B interface{…} )` once). Keying by the
+        # enclosing type_declaration collapsed a group into one interface.
         for node, capture_name in execute_query(self.language, interface_query_str, root_node):
-            if capture_name == "interface_node":
-                pending[node.id] = {"interface_node": node, "name": None, "body": None}
-            elif capture_name == "name":
-                interface_node = self._find_type_declaration_for_name(node)
-                if interface_node:
-                    entry = pending.setdefault(
-                        interface_node.id,
-                        {"interface_node": interface_node, "name": None, "body": None},
-                    )
-                    entry["name"] = self._get_node_text(node)
-            elif capture_name == "interface_body":
-                type_spec = node.parent
-                interface_node = type_spec.parent if type_spec else None
-                if interface_node:
-                    entry = pending.setdefault(
-                        interface_node.id,
-                        {"interface_node": interface_node, "name": None, "body": None},
-                    )
-                    entry["body"] = node
-
-        for entry in pending.values():
-            name = entry.get("name")
-            interface_node = entry.get("interface_node")
-            if not name or not interface_node:
+            if capture_name != "name":
                 continue
-            methods, embedded = self._extract_interface_methods(entry.get("body"))
+            type_spec = node.parent
+            interface_node = self._type_unit(type_spec)
+            if interface_node is None:
+                continue
+            methods, embedded = self._extract_interface_methods(type_spec.child_by_field_name("type"))
             class_data = {
-                "name": name,
+                "name": self._get_node_text(node),
                 "line_number": interface_node.start_point[0] + 1,
                 "end_line": interface_node.end_point[0] + 1,
                 "bases": embedded,
@@ -515,13 +496,17 @@ class GoTreeSitterParser:
             interfaces.append(class_data)
         return interfaces
 
-    def _find_type_declaration_for_name(self, name_node):
-        current = name_node.parent
-        while current:
-            if current.type == 'type_declaration':
-                return current
-            current = current.parent
-        return None
+    @staticmethod
+    def _type_unit(type_spec):
+        """The node that declares exactly this type: the whole ``type X …`` declaration
+        when it holds one spec, else (a grouped ``type ( … )``) the spec itself."""
+        if type_spec is None or type_spec.type != "type_spec":
+            return None
+        decl = type_spec.parent
+        if decl is not None and decl.type == "type_declaration" \
+                and sum(1 for c in decl.children if c.type == "type_spec") == 1:
+            return decl
+        return type_spec
 
     def _find_imports(self, root_node):
         imports = []
