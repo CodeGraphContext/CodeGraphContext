@@ -1120,10 +1120,16 @@ class GraphWriter:
                 # evaluates the predicate to null, so it kept those edges — which is
                 # why dynamic-import edges existed on Neo4j and nowhere else.
                 labels_without_line_number = {"File", "Directory"}
+                # A Parameter carries its function's line as `function_line_number`
+                # (it has no `line_number`): the line predicate made Kùzu/LadybugDB
+                # refuse every Function->Parameter batch and Neo4j/FalkorDB match
+                # nothing, so a call of a parameter (`fn()` inside `def apply(fn)`)
+                # was never written on any backend.
+                line_property = {"Parameter": "function_line_number"}.get(called_label, "line_number")
                 predicates = []
                 if called_label not in labels_without_line_number:
                     predicates.append(
-                        "(row.called_line_number <= 0 OR called.line_number = row.called_line_number)"
+                        f"(row.called_line_number <= 0 OR called.{line_property} = row.called_line_number)"
                     )
                 if called_context_clause:
                     predicates.append(called_context_clause.removeprefix("AND ").strip())
