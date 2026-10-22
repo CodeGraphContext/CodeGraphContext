@@ -252,3 +252,34 @@ def test_delete_repository_noops_when_path_is_dot():
         "every repo-scoped bundle import"
     )
     assert "DETACH DELETE" not in session.run.call_args.args[0]
+
+
+def test_import_specifiers_are_never_rebased():
+    """A Module named './lib.js' and an IMPORTS edge's full_import_name './lib.js' are the
+    importer's own text, not repo paths: rebasing them onto the install root corrupted every
+    relative JS/TS import of an imported bundle."""
+    from codegraphcontext.core.cgc_bundle import _rebase_property_map
+
+    dest = "/home/u/.codegraphcontext/bundles/repo"
+    assert _rebase_property_map({"name": "./lib.js", "full_import_name": "./lib.js"}, dest, ["Module"]) == {
+        "name": "./lib.js", "full_import_name": "./lib.js"}
+    imports = {"full_import_name": "./x", "imported_name": "./x", "alias": "", "line_number": 1}
+    assert _rebase_property_map(dict(imports), dest, ["IMPORTS"]) == imports
+    # repo paths are still rebased, on every label
+    assert _rebase_property_map({"path": "./src/a.py", "name": "a.py"}, dest, ["File"]) == {
+        "path": dest + "/src/a.py", "name": "a.py"}
+    assert _rebase_property_map({"path": "./m.py"}, dest, ["Module"])["path"] == dest + "/m.py"
+
+
+def test_ladybug_internal_keys_are_normalised_for_export():
+    """LadybugDB rows spell the internal keys _ID/_LABEL/_SRC/_DST; export read only the
+    Kùzu spelling, so no edge could be re-linked on import (every relationship lost)."""
+    from codegraphcontext.core.cgc_bundle import CGCBundle, _normalize_internal_keys
+
+    row = {"_ID": {"offset": 3, "table": 0}, "_LABEL": "File", "path": "/r/a.py"}
+    assert CGCBundle(MagicMock())._node_to_dict(row) == {"_id": {"offset": 3, "table": 0}, "path": "/r/a.py"}
+    rel = _normalize_internal_keys({"_SRC": {"offset": 0, "table": 0}, "_DST": {"offset": 1, "table": 2},
+                                    "_LABEL": "IMPORTS", "_ID": {"offset": 0, "table": 9}, "kind": "static"})
+    assert set(rel) == {"_src", "_dst", "_label", "_id", "kind"}
+    kuzu = {"_id": 1, "_ID": 2}
+    assert _normalize_internal_keys(kuzu) == {"_id": 1, "_ID": 2}      # never overwrites the lower-case key
