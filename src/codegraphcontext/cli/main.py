@@ -1308,7 +1308,15 @@ def api_start(
     import uvicorn
     console.print(f"[bold green]Starting CGC Gateway on {host}:{port}...[/bold green]")
     _load_credentials()
-    uvicorn.run("codegraphcontext.api.app:app", host=host, port=port, reload=reload)
+    if reload:
+        # A reload supervisor is not the serving database owner. Until its
+        # child endpoint can be established, retain ordinary direct CLI access.
+        uvicorn.run("codegraphcontext.api.app:app", host=host, port=port, reload=True)
+    else:
+        from codegraphcontext.api.app import create_app
+        from codegraphcontext.gateway_discovery import loopback_endpoint
+        gateway = create_app(gateway_endpoint=loopback_endpoint(host, port))
+        uvicorn.run(gateway, host=host, port=port)
 
 
 
