@@ -1,6 +1,7 @@
 # src/codegraphcontext/api/router.py
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi.responses import JSONResponse
 from typing import Dict, Any, List
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from .auth import require_api_key
 from codegraphcontext.server import MCPServer
 
 import socket
+import json
 
 # Optional API-key auth is enforced on every route below via require_api_key.
 # It is a no-op (backward compatible) unless CGC_API_KEY is configured, in
@@ -23,6 +25,8 @@ router = APIRouter(dependencies=[Depends(require_api_key)])
 
 # Global server instance (initialized on startup)
 _server_instance: MCPServer = None
+_gateway_owner = None
+cli_router = APIRouter()
 
 async def get_server() -> MCPServer:
     """Build the server on the running event loop.
@@ -34,7 +38,41 @@ async def get_server() -> MCPServer:
     global _server_instance
     if _server_instance is None:
         _server_instance = MCPServer(loop=asyncio.get_running_loop(), cwd=Path.cwd())
+    # Publish only after this authoritative server has opened its driver.
+    # /health and an uninitialized gateway must never advertise DB ownership.
+    if _gateway_owner is not None and _server_instance._gateway_owner is not _gateway_owner:
+        with _server_instance._context_lock:
+            if _server_instance._gateway_owner is not None:
+                _server_instance._gateway_owner.invalidate()
+            _server_instance._gateway_owner = _gateway_owner
+            _gateway_owner.publish(_server_instance)
     return _server_instance
+
+
+@cli_router.post("/cli/read", include_in_schema=False)
+async def cli_read(request: Request):
+    """Internal signed CLI protocol, including proof of the configured API key.
+
+    Do not initialize a database on an unverified discovery request. Ordinary
+    REST/MCP routes continue to use the existing Bearer/X-API-Key dependency.
+    """
+    owner, server = _gateway_owner, _server_instance
+    if owner is None or server is None:
+        raise HTTPException(status_code=404, detail="No local gateway owner")
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > 65536:
+            raise HTTPException(status_code=413, detail="Request too large")
+    try:
+        payload = json.loads(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid request") from exc
+    result = await asyncio.to_thread(owner.read, server, payload)
+    if result is None:
+        raise HTTPException(status_code=404, detail="No matching local gateway owner")
+    response, status_code = result
+    return JSONResponse(response, status_code=status_code)
 
 def raise_service_unavailable(exc: Exception):
     raise HTTPException(

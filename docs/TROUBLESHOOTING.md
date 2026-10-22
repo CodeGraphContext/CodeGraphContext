@@ -43,8 +43,12 @@ module if several modules declare the same fully qualified mapper name.
 
 ### "Could not set lock on file" when running CLI commands
 Another CGC process (a Gateway, an MCP server, a watcher) already has the
-embedded database open — KùzuDB/LadybugDB are single-process. Use the
-running process's interface, or stop it first (#1683). This is not a
+embedded database open — KùzuDB/LadybugDB are single-process. `cgc list` and
+`cgc stats` can automatically read through a matching local gateway on macOS
+and Linux; see [gateway read discovery](INTEGRATION_GUIDE.md#local-cli-reads-while-the-gateway-owns-an-embedded-database)
+for supported startup modes and matching context/key configuration. Other
+commands still require the running process's interface, or stopping it first
+(#1683). This is not a
 configuration problem; `cgc doctor` won't help.
 
 ### LadybugDB: "Buffer manager exception: unable to allocate memory" (or a crash)
