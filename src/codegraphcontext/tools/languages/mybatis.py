@@ -189,7 +189,7 @@ def find_and_parse_mybatis_mappers(
     all_records: List[Dict[str, Any]] = []
     file_count = 0
 
-    for xml_file in repo_path.rglob("*.xml"):
+    for xml_file in sorted(repo_path.rglob("*.xml")):
         # Skip build output directories
         if any(part in skip_dirs for part in xml_file.parts):
             continue
