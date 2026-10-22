@@ -14,7 +14,7 @@
   <a href="https://pypi.org/project/codegraphcontext/">
     <img src="https://img.shields.io/pypi/dm/codegraphcontext?style=flat-square" alt="PyPI Downloads">
   </a>
-  <a href="LICENSE">
+  <a href="../../LICENSE">
     <img src="https://img.shields.io/github/license/CodeGraphContext/CodeGraphContext?style=flat-square" alt="License">
   </a>
   <img src="https://img.shields.io/badge/MCP-Compatible-green?style=flat-square" alt="MCP Compatible">
@@ -84,8 +84,8 @@ docker run --rm -v "$(pwd):/workspace" codegraphcontext/codegraphcontext cgc ind
 
 ## 🤝 Contribuir
 
-¡Las contribuciones son bienvenidas! Por favor revisa `contributing.md` para más detalles.
+¡Las contribuciones son bienvenidas! Por favor revisa `../../CONTRIBUTING.md` para más detalles.
 
 ## 📄 Licencia
 
-MIT License - ver archivo LICENSE para más detalles.
+MIT License - ver archivo ../../LICENSE para más detalles.
