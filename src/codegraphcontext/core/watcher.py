@@ -15,7 +15,6 @@ from watchdog.events import FileSystemEventHandler
 if typing.TYPE_CHECKING:
     from pathspec import PathSpec
     from ..tools.graph_builder import GraphBuilder
-    from ..core.jobs import JobManager
 
 from .cgcignore import build_ignore_spec
 from ..tools.indexing.constants import DEFAULT_IGNORE_PATTERNS
