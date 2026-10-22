@@ -552,9 +552,22 @@ class PythonTreeSitterParser:
                     next_enclosing = called_name if is_direct else enclosing_caller
                     for child in arguments_node.children:
                         self._walk_call_tree(child, next_enclosing, calls, local_names)
+                self._walk_callee(function_node, enclosing_caller, calls, local_names)
             return
         for child in node.children:
             self._walk_call_tree(child, enclosing_caller, calls, local_names)
+
+    def _walk_callee(self, function_node, enclosing_caller, calls, local_names=None):
+        """The calls inside a call's callee expression: ``load(p)`` of
+        ``load(p).get(k)``, ``run(job)`` of ``(await run(job)).get()``, ``f(a)`` of
+        ``f(a)(b)``, ``k()`` of ``d[k()](v)``. They are evaluated where the call is,
+        so they keep its context. Walked after the call and its arguments, so the
+        records emitted before keep their order. Without it, a call whose result is
+        the receiver of a method call had no record, and a function called only
+        that way had no callers."""
+        if function_node is None or function_node.type == "identifier":
+            return
+        self._walk_call_tree(function_node, enclosing_caller, calls, local_names)
 
     def _find_calls(self, root_node, local_names=None):
         calls = []
