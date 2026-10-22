@@ -516,6 +516,11 @@ TOOLS = {
                                 "description": "For remove_node: node id, path, or name to delete."
                             }
                         },
+                        "allOf": [
+                            {"if": {"properties": {"type": {"enum": ["add_dependency", "remove_dependency"]}}}, "then": {"required": ["source", "target"]}},
+                            {"if": {"properties": {"type": {"const": "remove_node"}}}, "then": {"required": ["node_id"]}},
+                            {"if": {"properties": {"type": {"const": "decompose"}}}, "then": {"required": ["mapping"]}}
+                        ],
                         "required": ["type"]
                     }
                 },
