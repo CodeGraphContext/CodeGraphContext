@@ -74,7 +74,9 @@ def test_watch_first_initializes_repository_before_live_events(
         )
         handler = watcher.handlers[str(repo.resolve())]
         handler.debounce_interval = 0.05
-        assert rows("MATCH (r:Repository) RETURN r.path AS path") == [{"path": repo.resolve().as_posix()}]
+        assert rows("MATCH (r:Repository) RETURN r.path AS path") == [
+            {"path": repo.resolve().as_posix()}
+        ]
 
         def functions():
             # Orphan File/Function nodes must not satisfy the assertion: the
@@ -94,17 +96,32 @@ def test_watch_first_initializes_repository_before_live_events(
         source.write_text("def created():\n    return 1\n", encoding="utf-8")
         assert _wait_until(lambda: functions() == ["created"]), functions()
 
-        source.write_text("def modified():\n    return 2\n", encoding="utf-8")
+        # Graph writes can become visible before the same handler finishes
+        # re-reading the file for relationship linking. This test exercises
+        # sequential create/modify/delete, not concurrent reader interruption:
+        # wait for that owned update before each next mutation. Windows denies
+        # unlinking an open reader; graph visibility alone is not quiescence.
+        assert handler._update_lock.acquire(timeout=5), "previous update did not finish"
+        try:
+            source.write_text("def modified():\n    return 2\n", encoding="utf-8")
+        finally:
+            handler._update_lock.release()
         assert _wait_until(lambda: functions() == ["modified"]), functions()
 
-        source.unlink()
+        assert handler._update_lock.acquire(timeout=5), "previous update did not finish"
+        try:
+            source.unlink()
+        finally:
+            handler._update_lock.release()
         assert _wait_until(
             lambda: (
                 rows("MATCH (f:File) RETURN f.path AS path") == []
                 and rows("MATCH (f:Function) RETURN f.name AS name") == []
             )
         )
-        assert rows("MATCH (r:Repository) RETURN r.path AS path") == [{"path": repo.resolve().as_posix()}]
+        assert rows("MATCH (r:Repository) RETURN r.path AS path") == [
+            {"path": repo.resolve().as_posix()}
+        ]
     finally:
         if watcher is not None:
             # Stop dispatch first so no new timer can be enqueued during
@@ -126,7 +143,9 @@ def test_watch_first_initializes_repository_before_live_events(
 
 @pytest.mark.integration
 @pytest.mark.parametrize("perform_initial_scan", [False, True])
-def test_watch_attachment_preserves_metadata_unless_scanning(tmp_path, perform_initial_scan):
+def test_watch_attachment_preserves_metadata_unless_scanning(
+    tmp_path, perform_initial_scan
+):
     pytest.importorskip("ladybug")
     repo = tmp_path / "repo"
     repo.mkdir()
