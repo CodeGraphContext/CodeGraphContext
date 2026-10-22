@@ -21,6 +21,7 @@ from ..utils.debug_log import debug_log, error_logger, info_logger, warning_logg
 from .indexing.constants import DEFAULT_IGNORE_PATTERNS  # noqa: F401 - compatibility export
 from .indexing.persistence.writer import GraphWriter, sort_import_rows_for_metadata  # noqa: F401 - compatibility export
 from .indexing.pipeline import run_tree_sitter_index_async
+from .indexing.operation import IndexingOperation
 from .indexing.pre_scan import pre_scan_for_imports
 from .indexing.resolution.calls import build_function_call_groups, resolve_function_call
 from .indexing.resolution.inheritance import build_inheritance_and_csharp_files
@@ -571,7 +572,8 @@ class GraphBuilder:
             return None
 
     async def _build_graph_from_scip(
-        self, path: Path, is_dependency: bool, job_id: Optional[str], lang: str, cgcignore_path: Optional[str] = None
+        self, path: Path, is_dependency: bool, job_id: Optional[str], lang: str,
+        cgcignore_path: Optional[str] = None, *, _operation: Optional[IndexingOperation] = None,
     ):
         from . import scip_indexer
 
@@ -590,6 +592,7 @@ class GraphBuilder:
             scip_indexer,
             cgcignore_path,
             index_summary=self.last_index_summary,
+            _operation=_operation,
         )
 
     def _name_from_symbol(self, symbol: str) -> str:
@@ -608,21 +611,29 @@ class GraphBuilder:
         return name_from_symbol(symbol)
 
     async def build_graph_from_path_async(
-        self, path: Path, is_dependency: bool = False, job_id: str = None, cgcignore_path: str = None
+        self, path: Path, is_dependency: bool = False, job_id: str = None, cgcignore_path: str = None,
+        *, _operation: Optional[IndexingOperation] = None,
     ):
+        if _operation is None:
+            return await IndexingOperation(self.job_manager, job_id).run(
+                lambda operation: self.build_graph_from_path_async(
+                    path, is_dependency, job_id, cgcignore_path, _operation=operation,
+                )
+            )
         try:
+            _operation.check_cancelled()
             scip_enabled = (get_config_value("SCIP_INDEXER") or "false").lower() == "true"
             if scip_enabled:
                 from .scip_indexer import ScipIndexer, detect_project_lang, is_scip_available
 
                 scip_langs_str = get_config_value("SCIP_LANGUAGES") or "python,typescript,javascript,go,rust,java,dart,cpp,c,csharp,php,ruby,kotlin,swift,elixir"
                 scip_languages = [language.strip() for language in scip_langs_str.split(",") if language.strip()]
-                detected_lang = detect_project_lang(path, scip_languages)
+                detected_lang = await _operation.run_in_thread(detect_project_lang, path, scip_languages)
 
                 if (
                     detected_lang in ("cpp", "c")
                     and path.is_dir()
-                    and not ScipIndexer._find_compdb(path)
+                    and not await _operation.run_in_thread(ScipIndexer._find_compdb, path)
                 ):
                     warning_logger(
                         "[SCIP] C/C++ project detected but no compile_commands.json was found "
@@ -635,12 +646,16 @@ class GraphBuilder:
                         'See README section "SCIP indexing (optional)".'
                     )
 
-                if detected_lang and is_scip_available(detected_lang):
+                if detected_lang and await _operation.run_in_thread(is_scip_available, detected_lang):
                     info_logger(f"SCIP_INDEXER=true — using SCIP for language: {detected_lang}")
                     try:
-                        await self._build_graph_from_scip(path, is_dependency, job_id, detected_lang, cgcignore_path)
+                        await self._build_graph_from_scip(
+                            path, is_dependency, job_id, detected_lang, cgcignore_path,
+                            _operation=_operation,
+                        )
                         return
                     except Exception as e:
+                        _operation.check_cancelled(e)
                         warning_logger(
                             f"SCIP indexing failed for {path}: {e}. "
                             "Falling back to Tree-sitter."
@@ -671,6 +686,7 @@ class GraphBuilder:
                 self.add_minimal_file_node,
                 call_resolution_diagnostics=self.last_call_resolution_diagnostics,
                 index_summary=self.last_index_summary,
+                _operation=_operation,
             )
         except Exception as e:
             error_message = str(e)
@@ -686,6 +702,7 @@ class GraphBuilder:
                     status = JobStatus.FAILED
 
                 self.job_manager.fail_job(job_id, e, status=status)
+            _operation.check_cancelled()
 
     def add_minimal_file_node(self, file_path: Path, repo_path: Path, is_dependency: bool = False) -> None:
         """Create a minimal File node without parsing (for unsupported file types).

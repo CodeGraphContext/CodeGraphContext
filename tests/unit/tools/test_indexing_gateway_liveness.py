@@ -182,10 +182,14 @@ async def test_cancelled_scip_worker_does_not_start_more_graph_writes(tmp_path, 
     try:
         await asyncio.wait_for(wait_for_phase(phase), timeout=3)
         task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        done, _ = await asyncio.wait({task}, timeout=0.05)
+        assert not done, "the SCIP worker still owns its native/database resources"
+        assert jobs.get_job(job_id).status == JobStatus.RUNNING
+        assert not stopped.is_set()
     finally:
         phase.release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
     assert await asyncio.to_thread(stopped.wait, 3)
     if stage == "indexer":
         writer.add_file_to_graph.assert_not_called()
@@ -193,7 +197,7 @@ async def test_cancelled_scip_worker_does_not_start_more_graph_writes(tmp_path, 
         writer.add_file_to_graph.assert_called_once()
     writer.add_minimal_file_node.assert_not_called()
     writer.write_scip_call_edges.assert_not_called()
-    assert jobs.get_job(job_id).status != JobStatus.COMPLETED
+    assert jobs.get_job(job_id).status == JobStatus.CANCELLED
 
 
 @pytest.mark.asyncio
