@@ -1,3 +1,5 @@
+> **Nota:** Esta es una traducción parcial. Para la documentación completa y actualizada, consulta la versión en inglés: [../../README.md](../../README.md)
+
 # 🏗️ CodeGraphContext (CGC)
 
 **Convierte repositorios de código en un grafo consultable para agentes de IA.**
