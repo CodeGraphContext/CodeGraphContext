@@ -27,12 +27,14 @@ Use `cgc version` (or `cgc --version`) to print the installed release (currently
 
 The `clean`, `delete`, and `rm` commands are disabled by default because they remove data. Before using them, enable `ALLOW_DB_DELETION` as described in [Destructive Operation Safety](config.md#destructive-operation-safety).
 
+Run `cgc delete` (or `cgc rm`) in an interactive terminal to search the indexed repository names and paths, select one, and confirm its deletion. Escape, Ctrl-C, or EOF cancels without deleting. Selection uses the stored graph path, so moved or missing repositories can still be removed. Scripts must supply an explicit path or `--all`; `--yes` without a path does not select a target. Existing explicit-path and `--all` confirmations are unchanged.
+
 | Command | Usage | Notes |
 | :--- | :--- | :--- |
 | **`index`** | `cgc index [PATH] [--force] [--summarize]` | Shortcut: `cgc i`. Incremental by default; `--force` rebuilds from scratch; `--summarize` displays a summary after indexing. |
 | **`clean`** | `cgc clean` | Purges orphaned nodes and dangling relationships. |
 | **`stats`** | `cgc stats` | Repository and node counts for the active context. |
-| **`delete`** | `cgc delete <repo_path>` | Shortcut: `cgc rm`. Removes one indexed repository. |
+| **`delete`** | `cgc delete [repo_path]` | Shortcut: `cgc rm`. Removes one indexed repository; omit the path in a terminal to select by name and full indexed path. |
 | **`list`** | `cgc list` | Shortcut: `cgc ls`. Lists indexed repositories. |
 | **`add-package`** | `cgc add-package <name> <language>` | Indexes an installed third-party package as a dependency graph. |
 

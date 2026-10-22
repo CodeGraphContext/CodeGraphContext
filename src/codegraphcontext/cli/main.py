@@ -32,6 +32,7 @@ from .cli_helpers import (
     add_package_helper,
     list_repos_helper,
     delete_helper,
+    delete_selected_repository_helper,
     cypher_helper,
     cypher_helper_visual,
     visualize_helper,
@@ -1811,7 +1812,7 @@ def setup_scip():
 
 @app.command()
 def delete(
-    path: Optional[str] = typer.Argument(None, help="Path of the repository to delete from the code graph."),
+    path: Optional[str] = typer.Argument(None, help="Repository path; omit to select an indexed repository in a terminal."),
     all_repos: bool = typer.Option(False, "--all", help="Delete all indexed repositories"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt (for CI/non-interactive use)"),
     context: Optional[str] = typer.Option(None, "--context", "-c", help="Specific context to use")
@@ -1822,6 +1823,7 @@ def delete(
     Use --all to delete all repositories at once (requires confirmation).
     
     Examples:
+        cgc delete                    # Select an indexed repository interactively
         cgc delete ./my-project       # Delete specific repository
         cgc delete --all              # Delete all repositories
     """
@@ -1898,18 +1900,22 @@ def delete(
         finally:
             db_manager.close_driver()
     else:
-        # Delete specific repository
-        if not path:
-            console.print("[red]Error: Please provide a path or use --all to delete all repositories[/red]")
-            console.print("Usage: cgc delete <path> or cgc delete --all")
-            raise typer.Exit(code=1)
-
+        # Delete a specified path, or select an indexed key in a terminal.
         if not config_manager.is_db_deletion_allowed():
             console.print(
                 "[bold red]Error:[/bold red] Repository deletion is disabled. "
                 "Set ALLOW_DB_DELETION=true in config to enable."
             )
             raise typer.Exit(code=1)
+
+        if not path:
+            # --yes must not select an implicit target, even in a terminal.
+            if yes or not (sys.stdin.isatty() and sys.stdout.isatty()):
+                console.print("[red]Error: Please provide a path or use --all to delete all repositories[/red]")
+                console.print("Usage: cgc delete <path> or cgc delete --all")
+                raise typer.Exit(code=1)
+            delete_selected_repository_helper(context)
+            return
 
         # `--all` demands a typer.confirm *and* typing "delete all", while a
         # single delete went straight through — irreversibly dropping a
