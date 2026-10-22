@@ -49,6 +49,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
         self.repo_path = repo_path.resolve()
         self.debounce_interval = debounce_interval
         self.timers = {}
+        self._stopped = False
         # Guards self.timers, and serialises the graph updates that the
         # per-path debounce timers would otherwise run concurrently.
         self._timers_lock = threading.Lock()
@@ -206,12 +207,16 @@ class RepositoryEventHandler(FileSystemEventHandler):
         def _run():
             # Drop the fired timer: entries were never removed, so self.timers
             # grew without bound for the life of the watcher.
-            with self._timers_lock:
-                if self.timers.get(event_path) is timer:
+            with self._update_lock:
+                with self._timers_lock:
+                    if getattr(self, "_stopped", False) or self.timers.get(event_path) is not timer:
+                        return
                     del self.timers[event_path]
-            action()
+                action()
 
         with self._timers_lock:
+            if getattr(self, "_stopped", False):
+                return
             existing = self.timers.get(event_path)
             if existing is not None:
                 existing.cancel()
@@ -221,9 +226,14 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
     def cancel_timers(self):
         with self._timers_lock:
+            self._stopped = True
             for t in self.timers.values():
                 t.cancel()
             self.timers.clear()
+        # Timer.cancel() cannot stop a callback that has already begun. Wait
+        # for that callback before allowing unwatch/shutdown to close its DB.
+        with self._update_lock:
+            pass
 
     def _update_imports_map_for_file(self, changed_path: Path):
         """Re-scan a single file and merge its contributions into self.imports_map."""

@@ -160,7 +160,7 @@ def mcp_start():
     finally:
         # Ensure server and event loop are properly closed.
         if server:
-            server.shutdown()
+            loop.run_until_complete(server.shutdown_async())
         loop.close()
 
 @mcp_app.command("tools")
