@@ -15,7 +15,6 @@ from watchdog.events import FileSystemEventHandler
 if typing.TYPE_CHECKING:
     from pathspec import PathSpec
     from ..tools.graph_builder import GraphBuilder
-    from ..core.jobs import JobManager
 
 from .cgcignore import build_ignore_spec
 from ..tools.indexing.constants import DEFAULT_IGNORE_PATTERNS
@@ -61,6 +60,14 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
         self.all_file_data = []
         self.imports_map = {}
+
+        # GraphBuilder initializes the schema; every watch mode also needs a
+        # Repository before sync or live updates can attach files to it (#599).
+        self.graph_builder.add_repository_to_graph(
+            self.repo_path,
+            is_dependency=False,
+            preserve_existing=sync_on_start or not perform_initial_scan,
+        )
 
         if sync_on_start:
             self.synchronize_with_disk()
@@ -144,8 +151,6 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
         repo_name = self.repo_path.name
         repo_path_str = self.repo_path.resolve().as_posix()
-
-        self.graph_builder.add_repository_to_graph(self.repo_path, is_dependency=False)
 
         for fd in self.all_file_data:
             self.graph_builder.add_file_to_graph(
