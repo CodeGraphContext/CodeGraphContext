@@ -26,6 +26,42 @@ def _resolved_posix(path: str) -> str:
     return Path(path).resolve().as_posix()
 
 
+def import_path_in_candidate(import_name: str, candidate_path: str, repo_root: Optional[str] = None) -> bool:
+    """The FQN path-substring heuristic: does *import_name* (dots as slashes) occur in *candidate_path*?
+
+    Tested on the candidate's path **from its repository directory down**:
+    relative to the root's *parent*, so the repository directory's own name
+    stays in (``mypkg/adapters.py`` when the indexed root is the package dir
+    ``…/site-packages/mypkg`` — ``add_package_to_graph`` and ``cgc index
+    src/mypkg`` index exactly that — still matches ``import mypkg.adapters``),
+    while everything above it is cut. Against the absolute path the test also
+    saw the checkout location, so resolution depended on where the repository
+    lives on disk: a JavaScript ``import { _t }`` matched every candidate once
+    the repository sat under a directory whose name contained ``_t`` (e.g. a
+    ``tempfile.mkdtemp()`` copy whose random suffix starts with ``t``),
+    turning tier-8 HEURISTIC_CALLS into tier-7 CALLS and re-picking
+    first-of-many targets. Without a usable root (callers that do not know
+    it), the absolute path is used as before.
+
+    Still a plain substring test (``_t`` matches ``account_tax/…`` inside the
+    repository); anchoring it at path-segment boundaries would change
+    resolution beyond location independence.
+    """
+    needle = import_name.replace(".", "/")
+    return needle in _repo_relative_posix(candidate_path, repo_root)
+
+
+def _repo_relative_posix(path: str, repo_root: Optional[str]) -> str:
+    """*path* from the repository directory down (``<repo dir name>/<path in repo>``)."""
+    if not repo_root:
+        return path
+    root = _resolved_posix(repo_root).rstrip("/")
+    if not root or not path.startswith(root + "/"):
+        return path
+    parent = root.rsplit("/", 1)[0]
+    return path[len(parent) + 1:] if parent else path.lstrip("/")
+
+
 # Confidence score for each resolution tier.
 # Higher = more certain the edge points to the correct target.
 _TIER_CONFIDENCE: Dict[int, float] = {
@@ -118,8 +154,14 @@ def resolve_function_call(
     extension_method_index: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None,
     local_class_trait_methods: Optional[Dict[str, Dict[str, Tuple[str, str]]]] = None,
     diagnostics: Optional[List[Dict[str, Any]]] = None,
+    repo_root: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Resolve a single function call to its target. Returns call params dict or None if skipped."""
+    """Resolve a single function call to its target. Returns call params dict or None if skipped.
+
+    *repo_root* is the caller's repository root (``file_data["repo_path"]``):
+    path-substring heuristics test candidate paths relative to it, so the
+    result does not depend on where the repository is checked out.
+    """
     caller_lang = detect_lang_from_path(caller_file_path)
     called_name = call["name"]
     if called_name in __builtins__:
@@ -1519,7 +1561,7 @@ def resolve_function_call(
                         resolution_tier = 6
                 if not resolved_path:
                     for path in possible_paths:
-                        if full_import_name.replace(".", "/") in path:
+                        if import_path_in_candidate(full_import_name, path, repo_root):
                             resolved_path = path
                             resolution_tier = 7
                             break
@@ -1547,7 +1589,7 @@ def resolve_function_call(
                 for imp_name in local_imports.values():
                     if not isinstance(imp_name, str):
                         continue
-                    if imp_name.replace(".", "/") in path:
+                    if import_path_in_candidate(imp_name, path, repo_root):
                         resolved_path = path
                         is_unresolved_external = False
                         resolution_tier = 7
@@ -2991,6 +3033,7 @@ def build_function_call_groups(
                 extension_method_index=extension_method_index,
                 local_class_trait_methods=local_class_trait_methods,
                 diagnostics=diagnostics,
+                repo_root=file_data.get("repo_path"),
             )
             if not resolved:
                 continue

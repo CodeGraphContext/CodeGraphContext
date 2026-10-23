@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .calls import import_path_in_candidate
 
 
 # Child construct list -> node label: the 8 kinds that can declare inheritance.
@@ -67,8 +68,13 @@ def resolve_inheritance_link(
     imports_map: dict,
     child_label: Optional[str] = None,
     node_label_index: Optional[Dict[str, Dict[str, set]]] = None,
+    repo_root: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Resolve a single inheritance link. Returns row dict or None."""
+    """Resolve a single inheritance link. Returns row dict or None.
+
+    *repo_root*: see ``calls.import_path_in_candidate`` — import-path matching
+    looks at candidate paths relative to the repository, not where it lives.
+    """
     import re
     if base_class_str == "object":
         return None
@@ -90,7 +96,7 @@ def resolve_inheritance_link(
             full_import_name = local_imports[lookup_name]
             possible_paths = imports_map.get(target_class_name, [])
             for path in possible_paths:
-                if full_import_name.replace(".", "/") in path:
+                if import_path_in_candidate(full_import_name, path, repo_root):
                     resolved_path = path
                     break
     else:
@@ -101,7 +107,7 @@ def resolve_inheritance_link(
             full_import_name = local_imports[lookup_name]
             possible_paths = imports_map.get(target_class_name, [])
             for path in possible_paths:
-                if full_import_name.replace(".", "/") in path:
+                if import_path_in_candidate(full_import_name, path, repo_root):
                     resolved_path = path
                     break
         elif lookup_name in imports_map:
@@ -186,6 +192,7 @@ def build_inheritance_and_csharp_files(
                         imports_map,
                         child_label=child_label,
                         node_label_index=node_label_index,
+                        repo_root=file_data.get("repo_path"),
                     )
                     if resolved:
                         inheritance_batch.append(resolved)
