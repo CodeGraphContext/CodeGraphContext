@@ -170,7 +170,7 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
                 print(f"DEBUG: Executing custom query: {cypher_query}", flush=True)
                 result = session.run(cypher_query)
             elif repo_path:
-                repo_path = str(Path(repo_path).resolve())
+                repo_path = Path(repo_path).resolve().as_posix()
                 print(f"DEBUG: Fetching subgraph for: {repo_path}", flush=True)
                 # Get all nodes within the repository scope
                 query = """
