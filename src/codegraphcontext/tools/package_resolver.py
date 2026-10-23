@@ -123,11 +123,12 @@ def _get_java_package_path(package_name: str) -> Optional[str]:
             if group_path:
                 package_path = maven_repo / group_path / artifact_id
                 if package_path.exists():
-                    versions = [d for d in package_path.iterdir() if d.is_dir()]
+                    versions = sorted(d for d in package_path.iterdir() if d.is_dir())
                     if versions:
                         return str(sorted(versions)[-1].resolve())
 
-            for jar in maven_repo.rglob(f"*{artifact_id}*.jar"):
+            # sorted: first match wins, and rglob order is filesystem order
+            for jar in sorted(maven_repo.rglob(f"*{artifact_id}*.jar")):
                 return str(jar.parent.resolve())
 
         return None
