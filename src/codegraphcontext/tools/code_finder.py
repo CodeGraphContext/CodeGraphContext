@@ -8,6 +8,7 @@ from pathlib import Path
 
 if TYPE_CHECKING:
     from ..core.database import DatabaseManager
+from ..core.read_timeout import ReadQueryTimeout, read_driver
 from ..utils.path_ignore import cypher_path_not_under_ignore_dirs
 from ..utils.tool_limits import get_tool_result_limit
 
@@ -234,8 +235,13 @@ class CodeFinder:
 
     @property
     def driver(self):
-        """Returns driver for the active graph (set via graph_name params), or default."""
-        return self.db_manager.get_driver(self._active_graph)
+        """Read driver for the active graph (set via graph_name params), or default.
+
+        CodeFinder only reads. On Neo4j/Nornic every statement carries the
+        current tool's time ceiling (core/read_timeout.py); other backends get
+        the manager's driver unchanged.
+        """
+        return read_driver(self.db_manager, self._active_graph)
 
     def _normalize_repo_path_filter(self, repo_path: Optional[str]) -> Optional[str]:
         """Resolve a caller-supplied repo_path to the absolute path stored on indexed
@@ -1732,6 +1738,8 @@ class CodeFinder:
                     ]
                 }
         
+        except ReadQueryTimeout:
+            raise  # the handler turns it into the uniform timeout error
         except Exception as e:
             return {
                 "error": f"Error executing relationship query: {str(e)}",

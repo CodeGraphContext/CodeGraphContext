@@ -7,6 +7,7 @@ try:
 except ImportError:  # neo4j driver not installed (FalkorDB/Kuzu-only setups)
     CypherSyntaxError = type("CypherSyntaxError", (Exception,), {})
 
+from ...core.read_timeout import ReadQueryTimeout, read_driver, timeout_error
 from ...utils.cypher_readonly import is_read_only_cypher, read_only_rejection_message
 from ...utils.debug_log import debug_log
 from ...utils.tool_limits import get_tool_result_limit
@@ -43,7 +44,8 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
 
     try:
         debug_log(f"Executing Cypher query: {cypher_query}")
-        with db_manager.get_driver(graph_name).session(**session_kwargs) as session:
+        # read_driver: the tool's time ceiling on Neo4j/Nornic (core/read_timeout.py)
+        with read_driver(db_manager, graph_name).session(**session_kwargs) as session:
             # Unpack as kwargs: Neo4j accepts them, and the FalkorDB/Kuzu
             # session shims only accept parameters via **kwargs.
             result = session.run(cypher_query, **params)
@@ -66,6 +68,9 @@ def execute_cypher_query(db_manager, **args) -> Dict[str, Any]:
                 response["truncated"] = True
             return response
 
+    except ReadQueryTimeout as e:
+        debug_log(f"Cypher query timed out: {str(e)}")
+        return timeout_error(e, query=cypher_query)
     except CypherSyntaxError as e:
         debug_log(f"Cypher syntax error: {str(e)}")
         return {

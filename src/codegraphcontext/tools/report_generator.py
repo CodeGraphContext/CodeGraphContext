@@ -22,17 +22,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..core.read_timeout import ReadQueryTimeout, read_driver
 from ..utils.debug_log import info_logger
+
+#: The read-query ceiling this report runs under (TOOL_QUERY_TIMEOUTS), from the
+#: MCP tool and the CLI alike: the report's cost grows with the repository.
+_REPORT_TOOL = "generate_report"
 
 
 def resolve_report_repo_scope(db_manager: Any, cwd: Optional[Path] = None) -> Optional[str]:
     """Pick a single indexed repository to scope report queries."""
     cwd_str = (cwd or Path.cwd()).resolve().as_posix()
     try:
-        with db_manager.get_driver().session() as session:
+        with read_driver(db_manager, tool=_REPORT_TOOL).session() as session:
             repos = session.run(
                 "MATCH (r:Repository) RETURN r.path AS path ORDER BY r.path"
             ).data()
+    except ReadQueryTimeout:
+        raise  # a timed-out report is an error, not a report with holes
     except Exception:
         return None
 
@@ -54,7 +61,7 @@ def resolve_report_repo_scope(db_manager: Any, cwd: Optional[Path] = None) -> Op
 
     # Multi-repo global DB: scope to the repo with the most indexed files.
     try:
-        with db_manager.get_driver().session() as session:
+        with read_driver(db_manager, tool=_REPORT_TOOL).session() as session:
             row = session.run(
                 """
                 MATCH (r:Repository)
@@ -66,6 +73,8 @@ def resolve_report_repo_scope(db_manager: Any, cwd: Optional[Path] = None) -> Op
             ).single()
             if row and row.get("path"):
                 return row["path"]
+    except ReadQueryTimeout:
+        raise
     except Exception:
         pass
     return None
@@ -83,6 +92,8 @@ def _run_cypher(driver: Any, query: str, params: Optional[Dict] = None) -> List[
         with driver.session() as session:
             result = session.run(query, **(params or {}))
             return [dict(record) for record in result]
+    except ReadQueryTimeout:
+        raise
     except Exception as exc:
         return [{"_error": str(exc)}]
 
@@ -415,7 +426,7 @@ def generate_report(
     Returns:
         The full report as a markdown string.
     """
-    driver = db_manager.get_driver()
+    driver = read_driver(db_manager, tool=_REPORT_TOOL)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     if repo_path is None:
         repo_path = resolve_report_repo_scope(db_manager)

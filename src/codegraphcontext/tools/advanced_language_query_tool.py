@@ -19,6 +19,7 @@ from ..tools.query_tool_languages.elisp_toolkit import ElispToolkit
 from ..tools.query_tool_languages.perl_toolkit import PerlToolkit
 from ..tools.query_tool_languages.solidity_toolkit import SolidityToolkit
 from ..tools.query_tool_languages.hcl_toolkit import HclToolkit
+from ..core.read_timeout import read_driver
 
 if TYPE_CHECKING:
     from ..core.database import DatabaseManager
@@ -92,7 +93,7 @@ class Advanced_language_query:
             return {"error": str(exc), "language": language, "query": query}
         try:
             debug_log(f"Executing Cypher query: {cypher_query}")
-            with self.db_manager.get_driver().session() as session:
+            with read_driver(self.db_manager).session() as session:
                 result = session.run(cypher_query)
                 # Convert results to a list of dictionaries for clean JSON serialization
                 records = [record.data() for record in result]

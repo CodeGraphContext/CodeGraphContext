@@ -3,6 +3,7 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Set, Tuple
+from codegraphcontext.core.read_timeout import read_driver
 from codegraphcontext.utils.debug_log import info_logger, error_logger, warning_logger
 
 
@@ -66,7 +67,7 @@ class CodeGraphTwin:
           n2.name as target_name
         """
         
-        with db_manager.get_driver().session() as session:
+        with read_driver(db_manager).session() as session:
             node_rows = session.run(node_query, path=self.repository_path).data()
             rel_rows = session.run(rel_query, path=self.repository_path).data()
 
@@ -510,7 +511,7 @@ class EvolutionTimeline:
         RETURN f.relative_path as rel_path, f.path as abs_path, sum(func.cyclomatic_complexity) as complexity
         """
         
-        with db_manager.get_driver().session() as session:
+        with read_driver(db_manager).session() as session:
             rows = session.run(query, path=Path(repo_path).resolve().as_posix()).data()
 
         max_complexity = 1.0

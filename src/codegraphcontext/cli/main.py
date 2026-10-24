@@ -46,6 +46,7 @@ from .cli_helpers import (
     setup_scip_helper,
 )
 from .hook_manager import HookError, get_hook_status, install_hooks, uninstall_hooks
+from codegraphcontext.core.read_timeout import read_driver
 from codegraphcontext.utils.tool_limits import get_tool_result_limit
 
 # Set the log level for the noisy neo4j, asyncio, and urllib3 loggers to keep the output clean.
@@ -1217,7 +1218,11 @@ def diagram(
 
     try:
         repo_path = Path(path).resolve().as_posix() if path else None
-        result = code_finder.export_diagram_edges(level=level, repo_path=repo_path, limit=limit)
+        from codegraphcontext.core.read_timeout import tool_scope
+
+        # its read ceiling (TOOL_QUERY_TIMEOUTS): cost grows with the repository
+        with tool_scope("export_diagram"):
+            result = code_finder.export_diagram_edges(level=level, repo_path=repo_path, limit=limit)
     finally:
         db_manager.close_driver()
 
@@ -2186,7 +2191,7 @@ def find_by_name(
             results.extend(imports)
 
             # Also search Interface, Trait, Struct, Enum nodes (PHP, Rust, Go, etc.)
-            with db_manager.get_driver().session() as session:
+            with read_driver(db_manager).session() as session:
                 for label in ['Interface', 'Trait', 'Struct', 'Enum']:
                     res = session.run(
                         f"MATCH (n:{label}) WHERE n.name = $name RETURN n.name as name, n.path as path, n.line_number as line_number",
@@ -2217,7 +2222,7 @@ def find_by_name(
             
         elif type.lower() == 'file':
             # Quick query for file
-            with db_manager.get_driver().session() as session:
+            with read_driver(db_manager).session() as session:
                 res = session.run("MATCH (n:File) WHERE n.name = $name RETURN n.name as name, n.path as path, n.is_dependency as is_dependency", name=name)
                 results = [dict(record) for record in res]
                 for r in results: r['type'] = 'File'
@@ -2275,7 +2280,7 @@ def find_by_pattern(
     db_manager, graph_builder, code_finder = services[:3]
     
     try:
-        with db_manager.get_driver().session() as session:
+        with read_driver(db_manager).session() as session:
             # Search Functions, Classes, and Modules
             # Note: FalkorDB Lite might not support regex, using CONTAINS
             
