@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, Optional
 import threading
-import sys
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Parser
@@ -31,12 +30,6 @@ _get_language = None
 
 def _missing_tree_sitter_error(import_error: ImportError) -> ImportError:
     """Return an actionable error for optional tree-sitter dependencies."""
-    if sys.version_info >= (3, 13):
-        return ImportError(
-            "Tree-sitter parsing is not available on Python 3.13 because "
-            "tree-sitter-language-pack does not publish cp313 wheels. "
-            "Install CodeGraphContext with Python 3.12 or 3.14 to use indexing/parsing."
-        )
     return ImportError(
         "tree-sitter and tree-sitter-language-pack are required for code parsing. "
         "Install them with: pip install codegraphcontext[parsing]"
@@ -53,17 +46,20 @@ def _load_tree_sitter_dependencies():
     try:
         from tree_sitter import Language as ImportedLanguage, Parser as ImportedParser
         try:
-            from tree_sitter_language_pack import get_language as imported_get_language
-            # Test it immediately using a version-agnostic pattern
-            test_lang = imported_get_language('python')
-            try:
-                # 0.22+ style
-                test_parser = ImportedParser(test_lang)
-            except (TypeError, ValueError):
-                # < 0.22 style
-                test_parser = ImportedParser()
-                test_parser.set_language(test_lang)
-        except (ImportError, Exception):
+            import tree_sitter_language_pack as language_pack
+
+            # get_language in language-pack 1.20 performs cold-cache network
+            # I/O while holding the GIL. prefetch releases it, so a parser
+            # initialized by an indexing worker cannot freeze the gateway.
+            # Older bundled packs may not expose prefetch and need no download.
+            prefetch = getattr(language_pack, "prefetch", None)
+            if prefetch is None:
+                imported_get_language = language_pack.get_language
+            else:
+                def imported_get_language(name):
+                    prefetch([name])
+                    return language_pack.get_language(name)
+        except ImportError:
             # Fallback to tree_sitter_languages
             from tree_sitter_languages import get_language as imported_get_language
     except ImportError as e:
@@ -94,6 +90,10 @@ LANGUAGE_ALIASES = {
     "lua": "lua",
     
     # Canonical names (map to themselves for consistency)
+    "hcl": "hcl",
+    "terraform": "hcl",
+    "tf": "hcl",
+
     "python": "python",
     "javascript": "javascript",
     "typescript": "typescript",
@@ -220,9 +220,9 @@ class TreeSitterManager:
                     f"This may be due to a missing or experimental grammar."
                 )
             except Exception as e:
-                raise Exception(
+                raise RuntimeError(
                     f"Failed to load language '{canonical_name}': {e}"
-                )
+                ) from e
     
     def create_parser(self, lang: str) -> Parser:
         """

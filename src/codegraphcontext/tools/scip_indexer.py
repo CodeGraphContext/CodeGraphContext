@@ -477,6 +477,17 @@ class ScipIndexer:
         return None
 
 
+def _occurrence_range(occ, typed: str = "typed_range", legacy: str = "range") -> List[int]:
+    """[line, start, end] or [start_line, start, end_line, end]; the typed range wins over the deprecated list."""
+    which = occ.WhichOneof(typed)
+    if which is None:
+        return list(getattr(occ, legacy))
+    r = getattr(occ, which)
+    if which.startswith("single_line"):
+        return [r.line, r.start_character, r.end_character]
+    return [r.start_line, r.start_character, r.end_line, r.end_character]
+
+
 class ScipIndexParser:
     """
     Parses an index.scip (Protobuf) file and extracts function calls,
@@ -489,6 +500,7 @@ class ScipIndexParser:
         except Exception as e:
             error_logger(f"Failed to import codegraphcontext.tools.scip_pb2: {e}")
             return {}
+        Kind = scip_pb2.SymbolInformation
 
         try:
             with open(index_scip_path, "rb") as f:
@@ -506,9 +518,10 @@ class ScipIndexParser:
                     continue
                 role = getattr(occ, "symbol_roles", getattr(occ, "role", 0))
                 if role & 1: # Definition
+                    r = _occurrence_range(occ)
                     symbol_def_table[occ.symbol] = {
                         "file": doc.relative_path,
-                        "line": occ.range[0] + 1 if occ.range else 0,
+                        "line": r[0] + 1 if r else 0,
                     }
                     
                 # Rust trait implementation extraction from symbol string
@@ -577,17 +590,19 @@ class ScipIndexParser:
                         if 0 < line_num <= len(source):
                             src_line = source[line_num - 1].strip().lower()
                             if src_line.startswith("interface "):
-                                kind = 20  # Interface
+                                kind = Kind.Interface
                             elif src_line.startswith("trait "):
                                 kind = 53  # Trait
                     info["kind"] = kind
-                elif sym.endswith("()."):
+                elif self._is_callable_symbol(sym):
                     info["kind"] = 26 if "#" in sym else 17
             
             # Apply Rust implementations if available
             rust_impls = symbol_def_table.get("rust_impls", {})
             name = self._name_from_symbol(sym)
-            if name in rust_impls and info.get("kind") in (7, 18, 20, 49, 53, 54):
+            if name in rust_impls and info.get("kind") in (
+                Kind.Class, Kind.Enum, Kind.Interface, Kind.Struct, Kind.Trait, Kind.Protocol
+            ):
                 info["bases"] = list(set(info.get("bases", []) + list(rust_impls[name])))
 
         for doc in index.documents:
@@ -611,7 +626,8 @@ class ScipIndexParser:
             for occ in doc.occurrences:
                 sym = occ.symbol
                 if sym.startswith("local ") or sym == "rust_impls": continue
-                line = occ.range[0] + 1 if occ.range else 0
+                r = _occurrence_range(occ)
+                line = r[0] + 1 if r else 0
                 role = getattr(occ, "symbol_roles", getattr(occ, "role", 0))
 
                 if role & 1:  # Definition
@@ -623,16 +639,16 @@ class ScipIndexParser:
                             kind = ck
                     if kind == 0:
                         # Check method before function: methods have # in symbol
-                        if sym.endswith("().") and "#" in sym:
+                        if self._is_callable_symbol(sym) and "#" in sym:
                             kind = 26  # Method
-                        elif sym.endswith("()."):
+                        elif self._is_callable_symbol(sym):
                             kind = 17  # Function
                         elif sym.endswith("#"):
                             # Check source to distinguish class/interface/trait
                             src = doc_source_lines.get(rel_path, [])
                             src_line = src[line - 1].strip().lower() if 0 < line <= len(src) else ""
                             if src_line.startswith("interface "):
-                                kind = 20
+                                kind = Kind.Interface
                             elif src_line.startswith("trait "):
                                 kind = 53
                             elif sym.startswith("scip-go") or sym.startswith("rust-analyzer"):
@@ -657,12 +673,12 @@ class ScipIndexParser:
                         node["bases"] = [self._name_from_symbol(b) for b in defn.get("bases", [])]
                         node["context"] = None
                         file_data["classes"].append(node)
-                    elif kind == 20 or kind == 54: # Interface or Protocol
+                    elif kind in (Kind.Interface, Kind.Protocol):
                         node["bases"] = [self._name_from_symbol(b) for b in defn.get("bases", [])]
                         node["context"] = None
                         if "interfaces" not in file_data: file_data["interfaces"] = []
                         file_data["interfaces"].append(node)
-                    elif kind == 18: # Enum
+                    elif kind == Kind.Enum:
                         node["context"] = None
                         if "enums" not in file_data: file_data["enums"] = []
                         file_data["enums"].append(node)
@@ -682,7 +698,6 @@ class ScipIndexParser:
 
                 else: # Reference
                     if sym not in symbol_def_table: continue
-                    r = list(occ.range)
                     if not r: continue
                     callee_info = symbol_def_table[sym]
                     ref_line_idx = r[0]
@@ -716,6 +731,11 @@ class ScipIndexParser:
 
         return {"files": files_data, "symbol_table": symbol_def_table}
 
+    @staticmethod
+    def _is_callable_symbol(sym: str) -> bool:
+        import re
+        return re.search(r"\((?:\+\d+)?\)\.$", sym) is not None
+
     def _name_from_symbol(self, symbol: str) -> str:
         import re
         # scip-clang appends a hash in parentheses to disambiguate overloads / template args
@@ -723,8 +743,8 @@ class ScipIndexParser:
         # Strip parameter descriptors: .($param), .($p1).($p2), etc.
         s = re.sub(r"\.\(\$?[^)]*\)", "", s)
         s = s.rstrip(".#")
-        # Remove function/method call markers: ()
-        s = re.sub(r"\(\)\.?$", "", s)
+        # Remove function/method call markers: () and the scip-dotnet overload marker (+N)
+        s = re.sub(r"\((?:\+\d+)?\)\.?$", "", s)
         parts = re.split(r"[/#]", s)
         name = parts[-1] if parts else symbol
         name = re.sub(r"^`([^`]+)`$", r"\1", name)
@@ -756,7 +776,8 @@ class ScipIndexParser:
             if 0 < line <= len(source_lines):
                 src_line = source_lines[line - 1].strip().lower()
             if "enum " in src_line or src_line.startswith("enum"):
-                return 18
+                from . import scip_pb2
+                return scip_pb2.SymbolInformation.Enum
             if src_line.startswith("union "):
                 return 49
             if src_line.startswith("struct "):
@@ -792,7 +813,7 @@ class ScipIndexParser:
         best_enclosing_start = -1
         for occ in definition_occurrences:
             if occ.symbol.endswith("/"): continue
-            er = list(getattr(occ, "enclosing_range", []))
+            er = _occurrence_range(occ, "typed_enclosing_range", "enclosing_range")
             if not er: continue
             enc_start, enc_end = (er[0] + 1, er[2] + 1) if len(er) == 4 else (er[0] + 1, er[0] + 1)
             if enc_start <= ref_line <= enc_end and enc_start > best_enclosing_start:

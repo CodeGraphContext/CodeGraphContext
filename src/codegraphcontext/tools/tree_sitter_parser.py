@@ -47,6 +47,7 @@ class TreeSitterParser:
             "svelte":     (".languages.svelte",        "SvelteTreeSitterParser"),
             "vue":        (".languages.vue",           "VueTreeSitterParser"),
             "solidity":   (".languages.solidity",      "SolidityTreeSitterParser"),
+            "hcl":        (".languages.hcl",           "HclTreeSitterParser"),
         }
 
         if language_name not in LANGUAGE_PARSER_MAP:

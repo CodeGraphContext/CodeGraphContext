@@ -202,12 +202,19 @@ List background jobs (indexing, scans, etc.).
 - **Args:** None
 - **Returns:** Job list with status
 
+Failed jobs also include `error_type` and `traceback` diagnostics. The existing
+`errors` list retains its concise messages. Tracebacks are limited to 32,768
+characters; oversized values begin with a truncation marker.
+
 ### `check_job_status`
 
 Poll a single job.
 
 - **Args:** `job_id` (string)
 - **Returns:** Status and progress
+
+Failed jobs expose the same `error_type` and bounded `traceback` fields as
+`list_jobs`, so clients can inspect the cause without access to server logs.
 
 ---
 

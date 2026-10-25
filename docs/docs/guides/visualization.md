@@ -39,6 +39,26 @@ The browser interface serves a force-directed graph showing your codebase struct
 - **Relationship Filters**: Toggle visibility of relationship edges (e.g., hiding `IMPORTS` to focus exclusively on execution `CALLS` flow).
 - **Navigation Controls**: Zoom, pan, and drag nodes to isolate call loops and modules.
 
+### Natural-language graph queries with API Route
+
+The visualizer's AI query feature can use [API Route](https://www.api-route.com),
+an OpenAI-compatible gateway. Set your key before starting the server:
+
+```bash
+export API_ROUTE_API_KEY="your-api-route-key"
+cgc visualize
+```
+
+The default endpoint is `https://global.api-route.com/v1` and the default model
+is `gpt-6.1-sol`. Set `API_ROUTE_API_BASE` or `API_ROUTE_MODEL` to override them
+with an endpoint or model available to your account.
+
+When multiple provider keys are configured, Gemini, OpenAI, Atlas Cloud and
+Cheaper Inference retain their existing priority over API Route. Use only the
+API Route key for this server process to select it. AI queries send the question,
+graph schema and query results to the selected provider to generate and explain
+read-only Cypher queries.
+
 ---
 
 ## 3. Neo4j Browser Visualizations (Neo4j Backend Only)

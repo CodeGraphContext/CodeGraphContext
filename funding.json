@@ -1,0 +1,83 @@
+{
+  "$schema": "https://fundingjson.org/schema/v1.1.0.json",
+  "version": "v1.1.0",
+  "entity": {
+    "type": "individual",
+    "role": "maintainer",
+    "name": "Shashank Shekhar Singh",
+    "email": "shashankshekharsingh1205@gmail.com",
+    "description": "I have built and maintain CodeGraphContext, an MIT-licensed open-source tool for structural analysis of software repositories and agent-accessible code context. I am seeking support for public maintenance, reliability, security, and adoption of this open-source infrastructure.",
+    "webpageUrl": {
+      "url": "https://github.com/Shashankss1205"
+    }
+  },
+  "projects": [
+    {
+      "guid": "codegraphcontext",
+      "name": "CodeGraphContext",
+      "description": "CodeGraphContext (CGC) turns code repositories into queryable graphs of symbols, call relationships, inheritance, imports, and dependencies. It exposes code understanding through a command-line tool and an MCP server for AI agents. It supports multiple programming languages and graph database backends. The core project is MIT-licensed and developed in public. The project has been accepted as a supported project by the German Center for Open Source AI (GC.OS).",
+      "webpageUrl": {
+        "url": "https://github.com/CodeGraphContext/CodeGraphContext"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/CodeGraphContext/CodeGraphContext"
+      },
+      "licenses": [
+        "spdx:MIT"
+      ],
+      "tags": [
+        "developer-tools",
+        "open-source",
+        "code-analysis",
+        "knowledge-graphs",
+        "ai-agents",
+        "mcp",
+        "python",
+        "static-analysis"
+      ]
+    }
+  ],
+  "funding": {
+    "channels": [
+      {
+        "guid": "github-sponsors",
+        "type": "payment-provider",
+        "address": "https://github.com/sponsors/Shashankss1205",
+        "description": "Public GitHub Sponsors profile; funding and sponsorship tiers are available here."
+      },
+      {
+        "guid": "grant-bank-transfer",
+        "type": "bank",
+        "description": "For an approved institutional grant, request banking and applicable tax documentation privately via the maintainer email. No banking details are published in this manifest."
+      }
+    ],
+    "plans": [
+      {
+        "guid": "india-maintenance-2026",
+        "status": "active",
+        "name": "India-based open-source reliability and maintainer support (6 months)",
+        "description": "Proposed one-time grant of INR 600,000 for six months of public work, subject to grantor eligibility and budget review. Budget: INR 210,000 parser correctness, language fixtures and golden regression tests; INR 120,000 reproducible cross-platform CI; INR 105,000 public parser-accuracy benchmarks and performance baselines; INR 75,000 contributor onboarding and technical documentation; INR 90,000 issue triage, releases and quarterly community engagement. Milestone 1 (months 1-2): publish prioritized language fixture matrix, baseline goldens, and reproducible correctness failures. Milestone 2 (months 3-4): improve regression pass rates and cross-platform integration checks, with public CI evidence and benchmark harness. Milestone 3 (months 5-6): publish releases, documentation and contributor guide updates, plus a public maintenance report and community update. Deliverables and checkpoints are public; no same expense or milestone will be charged to another grant. If grants overlap, budget and scope will be revised and disclosed to the funders.",
+        "amount": 600000,
+        "currency": "INR",
+        "frequency": "one-time",
+        "channels": [
+          "grant-bank-transfer",
+          "github-sponsors"
+        ]
+      },
+      {
+        "guid": "global-infra-sustainability-2026",
+        "status": "active",
+        "name": "Open code-intelligence infrastructure sustainability (12 months)",
+        "description": "Proposed one-time USD 50,000 grant for 12 months of public work, following the FLOSS/fund grant denomination policy. This is a request, not an awarded grant. Budget: USD 20,000 for untrusted-repository threat modeling, fuzzing and security regression tests; USD 15,000 for graph database backend conformance, compatibility and query benchmarks; USD 10,000 for large-repository indexing, incremental-update and memory/latency improvements; USD 5,000 for reproducibility packages, independent test evidence and security maintenance reports. Milestone 1 (months 1-4): threat model, attack-surface inventory, adversarial corpus and initial security checks. Milestone 2 (months 5-8): public multi-backend correctness/performance matrix and fixes. Milestone 3 (months 9-12): large-repository benchmark suite, indexing improvements, release documentation and reproducible final report. This scope is distinct from the India-focused parser/CI/community plan. Any concurrent funding will be disclosed and adjusted to avoid duplicate expense or deliverable claims.",
+        "amount": 50000,
+        "currency": "USD",
+        "frequency": "one-time",
+        "channels": [
+          "grant-bank-transfer",
+          "github-sponsors"
+        ]
+      }
+    ]
+  }
+}

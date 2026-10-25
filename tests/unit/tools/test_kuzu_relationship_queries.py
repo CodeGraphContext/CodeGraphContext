@@ -3,6 +3,9 @@ from codegraphcontext.tools.code_finder import CodeFinder
 from codegraphcontext.tools.query_tool_languages.cpp_toolkit import CppToolkit
 
 class _FakeResult:
+    def __iter__(self):
+        return iter(self.data())
+
     def data(self):
         return []
 
@@ -46,21 +49,27 @@ def _make_finder(recorder: Optional[Dict[str, Any]] = None) -> tuple[CodeFinder,
     finder = CodeFinder(db_manager)
     return finder, recorder
 
-def test_find_all_callers_avoids_list_extract():
+def test_find_all_callers_parameterizes_symbol_and_path():
     finder, recorder = _make_finder()
-    finder.find_all_callers("TargetFn", path="/repo/src/a.go", repo_path=None)
+    name = "TargetFn') MATCH (n) DELETE n //"
+    path = "/repo/src/a'quoted.go"
+    assert finder.find_all_callers(name, path=path, repo_path=None) == []
+    assert name not in recorder["last_query"]
+    assert path not in recorder["last_query"]
+    assert recorder["last_params"]["function_name"] == name
+    assert recorder["last_params"]["path"] == path
 
-    q = recorder["last_query"]
-    assert "list_extract" not in q
-    assert "path_nodes[size(path_nodes)-1]" in q
 
-def test_find_all_callees_avoids_list_extract():
+def test_find_all_callees_parameterizes_symbol_and_path():
     finder, recorder = _make_finder()
-    finder.find_all_callees("TargetFn", path="/repo/src/a.go", repo_path=None)
+    name = "TargetFn') MATCH (n) DELETE n //"
+    path = "/repo/src/a'quoted.go"
+    assert finder.find_all_callees(name, path=path, repo_path=None) == []
+    assert name not in recorder["last_query"]
+    assert path not in recorder["last_query"]
+    assert recorder["last_params"]["function_name"] == name
+    assert recorder["last_params"]["path"] == path
 
-    q = recorder["last_query"]
-    assert "list_extract" not in q
-    assert "path_nodes[size(path_nodes)-1]" in q
 
 def test_call_chain_avoids_list_extract():
     finder, recorder = _make_finder()

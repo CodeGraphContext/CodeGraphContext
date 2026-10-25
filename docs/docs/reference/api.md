@@ -26,12 +26,18 @@ The server loads credentials from the same configuration chain as the CLI (`~/.c
 | `GET` | `/` | Simple HTML landing page with links to OpenAPI docs. |
 | `GET` | `/api/v1/status` | Database connectivity and active backend name. |
 
-### MCP-over-SSE
+### MCP (Streamable HTTP)
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/v1/mcp/sse` | Server-Sent Events stream for MCP clients. |
-| `POST` | `/api/v1/mcp/messages` | MCP message ingress for SSE transport. |
+| `POST` | `/api/v1/mcp` | MCP endpoint (Streamable HTTP, spec 2026-07-28). Single endpoint for all MCP clients; each request is answered with a JSON response or a request-scoped SSE stream. |
+
+### MCP-over-SSE (deprecated)
+
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/v1/mcp/sse` | Server-Sent Events stream for MCP clients using the deprecated HTTP+SSE transport (protocol version 2024-11-05). Kept for existing client configurations; new integrations should use `/api/v1/mcp`. |
+| `POST` | `/api/v1/mcp/messages` | MCP message ingress for the deprecated SSE transport. |
 
 ### REST Tool Bridge
 

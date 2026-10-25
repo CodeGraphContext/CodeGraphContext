@@ -33,6 +33,14 @@ ignored by default (some projects keep real scripts there) — add it to your
 
 ## Databases
 
+### MyBatis operations are parsed but READS/WRITES edges are missing
+Re-index the repository with `cgc index . --force` after upgrading. XML mapper
+namespaces now resolve to unique Java declarations in the indexed repository,
+and the writer matches each method by its source path rather than relying on
+`class_context`. Related ORM table writes use the schema's `fqn` primary key.
+Unknown or ambiguous namespaces are skipped with a warning; index an individual
+module if several modules declare the same fully qualified mapper name.
+
 ### "Could not set lock on file" when running CLI commands
 Another CGC process (a Gateway, an MCP server, a watcher) already has the
 embedded database open — KùzuDB/LadybugDB are single-process. Use the
@@ -101,6 +109,57 @@ JSON document. Full recipe: `docs/CI_INTEGRATION.md`.
 
 ## Still stuck?
 
+Ladybug 0.19 can reuse a narrow integer binding for a later list-of-struct
+parameter. CGC prepares multi-row numeric bindings afresh so source line numbers
+and graph identities retain their original values. If an older index contains
+wrapped or negative line numbers, rebuild it with `cgc index --force` after
+upgrading; repairing containment edges alone cannot recover corrupted identities.
+
 Open an issue with: your `cgc --version`, the backend line from startup, the
 exact command, and the full output. The Discord invite in the README is the
 fastest route for questions that aren't bugs.
+
+### Failed background indexing jobs
+
+`check_job_status` and `list_jobs` include additive `error_type` and `traceback`
+fields for indexing exceptions. The existing `errors[0]` message is preserved.
+Tracebacks are capped at 32,768 characters; oversized values start with a
+truncation marker and retain the final frames. Jobs presumed stalled have no
+exception traceback. These diagnostics are held in memory and disappear after
+job cleanup or a server restart. Review tracebacks before sharing them: exception
+messages and source lines may contain repository information.
+
+### Parser initialization failures
+
+Failure to initialize a supported source parser is an indexing error, rather
+than an unsupported file. A failure during the import pre-scan fails the job
+with the original grammar or cache error included. A per-file initialization
+failure contributes to failed_files and the job's error list. Dependency
+loading no longer downloads Python's grammar when another language is requested.
+Check the grammar cache ownership and network access before reinstalling packages.
+
+### Gateway health stalls during indexing
+
+Indexing runs discovery, parser initialization, import pre-scans, graph writes
+and resolution in workers so the serving event loop can answer `/health` and
+job-status requests. SCIP's blocking CLI and augmentation phases also run in a
+worker. Writes remain sequential within each indexing job.
+
+On a cold cache, language-pack 1.20's `get_language` can hold Python's interpreter
+lock during network I/O. CGC uses `prefetch` before loading each requested
+grammar; that download path releases the lock. A pre-scan initialization failure
+fails the job before per-file parsing, with the original error included.
+
+For offline deployment, populate the cache at build time using the same pinned
+language-pack version and supported platform, for example:
+
+```bash
+python -c 'from tree_sitter_language_pack import prefetch; prefetch(["python", "typescript"])'
+```
+
+Choose the languages your deployment uses and make the resulting cache available
+to the runtime user. A missing grammar can still wait for the downloader's
+network timeout, but the serving loop remains available. Cancelling a worker
+cannot interrupt an in-flight native/subprocess call or roll back graph writes;
+SCIP stops subsequent phases when that call returns. Transactional cancellation
+is tracked separately in #829.

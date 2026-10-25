@@ -37,3 +37,20 @@ def get_repo_branch_name(repo_path: Path) -> Optional[str]:
         return branch if branch else None
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return None
+
+
+def get_repo_remote_url(repo_path: Path) -> Optional[str]:
+    """Return the configured origin URL, or ``None`` without an origin/git.
+
+    This only reads local git configuration; it does not contact the remote.
+    The value is returned verbatim and is not logged or persisted here.
+    """
+    try:
+        url = subprocess.check_output(
+            ["git", "remote", "get-url", "origin"],
+            cwd=repo_path,
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        return url if url else None
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return None

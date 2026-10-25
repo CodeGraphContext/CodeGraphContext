@@ -39,6 +39,11 @@ SCALA_QUERIES = {
     """,
 }
 
+# A Scala char literal such as 'a', ',' or '\n'. Used so a quoted comma in a
+# default value is not mistaken for a parameter separator.
+_CHAR_LITERAL_RE = re.compile(r"'(?:\\.|[^\\'])'")
+
+
 class ScalaTreeSitterParser:
     def __init__(self, generic_parser_wrapper: Any):
         self.generic_parser_wrapper = generic_parser_wrapper
@@ -467,30 +472,95 @@ class ScalaTreeSitterParser:
         return calls
     
 
+    def _split_parameters(self, params_text: str) -> List[str]:
+        """Split a Scala parameter list on its top-level commas only.
+
+        Commas nested inside ``[...]`` (type arguments such as
+        ``Map[String, Int]``), ``(...)`` (tuple / function types such as
+        ``(Int, String) => Boolean``) or ``{...}`` do not separate parameters,
+        and neither do commas inside string or char literals (e.g. in a default
+        value). Scala uses ``[]`` for generics, so ``<`` and ``>`` are
+        deliberately not tracked: the ``>`` in ``=>`` is not a closing bracket.
+
+        Args:
+            params_text: The text of one parameter clause, e.g.
+                ``"(a: Int, m: Map[String, Int])"``.
+
+        Returns:
+            The individual parameter strings, stripped, without empty entries.
+        """
+        text = (params_text or "").strip()
+        # Drop exactly one pair of enclosing parentheses. str.strip("()") would
+        # also eat the closing paren of a trailing function type.
+        if text.startswith("(") and text.endswith(")"):
+            text = text[1:-1]
+
+        parts: List[str] = []
+        current: List[str] = []
+        depth = 0
+        i = 0
+        length = len(text)
+        while i < length:
+            ch = text[i]
+
+            if ch == '"':
+                # Copy a string literal through verbatim, honouring escapes.
+                j = i + 1
+                while j < length:
+                    if text[j] == "\\":
+                        j += 2
+                        continue
+                    if text[j] == '"':
+                        break
+                    j += 1
+                current.append(text[i : j + 1])
+                i = j + 1
+                continue
+
+            if ch == "'":
+                char_literal = _CHAR_LITERAL_RE.match(text, i)
+                if char_literal:
+                    current.append(char_literal.group(0))
+                    i = char_literal.end()
+                    continue
+
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth = max(0, depth - 1)
+            elif ch == "," and depth == 0:
+                parts.append("".join(current).strip())
+                current = []
+                i += 1
+                continue
+
+            current.append(ch)
+            i += 1
+
+        parts.append("".join(current).strip())
+        return [p for p in parts if p]
+
     def _extract_parameter_names(self, params_text: str) -> List[str]:
-        # Simple extraction for Scala: (a: Int, b: String)
-        params = []
-        if not params_text: return params
-        clean = params_text.strip("()")
-        if not clean: return params
-        
-        # Split by comma, respecting generics []
-        # Scala generics use []
-        
-        # TODO: Reuse regex/parsing logic from other parsers or write simple one
-        # For now, simplistic split
-        parts = clean.split(',')
-        for p in parts:
-            # removing type: 'name: Type'
-            if ':' in p:
-                name = p.split(':')[0].strip()
-                # Remove modifiers like 'implicit', 'override', etc.
-                tokens = name.split()
+        """Extract parameter names from a Scala parameter clause.
+
+        Handles ``(a: Int, b: String)`` as well as parameters whose types contain
+        commas, such as ``(m: Map[String, Int])`` or ``(f: (Int, String) => Boolean)``.
+        """
+        params: List[str] = []
+        if not params_text:
+            return params
+
+        for part in self._split_parameters(params_text):
+            if ":" in part:
+                # 'name: Type [= default]' -> keep what is left of the first colon.
+                lhs = part.split(":", 1)[0]
+                # Drop modifiers/annotations such as 'implicit', 'val', '@deprecated'.
+                tokens = lhs.split()
                 if tokens:
                     params.append(tokens[-1])
             else:
-                 # maybe just name?
-                 params.append(p.strip())
+                # No type annotation: treat the whole entry as the name.
+                params.append(part)
         return params
 
 

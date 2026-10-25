@@ -71,13 +71,13 @@ const StatusBadge = ({ status, text, isCGC }: { status: string; text: string; is
     }
     switch (status) {
       case "good":
-        return "bg-[#042025] text-teal-400 border-none";
+        return "bg-[#042025] hover:bg-[#06313a] text-teal-400 border-none";
       case "warning":
-        return "bg-[#291c06] text-amber-500 border-none";
+        return "bg-[#291c06] hover:bg-[#382708] text-amber-500 border-none";
       case "bad":
-        return "bg-[#141414] text-gray-500 border-none";
+        return "bg-[#141414] hover:bg-[#1f1f1f] text-gray-400 border-none";
       default:
-        return "bg-black text-gray-500 border-white/10";
+        return "bg-black hover:bg-[#141414] text-gray-400 border-white/10";
     }
   };
   const getIcon = () => {
@@ -94,6 +94,7 @@ const StatusBadge = ({ status, text, isCGC }: { status: string; text: string; is
   };
   return (
     <Badge
+      variant="outline"
       className={`${getStyles()} font-bold uppercase tracking-widest text-[0.65rem] px-3 py-2 rounded-full min-w-[100px] text-center justify-center flex items-center shadow-none`}
     >
       <span className="mr-1.5 font-black text-[0.55rem]">{getIcon()}</span>

@@ -243,6 +243,21 @@ class RepositoryEventHandler(FileSystemEventHandler):
                     self.imports_map[symbol] = []
                 self.imports_map[symbol].extend(paths)
 
+    def _incremental_parse_workers(self) -> int:
+        """Bounded worker count for re-parsing files affected by one watch event.
+
+        Delegates to the indexing pipeline's helper so ``PARALLEL_WORKERS`` is
+        resolved in one place, including the cap of 32. The fallback stays at 4:
+        the watcher runs during editing, and should not take a full-index thread
+        pool on every save.
+        """
+        from ..tools.indexing.pipeline import (
+            WATCHER_DEFAULT_PARALLEL_WORKERS,
+            get_parallel_workers,
+        )
+
+        return get_parallel_workers(default=WATCHER_DEFAULT_PARALLEL_WORKERS)
+
     def _handle_modification(self, event_path_str: str):
         """Incremental update: re-parse and re-link only the changed file and its neighbours."""
         # Serialised: concurrent handlers previously did read-modify-write on

@@ -12,6 +12,7 @@ import os
 import queue
 import time
 import threading
+import warnings
 import re
 import json
 import hashlib
@@ -929,6 +930,51 @@ class EmbeddedSessionWrapper:
                 f"Kuzu compatibility guard: disabling '{query_type}' queries for this run after error: {error}"
             )
 
+    @staticmethod
+    def _contains_integer(value):
+        if isinstance(value, bool):
+            return False
+        if isinstance(value, int):
+            return True
+        if isinstance(value, dict):
+            return any(EmbeddedSessionWrapper._contains_integer(v) for v in value.values())
+        if isinstance(value, (list, tuple)):
+            return any(EmbeddedSessionWrapper._contains_integer(v) for v in value)
+        return False
+
+    @staticmethod
+    def _contains_numeric_batch(value):
+        if isinstance(value, dict):
+            return any(EmbeddedSessionWrapper._contains_numeric_batch(v) for v in value.values())
+        if isinstance(value, (list, tuple)):
+            if len(value) > 1 and EmbeddedSessionWrapper._contains_integer(value):
+                return True
+            return any(EmbeddedSessionWrapper._contains_numeric_batch(v) for v in value)
+        return False
+
+    def _execute_bound(self, query, parameters):
+        """Avoid Ladybug 0.19's implicit cache for multi-row numeric parameters.
+
+        The driver's list-of-struct cache signature examines only its first
+        row. Rebinding a later row across integer widths can silently turn
+        line 186 into -70 (#1730), corrupting graph identities. A fresh public
+        prepared statement binds the actual current types. Scalars, single-row
+        replay batches and other backends retain their existing cached path.
+        """
+        numeric_batch = any(self._contains_numeric_batch(value) for value in parameters.values())
+        if self._backend_id != "ladybugdb" or not numeric_batch:
+            return self.conn.execute(query, parameters)
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", message="The use of separate prepare.*", category=DeprecationWarning
+            )
+            prepared = self.conn.prepare(query, parameters)
+        try:
+            return self.conn.execute(prepared, parameters)
+        finally:
+            prepared.close()
+
     def run(self, query, **parameters):
         query_type = self._classify_query_type(query)
         if self._is_query_type_disabled(query_type):
@@ -974,7 +1020,7 @@ class EmbeddedSessionWrapper:
             # is not thread-safe, and concurrent asyncio.to_thread tool calls can
             # otherwise race a read against a write on the same connection.
             with self._write_lock:
-                result = self.conn.execute(translated_query, translated_params)
+                result = self._execute_bound(translated_query, translated_params)
 
                 # LadybugDB (0.19.x) state-dependently drops SOME rows of a
                 # batched relationship-only UNWIND MERGE — no error is raised,
@@ -1008,7 +1054,7 @@ class EmbeddedSessionWrapper:
                             single = dict(translated_params)
                             single[_u.group(1)] = [_row]
                             try:
-                                self.conn.execute(translated_query, single)
+                                self._execute_bound(translated_query, single)
                             except Exception as _se:
                                 _single_failures += 1
                                 if _first_single_error is None:

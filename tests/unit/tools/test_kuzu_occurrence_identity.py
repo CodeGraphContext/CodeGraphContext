@@ -63,12 +63,18 @@ def test_kuzu_keeps_same_name_same_line_functions_distinct(tmp_path):
                 "ORDER BY occ",
                 name="tfoot",
             ).data()
+            contained = session.run(
+                "MATCH (:File {path: $path})-[:CONTAINS]->(f:Function) "
+                "RETURN f.occurrence_index AS occ ORDER BY occ",
+                path=str(file_path.resolve()),
+            ).data()
 
         assert len(rows) == 2, f"expected 2 distinct nodes, got {rows}"
         assert rows[0]["occ"] == 0 and rows[1]["occ"] == 1
         assert rows[0]["uid"] != rows[1]["uid"]
         # Each node keeps its own properties instead of the last write winning.
         assert {r["ctx"] for r in rows} == {"th", "td"}
+        assert [r["occ"] for r in contained] == [0, 1]
     finally:
         manager.close_driver()
 
@@ -93,7 +99,12 @@ def test_kuzu_rewrite_is_idempotent_for_colliding_symbols(tmp_path):
                 "MATCH (f:Function {name: $name}) RETURN f.uid AS uid",
                 name="tfoot",
             ).data()
+            contained_count = session.run(
+                "MATCH (:File {path: $path})-[:CONTAINS]->(:Function) RETURN count(*) AS c",
+                path=str(file_path.resolve()),
+            ).single()['c']
         assert len(rows) == 2, f"expected exactly 2 nodes after re-write, got {rows}"
+        assert contained_count == 2
     finally:
         manager.close_driver()
 

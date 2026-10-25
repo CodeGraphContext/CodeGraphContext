@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "test:summary": "node --test tests/summary-engine.test.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

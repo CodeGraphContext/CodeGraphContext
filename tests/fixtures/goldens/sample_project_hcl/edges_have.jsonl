@@ -1,0 +1,38 @@
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 0, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 3, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 0, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 3, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 5, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 0}, "to": {"offset": 6, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 0, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 1, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 2, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 3, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 4, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 5, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 6, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 7, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 4, "table": 1}, "to": {"offset": 8, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 5, "table": 1}, "to": {"offset": 9, "table": 5}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 0, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 1, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 2, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 3, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 4, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 5, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 4, "table": 1}, "to": {"offset": 6, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 4, "table": 1}, "to": {"offset": 7, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 6, "table": 1}, "to": {"offset": 8, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 6, "table": 1}, "to": {"offset": 9, "table": 6}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 10, "alias": "", "full_import_name": "./live/vpc", "imported_name": "./live/vpc", "lang": "hcl"}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 0, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 14, "alias": "", "full_import_name": "./live/vpc", "imported_name": "./live/vpc", "lang": "hcl"}}
+{"from": {"offset": 1, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 6, "alias": "", "full_import_name": "./modules/bucket", "imported_name": "./modules/bucket", "lang": "hcl"}}
+{"from": {"offset": 2, "table": 1}, "to": {"offset": 2, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 5, "alias": "", "full_import_name": "registry.example.com/group/vpc/aws?version=3.0.0", "imported_name": "registry.example.com/group/vpc/aws?version=3.0.0", "lang": "hcl"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 1, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 18, "alias": "", "full_import_name": "./modules/bucket", "imported_name": "./modules/bucket", "lang": "hcl"}}
+{"from": {"offset": 3, "table": 1}, "to": {"offset": 3, "table": 3}, "type": "IMPORTS", "properties": {"line_number": 13, "alias": "", "full_import_name": "registry.example.com/group/network/aws?version=1.0.0", "imported_name": "registry.example.com/group/network/aws?version=1.0.0", "lang": "hcl"}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 1, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 0, "table": 2}, "to": {"offset": 2, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 3, "table": 2}, "to": {"offset": 4, "table": 2}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 1, "table": 2}, "to": {"offset": 1, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 2, "table": 2}, "to": {"offset": 2, "table": 1}, "type": "CONTAINS", "properties": {}}
+{"from": {"offset": 4, "table": 2}, "to": {"offset": 4, "table": 1}, "type": "CONTAINS", "properties": {}}

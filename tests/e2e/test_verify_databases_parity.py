@@ -4,12 +4,51 @@ import time
 import json
 import shutil
 import asyncio
+import subprocess
 import pytest
 from pathlib import Path
 from typing import Tuple, Dict
 
+def _probe_embedded_backend(module_name: str):
+    """探测嵌入式后端（kuzu / ladybug）在本环境是否真的可用。
+
+    返回 None 表示可用；否则返回失败原因字符串。
+
+    ⚠️ **必须在子进程里做**：本文件的既有约定就是"索引跑在子进程里，以隔离
+    pybind11 命名空间与数据库环境"。在主进程里 import kuzu/ladybug 的原生模块
+    会与之冲突 —— 实测直接 SIGSEGV（exit code 139），把 ubuntu / macos /
+    windows 三个平台的 e2e 全部打挂。
+
+    之所以需要这个探测：find_spec() 只证明"包目录存在"，证明不了"原生库能加载"，
+    两者会脱钩。实测 ladybug 0.19.1 的 cp314-win_amd64 wheel 缺 lbug C API
+    共享库 —— 包确实装着，但 Database() 初始化抛 RuntimeError。
+    """
+    code = (
+        "import os, sys, tempfile, shutil\n"
+        "mod = __import__(sys.argv[1])\n"
+        "d = tempfile.mkdtemp(prefix='cgc_probe_')\n"
+        "try:\n"
+        "    db = mod.Database(os.path.join(d, 'probe.db'))\n"
+        "    c = getattr(db, 'close', None)\n"
+        "    if callable(c): c()\n"
+        "finally:\n"
+        "    shutil.rmtree(d, ignore_errors=True)\n"
+        "print('PROBE_OK')\n"
+    )
+    try:
+        r = subprocess.run([sys.executable, "-c", code, module_name],
+                           capture_output=True, text=True, timeout=180)
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+    if r.returncode != 0 or "PROBE_OK" not in r.stdout:
+        tail = [ln for ln in (r.stderr or "").strip().splitlines() if ln.strip()]
+        detail = tail[-1][:200] if tail else f"exit code {r.returncode}"
+        return f"exit {r.returncode}: {detail}"
+    return None
+
+
 # We run indexing as a subprocess to keep PyBind11 namespace and database environments isolated
-async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_dir: Path) -> Tuple[float, Dict[str, int], list]:
+async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_dir: Path) -> Tuple[float, Dict[str, int], list, list, list]:
     print(f"\n================= RUNNING {db_type.upper()} INDEXING IN SUBPROCESS =================")
     
     db_path = (temp_test_dir / f"{db_type}_test_db").as_posix()
@@ -36,6 +75,8 @@ async def run_indexing_in_process(db_type: str, project_path: Path, temp_test_di
     # Actions step log and GitHub truncates the whole step — including the
     # comparison table. Pass it through a file so only the small diff is logged.
     edges_out_str = (temp_test_dir / f"{db_type}_calls_edges.json").as_posix()
+    contains_out_str = (temp_test_dir / f"{db_type}_contains_edges.json").as_posix()
+    variables_out_str = (temp_test_dir / f"{db_type}_variable_nodes.json").as_posix()
     
     # Construct a python command to run the indexing
     cmd = f"""
@@ -110,10 +151,50 @@ async def run():
         except Exception as _e:
             calls_edges = ["<edge dump failed: " + str(_e) + ">"]
 
+        # Include labels and occurrence indices: name/path/line alone can
+        # collapse distinct symbols. Backend IDs and uids are not portable.
+        contains_edges = []
+        res = session.run(
+            "MATCH (source)-[:CONTAINS]->(target) "
+            "RETURN labels(source)[0] AS sl, source.path AS sp, "
+            "source.name AS sn, source.line_number AS sline, "
+            "source.occurrence_index AS so, labels(target)[0] AS tl, "
+            "target.path AS tp, target.name AS tn, "
+            "target.line_number AS tline, target.occurrence_index AS tor"
+        )
+        base = str(project_path).replace(chr(92), '/').rstrip('/')
+        def relative_path(value):
+            if value is None:
+                return None
+            value = str(value).replace(chr(92), '/')
+            if value == base:
+                return '.'
+            return value[len(base) + 1:] if value.startswith(base + '/') else value
+        for rec in res:
+            d = dict(rec)
+            contains_edges.append([
+                [d.get('sl'), relative_path(d.get('sp')), d.get('sn'), d.get('sline'), d.get('so')],
+                [d.get('tl'), relative_path(d.get('tp')), d.get('tn'), d.get('tline'), d.get('tor')],
+            ])
+        variable_nodes = []
+        for rec in session.run(
+            "MATCH (n:Variable) RETURN n.name AS name, n.path AS path, "
+            "n.line_number AS line, n.occurrence_index AS occurrence, n.uid AS uid"
+        ):
+            d = dict(rec)
+            variable_nodes.append({{
+                'identity': ['Variable', relative_path(d.get('path')), d.get('name'), d.get('line'), d.get('occurrence')],
+                'uid': str(d['uid']).replace(base, '<repo>') if d.get('uid') is not None else None,
+            }})
+
     db_mgr.close_driver()
     stats["REL_CALLS_DISTINCT"] = len(set(calls_edges))
     with open(r'{edges_out_str}', "w") as _f:
         json.dump(calls_edges, _f)
+    with open(r'{contains_out_str}', "w") as _f:
+        json.dump(contains_edges, _f)
+    with open(r'{variables_out_str}', "w") as _f:
+        json.dump(variable_nodes, _f)
     print("STATS_JSON:" + json.dumps(stats))
 
 async def main():
@@ -160,7 +241,13 @@ asyncio.run(main())
     except (OSError, ValueError):
         pass
 
-    return duration, stats, calls_edges
+    # A missing containment dump must remain visible rather than becoming an
+    # empty set that looks like a backend with no containment relationships.
+    with open(contains_out_str) as _f:
+        contains_edges = json.load(_f)
+    with open(variables_out_str) as _f:
+        variable_nodes = json.load(_f)
+    return duration, stats, calls_edges, contains_edges, variable_nodes
 
 
 @pytest.mark.e2e
@@ -179,14 +266,63 @@ async def _run_database_parity_e2e(temp_test_dir):
     os.environ.setdefault('NEO4J_PASSWORD', '12345678')
     
     import importlib.util
+    # FalkorDB Lite 的可用性由产品自身判定：Unix + Python >= 3.12 + redislite.falkordb_client，
+    # Windows 明确不支持。仅凭 pip 包存在就排入待跑，会经 get_database_manager 的
+    # 回退链落到别的嵌入式后端上（实测 Windows 落到损坏的 ladybug）。
+    try:
+        from codegraphcontext.core import is_falkordb_usable
+    except Exception:
+        is_falkordb_usable = None
     project_path = Path("tests/fixtures/sample_projects").resolve()
     
     db_types_to_run = []
+    # 收集每个后端被跳过的原因。全部跳过后并入 test 级 skip 消息 ——
+    # 本文件在跳过的用例上不会把 print 输出到 CI 日志，只有把原因交给
+    # pytest.skip() 才能在 `pytest -rs` 下被审计到，避免"跳过理由不可信"。
+    skip_reasons = []
     pkg_map = {"kuzudb": "kuzu", "ladybugdb": "ladybug", "falkordb": "falkordb", "neo4j": "neo4j"}
     for db in ["kuzudb", "ladybugdb", "falkordb", "neo4j"]:
         if importlib.util.find_spec(pkg_map[db]) is None:
-            print(f"Skipping {db}: {pkg_map[db]} driver not installed.")
+            reason = f"{db}: {pkg_map[db]} driver not installed."
+            print(f"Skipping {reason}")
+            skip_reasons.append(reason)
             continue
+        if db in ("kuzudb", "ladybugdb"):
+            # find_spec() 只能证明包目录存在，证明不了底层原生库能加载，两者会脱钩。
+            # 实测 ladybug 0.19.1 的 cp314-win_amd64 wheel 未包含 lbug C API 共享库：
+            # `from . import _lbug` 抛 ImportError 被 _backend.get_pybind_module()
+            # 静默吞掉，Database() 初始化于是回退到 C API 后端并抛
+            # "Could not find lbug C API shared library"，把整个 e2e 拖红。
+            # 包"已安装"但后端不可用时，按本测试既有约定（缺驱动即 skip）应当跳过，
+            # 而不是以失败告终 —— 否则环境/打包问题会被误报成代码缺陷。
+            probe_err = _probe_embedded_backend(pkg_map[db])
+            if probe_err is not None:
+                reason = f"{db}: {pkg_map[db]} installed but native backend unusable -> {probe_err}"
+                print(f"Skipping {reason}")
+                skip_reasons.append(reason)
+                continue
+        if db == "falkordb" and is_falkordb_usable is not None and not is_falkordb_usable():
+            reason = ("falkordb: FalkorDB Lite is not supported/installed on this platform "
+                      "(requires Unix and Python >= 3.12).")
+            print(f"Skipping {reason}")
+            skip_reasons.append(reason)
+            continue
+        if db == "ladybugdb":
+            # Installed is not runnable: some ladybug wheels (Windows, #1731)
+            # ship without the native engine.
+            from codegraphcontext.core import ladybugdb_unavailable_reason
+            reason = ladybugdb_unavailable_reason()
+            if reason is not None:
+                print(f"Skipping {db}: {reason}")
+                continue
+        if db == "falkordb":
+            # The falkordb client imports everywhere, but FalkorDB Lite does
+            # not run on Windows; indexing would silently fall back to another
+            # backend and the leg would measure the wrong database.
+            from codegraphcontext.core import is_falkordb_usable
+            if not is_falkordb_usable():
+                print(f"Skipping {db}: FalkorDB Lite is not usable on this platform.")
+                continue
         db_types_to_run.append(db)
         
     db_types = db_types_to_run
@@ -194,15 +330,18 @@ async def _run_database_parity_e2e(temp_test_dir):
     
     for db_type in db_types:
         try:
-            duration, stats, calls_edges = await run_indexing_in_process(db_type, project_path, temp_test_dir)
+            duration, stats, calls_edges, contains_edges, variable_nodes = await run_indexing_in_process(db_type, project_path, temp_test_dir)
             results[db_type] = {
                 "duration": duration,
                 "stats": stats,
                 "calls_edges": calls_edges,
+                "contains_edges": contains_edges,
+                "variable_nodes": variable_nodes,
             }
         except Exception as e:
             if db_type == "neo4j" and "failed to connect" in str(e).lower():
-                pytest.skip("Neo4j server is not running/available.")
+                pytest.skip("Neo4j server is not running/available. "
+                            "Skipped backends -> " + ("; ".join(skip_reasons) if skip_reasons else "(none recorded)"))
             raise e
             
     # Compile comparison and assert parity
@@ -212,7 +351,8 @@ async def _run_database_parity_e2e(temp_test_dir):
     print("-" * (35 + 13 * len(db_types)))
     
     if not results:
-        pytest.skip("No database drivers are installed to run parity tests.")
+        pytest.skip("No database drivers are installed to run parity tests. "
+                    "Skipped backends -> " + ("; ".join(skip_reasons) if skip_reasons else "(none recorded)"))
     
     # We will use the keys from the first available database as reference
     ref_db = next(iter(results.values()))
@@ -244,8 +384,50 @@ async def _run_database_parity_e2e(temp_test_dir):
     print(f"{'Indexing Duration (s)':<25} | {dur_str}-")
 
     _report_calls_edge_diff(results, db_types)
+    diagnostics_dir = Path(os.environ.get('CGC_PARITY_DIAGNOSTICS_DIR', str(temp_test_dir)))
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (diagnostics_dir / 'containment-parity.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
+    contains_match = _report_contains_edge_diff(results, db_types)
 
     assert all_match, "❌ Database statistics do not match!"
+    assert contains_match, "Database CONTAINS edge identities do not match!"
+
+
+def _report_contains_edge_diff(results, db_types):
+    """Compare actual containment edges, retaining duplicates in the artifact."""
+    edge_sets = {
+        db: {json.dumps(edge, ensure_ascii=True) for edge in results[db]['contains_edges']}
+        for db in db_types if db in results
+    }
+    union = set().union(*edge_sets.values())
+    print("\n================= CONTAINS EDGE DIAGNOSTICS =================")
+    for db, edges in edge_sets.items():
+        raw = results[db]['contains_edges']
+        missing = sorted(union - edges)
+        print(f"{db}: total={len(raw)} distinct={len(edges)} duplicates={len(raw) - len(edges)} missing={len(missing)}")
+        # Group every deficit by source label/path, even when the edge samples
+        # below are truncated. The complete edge lists are uploaded by CI.
+        from collections import Counter
+        groups = Counter(tuple(json.loads(edge)[0][:2]) for edge in missing)
+        for (label, path), count in groups.most_common(20):
+            print(f"    missing source {label} {path}: {count}")
+        if 'variable_nodes' in results[db]:
+            nodes = results[db]['variable_nodes']
+            identities = {json.dumps(node['identity']) for node in nodes}
+            missing_variables = [json.loads(edge)[1] for edge in missing if json.loads(edge)[1][0] == 'Variable']
+            absent = [identity for identity in missing_variables if json.dumps(identity) not in identities]
+            print(f"    missing Variable endpoints: present={len(missing_variables) - len(absent)} absent={len(absent)}")
+            for identity in absent[:40]:
+                print(f"    absent Variable identity: {json.dumps(identity)}")
+            suspect_paths = {identity[1] for identity in missing_variables}
+            suspects = [node for node in nodes if any(path and path in str(node.get('uid')) for path in suspect_paths)]
+            for node in suspects[:80]:
+                print(f"    Variable node: {json.dumps(node)}")
+        for edge in missing[:40]:
+            print(f"    {edge}")
+        if len(missing) > 40:
+            print(f"    ... and {len(missing) - 40} more; see containment-parity.json")
+    return all(edges == union for edges in edge_sets.values())
 
 
 def _report_calls_edge_diff(results, db_types):

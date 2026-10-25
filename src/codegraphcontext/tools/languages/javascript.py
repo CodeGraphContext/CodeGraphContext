@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional, Tuple
 import re
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
+from .js_dynamic_imports import extract_dynamic_import_call
 
 # --- Helpers to classify JS methods ---
 _GETTER_RE = re.compile(r"^\s*(?:static\s+)?get\b")
@@ -98,6 +99,7 @@ JS_QUERIES = {
         ) @import
     """,
     "calls": """
+        (call_expression function: (import)) @dynamic_import
         (call_expression function: (identifier) @name)
         (call_expression function: (member_expression property: (property_identifier) @name))
         (new_expression constructor: (identifier) @name)
@@ -579,8 +581,11 @@ class JavascriptTreeSitterParser:
         calls = []
         query_str = JS_QUERIES['calls']
         for node, capture_name in execute_query(self.language, query_str, root_node):
-            # Placeholder for JS call extraction logic
-            if capture_name == 'name':
+            if capture_name == 'dynamic_import':
+                call = extract_dynamic_import_call(self, node)
+                if call is not None:
+                    calls.append(call)
+            elif capture_name == 'name':
                 # Traverse up to find the call/new expression
                 call_node = node.parent
                 while call_node and call_node.type not in ('call_expression', 'new_expression') and call_node.type != 'program':

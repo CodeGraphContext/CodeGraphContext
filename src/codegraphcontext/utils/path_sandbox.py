@@ -9,12 +9,14 @@ from urllib.parse import urlparse
 
 MAX_DISCOVERY_DEPTH = 10
 
-# Hugging Face dataset raw URLs and GitHub release assets only.
+# Hosted bundle registries; HTTPS is required below.
 _ALLOWED_DOWNLOAD_HOST_SUFFIXES = (
     "huggingface.co",
     "hf.co",
     "github.com",
     "raw.githubusercontent.com",
+    "gitlab.com",
+    "raw.gitlab.com",
 )
 
 

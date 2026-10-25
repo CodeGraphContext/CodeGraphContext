@@ -138,7 +138,7 @@ flowchart LR
 ---
 
 ## Project Details
-- **Version:** 0.5.1
+- **Version:** [Latest release on PyPI](https://pypi.org/project/codegraphcontext/)
 - **Authors:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **License:** MIT License (See [LICENSE](LICENSE) for details)
 - **Website:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
@@ -218,8 +218,13 @@ CodeGraphContext provides comprehensive parsing and analysis for the following l
 | 🌙 | **Lua** | 🚀 | **Scala** | λ | **Haskell** |
 | 💧 | **Elixir** | 📜 | **Emacs Lisp (elisp)** | 🌐 | **HTML** |
 | 🎨 | **CSS** | ⚛️ | **TSX** | ⛓️ | **Solidity** |
+| 🏗️ | **HCL (Terraform/Terragrunt)** | | | | |
 
 Each language parser extracts functions, classes, methods, parameters, inheritance relationships, function calls, and imports to build a comprehensive code graph.
+
+**HCL notes:** `.tf`, `.tfvars` and `.hcl` cover Terraform, OpenTofu and Terragrunt. HCL declares
+rather than calls, so it contributes blocks, variables and cross-configuration imports but no
+function calls. See `docs/docs/contributing_languages.md` § HCL.
 
 **Solidity notes:** `.sol` uses Tree-sitter via `tree-sitter-language-pack` (no SCIP). Supports Foundry remappings, modifier invocations, `using Lib for T`, and `emit` / custom-error `revert` as CALLS. See `docs/docs/contributing_languages.md` § Solidity.
 

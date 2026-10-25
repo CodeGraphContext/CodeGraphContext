@@ -102,7 +102,7 @@ def parse_mybatis_mapper(file_path: Path) -> List[Dict[str, Any]]:
         if root.tag != "mapper":
             return records
 
-        namespace = root.get("namespace", "")
+        namespace = root.get("namespace", "").strip()
         # class_name = last segment of the namespace FQCN
         class_name = namespace.split(".")[-1] if namespace else file_path.stem
 
@@ -133,6 +133,7 @@ def parse_mybatis_mapper(file_path: Path) -> List[Dict[str, Any]]:
             records.append({
                 "method_name": method_id,
                 "class_name": class_name,
+                "mapper_namespace": namespace,
                 "db_tables": tables,
                 "operation": operation,
                 "mapper_path": str(file_path),
@@ -146,7 +147,38 @@ def parse_mybatis_mapper(file_path: Path) -> List[Dict[str, Any]]:
     return records
 
 
-def find_and_parse_mybatis_mappers(repo_path: Path) -> List[Dict[str, Any]]:
+def resolve_mybatis_sources(
+    records: List[Dict[str, Any]], java_file_data: List[Dict[str, Any]], repo_path: Path,
+) -> List[Dict[str, Any]]:
+    """Resolve namespaces against unique Java declarations already parsed for this repo.
+
+    Never guess by basename: two packages (or modules) may define UserMapper.
+    The path also lets the writer match SCIP functions lacking class_context.
+    """
+    repo_root = repo_path.resolve()
+    sources: Dict[str, set[str]] = {}
+    for file_data in java_file_data:
+        source = Path(file_data["path"]).resolve()
+        if source.suffix.lower() != ".java" or not source.is_relative_to(repo_root):
+            continue
+        package = file_data.get("package_name")
+        for declaration in file_data.get("classes", []) + file_data.get("interfaces", []):
+            name = declaration.get("name")
+            qualified = declaration.get("qualified_name") or (f"{package}.{name}" if package else name)
+            if qualified:
+                sources.setdefault(qualified, set()).add(source.as_posix())
+
+    resolved = []
+    for record in records:
+        namespace = record.get("mapper_namespace") or record.get("class_name")
+        candidates = sources.get(namespace, set())
+        resolved.append({**record, "method_path": next(iter(candidates)) if len(candidates) == 1 else None})
+    return resolved
+
+
+def find_and_parse_mybatis_mappers(
+    repo_path: Path, java_file_data: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
     """Walk *repo_path* for MyBatis mapper XML files and return all operation records.
 
     A file is treated as a mapper when it matches ``*Mapper.xml`` *or* when its
@@ -183,4 +215,4 @@ def find_and_parse_mybatis_mappers(repo_path: Path) -> List[Dict[str, Any]]:
         f"[MYBATIS] Parsed {file_count} mapper files, "
         f"{len(all_records)} operation records found"
     )
-    return all_records
+    return resolve_mybatis_sources(all_records, java_file_data or [], repo_path)

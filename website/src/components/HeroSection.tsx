@@ -10,13 +10,14 @@ const CodeGraphViewer = lazy(() => import("@/components/CodeGraphViewer"));
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import MagneticButton from "@/components/MagneticButton";
+import { useReleaseVersion } from "@/hooks/use-release-version";
 
 const OUTLINE_BUTTON_CLASSES = "border-cyan-400/50 hover:border-cyan-400 bg-transparent transition-colors text-cyan-50 shadow-[0_0_10px_rgba(34,211,238,0.1)] w-full sm:w-auto h-12 rounded-full font-semibold uppercase tracking-widest text-xs";
 
 const HeroSection = () => {
   const [stars, setStars] = useState<number | null>(null);
   const [forks, setForks] = useState<number | null>(null);
-  const [version, setVersion] = useState("");
+  const version = useReleaseVersion();
   const [copied, setCopied] = useState(false);
 
   // Indexing states
@@ -26,23 +27,6 @@ const HeroSection = () => {
   const [generationStatus, setGenerationStatus] = useState<any>({ status: "idle" });
   const [progress, setProgress] = useState(0);
   const [graphData, setGraphData] = useState<any>(null);
-
-  useEffect(() => {
-    async function fetchVersion() {
-      try {
-        const res = await fetch(
-          "https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/README.md"
-        );
-        if (!res.ok) throw new Error("Failed to fetch README");
-        const text = await res.text();
-        const match = text.match(/\*\*Version:\*\*\s*([0-9]+\.[0-9]+\.[0-9]+)/i);
-        setVersion(match ? match[1] : "N/A");
-      } catch (err) {
-        setVersion("N/A");
-      }
-    }
-    fetchVersion();
-  }, []);
 
   useEffect(() => {
     fetch("https://api.github.com/repos/CodeGraphContext/CodeGraphContext")
@@ -373,7 +357,7 @@ const HeroSection = () => {
       <div className="relative z-10 w-full max-w-5xl mx-auto px-6 flex flex-col items-center text-center">
         
         <Badge variant="outline" className="mb-8 text-xs font-mono px-4 py-1.5 bg-transparent border-white/20 text-white uppercase tracking-widest rounded-full">
-          Version {version} • MIT License
+          {version && <>Version {version} • </>}MIT License
         </Badge>
 
         <h1 className="text-5xl md:text-7xl lg:text-8xl font-black text-white tracking-tighter leading-[1.1] mb-6 font-sans">

@@ -35,6 +35,7 @@ def _register_prescans() -> Dict[str, _PreScanFn]:
     from ..languages import css as css_lang_module
     from ..languages import svelte as svelte_lang_module
     from ..languages import vue as vue_lang_module
+    from ..languages import hcl as hcl_lang_module
 
     def make_py(ext: str) -> _PreScanFn:
         def scan(files: List[Path], gp: Callable[[str], Any]) -> dict:
@@ -88,6 +89,9 @@ def _register_prescans() -> Dict[str, _PreScanFn]:
         ".css": lambda files, gp: css_lang_module.pre_scan_css(files, gp(".css")),
         ".svelte": lambda files, gp: svelte_lang_module.pre_scan_svelte(files, gp(".svelte")),
         ".vue": lambda files, gp: vue_lang_module.pre_scan_vue(files, gp(".vue")),
+        ".tf": lambda files, gp: hcl_lang_module.pre_scan_hcl(files, gp(".tf")),
+        ".tfvars": lambda files, gp: hcl_lang_module.pre_scan_hcl(files, gp(".tfvars")),
+        ".hcl": lambda files, gp: hcl_lang_module.pre_scan_hcl(files, gp(".hcl")),
     }
 
 

@@ -4,6 +4,9 @@ import { Code2, GitBranch, CheckCircle, Zap, Users } from "lucide-react";
 import { Loader2 } from "lucide-react";
 import Footer from "../components/Footer";
 
+const CONTRIBUTING_SOURCE_URL = "https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/.github/CONTRIBUTING.md";
+const CONTRIBUTING_PAGE_URL = "https://github.com/CodeGraphContext/CodeGraphContext/blob/main/.github/CONTRIBUTING.md";
+
 const Contributing: React.FC = () => {
   const [content, setContent] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
@@ -13,9 +16,7 @@ const Contributing: React.FC = () => {
   useEffect(() => {
     const fetchContributing = async () => {
       try {
-        const response = await fetch(
-          "https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/CONTRIBUTING.md"
-        );
+        const response = await fetch(CONTRIBUTING_SOURCE_URL);
         if (!response.ok) throw new Error("Failed to fetch CONTRIBUTING.md");
 
         const text = await response.text();
@@ -65,7 +66,10 @@ const Contributing: React.FC = () => {
       // Inline code
       .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
       // Links
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, href) => {
+        const target = href.startsWith("#") ? href : new URL(href, CONTRIBUTING_PAGE_URL).href;
+        return `<a href="${target}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+      })
       // Bullet lists
       .replace(/^\* (.+)$/gm, "<li>$1</li>")
       .replace(/(<li>.*<\/li>)/s, (match) => `<ul>${match}</ul>`)

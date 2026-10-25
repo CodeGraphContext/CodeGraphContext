@@ -24,11 +24,16 @@ router = APIRouter(dependencies=[Depends(require_api_key)])
 # Global server instance (initialized on startup)
 _server_instance: MCPServer = None
 
-def get_server() -> MCPServer:
+async def get_server() -> MCPServer:
+    """Build the server on the running event loop.
+
+    A sync dependency runs in a worker thread, where MCPServer falls back to a
+    fresh event loop nobody runs; jobs scheduled with run_coroutine_threadsafe
+    then never start.
+    """
     global _server_instance
     if _server_instance is None:
-        # Note: In a real production app, we'd handle initialization better
-        _server_instance = MCPServer(cwd=Path.cwd())
+        _server_instance = MCPServer(loop=asyncio.get_running_loop(), cwd=Path.cwd())
     return _server_instance
 
 def raise_service_unavailable(exc: Exception):

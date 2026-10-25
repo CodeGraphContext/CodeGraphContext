@@ -28,7 +28,24 @@ dependencies = [
     "inquirerpy>=0.3.4",
     "python-dotenv>=1.0.0",
     "tree-sitter>=0.24.0,<0.26.0",
-    "tree-sitter-language-pack>=1.6,<2.0",
+    # ------------------------------------------------------------------
+    # tree-sitter-language-pack upper bound (Haskell golden regression)
+    #
+    # 1.21.0 (released 2026-10-04) reshapes the Haskell tree-sitter grammar:
+    # `class ... where` and `data ... = ...` declarations stop being
+    # surfaced, so the Haskell parser emits **no Class nodes at all**.
+    # Evidence, all on the same commit 642c3215f8 with no code change:
+    #   2026-10-02 green  -> installed tree-sitter-language-pack 1.20.0
+    #   2026-10-06 red    -> installed tree-sitter-language-pack 1.21.0
+    # Breaks three suites on every supported Python version (3.12/3.13/3.14):
+    #   tests/integration/test_parser_goldens.py::test_language_golden[sample_project_haskell]
+    #       Nodes regression mismatch: Missing 39 expected nodes (all Class)
+    #   tests/unit/parsers/test_1538_spurious_records.py::test_haskell_curried_application_is_one_call
+    #   tests/unit/tools/test_cross_lang_call_resolution_patterns.py::
+    #       ...::test_haskell_typeclass_instances_and_constructor_call
+    # Keep <1.21.0 until the Haskell extractor is taught the 1.21 node layout.
+    # ------------------------------------------------------------------
+    "tree-sitter-language-pack>=1.6,<1.21.0",
     "tree-sitter-c-sharp>=0.21.0",
     "pyyaml",
     "nbformat",
@@ -67,13 +84,7 @@ dependencies = [
     # observed in 0.17.1. The <0.20 cap tracks the current planner regression.
     # ------------------------------------------------------------------
     "ladybug>=0.19,<0.20; sys_platform == 'win32' or (sys_platform != 'win32' and python_version >= '3.10')",
-    # Cap below 2.0: the low-level `mcp.server.Server` dropped its `list_tools`
-    # and `call_tool` decorators in 2.0.0, which api/mcp_sse.py registers its
-    # handlers with. With an unbounded pin, CI resolved 2.0.0 on release day and
-    # every job failed at import with
-    # "AttributeError: 'Server' object has no attribute 'list_tools'".
-    # Lift this once mcp_sse.py is ported to the 2.x server API.
-    "mcp>=1.0.0,<2",
+    "mcp>=2.2.0,<3",
     "fastapi>=0.100.0",
     "uvicorn>=0.22.0",
     "cryptography>=42.0.0"
@@ -82,7 +93,8 @@ dependencies = [
 [project.optional-dependencies]
 parsing = [
     "tree-sitter>=0.24.0,<0.26.0",
-    "tree-sitter-language-pack>=1.6,<2.0",
+    # See the pin note under [project].dependencies.
+    "tree-sitter-language-pack>=1.6,<1.21.0",
     "tree-sitter-c-sharp>=0.21.0",
 ]
 # Named backend extras let users (and CI) opt into a single, tested driver
@@ -122,6 +134,10 @@ dev = [
     # still provides a wheel. This is intentionally absent from normal installs.
     "kuzu==0.11.3; python_version < '3.14' or sys_platform == 'linux'",
     "ruff",
+    # mcp>=2 renamed its vendored httpx to httpx2, so it's no longer pulled
+    # in transitively; tests/unit/api/test_mcp_streamable_http.py needs the
+    # real package directly.
+    "httpx",
 ]
 # Optional drivers for `cgc datasource` ingestion (MySQL/Aurora, Cassandra).
 # Redis ingestion uses the ``redis`` package already pinned in core deps.

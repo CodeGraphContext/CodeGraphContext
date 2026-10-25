@@ -31,7 +31,7 @@ You can also set these via environment variables: `ENABLE_APP_LOGS=DEBUG` or `DE
 
 ## Running Tests
 
-Please refer to [TESTING.md](TESTING.md) for detailed instructions on running the test suite, adding new tests, and understanding the test architecture.
+Please refer to [TESTING.md](../docs/TESTING.md) for detailed instructions on running the test suite, adding new tests, and understanding the test architecture.
 
 Quick summary:
 ```bash

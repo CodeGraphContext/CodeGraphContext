@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Mail, MapPin, Phone } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useReleaseVersion } from "@/hooks/use-release-version";
 import { toast } from "sonner";
 import { getSupabaseClient } from "@/lib/supabase-client";
 import { FaGithub, FaDiscord } from "react-icons/fa";
@@ -17,27 +18,7 @@ const supabase = supabaseUrl && supabaseAnonKey ? getSupabaseClient() : null;
 const Footer = () => {
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [version, setVersion] = useState("");
-
-  useEffect(() => {
-    async function fetchVersion() {
-      try {
-        const res = await fetch(
-          "https://raw.githubusercontent.com/CodeGraphContext/CodeGraphContext/main/README.md",
-        );
-        if (!res.ok) throw new Error("Failed to fetch README");
-        const text = await res.text();
-        const match = text.match(
-          /\*\*Version:\*\*\s*([0-9]+\.[0-9]+\.[0-9]+)/i,
-        );
-        setVersion(match ? match[1] : "N/A");
-      } catch (err) {
-        console.error(err);
-        setVersion("N/A");
-      }
-    }
-    fetchVersion();
-  }, []);
+  const version = useReleaseVersion();
 
   const handleNewsletterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,9 +187,7 @@ const Footer = () => {
               </li>
               <li>
                 <a
-                  href="https://github.com/CodeGraphContext/CodeGraphContext/blob/main/CONTRIBUTING.md"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href="/contributing"
                   className="hover:text-white transition-colors"
                 >
                   Contributing
@@ -315,8 +294,12 @@ const Footer = () => {
             <p>© 2026 CodeGraphContext. Released under the MIT License.</p>
 
             <div className="flex items-center gap-6 text-center md:text-left">
-              <span>Version {version}</span>
-              <span className="hidden md:inline">•</span>
+              {version && (
+                <>
+                  <span>Version {version}</span>
+                  <span className="hidden md:inline">•</span>
+                </>
+              )}
               <span>Python 3.10+</span>
               <span className="hidden md:inline">•</span>
               <span>Falkordb or Neo4j</span>

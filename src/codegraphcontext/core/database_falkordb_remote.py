@@ -26,8 +26,8 @@ from codegraphcontext.utils.debug_log import info_logger, error_logger
 # Reuse the Neo4j-compatible wrapper classes from the embedded FalkorDB module
 from codegraphcontext.core.database_falkordb import (
     FalkorDBDriverWrapper,
-    FalkorDBSessionWrapper,
-    FalkorDBResultWrapper,
+    FalkorDBSessionWrapper,  # noqa: F401 - compatibility re-export
+    FalkorDBResultWrapper,  # noqa: F401 - compatibility re-export
 )
 
 
@@ -97,12 +97,16 @@ class FalkorDBRemoteManager:
                         if self.ssl:
                             kwargs['ssl'] = True
 
-                        self._driver = FalkorDB(**kwargs)
+                        # Publish the client only after its health check succeeds.
+                        # A failed first connection must not look initialized to
+                        # later calls (or to another thread outside this lock).
+                        candidate = FalkorDB(**kwargs)
 
                         # Verify connectivity with default graph
-                        g = self._driver.select_graph(self.graph_name)
+                        g = candidate.select_graph(self.graph_name)
                         g.query("RETURN 1")
                         self._graphs[self.graph_name] = g
+                        self._driver = candidate
                         info_logger("Remote FalkorDB connection established successfully")
 
                     except ImportError as e:

@@ -700,8 +700,14 @@ class CodeFinder:
             return result.data()
     
     def who_calls_function(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
-        """Find what functions call a specific function using CALLS relationships with improved matching"""
+        """Find callers of a function or class constructor using CALLS relationships with improved matching"""
+        if path:
+            path = Path(path).as_posix()
         repo_path = self._normalize_repo_path_filter(repo_path)
+        # Indexed symbols live below the repository directory. A separator
+        # prevents a /repo filter from including its sibling /repo-other.
+        if repo_path:
+            repo_path = Path(repo_path).as_posix().rstrip("/") + "/"
         with self.driver.session() as session:
             repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
             limit_clause = "LIMIT $limit" if limit is not None else ""
@@ -711,8 +717,8 @@ class CodeFinder:
             if path:
                 params["path"] = path
                 result = session.run(f"""
-                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name, path: $path}})
-                    WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
+                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name, path: $path}})
+                    WHERE (target:Function OR target:Class) AND (caller:Function OR caller:Class OR caller:File) {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
@@ -730,8 +736,8 @@ class CodeFinder:
                 if not results:
                     params_no_path = {k: v for k, v in params.items() if k != "path"}
                     result = session.run(f"""
-                        MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name}})
-                        WHERE (caller:Function OR caller:Class OR caller:File) {repo_filter}
+                        MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name}})
+                        WHERE (target:Function OR target:Class) AND (caller:Function OR caller:Class OR caller:File) {repo_filter}
                         OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                         RETURN DISTINCT
                             caller.name as caller_function,
@@ -747,12 +753,12 @@ class CodeFinder:
                     results = result.data()
             else:
                 result = session.run(f"""
-                    MATCH (caller:Function)-[call:CALLS|HEURISTIC_CALLS]->(target:Function {{name: $function_name}})
-                    WHERE 1=1 {repo_filter}
+                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name}})
+                    WHERE (target:Function OR target:Class) AND (caller:Function OR caller:Class OR caller:File) {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
-                        caller.path as caller_file_path,
+                        COALESCE(caller.path, caller_file.path) as caller_file_path,
                         caller.line_number as caller_line_number,
                         call.line_number as call_line_number,
                         call.args as call_args,
@@ -766,8 +772,12 @@ class CodeFinder:
             return results
     
     def what_does_function_call(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
-        """Find what functions a specific function calls using CALLS relationships"""
+        """Find functions and class constructors a specific function calls using CALLS relationships"""
         repo_path = self._normalize_repo_path_filter(repo_path)
+        # Indexed symbols live below the repository directory. A separator
+        # prevents a /repo filter from including its sibling /repo-other.
+        if repo_path:
+            repo_path = Path(repo_path).as_posix().rstrip("/") + "/"
         with self.driver.session() as session:
             limit_clause = "LIMIT $limit" if limit is not None else ""
             params = {"function_name": function_name, "repo_path": repo_path}
@@ -775,12 +785,13 @@ class CodeFinder:
                 params["limit"] = limit
             if path:
                 # Convert path to absolute path
-                absolute_file_path = str(Path(path).resolve())
+                absolute_file_path = Path(path).resolve().as_posix()
                 params["absolute_file_path"] = absolute_file_path
                 result = session.run(f"""
                     MATCH (caller:Function {{name: $function_name, path: $absolute_file_path}})
-                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(called:Function)
-                    WHERE called.path STARTS WITH $repo_path OR $repo_path IS NULL
+                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(called)
+                    WHERE (called:Function OR called:Class)
+                      AND (called.path STARTS WITH $repo_path OR $repo_path IS NULL)
                     OPTIONAL MATCH (called_file:File)-[:CONTAINS]->(called)
                     RETURN DISTINCT
                         called.name as called_function,
@@ -796,8 +807,9 @@ class CodeFinder:
                 """, **params)
             else:
                 result = session.run(f"""
-                    MATCH (caller:Function {{name: $function_name}})-[call:CALLS|HEURISTIC_CALLS]->(called:Function)
-                    WHERE called.path STARTS WITH $repo_path OR $repo_path IS NULL
+                    MATCH (caller:Function {{name: $function_name}})-[call:CALLS|HEURISTIC_CALLS]->(called)
+                    WHERE (called:Function OR called:Class)
+                      AND (called.path STARTS WITH $repo_path OR $repo_path IS NULL)
                     OPTIONAL MATCH (called_file:File)-[:CONTAINS]->(called)
                     RETURN DISTINCT
                         called.name as called_function,
@@ -1165,86 +1177,66 @@ class CodeFinder:
             edges = edges[:limit]
         return {"edges": edges, "total_count": total, "truncated": truncated}
 
+    @staticmethod
+    def _call_path_edges(rows: List[Dict]) -> List[Dict]:
+        """Flatten bounded call paths without backend-specific list indexing."""
+        edges = []
+        seen = set()
+        for row in rows:
+            nodes = row["path_nodes"]
+            names = [getattr(node, "properties", node).get("name") for node in nodes]
+            paths = [getattr(node, "properties", node).get("path") for node in nodes]
+            lines = [getattr(rel, "properties", rel).get("line_number") for rel in row["rels"]]
+            for i, line in enumerate(lines):
+                key = (names[i], paths[i], names[i + 1], paths[i + 1], line)
+                if key in seen:
+                    continue
+                seen.add(key)
+                edges.append(dict(zip(
+                    ("caller_name", "caller_path", "callee_name", "callee_path", "line"), key,
+                )))
+                if len(edges) == 500:
+                    return edges
+        return edges
+
     def find_all_callers(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, depth: int = 3) -> List[Dict]:
-        """Find all direct and indirect callers of a specific function, returning edges."""
+        """Find direct/indirect callers of a function or class constructor."""
+        if path:
+            path = Path(path).as_posix()
         repo_path = self._normalize_repo_path_filter(repo_path)
+        if repo_path:
+            repo_path = Path(repo_path).as_posix().rstrip("/") + "/"
         depth = _sanitize_depth(depth)
+        repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
+        path_filter = "AND target.path = $path" if path else ""
         with self.driver.session() as session:
-            repo_filter = "AND path_nodes[0].path STARTS WITH $repo_path" if repo_path else ""
-            depth_str = f"1..{depth}" if depth > 1 else "1"
-            
-            # KùzuDB-optimized: matching on the path end node via nodes(p) indexing
-            # ensures we avoid Binder exceptions for multi-labeled property lookups
-            # on the end node of variable-length paths.
-            if path:
-                query = f"""
-                    MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(target:Function)
-                    WITH p, nodes(p) as path_nodes, relationships(p) as rels
-                    WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
-                    WHERE last_node.name = $function_name AND last_node.path = $path
-                    {repo_filter}
-                    UNWIND rels as r
-                    WITH startNode(r) as s, endNode(r) as e, r
-                    RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
-                                    e.name as callee_name, e.path as callee_path, 
-                                    r.line_number as line
-                    LIMIT 500
-                """
-                result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
-            else:
-                query = f"""
-                    MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(target:Function)
-                    WITH p, nodes(p) as path_nodes, relationships(p) as rels
-                    WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
-                    WHERE last_node.name = $function_name
-                    {repo_filter}
-                    UNWIND rels as r
-                    WITH startNode(r) as s, endNode(r) as e, r
-                    RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
-                                    e.name as callee_name, e.path as callee_path, 
-                                    r.line_number as line
-                    LIMIT 500
-                """
-                result = session.run(query, function_name=function_name, repo_path=repo_path)
-            return result.data()
+            result = session.run(f"""
+                MATCH p = (caller:Function)-[:CALLS|HEURISTIC_CALLS*1..{depth}]->(target)
+                WHERE (target:Function OR target:Class)
+                  AND target.name = $function_name {path_filter} {repo_filter}
+                RETURN nodes(p) AS path_nodes, relationships(p) AS rels
+                LIMIT 500
+            """, function_name=function_name, path=path, repo_path=repo_path)
+            return self._call_path_edges(result)
 
     def find_all_callees(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, depth: int = 3) -> List[Dict]:
-        """Find all direct and indirect callees of a specific function, returning edges."""
+        """Find direct/indirect function and class-constructor callees."""
+        if path:
+            path = Path(path).as_posix()
         repo_path = self._normalize_repo_path_filter(repo_path)
+        if repo_path:
+            repo_path = Path(repo_path).as_posix().rstrip("/") + "/"
         depth = _sanitize_depth(depth)
+        repo_filter = "AND callee.path STARTS WITH $repo_path" if repo_path else ""
+        path_filter = "AND caller.path = $path" if path else ""
         with self.driver.session() as session:
-            repo_filter = "AND last_node.path STARTS WITH $repo_path" if repo_path else ""
-            depth_str = f"1..{depth}" if depth > 1 else "1"
-            
-            if path:
-                query = f"""
-                    MATCH p = (caller:Function {{name: $function_name, path: $path}})-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(callee:Function)
-                    WITH p, nodes(p) as path_nodes, relationships(p) as rels
-                    WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
-                    WHERE 1=1 {repo_filter}
-                    UNWIND rels as r
-                    WITH startNode(r) as s, endNode(r) as e, r
-                    RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
-                                    e.name as callee_name, e.path as callee_path, 
-                                    r.line_number as line
-                    LIMIT 500
-                """
-                result = session.run(query, function_name=function_name, path=path, repo_path=repo_path)
-            else:
-                query = f"""
-                    MATCH p = (caller:Function {{name: $function_name}})-[:CALLS|HEURISTIC_CALLS*{depth_str}]->(callee:Function)
-                    WITH p, nodes(p) as path_nodes, relationships(p) as rels
-                    WITH p, path_nodes, rels, path_nodes[size(path_nodes)-1] as last_node
-                    WHERE 1=1 {repo_filter}
-                    UNWIND rels as r
-                    WITH startNode(r) as s, endNode(r) as e, r
-                    RETURN DISTINCT s.name as caller_name, s.path as caller_path, 
-                                    e.name as callee_name, e.path as callee_path, 
-                                    r.line_number as line
-                    LIMIT 500
-                """
-                result = session.run(query, function_name=function_name, repo_path=repo_path)
-            return result.data()
+            result = session.run(f"""
+                MATCH p = (caller:Function {{name: $function_name}})-[:CALLS|HEURISTIC_CALLS*1..{depth}]->(callee)
+                WHERE (callee:Function OR callee:Class) {path_filter} {repo_filter}
+                RETURN nodes(p) AS path_nodes, relationships(p) AS rels
+                LIMIT 500
+            """, function_name=function_name, path=path, repo_path=repo_path)
+            return self._call_path_edges(result)
 
     def find_function_call_chain(self, start_function: str, end_function: str, max_depth: int = 5, start_file: Optional[str] = None, end_file: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find call chains between two functions"""
