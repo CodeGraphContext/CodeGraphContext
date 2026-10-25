@@ -102,6 +102,11 @@ class _FakeSession:
     def run(self, query, **kwargs):
         if "MATCH (n:File)" in query:
             return [{"name": "main.py", "path": "repo/main.py", "is_dependency": False}]
+        if any(tok in query for tok in ("Topic", "Endpoint", "PRODUCES_TO", "CONSUMES_FROM", "SERVES", "INVOKES")):
+            # wire links/suggest queries return rows shaped differently (system,
+            # name, producers, consumers, ...); the generic Function-shaped row
+            # below doesn't match, so report zero results instead of KeyError-ing.
+            return []
         return [{"type": "Function", "name": "demo", "path": "repo/main.py", "line_number": 1, "is_dependency": False}]
 
 
@@ -546,6 +551,24 @@ def test_all_canonical_cli_commands_run_with_kuzudb(kuzudb_env, cli_test_stubs, 
                 ["prompt", "list"],
                 ["prompt", "add", str(prompt_file)],
                 ["prompt", "remove", str(prompt_file)],
+            ]
+        )
+    if "wire" in source_inventory:
+        # `wire validate` needs an existing, schema-valid wire.yml on disk;
+        # `wire example`'s own output is a valid one, same as
+        # test_wire_validate_accepts_generated_example does.
+        from codegraphcontext.wire.example import EXAMPLE_WIRE_YML
+        wire_yml = tmp_path / "wire.yml"
+        wire_yml.write_text(EXAMPLE_WIRE_YML, encoding="utf-8")
+        command_matrix.extend(
+            [
+                ["wire", "example"],
+                ["wire", "validate", str(wire_yml)],
+                ["wire", "list"],
+                ["wire", "show"],
+                ["wire", "discover", "--repo", str(tmp_path)],
+                ["wire", "links"],
+                ["wire", "suggest"],
             ]
         )
 
