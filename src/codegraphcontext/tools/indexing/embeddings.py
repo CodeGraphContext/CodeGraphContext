@@ -16,6 +16,9 @@ Model selection (via env var CGC_EMBEDDING_MODEL):
   - "openai"         → text-embedding-3-small via OpenAI API  (requires OPENAI_API_KEY)
   - "local"          → sentence-transformers/all-MiniLM-L6-v2 if available, else fastembed
   - "fastembed"      → fastembed BAAI/bge-small-en-v1.5 (ONNX, no torch required)
+  - "litellm/<model>" → any LiteLLM embedding model, e.g.
+                        litellm/bedrock/amazon.titan-embed-text-v2:0
+                        (requires the ``litellm`` extra)
   - any HF model ID  → loaded via sentence-transformers
 """
 
@@ -33,6 +36,8 @@ _DIM_MINILM = 384
 _DIM_BGE_SMALL = 384
 
 _VECTOR_INDEX_NAME = "function_embeddings"
+
+_LITELLM_PREFIX = "litellm/"
 
 
 def detect_graph_backend(driver: Any) -> str:
@@ -121,6 +126,62 @@ class _FastEmbedder:
         return [vec.tolist() for vec in self._model.embed(texts)]
 
 
+def _item_field(item: Any, key: str) -> Any:
+    """Read ``key`` from a LiteLLM embedding item, which may be a dict or an object."""
+    return item[key] if isinstance(item, dict) else getattr(item, key)
+
+
+class _LiteLLMEmbedder:
+    """Embeddings through the LiteLLM SDK (Bedrock, Cohere, Voyage, Gemini, Azure, Ollama, ...).
+
+    Credentials come from the provider's own environment variables;
+    LITELLM_API_BASE sets the endpoint for routes that need one, such as a self
+    hosted ollama/ or hosted_vllm/ server.
+    """
+
+    def __init__(self, model: str):
+        if not model:
+            raise ValueError("CGC_EMBEDDING_MODEL=litellm/ needs a model, e.g. litellm/cohere/embed-english-v3.0")
+        # Stop LiteLLM from loading a .env file from the working directory on import.
+        os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
+        try:
+            import litellm
+        except ImportError as e:
+            raise ImportError("litellm package required: pip install 'codegraphcontext[litellm]'") from e
+        # Looking up an unmapped model otherwise prints a provider banner to stdout.
+        litellm.suppress_debug_info = True
+        self._litellm = litellm
+        self.model = model
+        self._kwargs: Dict[str, Any] = {}
+        api_base = os.environ.get("LITELLM_API_BASE")
+        if api_base:
+            self._kwargs["api_base"] = api_base.rstrip("/")
+        self._dim: Optional[int] = None
+
+    @property
+    def dim(self) -> int:
+        # Only the indexing pipeline reads this (to size the Neo4j vector
+        # index), so it's resolved on first use: LiteLLM's model map knows it
+        # for most hosted models; anything else (a self hosted model) is
+        # measured with one probe call.
+        if self._dim is None:
+            try:
+                size = self._litellm.get_model_info(self.model).get("output_vector_size")
+            except Exception:
+                size = None
+            if not (isinstance(size, int) and size > 0):
+                size = len(self.embed_batch(["dimension probe"])[0])
+            self._dim = size
+        return self._dim
+
+    def embed_batch(self, texts: List[str]) -> List[List[float]]:
+        response = self._litellm.embedding(model=self.model, input=texts, drop_params=True, **self._kwargs)
+        items = sorted(response.data, key=lambda item: _item_field(item, "index"))
+        if len(items) != len(texts):
+            raise RuntimeError(f"LiteLLM ({self.model}) returned {len(items)} embeddings for {len(texts)} inputs")
+        return [list(_item_field(item, "embedding")) for item in items]
+
+
 def probe_embedding_backend(model_spec: Optional[str] = None):
     """Cheaply check whether ENABLE_VECTOR_RESOLVE can actually run.
 
@@ -132,6 +193,15 @@ def probe_embedding_backend(model_spec: Optional[str] = None):
     import importlib.util as _ilu
 
     spec = model_spec or os.environ.get("CGC_EMBEDDING_MODEL", "local")
+    if spec.startswith(_LITELLM_PREFIX):
+        if not spec[len(_LITELLM_PREFIX) :]:
+            return False, "CGC_EMBEDDING_MODEL=litellm/ names no model (use litellm/<provider>/<model>)"
+        if _ilu.find_spec("litellm") is None:
+            return False, (
+                f"CGC_EMBEDDING_MODEL={spec} but the 'litellm' package is not installed "
+                "(pip install 'codegraphcontext[litellm]')"
+            )
+        return True, "litellm"
     if spec == "openai":
         if _ilu.find_spec("openai") is None:
             return False, "CGC_EMBEDDING_MODEL=openai but the 'openai' package is not installed"
@@ -156,6 +226,8 @@ def probe_embedding_backend(model_spec: Optional[str] = None):
 def _get_embedder(model_spec: Optional[str] = None):
     """Return the appropriate embedder based on CGC_EMBEDDING_MODEL env var."""
     spec = model_spec or os.environ.get("CGC_EMBEDDING_MODEL", "local")
+    if spec.startswith(_LITELLM_PREFIX):
+        return _LiteLLMEmbedder(spec[len(_LITELLM_PREFIX) :])
     if spec == "openai":
         return _OpenAIEmbedder()
     if spec == "fastembed":
