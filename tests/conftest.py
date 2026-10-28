@@ -7,6 +7,11 @@ import pytest
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
+# Repo root, so test modules import as ``tests.<module>`` no matter how pytest
+# was launched.
+REPO_ROOT = SRC_ROOT.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -64,3 +69,32 @@ def assert_parser_result():
         return result
 
     return _assert
+
+
+#: The embedded native libraries that must never share one interpreter: a
+#: full-suite run did end in "double free or corruption" once a test loaded
+#: ladybug in-process (#1731's probe, called from an e2e test) next to kuzu.
+_EMBEDDED_NATIVE_MODULES = ("kuzu", "ladybug")
+
+
+def _loaded_embedded_natives():
+    return {m for m in _EMBEDDED_NATIVE_MODULES if m in sys.modules}
+
+
+@pytest.fixture(autouse=True)
+def _one_embedded_native_library_per_process():
+    """Fail the test that loads the second embedded library into this process.
+
+    Without it the damage surfaces far away: the process may abort at exit, or
+    later tests of the first backend fail. Load the other backend in a
+    subprocess instead (as the native-backend tests do)."""
+    before = _loaded_embedded_natives()
+    yield
+    after = _loaded_embedded_natives()
+    if len(after) > 1 and len(before) <= 1:
+        pytest.fail(
+            f"this test loaded {sorted(after - before)} into a process that already held "
+            f"{sorted(before)}: both embedded native libraries are now in one interpreter. "
+            "Load the other backend in a subprocess.",
+            pytrace=False,
+        )
