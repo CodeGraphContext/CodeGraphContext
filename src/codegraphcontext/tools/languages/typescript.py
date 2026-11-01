@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger, debug_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
+from .js_dynamic_imports import extract_dynamic_import_call
 
 TS_QUERIES = {
     "functions": """
@@ -77,6 +78,7 @@ TS_QUERIES = {
         ) @import
     """,
     "calls": """
+        (call_expression function: (import)) @dynamic_import
         (call_expression function: (identifier) @name)
         (call_expression function: (member_expression property: (property_identifier) @name))
         (new_expression constructor: (identifier) @name)
@@ -477,41 +479,15 @@ class TypescriptTreeSitterParser:
                                 'lang': self.language_name})
         return imports
 
-    def _find_dynamic_imports(self, root_node):
-        calls = []
-        query_str = """
-            (call_expression
-                function: (import)
-                arguments: (arguments) @args
-            ) @dynamic_import
-        """
-        for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name != "dynamic_import":
-                continue
-            args_node = node.child_by_field_name("arguments")
-            import_arg = None
-            if args_node and args_node.named_child_count > 0:
-                import_arg = self._get_node_text(args_node.named_child(0))
-            context = self._get_parent_context(node)
-            calls.append({
-                "name": "import",
-                "full_name": self._get_node_text(node),
-                "line_number": node.start_point[0] + 1,
-                "args": [import_arg] if import_arg else [],
-                "inferred_obj_type": None,
-                "context": context,
-                "class_context": self._get_parent_context(node, types=('class_declaration', 'abstract_class_declaration')),
-                "lang": self.language_name,
-                "is_dependency": False,
-                "call_kind": "dynamic_import",
-            })
-        return calls
-
     def _find_calls(self, root_node):
-        calls = self._find_dynamic_imports(root_node)
+        calls = []
         query_str = TS_QUERIES['calls']
         for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name == 'name':
+            if capture_name == 'dynamic_import':
+                call = extract_dynamic_import_call(self, node)
+                if call is not None:
+                    calls.append(call)
+            elif capture_name == 'name':
                 # Traverse up to find the call/new expression
                 call_node = node.parent
                 while call_node and call_node.type not in ('call_expression', 'new_expression') and call_node.type != 'program':
