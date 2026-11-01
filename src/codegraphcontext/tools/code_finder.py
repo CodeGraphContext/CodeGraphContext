@@ -753,12 +753,12 @@ class CodeFinder:
                     results = result.data()
             else:
                 result = session.run(f"""
-                    MATCH (caller:Function)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name}})
-                    WHERE (target:Function OR target:Class) {repo_filter}
+                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name}})
+                    WHERE (target:Function OR target:Class) AND (caller:Function OR caller:Class OR caller:File) {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
-                        caller.path as caller_file_path,
+                        COALESCE(caller.path, caller_file.path) as caller_file_path,
                         caller.line_number as caller_line_number,
                         call.line_number as call_line_number,
                         call.args as call_args,
