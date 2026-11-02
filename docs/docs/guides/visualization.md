@@ -59,6 +59,26 @@ API Route key for this server process to select it. AI queries send the question
 graph schema and query results to the selected provider to generate and explain
 read-only Cypher queries.
 
+### Natural-language graph queries with Runcrate
+
+The AI query feature can also use [Runcrate](https://www.runcrate.ai/?utm_source=codegraphcontext&utm_medium=directory&utm_campaign=gpu_pricing),
+an OpenAI-compatible API for open models (open models are free with your GitHub account).
+Set your key before starting the server:
+
+```bash
+export RUNCRATE_API_KEY="your-runcrate-key"
+cgc visualize
+```
+
+The default endpoint is `https://api.runcrate.ai/v1` and the default model is
+`deepseek-ai/DeepSeek-V4.1-Flash`. Set `RUNCRATE_API_BASE` or `RUNCRATE_MODEL` to
+override them, for example `RUNCRATE_MODEL=openai/gpt-oss-120b`.
+
+Gemini, OpenAI, Atlas Cloud, Cheaper Inference and API Route keep their priority
+over Runcrate; use only the Runcrate key for this server process to select it.
+AI queries send the question, graph schema and query results to the selected
+provider to generate and explain read-only Cypher queries.
+
 ---
 
 ## 3. Neo4j Browser Visualizations (Neo4j Backend Only)
