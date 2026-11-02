@@ -138,7 +138,7 @@ flowchart LR
 ---
 
 ## Project Details
-- **Version:** 0.5.1
+- **Version:** [Latest release on PyPI](https://pypi.org/project/codegraphcontext/)
 - **Authors:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
 - **License:** MIT License (See [LICENSE](LICENSE) for details)
 - **Website:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
