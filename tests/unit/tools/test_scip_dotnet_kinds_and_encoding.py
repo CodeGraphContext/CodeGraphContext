@@ -199,6 +199,32 @@ def test_a_column_in_another_encoding_is_not_a_call(tmp_path: Path, encoding: in
     assert _single_reference_index(tmp_path, LINE, start, start + 6, encoding, "any") == []
 
 
+def test_each_document_uses_its_own_encoding(tmp_path: Path) -> None:
+    index = scip_pb2.Index()
+    target = "pkg . . a/Target()."
+    for name, encoding, start in (("a.src", E.UTF16CodeUnitOffsetFromLineStart, 11), ("b.src", E.UTF8CodeUnitOffsetFromLineStart, 14)):
+        doc = index.documents.add()
+        doc.relative_path = name
+        doc.position_encoding = encoding
+        reference = doc.occurrences.add()
+        reference.symbol = target
+        reference.range.extend([1, start, start + 6])
+        (tmp_path / name).write_text("def\n" + LINE + "\n", encoding="utf-8")
+    definition = index.documents[0].occurrences.add()
+    definition.symbol = target
+    definition.symbol_roles = 1
+    definition.range.extend([0, 0, 1])
+    info = index.documents[0].symbols.add()
+    info.symbol = target
+    info.kind = scip_pb2.SymbolInformation.Function
+    scip_path = tmp_path / "index.scip"
+    scip_path.write_bytes(index.SerializeToString())
+    files = ScipIndexParser().parse(scip_path, tmp_path)["files"]
+    for name in ("a.src", "b.src"):
+        fd = files[str((tmp_path / name).resolve())]
+        assert [e["ref_line"] for e in fd["function_calls_scip"] + fd["module_level_calls_scip"]] == [2], name
+
+
 def test_utf8_columns_count_an_undecodable_byte_once(tmp_path: Path) -> None:
     line = "xé Target(1)".encode("latin-1")
     assert _single_reference_index(tmp_path, line, 3, 9, E.UTF8CodeUnitOffsetFromLineStart, "any") == [2]
