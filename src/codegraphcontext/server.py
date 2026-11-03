@@ -8,6 +8,7 @@ import sys
 import traceback
 import os
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 from dataclasses import asdict
@@ -200,6 +201,10 @@ class MCPServer:
             cwd: Working directory used for context resolution. Defaults to Path.cwd().
         """
         self.cwd = (cwd or Path.cwd()).resolve()
+        # A delegated CLI read holds this through identity validation and data
+        # acquisition. Context switching cannot close or replace its database.
+        self._context_lock = threading.RLock()
+        self._gateway_owner = None
         self.discovered_child_contexts: List[dict] = []
         self._context_note_pending = False
         self.disabled_tools: Set[str] = set()
@@ -577,6 +582,10 @@ class MCPServer:
         }
 
     def switch_context_tool(self, **args) -> Dict[str, Any]:
+        with self._context_lock:
+            return self._switch_context_locked(**args)
+
+    def _switch_context_locked(self, **args) -> Dict[str, Any]:
         raw_path = args.get("context_path", "")
         should_save = args.get("save", True)
 
@@ -589,6 +598,8 @@ class MCPServer:
             if blocked:
                 return blocked
             try:
+                if self._gateway_owner is not None:
+                    self._gateway_owner.invalidate()
                 watcher_was_running = self._stop_current_watcher()
                 try:
                     _teardown_db_manager(self.db_manager)
@@ -619,6 +630,9 @@ class MCPServer:
                 self.code_watcher = CodeWatcher(self.graph_builder, self.job_manager)
                 self._start_watcher_if(watcher_was_running)
                 self._context_note_pending = False
+
+                if self._gateway_owner is not None:
+                    self._gateway_owner.publish(self)
 
                 return {
                     "status": "ok",
@@ -662,6 +676,8 @@ class MCPServer:
         new_db_path = str(cgc_dir / "db" / local_db)
 
         try:
+            if self._gateway_owner is not None:
+                self._gateway_owner.invalidate()
             watcher_was_running = self._stop_current_watcher()
             # Tear down old connection
             try:
@@ -693,6 +709,9 @@ class MCPServer:
                 save_workspace_mapping(self.cwd, cgc_dir)
 
             self._context_note_pending = False
+
+            if self._gateway_owner is not None:
+                self._gateway_owner.publish(self)
 
             return {
                 "status": "ok",
@@ -905,5 +924,8 @@ class MCPServer:
     def shutdown(self):
         """Gracefully shuts down the server and its components."""
         debug_logger("Shutting down server...")
-        self.code_watcher.stop()
-        _teardown_db_manager(self.db_manager)
+        with self._context_lock:
+            if self._gateway_owner is not None:
+                self._gateway_owner.invalidate()
+            self.code_watcher.stop()
+            _teardown_db_manager(self.db_manager)

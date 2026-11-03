@@ -12,6 +12,50 @@ cgc api start --port 8000
 
 This starts a FastAPI server at `http://localhost:8000`. You can verify it's running by visiting `http://localhost:8000/docs` in your browser.
 
+### Local CLI reads while the gateway owns an embedded database
+
+On macOS and Linux, `cgc list`, `cgc stats`, and `cgc stats <repository-path>`
+automatically use a matching local gateway started with `cgc api start`. This
+allows reads while that gateway owns a LadybugDB or KùzuDB database. The CLI
+prints `Reading through local CGC Gateway...` and retains the ordinary tables,
+overall extended-type counts, scoped DISTINCT counts, and empty/missing-repository
+messages. Repository paths and `--context` still select the intended context.
+
+Discovery uses the gateway's actual configured port, including non-default ports.
+It is published only after the shared REST/MCP server successfully opens its
+database, not by `/health` alone. The backend, canonical database path, and
+resolved global/per-repo/named context must all match; an implicit fallback to a
+different backend is not guessed. Runtime database/path overrides must match too.
+
+If `CGC_API_KEY` is configured, use the same key configuration in the gateway and
+CLI. Internal read requests prove possession of the key without transmitting the
+key itself. Ordinary REST/MCP authentication remains unchanged. A verified live
+gateway's authentication failure, database-read failure, or concurrent context
+change produces a CLI error; it does not silently bypass that gateway. Retry a
+context-change error after selecting the intended context.
+
+Missing, malformed, unsafe, stale, or unreachable discovery falls back to the
+normal direct CLI path. Discovery uses owner-only POSIX state under
+`~/.codegraphcontext/gateways/`, a per-instance key, signed requests/responses,
+and a fresh request nonce. A live PID by itself is not trusted. The CLI connects
+only to `127.0.0.1` or `::1`, uses no HTTP proxy/netrc credentials or redirects,
+and bounds connection establishment to 0.3 seconds and the whole HTTP exchange
+to five seconds. The response is limited to 4 MiB.
+
+Context switches take the same lock as delegated read collection. The old
+identity is withdrawn before database teardown, and a new generation is
+published only after successful initialization. Failed switches leave no usable
+old record. Shutdown removes only the current instance's record; a crashed
+gateway's leftover record can be rejected without opening its database first.
+
+Automatic discovery currently requires a regular `cgc api start` process, a
+fixed nonzero port, and a loopback or wildcard bind. Wildcard binds map to the
+matching loopback address. Windows, `--reload`, direct `uvicorn` launches,
+non-loopback-specific binds, and other database backends keep their existing
+direct CLI behavior. Mutation commands such as `update`, `index`, and `delete`
+also keep the existing single-owner policy: use the running server's interface
+or stop it before opening the embedded database from another process.
+
 ## 2. Integration with ChatGPT
 
 There are two ways to use CodeGraphContext with ChatGPT:

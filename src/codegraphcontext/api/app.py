@@ -3,7 +3,9 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.responses import HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
-from .router import router
+from .router import router, cli_router
+from . import router as router_module
+from ..gateway_discovery import GatewayOwner
 import logging
 
 from .auth import (
@@ -111,15 +113,36 @@ def _combine_lifespans(outer_lifespan, mcp_app):
     return combined
 
 
-def create_app() -> FastAPI:
+def create_app(gateway_endpoint=None) -> FastAPI:
     # Log whether API-key auth is active. Emits a prominent security warning
     # when the gateway is running unauthenticated (CGC_API_KEY unset).
     log_auth_status()
 
+    @asynccontextmanager
+    async def lifespan(app):
+        owner = GatewayOwner(gateway_endpoint) if gateway_endpoint else None
+        if owner is not None:
+            router_module._gateway_owner = owner
+        try:
+            yield
+        finally:
+            if owner is not None:
+                server = router_module._server_instance
+                if server is not None:
+                    with server._context_lock:
+                        owner.invalidate()
+                        if server._gateway_owner is owner:
+                            server._gateway_owner = None
+                else:
+                    owner.invalidate()
+                if router_module._gateway_owner is owner:
+                    router_module._gateway_owner = None
+
     app = FastAPI(
         title="CodeGraphContext Gateway",
         description="HTTP API gateway for CodeGraphContext MCP server. Enables integration with ChatGPT Actions, Claude, and web frontends.",
-        version="0.1.0"
+        version="0.1.0",
+        lifespan=lifespan,
     )
 
     # Enable CORS for the website/frontend
@@ -135,6 +158,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(router, prefix="/api/v1")
+    app.include_router(cli_router, prefix="/api/v1")
 
     @app.get("/health")
     async def health():

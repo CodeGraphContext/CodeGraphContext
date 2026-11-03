@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 
 from codegraphcontext.cli import cli_helpers, main as cli_main
 from codegraphcontext.cli.main import app
+from codegraphcontext.core.repository_stats import repository_stats
 
 runner = CliRunner()
 
@@ -25,7 +26,7 @@ def _plain(text: str) -> str:
 
 
 def _stats_source():
-    return inspect.getsource(cli_helpers.stats_helper)
+    return inspect.getsource(repository_stats)
 
 
 def test_stats_counts_are_distinct():

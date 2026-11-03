@@ -23,6 +23,8 @@ from rich.progress import (
 )
 
 from ..core import get_database_manager
+from ..core.repository_stats import repository_stats
+from ..gateway_discovery import GatewayReadError, try_gateway_read
 from ..core.jobs import JobManager
 from ..tools.code_finder import CodeFinder
 from ..tools.graph_builder import GraphBuilder
@@ -480,16 +482,40 @@ def add_package_helper(package_name: str, language: str, context: Optional[str] 
         db_manager.close_driver()
 
 
+def _gateway_cli_read(operation, path, context):
+    """Resolve context and try private discovery before opening any database."""
+    ensure_first_run_bootstrap()
+    try:
+        ctx = resolve_context(context)
+    except ContextNotFoundError:
+        return None  # The ordinary initialization path renders this error.
+    try:
+        data = try_gateway_read(ctx, operation, path)
+    except GatewayReadError as exc:
+        console.print(f"[bold red]Gateway read failed:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+    if data is not None:
+        console.print("[dim]Resolving context...[/dim]")
+        if ctx.mode == "named":
+            console.print(f"[cyan]Context:[/cyan] {ctx.context_name} (Database: {ctx.database})")
+        elif ctx.mode == "per-repo":
+            console.print(f"[cyan]Context:[/cyan] Per-repo local mode (Database: {ctx.database})")
+        console.print("[dim]Reading through local CGC Gateway...[/dim]")
+    return data
+
+
 def list_repos_helper(context: Optional[str] = None):
     """Lists all indexed repositories."""
-    services = _initialize_services(context)
-    if not all(services[:3]):
-        _fail_services_init()
-    
-    db_manager, _, code_finder, ctx = services
+    data = _gateway_cli_read("list", None, context)
+    db_manager = None
+    if data is None:
+        services = _initialize_services(context)
+        if not all(services[:3]):
+            _fail_services_init()
+        db_manager, _, code_finder, ctx = services
     
     try:
-        repos = code_finder.list_indexed_repositories()
+        repos = data["repositories"] if data is not None else code_finder.list_indexed_repositories()
         if not repos:
             console.print("[yellow]No repositories indexed yet.[/yellow]")
             return
@@ -507,7 +533,8 @@ def list_repos_helper(context: Optional[str] = None):
     except Exception as e:
         console.print(f"[bold red]An error occurred:[/bold red] {e}")
     finally:
-        db_manager.close_driver()
+        if db_manager is not None:
+            db_manager.close_driver()
 
 
 def delete_helper(repo_path: str, context: Optional[str] = None):
@@ -1002,113 +1029,44 @@ def clean_helper(context: Optional[str] = None):
 
 def stats_helper(path: str = None, context: Optional[str] = None):
     """Show indexing statistics for a repository or overall."""
-    services = _initialize_services(context)
-    if not all(services[:3]):
-        _fail_services_init()
+    path_obj = Path(path).resolve() if path else None
+    # Stored repository paths use forward slashes on every platform.
+    repo_path = path_obj.as_posix() if path_obj else None
+    data = _gateway_cli_read("stats", repo_path, context)
+    db_manager = None
+    if data is None:
+        services = _initialize_services(context)
+        if not all(services[:3]):
+            _fail_services_init()
+        db_manager, _, _, _ = services
 
-    db_manager, _, code_finder, ctx = services
-    
     try:
-        if path:
-            # Stats for specific repository
-            path_obj = Path(path).resolve()
-            # Paths are stored with forward slashes (as_posix) in the graph DB,
-            # so lookups must use the same normalization on Windows too.
-            repo_path_str = path_obj.as_posix()
+        if path_obj:
             console.print(f"[cyan]📊 Statistics for: {path_obj}[/cyan]\n")
-            
-            with db_manager.get_driver().session() as session:
-                # Get repository node
-                repo_query = """
-                MATCH (r:Repository {path: $path})
-                RETURN r
-                """
-                result = session.run(repo_query, path=repo_path_str)
-                if not result.single():
-                    console.print(f"[red]Repository not found: {path_obj}[/red]")
-                    return
-                
-                # Get stats
-                # Get stats using separate queries to handle depth and avoid Cartesian products.
-                # `count(x)` counts *rows*, and a variable-length CONTAINS* match
-                # yields one row per distinct path to the node: a method is
-                # reachable as Repo->..->File->Function and again as
-                # Repo->..->File->Class->Function, a nested function three ways.
-                # count(DISTINCT x) is required or the totals are inflated —
-                # functions were over-reported by ~55% on CGC's own repo.
-                # 1. Files
-                file_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File) RETURN count(DISTINCT f) as c"
-                file_count = session.run(file_query, path=repo_path_str).single()["c"]
-
-                # 2. Functions (including methods in classes)
-                func_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(func:Function) RETURN count(DISTINCT func) as c"
-                func_count = session.run(func_query, path=repo_path_str).single()["c"]
-
-                # 3. Classes
-                class_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(c:Class) RETURN count(DISTINCT c) as c"
-                class_count = session.run(class_query, path=repo_path_str).single()["c"]
-                
-                # 4. Modules (imported) - Note: Module nodes are outside the repo structure usually, connected via IMPORTS
-                # We need to traverse from files to modules
-                module_query = "MATCH (r:Repository {path: $path})-[:CONTAINS*]->(f:File)-[:IMPORTS]->(m:Module) RETURN count(DISTINCT m) as c"
-                module_count = session.run(module_query, path=repo_path_str).single()["c"]
-
-                table = Table(show_header=True, header_style="bold magenta")
-                table.add_column("Metric", style="cyan")
-                table.add_column("Count", style="green", justify="right")
-                
-                table.add_row("Files", str(file_count))
-                table.add_row("Functions", str(func_count))
-                table.add_row("Classes", str(class_count))
-                table.add_row("Imported Modules", str(module_count))
-                
-                console.print(table)
         else:
-            # Overall stats
             console.print("[cyan]📊 Overall Database Statistics[/cyan]\n")
-            
-            with db_manager.get_driver().session() as session:
-                # Get overall counts using separate O(1) queries
-                repo_count = session.run("MATCH (r:Repository) RETURN count(r) as c").single()["c"]
-                
-                if repo_count > 0:
-                    file_count = session.run("MATCH (f:File) RETURN count(f) as c").single()["c"]
-                    func_count = session.run("MATCH (f:Function) RETURN count(f) as c").single()["c"]
-                    class_count = session.run("MATCH (c:Class) RETURN count(c) as c").single()["c"]
-                    module_count = session.run("MATCH (m:Module) RETURN count(m) as c").single()["c"]
-                    
-                    # Extended node types (PHP, Rust, Go, etc.)
-                    interface_count = session.run("MATCH (i:Interface) RETURN count(i) as c").single()["c"]
-                    trait_count = session.run("MATCH (t:Trait) RETURN count(t) as c").single()["c"]
-                    struct_count = session.run("MATCH (s:Struct) RETURN count(s) as c").single()["c"]
-                    enum_count = session.run("MATCH (e:Enum) RETURN count(e) as c").single()["c"]
-                    
-                    table = Table(show_header=True, header_style="bold magenta")
-                    table.add_column("Metric", style="cyan")
-                    table.add_column("Count", style="green", justify="right")
-                    
-                    table.add_row("Repositories", str(repo_count))
-                    table.add_row("Files", str(file_count))
-                    table.add_row("Functions", str(func_count))
-                    table.add_row("Classes", str(class_count))
-                    if interface_count > 0:
-                        table.add_row("Interfaces", str(interface_count))
-                    if trait_count > 0:
-                        table.add_row("Traits", str(trait_count))
-                    if struct_count > 0:
-                        table.add_row("Structs", str(struct_count))
-                    if enum_count > 0:
-                        table.add_row("Enums", str(enum_count))
-                    table.add_row("Modules", str(module_count))
-                    
-                    console.print(table)
-                else:
-                    console.print("[yellow]No data indexed yet.[/yellow]")
-                    
+        if data is None:
+            data = repository_stats(db_manager, repo_path)
+        if not data["found"]:
+            console.print(f"[red]Repository not found: {path_obj}[/red]")
+            return
+        counts = data["counts"]
+        if not counts:
+            console.print("[yellow]No data indexed yet.[/yellow]")
+            return
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Count", style="green", justify="right")
+        for label, count in counts.items():
+            if label in {"Interfaces", "Traits", "Structs", "Enums"} and not count:
+                continue
+            table.add_row(label, str(count))
+        console.print(table)
     except Exception as e:
         console.print(f"[bold red]An error occurred:[/bold red] {e}")
     finally:
-        db_manager.close_driver()
+        if db_manager is not None:
+            db_manager.close_driver()
 
 
 def watch_helper(
