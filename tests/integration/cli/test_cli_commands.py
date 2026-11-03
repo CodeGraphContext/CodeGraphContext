@@ -282,6 +282,9 @@ def cli_test_stubs(monkeypatch, tmp_path):
         async def run(self):
             return None
 
+        async def shutdown_async(self):
+            return self.shutdown()
+
         def shutdown(self):
             return None
 

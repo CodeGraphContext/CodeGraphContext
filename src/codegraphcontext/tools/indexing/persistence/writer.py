@@ -1872,15 +1872,21 @@ class GraphWriter:
                 """,
                 path=file_path_str,
             )
-            session.run(
-                """
-                MATCH (f:File {path: $path})
-                OPTIONAL MATCH (f)-[:CONTAINS]->(element)
-                OPTIONAL MATCH (element)-[:HAS_PARAMETER]->(p:Parameter)
-                DETACH DELETE f, element, p
-            """,
-                path=file_path_str,
+            # CONTAINS links can be incomplete after a partial write or a
+            # backend planning failure. File ownership is stored on every
+            # symbol/parameter as well; use it so orphaned symbols do not
+            # survive a rename/delete or get duplicated by an update.
+            owned_labels = (
+                "Function", "Class", "Variable", "Trait", "Interface", "Macro",
+                "Struct", "Enum", "Union", "Annotation", "Record", "Property",
+                "Mixin", "Extension", "Object", "Parameter",
             )
+            for label in owned_labels:
+                session.run(
+                    f"MATCH (element:{_cypher_label(label, backend)} {{path: $path}}) DETACH DELETE element",
+                    path=file_path_str,
+                )
+            session.run("MATCH (f:File {path: $path}) DETACH DELETE f", path=file_path_str)
             info_logger(f"Deleted file and its elements from graph: {file_path_str}")
 
             for p in parent_paths:

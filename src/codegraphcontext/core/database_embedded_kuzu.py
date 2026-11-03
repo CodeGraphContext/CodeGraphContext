@@ -33,6 +33,41 @@ DEFAULT_EMBEDDED_BUFFER_POOL_BYTES = 4 * 1024**3
 MIN_DEFAULT_BUFFER_POOL_BYTES = 256 * 1024**2
 
 
+class EmbeddedConnectionPool(queue.Queue):
+    """Reject new sessions and drain borrowed connections before native close."""
+
+    def __init__(self):
+        super().__init__()
+        self._lifecycle = threading.Condition()
+        self._closing = False
+        self._borrowed = 0
+
+    def borrow(self, timeout=30):
+        with self._lifecycle:
+            if self._closing:
+                raise RuntimeError("Database connection pool is closing; re-acquire the current driver")
+            self._borrowed += 1
+        try:
+            return self.get(timeout=timeout)
+        except BaseException:
+            with self._lifecycle:
+                self._borrowed -= 1
+                self._lifecycle.notify_all()
+            raise
+
+    def release(self, connection):
+        self.put(connection)
+        with self._lifecycle:
+            self._borrowed -= 1
+            self._lifecycle.notify_all()
+
+    def quiesce(self, timeout=30):
+        with self._lifecycle:
+            self._closing = True
+            if not self._lifecycle.wait_for(lambda: self._borrowed == 0, timeout):
+                raise RuntimeError("Database close deferred: active sessions did not drain; database was left open")
+
+
 def _cgroup_available_bytes():
     """Memory headroom under the container's cgroup limit, or None when
     unconfined. /proc/meminfo shows the HOST inside a container, so a pod
@@ -239,7 +274,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
                                 )
 
                             # Initialise connection pool
-                            self._pool = queue.Queue()
+                            self._pool = EmbeddedConnectionPool()
                             # Start with 10 connections in the pool
                             for _ in range(10):
                                 self._pool.put(backend.Connection(self._db))
@@ -618,6 +653,8 @@ class EmbeddedGraphManager(GraphQueryInterface):
                 if self._db is None:
                     return
                 info_logger(f"Closing {self.BACKEND_SPEC.display_name} connection pool")
+                if isinstance(self._pool, EmbeddedConnectionPool):
+                    self._pool.quiesce()
                 # Clear and close all connections in the pool
                 while self._pool is not None and not self._pool.empty():
                     try:
@@ -656,12 +693,16 @@ class EmbeddedGraphManager(GraphQueryInterface):
             return False
         try:
             # Borrow a connection to test
-            conn = self._pool.get(timeout=1.0)
+            pool = self._pool
+            conn = pool.borrow(timeout=1.0) if isinstance(pool, EmbeddedConnectionPool) else pool.get(timeout=1.0)
             try:
                 conn.execute("RETURN 1")
                 return True
             finally:
-                self._pool.put(conn)
+                if isinstance(pool, EmbeddedConnectionPool):
+                    pool.release(conn)
+                else:
+                    pool.put(conn)
         except Exception:
             return False
     
@@ -759,7 +800,7 @@ class EmbeddedSessionWrapper:
                 # db_path closes the old database and drains its pool. A caller
                 # holding a STALE driver reference then blocked here forever
                 # with no diagnostic. Fail loudly instead.
-                self.conn = self._pool.get(timeout=30)
+                self.conn = self._pool.borrow() if isinstance(self._pool, EmbeddedConnectionPool) else self._pool.get(timeout=30)
             except queue.Empty:
                 raise RuntimeError(
                     "No database connection available after 30s — this driver's "
@@ -802,11 +843,24 @@ class EmbeddedSessionWrapper:
     def __enter__(self):
         """Enter context manager - return self for 'with' statement."""
         return self
+
+    def __del__(self):
+        # Introspection and abandoned context managers may never enter a
+        # `with` block. Return their borrowed connection on collection too.
+        try:
+            if getattr(self, "_pool", None) is not None and getattr(self, "conn", None) is not None:
+                self.__exit__(None, None, None)
+        except Exception:
+            pass  # Destructors also run during interpreter teardown.
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Exit context manager - Return connection to the pool."""
         if self.conn and self._pool is not None:
-            self._pool.put(self.conn)
+            if isinstance(self._pool, EmbeddedConnectionPool):
+                self._pool.release(self.conn)
+            else:
+                self._pool.put(self.conn)
+            self.conn = None
         return False  # Don't suppress exceptions
 
 

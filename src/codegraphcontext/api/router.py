@@ -24,6 +24,17 @@ router = APIRouter(dependencies=[Depends(require_api_key)])
 # Global server instance (initialized on startup)
 _server_instance: MCPServer = None
 
+
+async def close_server() -> None:
+    """Drain the shared server when the HTTP application's lifespan ends."""
+    global _server_instance
+    if _server_instance is None:
+        return
+    shutdown = getattr(_server_instance, "shutdown_async", None)
+    if shutdown is not None:
+        await shutdown()
+    _server_instance = None
+
 async def get_server() -> MCPServer:
     """Build the server on the running event loop.
 
