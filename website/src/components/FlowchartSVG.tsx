@@ -304,14 +304,12 @@ export default function FlowchartSVG({
         });
       }
       if (dragId !== null && dragStart.current) {
-        const dx = (e.clientX - dragStart.current.mx) / zoom;
-        const dy = (e.clientY - dragStart.current.my) / zoom;
+        const { mx, my, nx, ny } = dragStart.current; // copy values now, before the ref can be nulled
+        const dx = (e.clientX - mx) / zoom;
+        const dy = (e.clientY - my) / zoom;
         setPositions((prev) => {
           const next = new Map(prev);
-          next.set(dragId, {
-            x: dragStart.current!.nx + dx,
-            y: dragStart.current!.ny + dy,
-          });
+          next.set(dragId, { x: nx + dx, y: ny + dy });
           return next;
         });
         dirtyNodes.current.add(dragId);
@@ -595,6 +593,7 @@ export default function FlowchartSVG({
               {/* expand / collapse button */}
               {hk && (
                 <g
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => toggleExpand(id, e)}
                   style={{ cursor: "pointer" }}
                 >
