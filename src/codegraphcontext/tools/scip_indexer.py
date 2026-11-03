@@ -643,7 +643,7 @@ class ScipIndexParser:
             rust_impls = symbol_def_table.get("rust_impls", {})
             name = self._name_from_symbol(sym)
             if name in rust_impls and info.get("kind") in (
-                Kind.Class, Kind.Enum, Kind.Interface, Kind.Struct, Kind.Trait, Kind.Protocol
+                Kind.Class, Kind.Interface, Kind.Struct, Kind.Trait, Kind.Protocol
             ):
                 info["bases"] = list(set(info.get("bases", []) + list(rust_impls[name])))
 
@@ -718,7 +718,7 @@ class ScipIndexParser:
                     elif bucket == "variables":
                         node.update({"value": None, "type": return_type, "context": None, "class_context": None})
                     elif bucket is not None:
-                        if bucket != "enums":
+                        if bucket != "enums" or defn.get("bases"):
                             node["bases"] = [self._name_from_symbol(b) for b in defn.get("bases", [])]
                         node["context"] = None
                     if bucket is not None:

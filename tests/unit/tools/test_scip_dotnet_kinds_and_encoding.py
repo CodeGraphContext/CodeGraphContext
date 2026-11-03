@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from codegraphcontext.tools import scip_pb2
+from codegraphcontext.tools.indexing.resolution.inheritance import build_inheritance_and_csharp_files
 from codegraphcontext.tools.scip_indexer import ScipIndexParser
 
 FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "scip_dotnet_kinds"
@@ -87,6 +88,56 @@ def test_modern_index_types_follow_their_kinds() -> None:
     assert [n[1] for n in _names(files, "interfaces")] == ["IShape"]
     assert [n[1] for n in _names(files, "structs")] == ["Point"]
     assert [n[1] for n in _names(files, "enums")] == ["Color"]
+
+
+ENUM_INTERFACES = ["IComparable", "IConvertible", "IFormattable", "ISpanFormattable"]
+
+
+@pytest.mark.parametrize("index_name, child_label", [(LEGACY, "Class"), (MODERN, "Enum")])
+def test_enum_keeps_the_interfaces_the_producer_reports(index_name: str, child_label: str) -> None:
+    files = _parse(index_name)
+    rows, _ = build_inheritance_and_csharp_files(list(files.values()), {})
+    color = sorted((r["parent_name"], r.get("child_label")) for r in rows if r["child_name"] == "Color")
+    assert color == [(name, child_label) for name in ENUM_INTERFACES]
+
+
+def test_enum_without_relationships_has_no_inheritance(tmp_path: Path) -> None:
+    index = scip_pb2.Index()
+    doc = index.documents.add()
+    doc.relative_path = "color.h"
+    occ = doc.occurrences.add()
+    occ.symbol = "cxx . . $ Color#"
+    occ.symbol_roles = 1
+    occ.range.extend([0, 5, 10])
+    doc.symbols.add().symbol = "cxx . . $ Color#"
+    (tmp_path / "color.h").write_text("enum Color { Red };\n")
+    scip_path = tmp_path / "index.scip"
+    scip_path.write_bytes(index.SerializeToString())
+    fd = ScipIndexParser().parse(scip_path, tmp_path)["files"][str((tmp_path / "color.h").resolve())]
+    assert [e["name"] for e in fd["enums"]] == ["Color"]
+    assert "bases" not in fd["enums"][0]
+    assert build_inheritance_and_csharp_files([fd], {})[0] == []
+
+
+def test_rust_impl_symbols_do_not_become_enum_bases(tmp_path: Path) -> None:
+    index = scip_pb2.Index()
+    doc = index.documents.add()
+    doc.relative_path = "shape.rs"
+    shape = "rust-analyzer cargo c 0.1.0 Shape#"
+    for symbol, roles in ((shape, 1), ("rust-analyzer cargo c 0.1.0 impl#[Shape][Display]fmt().", 0)):
+        occ = doc.occurrences.add()
+        occ.symbol = symbol
+        occ.symbol_roles = roles
+        occ.range.extend([0, 5, 10])
+    info = doc.symbols.add()
+    info.symbol = shape
+    info.kind = scip_pb2.SymbolInformation.Enum
+    (tmp_path / "shape.rs").write_text("enum Shape { A }\n")
+    scip_path = tmp_path / "index.scip"
+    scip_path.write_bytes(index.SerializeToString())
+    fd = ScipIndexParser().parse(scip_path, tmp_path)["files"][str((tmp_path / "shape.rs").resolve())]
+    assert [e["name"] for e in fd["enums"]] == ["Shape"]
+    assert "bases" not in fd["enums"][0]
 
 
 def test_legacy_index_types_are_unchanged() -> None:
