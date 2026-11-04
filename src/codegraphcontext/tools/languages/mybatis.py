@@ -49,30 +49,91 @@ def _class_name_to_table(class_name: str) -> Optional[str]:
     return _camel_to_snake(stem)
 
 
-def _extract_sql(element: ET.Element) -> str:
-    """Return the concatenated text content of an XML element (handles CDATA)."""
-    parts = []
-    if element.text:
-        parts.append(element.text)
+def _extract_sql(element: ET.Element, fragments=None, seen=frozenset()) -> str:
+    """Read nested dynamic SQL and expand known includes without cycling."""
+    if element.tag == 'include':
+        fragment = (fragments or {}).get(element.get('refid', ''))
+        if fragment is None or id(fragment) in seen:
+            return ''
+        return _extract_sql(fragment, fragments, seen | {id(fragment)})
+    parts = [element.text or '']
     for child in element:
-        if child.text:
-            parts.append(child.text)
-        if child.tail:
-            parts.append(child.tail)
-    if element.tail:
-        parts.append(element.tail)
-    return " ".join(parts)
+        parts.append(_extract_sql(child, fragments, seen))
+        parts.append(child.tail or '')
+    return ' '.join(parts)
+
+
+def _mask_sql_literals_and_comments(sql: str) -> str:
+    parts = []
+    index = 0
+    while index < len(sql):
+        if sql.startswith('--', index):
+            end = sql.find('\n', index + 2)
+            index = len(sql) if end < 0 else end
+            parts.append(' ')
+        elif sql.startswith('/*', index):
+            depth = 1
+            index += 2
+            while index < len(sql) and depth:
+                if sql.startswith('/*', index):
+                    depth += 1
+                    index += 2
+                elif sql.startswith('*/', index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            parts.append(' ')
+        elif sql[index] == "'":
+            index += 1
+            while index < len(sql):
+                if sql.startswith("''", index):
+                    index += 2
+                elif sql[index] == "'":
+                    index += 1
+                    break
+                elif sql[index] == '\\':
+                    index += 2
+                else:
+                    index += 1
+            parts.append(' ')
+        elif sql[index] in ('"', '`', '['):
+            start = index
+            end_quote = ']' if sql[index] == '[' else sql[index]
+            index += 1
+            while index < len(sql):
+                if sql.startswith(end_quote * 2, index):
+                    index += 2
+                elif sql[index] == end_quote:
+                    index += 1
+                    break
+                else:
+                    index += 1
+            parts.append(sql[start:index])
+        else:
+            tag = re.match(r'\$(?:[A-Za-z_]\w*)?\$', sql[index:])
+            if tag:
+                end = sql.find(tag.group(), index + len(tag.group()))
+                index = len(sql) if end < 0 else end + len(tag.group())
+                parts.append(' ')
+            else:
+                parts.append(sql[index])
+                index += 1
+    return ''.join(parts)
 
 
 def _parse_sql_tables(sql: str) -> List[str]:
     """Extract table names from a SQL string (best-effort, no full parser)."""
-    sql_upper = sql.upper()
+    sql_upper = _mask_sql_literals_and_comments(sql).upper()
     tables: List[str] = []
-    for kw in ("FROM", "JOIN", "INTO", "UPDATE", "TABLE"):
-        for m in re.finditer(rf"\b{kw}\s+[`'\"]?([\w.]+)[`'\"]?", sql_upper):
-            raw = m.group(1)
-            # Strip schema prefix: schema.table → table
-            tables.append(raw.split(".")[-1].lower())
+    identifier = r'(?:`[^`]+`|"[^"]+"|\[[^\]]+\]|[A-Z_][\w$]*)'
+    pattern = rf'\b(FROM|JOIN|INTO|UPDATE|TABLE)\s+(?:ONLY\s+)?(?:IF\s+(?:NOT\s+)?EXISTS\s+)?({identifier}(?:\s*\.\s*{identifier})*)'
+    for match in re.finditer(pattern, sql_upper):
+        if match.group(1) == 'UPDATE' and re.search(r'ON\s+DUPLICATE\s+KEY\s*$', sql_upper[:match.start()]):
+            continue
+        raw = re.findall(identifier, match.group(2))[-1].strip('`"[]').lower()
+        if raw not in {'set', 'select', 'values', 'if', 'not', 'exists'}:
+            tables.append(raw)
     # Deduplicate, preserving order
     seen: set = set()
     result: List[str] = []
@@ -83,7 +144,7 @@ def _parse_sql_tables(sql: str) -> List[str]:
     return result
 
 
-def parse_mybatis_mapper(file_path: Path) -> List[Dict[str, Any]]:
+def parse_mybatis_mapper(file_path: Path, sql_fragments=None) -> List[Dict[str, Any]]:
     """Parse a single MyBatis XML mapper file and return operation records.
 
     Each record has:
@@ -103,6 +164,13 @@ def parse_mybatis_mapper(file_path: Path) -> List[Dict[str, Any]]:
             return records
 
         namespace = root.get("namespace", "").strip()
+        fragments = dict(sql_fragments or {})
+        for fragment in root.findall('sql'):
+            fragment_id = fragment.get('id')
+            if fragment_id:
+                fragments[fragment_id] = fragment
+                if namespace:
+                    fragments[namespace + '.' + fragment_id] = fragment
         # class_name = last segment of the namespace FQCN
         class_name = namespace.split(".")[-1] if namespace else file_path.stem
 
@@ -117,11 +185,11 @@ def parse_mybatis_mapper(file_path: Path) -> List[Dict[str, Any]]:
 
             operation = "READS" if tag in _READ_TAGS else "WRITES"
 
-            sql_text = _extract_sql(child)
+            sql_text = _extract_sql(child, fragments)
             tables = _parse_sql_tables(sql_text)
 
             # Fallback: infer table from mapper class name
-            if not tables:
+            if not tables and not sql_text.strip() and not any(n.tag == 'include' for n in child.iter()):
                 inferred = _class_name_to_table(class_name)
                 if inferred:
                     tables = [inferred]
@@ -189,24 +257,27 @@ def find_and_parse_mybatis_mappers(
     all_records: List[Dict[str, Any]] = []
     file_count = 0
 
-    for xml_file in repo_path.rglob("*.xml"):
-        # Skip build output directories
-        if any(part in skip_dirs for part in xml_file.parts):
+    mapper_files = []
+    fragments = {}
+    for xml_file in sorted(repo_path.rglob('*.xml')):
+        if any(part in skip_dirs for part in xml_file.relative_to(repo_path).parts):
             continue
+        try:
+            root = ET.parse(xml_file).getroot()
+        except (ET.ParseError, OSError):
+            continue
+        if root.tag != 'mapper':
+            continue
+        mapper_files.append(xml_file)
+        namespace = root.get('namespace', '').strip()
+        for fragment in root.findall('sql'):
+            name = fragment.get('id')
+            if name and namespace:
+                key = namespace + '.' + name
+                fragments[key] = None if key in fragments else fragment
 
-        is_mapper_by_name = xml_file.name.endswith("Mapper.xml")
-
-        if not is_mapper_by_name:
-            # Quick pre-screen: check for '<mapper' in first 512 bytes
-            try:
-                with open(xml_file, "rb") as fh:
-                    header = fh.read(512).decode("utf-8", errors="ignore")
-                if "<mapper" not in header:
-                    continue
-            except Exception:
-                continue
-
-        records = parse_mybatis_mapper(xml_file)
+    for xml_file in mapper_files:
+        records = parse_mybatis_mapper(xml_file, fragments)
         if records:
             all_records.extend(records)
             file_count += 1
