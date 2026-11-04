@@ -482,7 +482,11 @@ class EvolutionTimeline:
         try:
             # run command to get list of files changed in last N commits
             cmd = ["git", "log", "--name-only", "--pretty=format:", f"-n {num_commits}"]
-            res = subprocess.run(cmd, cwd=repo_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            # git's output is UTF-8 (commit messages, author names, paths), whatever the locale
+            res = subprocess.run(
+                cmd, cwd=repo_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8", errors="replace", check=True,
+            )
             
             churn: Dict[str, int] = {}
             for line in res.stdout.splitlines():
@@ -552,7 +556,11 @@ class EvolutionTimeline:
         """Parses git log shortstat to show growth over commits."""
         try:
             cmd = ["git", "log", "--shortstat", f"-n {num_commits}", "--pretty=format:%h|%ad|%an|%s", "--date=short"]
-            res = subprocess.run(cmd, cwd=repo_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            # git's output is UTF-8 (commit messages, author names, paths), whatever the locale
+            res = subprocess.run(
+                cmd, cwd=repo_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8", errors="replace", check=True,
+            )
             
             commits = []
             current_commit = None
