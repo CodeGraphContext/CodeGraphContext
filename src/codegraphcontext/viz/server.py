@@ -358,17 +358,71 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
         # Actually, let's just return a 500 error but with JSON body if possible
         raise HTTPException(status_code=500, detail=str(e))
 
+def _call_litellm(model: str, system_prompt: str, user_prompt: str) -> str:
+    """Route a chat completion through the LiteLLM SDK.
+
+    ``model`` uses LiteLLM's ``<provider>/<model>`` form (``anthropic/...``,
+    ``bedrock/...``, ``ollama/...``). Credentials come from the provider's own
+    environment variables (ANTHROPIC_API_KEY, AWS_*, ...); LITELLM_API_BASE sets
+    the endpoint for routes that need one, such as a self hosted ollama/ or
+    hosted_vllm/ server.
+    """
+    # Stop LiteLLM from loading a .env file from the working directory on import.
+    os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
+    try:
+        import litellm
+    except ImportError as e:
+        raise RuntimeError(
+            "LITELLM_MODEL is set but the 'litellm' package is not installed. "
+            "Install it with: pip install 'codegraphcontext[litellm]'"
+        ) from e
+
+    kwargs: Dict[str, Any] = {}
+    api_base = os.getenv("LITELLM_API_BASE")
+    if api_base:
+        kwargs["api_base"] = api_base.rstrip("/")
+
+    try:
+        response = litellm.completion(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            timeout=30,
+            # Drop any parameter the target provider doesn't accept instead of failing.
+            drop_params=True,
+            **kwargs,
+        )
+    except Exception as e:
+        raise RuntimeError(f"LiteLLM ({model}) API returned error: {e}") from e
+
+    try:
+        content = response.choices[0].message.content
+    except (AttributeError, IndexError, TypeError) as e:
+        raise RuntimeError(f"Failed to parse LiteLLM ({model}) response: {response}") from e
+    if not content:
+        raise RuntimeError(f"LiteLLM ({model}) returned an empty response")
+    return content
+
+
 def call_llm(system_prompt: str, user_prompt: str) -> str:
+    litellm_model = (os.getenv("LITELLM_MODEL") or "").strip()
     gemini_key = os.getenv("GEMINI_API_KEY")
     openai_key = os.getenv("OPENAI_API_KEY")
     atlascloud_key = os.getenv("ATLASCLOUD_API_KEY") or os.getenv("ATLAS_CLOUD_API_KEY")
     cheaperinference_key = os.getenv("CHEAPER_INFERENCE_API_KEY")
     api_route_key = os.getenv("API_ROUTE_API_KEY")
     
+    # An explicit model choice wins over whichever provider key happens to be
+    # exported in the environment.
+    if litellm_model:
+        return _call_litellm(litellm_model, system_prompt, user_prompt)
+
     if not gemini_key and not openai_key and not atlascloud_key and not cheaperinference_key and not api_route_key:
         raise ValueError(
-            "GEMINI_API_KEY, OPENAI_API_KEY, ATLASCLOUD_API_KEY, CHEAPER_INFERENCE_API_KEY, or API_ROUTE_API_KEY "
-            "environment variable is required."
+            "LITELLM_MODEL, GEMINI_API_KEY, OPENAI_API_KEY, ATLASCLOUD_API_KEY, CHEAPER_INFERENCE_API_KEY, "
+            "or API_ROUTE_API_KEY environment variable is required."
         )
     
     if gemini_key:
@@ -589,17 +643,19 @@ async def ai_query(request: AIQueryRequest):
     if not db_manager:
         raise HTTPException(status_code=500, detail="Database not initialized")
         
+    litellm_model = (os.getenv("LITELLM_MODEL") or "").strip()
     gemini_key = os.getenv("GEMINI_API_KEY")
     openai_key = os.getenv("OPENAI_API_KEY")
     atlascloud_key = os.getenv("ATLASCLOUD_API_KEY") or os.getenv("ATLAS_CLOUD_API_KEY")
     cheaperinference_key = os.getenv("CHEAPER_INFERENCE_API_KEY")
     api_route_key = os.getenv("API_ROUTE_API_KEY")
     
-    if not gemini_key and not openai_key and not atlascloud_key and not cheaperinference_key and not api_route_key:
+    if not litellm_model and not gemini_key and not openai_key and not atlascloud_key \
+            and not cheaperinference_key and not api_route_key:
         raise HTTPException(
             status_code=400,
             detail=(
-                "AI querying requires GEMINI_API_KEY, OPENAI_API_KEY, ATLASCLOUD_API_KEY, "
+                "AI querying requires LITELLM_MODEL, GEMINI_API_KEY, OPENAI_API_KEY, ATLASCLOUD_API_KEY, "
                 "CHEAPER_INFERENCE_API_KEY, or API_ROUTE_API_KEY. "
                 "Please set one in your configuration or .env."
             )

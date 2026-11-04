@@ -130,6 +130,11 @@ neo4j = [
 gcf = [
     "gcf-python>=1.0.0",
 ]
+# LiteLLM for graph queries (LITELLM_MODEL) and CGC_EMBEDDING_MODEL=litellm/<model>.
+# Opt-in only; bounded to the release range this integration is tested against.
+litellm = [
+    "litellm>=1.97.0,<1.106.0",
+]
 dev = [
     "pytest>=7.4.0",
     "black>=23.11.0",
