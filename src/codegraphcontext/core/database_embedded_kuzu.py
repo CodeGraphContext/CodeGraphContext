@@ -249,9 +249,30 @@ class EmbeddedGraphManager(GraphQueryInterface):
                             try:
                                 self._conn = temp_conn # Temporary assignment for _initialize_schema
                                 self._initialize_schema()
-                                self._conn = None
-                            finally:
+                            except Exception:
+                                # Do not retain a driver whose schema could not
+                                # be upgraded. Otherwise the next get_driver()
+                                # skips initialization and returns that same
+                                # incompatible store as if opening succeeded.
+                                connections = [temp_conn]
+                                while not self._pool.empty():
+                                    connections.append(self._pool.get_nowait())
+                                for conn in connections:
+                                    try:
+                                        conn.close()
+                                    except Exception:
+                                        pass
+                                self._pool = None
+                                try:
+                                    self._db.close()
+                                except Exception:
+                                    pass
+                                self._db = None
+                                raise
+                            else:
                                 self._pool.put(temp_conn)
+                            finally:
+                                self._conn = None
 
                             info_logger(f"{spec.display_name} connection established and schema verified")
                             break

@@ -101,6 +101,26 @@ for reopening in range(2):
         session.run("MATCH (e:Enum), (m:EnumMember) MERGE (e)-[:CONTAINS]->(m)")
         assert rows(session, "MATCH (:Enum)-[:CONTAINS]->(:EnumMember) RETURN count(*) AS n") == [{"n": 1}]
     manager.close_driver()
+
+# An incompatible schema must also be rejected on a repeated open attempt,
+# without retaining native connections or a database lock. After repairing
+# the migration failure, the same manager must successfully reopen the data.
+original_migrate = manager._migrate_relationship_schemas
+def fail_migration(*args):
+    raise RuntimeError("injected relationship migration failure")
+manager._migrate_relationship_schemas = fail_migration
+for attempt in range(2):
+    try:
+        manager.get_driver()
+    except RuntimeError as exc:
+        assert "injected relationship migration failure" in str(exc)
+    else:
+        raise AssertionError("returned a driver after a failed migration")
+    assert manager._db is None and manager._pool is None and manager._conn is None
+manager._migrate_relationship_schemas = original_migrate
+with manager.get_driver().session() as session:
+    assert rows(session, "MATCH (:Function)-[r:CALLS]->(:Function) WHERE r.line_number = 7 RETURN r.args AS args") == [{"args": ["old"]}]
+manager.close_driver()
 print("legacy relationship upgrade preserves data and writer edges across reopen")
 """
 
