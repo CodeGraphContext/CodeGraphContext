@@ -281,7 +281,7 @@ def find_datasource_nodes(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         OPTIONAL MATCH (tbl:DbTable)-[:STORED_IN]->(d)
         RETURN d.name AS datasource, d.kind AS kind, d.host AS host, d.env AS env,
                collect(tbl.fqn) AS tables
-        ORDER BY d.kind, d.name
+        ORDER BY kind, datasource
     """
 
     # Redis key patterns
