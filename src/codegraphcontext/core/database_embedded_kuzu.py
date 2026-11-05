@@ -339,7 +339,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
                 FROM Class TO Function, FROM Module TO Function, FROM Interface TO Function, FROM Struct TO Function, 
                 FROM Record TO Function, FROM Trait TO Function, FROM Object TO Function, FROM Mixin TO Function,
                 FROM Extension TO Function, FROM Class TO Class, FROM Class TO Interface, FROM Class TO Struct, 
-                FROM Class TO Variable, FROM Class TO EnumMember,
+                FROM Class TO Variable, FROM Class TO EnumMember, FROM Enum TO EnumMember,
                 FROM Module TO Class, FROM Module TO Module, FROM `Macro` TO `Macro`, FROM Function TO Function
             """, True),
             ("CALLS", """
@@ -356,7 +356,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
                 FROM `Union` TO Function, FROM `Union` TO Class, FROM `Union` TO Interface,
                 FROM `Macro` TO Function, FROM `Macro` TO Class, FROM `Macro` TO Interface,
                 FROM File TO Function, FROM File TO Class, FROM File TO Interface, FROM File TO Trait, 
-                FROM File TO Struct, FROM File TO Enum, FROM File TO Record, FROM File TO `Union`,
+                FROM File TO Struct, FROM File TO Enum, FROM File TO Record, FROM File TO `Union`, FROM File TO Object,
                 FROM Function TO File,
                 FROM Variable TO Function, FROM Variable TO Class, FROM Variable TO Interface,
                 line_number INT64, args STRING[], full_call_name STRING, args_key STRING, confidence DOUBLE, resolution_tier INT64, 
@@ -382,7 +382,7 @@ class EmbeddedGraphManager(GraphQueryInterface):
                 FROM `Union` TO Function, FROM `Union` TO Class, FROM `Union` TO Interface,
                 FROM `Macro` TO Function, FROM `Macro` TO Class, FROM `Macro` TO Interface,
                 FROM File TO Function, FROM File TO Class, FROM File TO Interface, FROM File TO Trait, 
-                FROM File TO Struct, FROM File TO Enum, FROM File TO Record, FROM File TO `Union`,
+                FROM File TO Struct, FROM File TO Enum, FROM File TO Record, FROM File TO `Union`, FROM File TO Object,
                 FROM Function TO File,
                 FROM Variable TO Function, FROM Variable TO Class, FROM Variable TO Interface,
                 line_number INT64, args STRING[], full_call_name STRING, args_key STRING, confidence DOUBLE, resolution_tier INT64, 
@@ -465,9 +465,9 @@ class EmbeddedGraphManager(GraphQueryInterface):
                     warning_logger(f"Kuzu Schema Rel Error ({table_name}): {e}")
                     debug_log(f"Kuzu Schema Rel Error ({table_name}): {e}")
 
-        self._run_schema_migrations()
+        self._run_schema_migrations(rel_tables)
 
-    def _run_schema_migrations(self):
+    def _run_schema_migrations(self, rel_tables):
         """Add columns introduced after older local Kùzu databases were created."""
         # Simple (non-group) table migrations
         simple_migrations = [
@@ -522,45 +522,6 @@ class EmbeddedGraphManager(GraphQueryInterface):
             ("Object", "modifiers", "STRING[]"),
         ]
 
-        # REL TABLE GROUP migrations: KuzuDB creates sub-tables named
-        # <group>_<FromLabel>_<ToLabel> for each binding.  ALTER TABLE must
-        # target each sub-table individually; using the group name fails.
-        _CALLS_SUBTABLES = [
-            "CALLS_Function_Function", "CALLS_Function_Class",
-            "CALLS_File_Function", "CALLS_File_Class",
-            "CALLS_Class_Function", "CALLS_Class_Class",
-        ]
-        _INHERITS_SUBTABLES = [
-            "INHERITS_Class_Class", "INHERITS_Record_Record",
-            "INHERITS_Interface_Interface",
-        ]
-
-        group_migrations = []
-        for col_name, col_type in [
-            ("confidence", "DOUBLE"),
-            ("resolution_tier", "INT64"),
-            ("confidence_label", "STRING"),
-            ("source", "STRING"),
-            ("resolution_method", "STRING"),
-            ("called_name", "STRING"),
-            ("args_key", "STRING"),
-        ]:
-            for sub in _CALLS_SUBTABLES:
-                group_migrations.append((sub, col_name, col_type))
-
-        for sub in _INHERITS_SUBTABLES:
-            group_migrations.append((sub, "confidence_label", "STRING"))
-
-        _IMPLEMENTS_SUBTABLES = [
-            "IMPLEMENTS_Class_Interface", "IMPLEMENTS_Class_Class",
-            "IMPLEMENTS_Struct_Interface", "IMPLEMENTS_Module_Module",
-            "IMPLEMENTS_Module_Interface",
-        ]
-        for sub in _IMPLEMENTS_SUBTABLES:
-            group_migrations.append((sub, "confidence_label", "STRING"))
-
-        all_migrations = simple_migrations + group_migrations
-
         # Relationship tables added after older databases were created.
         rel_table_migrations = [
             ("METACLASS", "FROM Class TO Class, line_number INT64, confidence_label STRING", False),
@@ -596,20 +557,73 @@ class EmbeddedGraphManager(GraphQueryInterface):
             if "already exists" not in str(e).lower():
                 debug_log(f"Kuzu Schema Node Migration (EnumMember): {e}")
 
-        for table_name, column_name, column_type in all_migrations:
+        for table_name, column_name, column_type in simple_migrations:
             try:
                 self._conn.execute(f"ALTER TABLE `{table_name}` ADD {column_name} {column_type}")
             except Exception as e:
                 err = str(e).lower()
                 if "already exists" in err or "duplicate" in err or "already has property" in err:
                     continue
-                # Sub-table may not exist if the group was freshly created with
-                # the correct schema; silently skip "does not exist" errors.
+                # Some optional node tables may be absent on older stores.
                 if "does not exist" in err or "not found" in err:
                     continue
                 warning_logger(f"Kuzu Schema Migration Error ({table_name}.{column_name}): {e}")
                 debug_log(f"Kuzu Schema Migration Error ({table_name}.{column_name}): {e}")
                 raise RuntimeError("Kuzu Schema Migration Failed") from e
+
+        # CREATE ... on an existing relationship table does not add properties
+        # or FROM/TO pairs. Reconcile its catalog with the same DDL used for a
+        # fresh store, including relationships introduced by older migrations.
+        self._migrate_relationship_schemas(rel_tables + rel_table_migrations)
+
+    def _migrate_relationship_schemas(self, rel_tables):
+        """Add missing relationship columns and bindings without rebuilding data.
+
+        Kuzu 0.11 and Ladybug 0.19 expose REL TABLE GROUPs under their group
+        name. Names such as CALLS_Function_Function are not catalog tables;
+        ALTERing those names silently left older databases without args_key.
+        """
+        for table_name, schema, use_group in rel_tables:
+            try:
+                info = self._conn.execute(f"CALL TABLE_INFO('{table_name}') RETURN *")
+                columns = set()
+                while info.has_next():
+                    columns.add(info.get_next()[1])
+
+                for declaration in schema.split(","):
+                    declaration = declaration.strip()
+                    if not declaration or declaration.startswith("FROM "):
+                        continue
+                    column_name, column_type = declaration.split()
+                    if column_name not in columns:
+                        self._conn.execute(
+                            f"ALTER TABLE `{table_name}` ADD {column_name} {column_type}"
+                        )
+                        columns.add(column_name)
+
+                if use_group:
+                    info = self._conn.execute(
+                        f"CALL SHOW_CONNECTION('{table_name}') RETURN *"
+                    )
+                    bindings = set()
+                    while info.has_next():
+                        row = info.get_next()
+                        bindings.add((row[0], row[1]))
+                    for source, target in re.findall(
+                        r"FROM `?(\w+)`? TO `?(\w+)`?", schema
+                    ):
+                        if (source, target) not in bindings:
+                            self._conn.execute(
+                                f"ALTER TABLE `{table_name}` ADD FROM `{source}` TO `{target}`"
+                            )
+                            bindings.add((source, target))
+            except Exception as e:
+                # A store that cannot accept the current writer's edges must
+                # fail to open, rather than report a successful but empty index.
+                warning_logger(f"Kuzu Relationship Schema Migration Error ({table_name}): {e}")
+                raise RuntimeError(
+                    f"Kuzu Relationship Schema Migration Failed ({table_name})"
+                ) from e
 
     def close_driver(self):
         """Closes the connection pool and releases database resources."""
