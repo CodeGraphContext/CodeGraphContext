@@ -31,7 +31,7 @@ class CSSTreeSitterParser:
             (class_selector (class_name) @class_name)
             (id_selector (id_name) @id_name)
             (tag_name) @tag_name
-            (import_statement (string_value) @import_path)
+            (import_statement) @import_path
             (declaration (property_name) @var_name (#match? @var_name "^--"))
         """
 
@@ -55,10 +55,25 @@ class CSSTreeSitterParser:
                     "line_number": node.start_point[0] + 1
                 })
             elif capture_name == 'import_path':
+                # Both @import "x.css" and @import url(x.css) are legal.
+                # Inspect only the import's own value so ordinary url() values
+                # in declarations never become module dependencies.
+                value = next((c for c in node.named_children if c.type == 'string_value'), None)
+                if value is None:
+                    call = next((c for c in node.named_children if c.type == 'call_expression'), None)
+                    if call is not None:
+                        function = next((c for c in call.named_children if c.type == 'function_name'), None)
+                        arguments = next((c for c in call.named_children if c.type == 'arguments'), None)
+                        if function is not None and self._get_node_text(function).lower() == 'url' and arguments:
+                            value = next((c for c in arguments.named_children
+                                          if c.type in ('string_value', 'plain_value')), None)
+                if value is None:
+                    continue
+                import_path = self._get_node_text(value).strip('\'"')
                 imports.append({
-                    "name": self._get_node_text(node).strip('\'"'),
-                    "source": self._get_node_text(node).strip('\'"'),
-                    "line_number": node.start_point[0] + 1
+                    "name": import_path,
+                    "source": import_path,
+                    "line_number": value.start_point[0] + 1
                 })
             elif capture_name == 'var_name':
                 # CSS custom property (--foo: bar). The value is everything in
