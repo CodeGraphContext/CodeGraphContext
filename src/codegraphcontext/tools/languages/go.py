@@ -107,9 +107,35 @@ class GoTreeSitterParser:
     def _get_node_text(self, node) -> str:
         return node.text.decode('utf-8')
 
+    def _literal_binding(self, literal):
+        values = literal.parent
+        if values is None or values.type != 'expression_list':
+            return None
+        declaration = values.parent
+        if declaration is None:
+            return None
+        if declaration.type == 'var_spec':
+            names = declaration.children_by_field_name('name')
+        elif declaration.type in ('short_var_declaration', 'assignment_statement') and declaration.child_by_field_name('right') == values:
+            left = declaration.child_by_field_name('left')
+            names = left.named_children if left is not None else []
+        else:
+            return None
+        expressions = values.named_children
+        if len(names) != len(expressions):
+            return None
+        for index, value in enumerate(expressions):
+            if value == literal and names[index].type == 'identifier':
+                return names[index]
+        return None
+
     def _get_parent_context(self, node, types=('function_declaration', 'method_declaration', 'type_declaration')):
         curr = node.parent
         while curr:
+            if curr.type == 'func_literal' and 'function_declaration' in types:
+                binding = self._literal_binding(curr)
+                if binding is not None:
+                    return self._get_node_text(binding), 'func_literal', binding.start_point[0] + 1
             if curr.type in types:
                 if curr.type == 'type_declaration':
                     type_spec = curr.child_by_field_name('type_spec')
@@ -305,6 +331,7 @@ class GoTreeSitterParser:
 
                 func_data = {
                     "name": name,
+                    "is_generic": func_node.child_by_field_name('type_parameters') is not None,
                     "line_number": func_node.start_point[0] + 1,
                     "end_line": func_node.end_point[0] + 1,
                     "args": args,
@@ -322,6 +349,25 @@ class GoTreeSitterParser:
                     
                 functions.append(func_data)
 
+        for literal, _ in execute_query(self.language, '(func_literal) @literal', root_node):
+            binding = self._literal_binding(literal)
+            if binding is None:
+                continue
+            context, context_type, context_line = self._get_parent_context(literal)
+            parameters = literal.child_by_field_name('parameters')
+            function = {
+                'name': self._get_node_text(binding),
+                'line_number': binding.start_point[0] + 1,
+                'end_line': literal.end_point[0] + 1,
+                'args': self._extract_parameters(parameters) if parameters is not None else [],
+                'context': context, 'context_type': context_type, 'context_line': context_line,
+                'class_context': None, 'receiver_type': None,
+                'lang': self.language_name, 'is_dependency': False,
+                'cyclomatic_complexity': self._calculate_complexity(literal),
+            }
+            if self.index_source:
+                function['source'] = self._get_node_text(literal)
+            functions.append(function)
         return functions
 
     def _find_function_node_for_name(self, name_node):
@@ -553,48 +599,52 @@ class GoTreeSitterParser:
 
     def _find_calls(self, root_node):
         calls = []
-        query_str = GO_QUERIES['calls']
-        
-        seen_calls = set()
-
-        for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name == 'name':
-                call_node = node.parent
-                while call_node and call_node.type != 'call_expression':
-                    call_node = call_node.parent
-                
-                if call_node:
-                    name = self._get_node_text(node)
-                    line_number = node.start_point[0] + 1
-                    
-                    call_key = f"{name}_{line_number}"
-                    if call_key in seen_calls:
-                        continue
-                    seen_calls.add(call_key)
-                    
-                    full_name = self._get_node_text(call_node.child_by_field_name('function')) if call_node.child_by_field_name('function') else name
-                    
-                    # Resolve context
-                    context_name, context_type, context_line = self._get_parent_context(node)
-                    
-                    # In Go, methods are defined on types (structs/interfaces). If we are in a method, the context is the method name.
-                    # Ideally we might want the receiver type as "class_context", but this requires more complex AST traversal up to the method declaration's receiver.
-                    # For now, we reuse the context resolution logic.
-                    class_context = None 
-                    
-                    call_data = {
-                        "name": name,
-                        "full_name": full_name,
-                        "line_number": line_number,
-                        "args": [],
-                        "inferred_obj_type": None,
-                        "context": (context_name, context_type, context_line),
-                        "class_context": class_context,
-                        "lang": self.language_name,
-                        "is_dependency": False,
-                    }
-                    calls.append(call_data)
-        
+        # A single-argument generic invocation and a type conversion share a
+        # grammar shape. Retain ambiguous candidates explicitly; graph resolution
+        # must verify an indexed generic function before creating an edge.
+        local_types = {self._get_node_text(n) for n, _ in execute_query(
+            self.language, '(type_spec name: (type_identifier) @type)', root_node
+        )}
+        query = '(call_expression) @call (type_conversion_expression type: (generic_type)) @generic_candidate'
+        for call, capture in execute_query(self.language, query, root_node):
+            candidate = capture == 'generic_candidate'
+            target = call.child_by_field_name('type' if candidate else 'function')
+            while target is not None and target.type in ('index_expression', 'generic_type'):
+                target = target.child_by_field_name('operand' if target.type == 'index_expression' else 'type')
+            if target is None:
+                continue
+            if target.type in ('identifier', 'type_identifier'):
+                name = self._get_node_text(target)
+                full_name = name
+                receiver = None
+            elif target.type in ('selector_expression', 'qualified_type'):
+                member = target.child_by_field_name('field' if target.type == 'selector_expression' else 'name')
+                receiver_node = target.child_by_field_name('operand' if target.type == 'selector_expression' else 'package')
+                if member is None:
+                    continue
+                name = self._get_node_text(member)
+                receiver = self._get_node_text(receiver_node) if receiver_node is not None else None
+                full_name = self._get_node_text(target)
+            else:
+                continue
+            if candidate and receiver is None and name in local_types:
+                continue
+            context = self._get_parent_context(call)
+            arguments = call.child_by_field_name('arguments')
+            operand = call.child_by_field_name('operand')
+            args = [self._get_node_text(n) for n in arguments.named_children] if arguments is not None else (
+                [self._get_node_text(operand)] if operand is not None else []
+            )
+            record = {
+                'name': name, 'full_name': full_name,
+                'line_number': call.start_point[0] + 1, 'start_byte': call.start_byte,
+                'args': args, 'inferred_obj_type': receiver,
+                'context': context, 'class_context': None,
+                'lang': self.language_name, 'is_dependency': False,
+            }
+            if candidate:
+                record['call_kind'] = 'generic_or_conversion'
+            calls.append(record)
         return calls
 
     def _find_variables(self, root_node):

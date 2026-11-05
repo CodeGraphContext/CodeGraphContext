@@ -2994,6 +2994,16 @@ def build_function_call_groups(
             )
             if not resolved:
                 continue
+            if call_to_resolve.get('call_kind') == 'generic_or_conversion':
+                target_path = resolved.get('called_file_path')
+                definitions = function_index.get((_resolved_posix(target_path), resolved.get('called_name')), []) if target_path else []
+                actual_generic = [fn for fn in definitions if fn.get('is_generic') and (
+                    resolved.get('called_line_number') in (None, 0, fn.get('line_number'))
+                )]
+                if not actual_generic:
+                    continue  # Type conversions and unknown externals are not function edges.
+                if '.' not in call_to_resolve.get('full_name', '') and Path(target_path).parent != Path(caller_file_path).parent:
+                    continue  # Bare Go functions belong to this package directory.
 
             # Annotate C++ calls with concrete Neo4j labels so the writer can use
             # label-specific MATCH queries instead of the slow label-OR scan.
