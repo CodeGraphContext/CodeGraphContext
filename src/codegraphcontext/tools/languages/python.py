@@ -44,8 +44,7 @@ PY_QUERIES = {
             function: (attribute attribute: (identifier) @name) @full_call)
     """,
     "variables": """
-        (assignment
-            left: (identifier) @name)
+        (assignment) @assignment
     """,
     "lambda_assignments": """
         (assignment
@@ -80,6 +79,12 @@ class PythonTreeSitterParser:
     def _get_parent_context(self, node, types=('function_definition', 'class_definition')):
         curr = node.parent
         while curr:
+            if curr.type == 'lambda' and 'function_definition' in types:
+                assignment = curr.parent
+                if assignment is not None and assignment.type == 'assignment':
+                    target = assignment.child_by_field_name('left')
+                    if target is not None and target.type == 'identifier':
+                        return self._get_node_text(target), 'lambda', target.start_point[0] + 1
             if curr.type in types:
                 name_node = curr.child_by_field_name('name')
                 return self._get_node_text(name_node) if name_node else None, curr.type, curr.start_point[0] + 1
@@ -649,39 +654,38 @@ class PythonTreeSitterParser:
 
     def _find_variables(self, root_node):
         variables = []
-        query_str = PY_QUERIES['variables']
-        for match in execute_query(self.language, query_str, root_node):
-            capture_name = match[1]
-            node = match[0]
 
-            if capture_name == 'name':
-                assignment_node = node.parent
+        def bindings(pattern):
+            if pattern is None:
+                return
+            if pattern.type == 'identifier':
+                yield pattern
+            elif pattern.type in ('pattern_list', 'tuple_pattern', 'list_pattern', 'list_splat_pattern'):
+                for child in pattern.named_children:
+                    yield from bindings(child)
+            # Attribute/subscript writes do not declare their receiver or index.
 
-                # Skip lambda assignments, they are handled by _find_lambda_assignments
-                right_node = assignment_node.child_by_field_name('right')
-                if right_node and right_node.type == 'lambda':
-                    continue
-
-                name = self._get_node_text(node)
-                value = self._get_node_text(right_node) if right_node else None
-                
-                type_node = assignment_node.child_by_field_name('type')
-                type_text = self._get_node_text(type_node) if type_node else None
-
+        for assignment, capture in execute_query(self.language, PY_QUERIES['variables'], root_node):
+            if capture != 'assignment':
+                continue
+            target = assignment.child_by_field_name('left')
+            right = assignment.child_by_field_name('right')
+            if right is not None and right.type == 'lambda':
+                continue  # Named lambdas are Function records.
+            annotation = assignment.child_by_field_name('type')
+            for node in bindings(target):
                 context, _, _ = self._get_parent_context(node)
                 class_context, _, _ = self._get_parent_context(node, types=('class_definition',))
-
-                variable_data = {
-                    "name": name,
+                variables.append({
+                    "name": self._get_node_text(node),
                     "line_number": node.start_point[0] + 1,
-                    "value": value,
-                    "type": type_text,
+                    "value": self._get_node_text(right) if right is not None else None,
+                    "type": self._get_node_text(annotation) if annotation is not None else None,
                     "context": context,
                     "class_context": class_context,
                     "lang": self.language_name,
                     "is_dependency": False,
-                }
-                variables.append(variable_data)
+                })
         return variables
 
 def pre_scan_python(files: list[Path], parser_wrapper) -> dict:
