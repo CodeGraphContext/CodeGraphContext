@@ -161,11 +161,26 @@ class CodeGraphTwin:
 
     # --- Mutation Operations ---
 
+    def _resolve_unique_node(self, reference: str) -> str:
+        """Prefer an exact ID, otherwise require an unambiguous name/path."""
+        if not isinstance(reference, str) or not reference:
+            raise ValueError("A non-empty node id, name or path is required")
+        if reference in self.nodes:
+            return reference
+        matches = [nid for nid, data in self.nodes.items() if data.get("name") == reference or data.get("path") == reference]
+        if not matches:
+            raise ValueError(f"No node matches {reference!r}")
+        if len(matches) != 1:
+            raise ValueError(f"Ambiguous node reference {reference!r}; use an exact node id")
+        return matches[0]
+
     def decompose_service(self, mapping: Dict[str, str]):
         """Sets custom service boundaries. Mapping is node_id or path -> service_name."""
+        changes = 0
         for target, service in mapping.items():
             # Check if target is a node_id
             if target in self.nodes:
+                changes += int(self.service_mapping.get(target) != service)
                 self.service_mapping[target] = service
             else:
                 # Treat target as path prefix/substring
@@ -173,10 +188,15 @@ class CodeGraphTwin:
                 for nid, ndata in self.nodes.items():
                     npath = ndata.get("path")
                     if npath and (target_norm in npath or npath.startswith(target_norm)):
+                        changes += int(self.service_mapping.get(nid) != service)
                         self.service_mapping[nid] = service
+        return changes
 
     def remove_dependency(self, source_id: str, target_id: str, rel_type: Optional[str] = None):
         """Simulates removing dependency edges."""
+        source_id = self._resolve_unique_node(source_id)
+        target_id = self._resolve_unique_node(target_id)
+        before = len(self.edges)
         new_edges = []
         for e in self.edges:
             matches_source = (e["source"] == source_id or self.nodes.get(e["source"], {}).get("name") == source_id)
@@ -186,15 +206,17 @@ class CodeGraphTwin:
                 continue
             new_edges.append(e)
         self.edges = new_edges
+        return before - len(self.edges)
 
     def add_dependency(self, source_id: str, target_id: str, rel_type: str):
         """Simulates adding a new dependency edge."""
-        if source_id in self.nodes and target_id in self.nodes:
-            self.edges.append({
-                "source": source_id,
-                "target": target_id,
-                "type": rel_type
-            })
+        source_id = self._resolve_unique_node(source_id)
+        target_id = self._resolve_unique_node(target_id)
+        edge = {"source": source_id, "target": target_id, "type": rel_type or "CALLS"}
+        if edge in self.edges:
+            return 0
+        self.edges.append(edge)
+        return 1
 
     def remove_node(self, node_id: str):
         """Simulates deleting a class, function, or file."""
@@ -205,13 +227,18 @@ class CodeGraphTwin:
                 if ndata.get("name") == node_id or ndata.get("path") == node_id:
                     target_ids.add(nid)
                     
+        matched = target_ids.intersection(self.nodes)
+        if not matched:
+            raise ValueError(f"No node matches {node_id!r}")
         for tid in target_ids:
             if tid in self.nodes:
                 del self.nodes[tid]
-                if tid in self.service_mapping:
-                    del self.service_mapping[tid]
+            if tid in self.service_mapping:
+                del self.service_mapping[tid]
+        removed = len(matched)
         
         self.edges = [e for e in self.edges if e["source"] not in target_ids and e["target"] not in target_ids]
+        return removed
 
     # --- Metrics Calculations ---
 

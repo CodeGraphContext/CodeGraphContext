@@ -448,6 +448,8 @@ class MCPServer:
         return analysis_handlers.find_datasource_nodes(self.code_finder, **args)
 
     def simulate_metrics_tool(self, **args) -> Dict[str, Any]:
+        if args.get("context"):
+            return {"error": "Simulation uses the active context. Call switch_context explicitly first.", "unsupported_argument": "context"}
         from .core.simulator import CodeGraphTwin
         repo_path = args.get("repo_path") or args.get("path") or str(self.cwd)
         try:
@@ -457,6 +459,8 @@ class MCPServer:
             return {"error": f"Failed to calculate simulation metrics: {e}"}
 
     def simulate_architectural_change_tool(self, **args) -> Dict[str, Any]:
+        if args.get("context"):
+            return {"error": "Simulation uses the active context. Call switch_context explicitly first.", "unsupported_argument": "context"}
         from .core.simulator import CodeGraphTwin
         repo_path = args.get("repo_path") or args.get("path") or str(self.cwd)
         changes = args.get("changes", [])
@@ -464,20 +468,25 @@ class MCPServer:
             baseline = CodeGraphTwin(repo_path).load_from_db(self.db_manager)
             simulated = CodeGraphTwin(repo_path).load_from_db(self.db_manager)
             
-            for step in changes:
+            operations = []
+            for index, step in enumerate(changes):
                 stype = step.get("type")
                 if stype == "decompose":
-                    simulated.decompose_service(step.get("mapping", {}))
+                    changed = simulated.decompose_service(step.get("mapping", {}))
                 elif stype == "remove_dependency":
-                    simulated.remove_dependency(step.get("source"), step.get("target"), step.get("rel_type"))
+                    changed = simulated.remove_dependency(step.get("source"), step.get("target"), step.get("rel_type"))
                 elif stype == "add_dependency":
-                    simulated.add_dependency(step.get("source"), step.get("target"), step.get("rel_type"))
+                    changed = simulated.add_dependency(step.get("source"), step.get("target"), step.get("rel_type"))
                 elif stype == "remove_node":
-                    simulated.remove_node(step.get("node_id"))
+                    changed = simulated.remove_node(step.get("node_id"))
+                else:
+                    raise ValueError(f"Unknown simulation step type: {stype!r}")
+                operations.append({"index": index, "type": stype, "changed_count": changed})
                     
             diff = baseline.compare_scenarios(simulated)
             return {
                 "status": "ok",
+                "operations": operations,
                 "baseline_metrics": baseline.get_metrics_summary(),
                 "simulated_metrics": simulated.get_metrics_summary(),
                 "comparison": diff
@@ -486,6 +495,8 @@ class MCPServer:
             return {"error": f"Failed to simulate architectural change: {e}"}
 
     def analyze_architectural_evolution_tool(self, **args) -> Dict[str, Any]:
+        if args.get("context"):
+            return {"error": "Simulation uses the active context. Call switch_context explicitly first.", "unsupported_argument": "context"}
         from .core.simulator import EvolutionTimeline
         repo_path = args.get("repo_path") or args.get("path") or str(self.cwd)
         commits = int(args.get("commits", 50))
