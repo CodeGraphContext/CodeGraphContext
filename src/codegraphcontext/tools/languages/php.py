@@ -8,6 +8,7 @@ from codegraphcontext.utils.tree_sitter_manager import execute_query
 # Reference: https://github.com/tree-sitter/tree-sitter-php/blob/master/queries/tags.scm
 PHP_QUERIES = {
     "functions": """
+        (arrow_function) @function_node
         (function_definition
             name: (name) @name
             parameters: (formal_parameters) @params
@@ -51,6 +52,7 @@ PHP_QUERIES = {
             function: [
                 (qualified_name) @name
                 (name) @name
+                (variable_name) @dynamic_function
             ]
         ) @call_node
         
@@ -157,6 +159,10 @@ class PhpTreeSitterParser:
     def _get_parent_context(self, node: Any) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         curr = node.parent
         while curr:
+            if curr.type == 'arrow_function' and curr.parent is not None and curr.parent.type == 'assignment_expression':
+                target = curr.parent.child_by_field_name('left')
+                if target is not None and target.type == 'variable_name':
+                    return self._get_node_text(target).lstrip('$'), 'arrow_function', target.start_point[0] + 1
             if curr.type in ("function_definition", "method_declaration", "class_declaration", "interface_declaration", "trait_declaration", "enum_declaration"):
                 name_node = curr.child_by_field_name("name")
                 return (
@@ -246,8 +252,12 @@ class PhpTreeSitterParser:
                     end_line = node.end_point[0] + 1
                     
                     name_node = node.child_by_field_name("name")
+                    if node.type == 'arrow_function' and node.parent is not None and node.parent.type == 'assignment_expression':
+                        target = node.parent.child_by_field_name('left')
+                        if target is not None and target.type == 'variable_name':
+                            name_node = target
                     if name_node:
-                        func_name = self._get_node_text(name_node)
+                        func_name = self._get_node_text(name_node).lstrip('$')
                         # #[Attribute] lines are part of the declaration node,
                         # so node.start_point is the attribute line; report the
                         # declaration proper (python/csharp/kotlin convention,
@@ -539,9 +549,11 @@ class PhpTreeSitterParser:
             # actually execute_query returns (node, capture_name).
             
             # Let's handle 'name' capture which gives us the function name
-            if capture_name in ("name", "dynamic_method"):
+            if capture_name in ("name", "dynamic_method", "dynamic_function"):
                 try:
                     call_name = self._get_node_text(node)
+                    if capture_name == 'dynamic_function':
+                        call_name = call_name.lstrip('$')
                     line_number = node.start_point[0] + 1
                     is_dynamic_method = capture_name == "dynamic_method"
                     
@@ -602,6 +614,8 @@ class PhpTreeSitterParser:
                     }
                     if is_dynamic_method:
                         call_data["call_kind"] = "dynamic_member"
+                    elif capture_name == 'dynamic_function':
+                        call_data['call_kind'] = 'dynamic_function'
                     calls.append(call_data)
                 except Exception as e:
                     error_logger(f"Error parsing call: {e}")
@@ -656,32 +670,36 @@ class PhpTreeSitterParser:
         return calls
 
 def pre_scan_php(files: list[Path], parser_wrapper) -> dict:
-    name_to_files = {}
+    """Index type/function declarations, including enums, from the syntax tree."""
+    names = {}
+    query = PHP_QUERIES['classes'] + PHP_QUERIES['functions']
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-            # Extract class, interface, trait, and function names
-            patterns = [
-                r"(?:class|interface|trait)\s+(\w+)",
-                r"function\s+(\w+)\s*\(",
-            ]
-            for pattern in patterns:
-                for match in re.finditer(pattern, content):
-                    name = match.group(1)
-                    if name not in name_to_files:
-                        name_to_files[name] = []
-                    name_to_files[name].append(str(path))
-            # Extract namespace for FQN mapping
-            ns_match = re.search(r"namespace\s+([\w\\]+)", content)
-            if ns_match:
-                namespace = ns_match.group(1)
-                for pattern in [r"(?:class|interface|trait)\s+(\w+)"]:
-                    for match in re.finditer(pattern, content):
-                        fqn = f"{namespace}\\{match.group(1)}"
-                        if fqn not in name_to_files:
-                            name_to_files[fqn] = []
-                        name_to_files[fqn].append(str(path))
-        except Exception:
-            pass
-    return name_to_files
+            root = parser_wrapper.parser.parse(path.read_bytes()).root_node
+            namespaces = [n for n, _ in execute_query(parser_wrapper.language, '(namespace_definition) @ns', root)]
+            for node, capture in execute_query(parser_wrapper.language, query, root):
+                if capture not in ('class', 'interface', 'trait', 'enum', 'function_node') or node.type == 'arrow_function':
+                    continue
+                name_node = node.child_by_field_name('name')
+                if name_node is None:
+                    continue
+                short = name_node.text.decode('utf-8')
+                namespace = None
+                parent = node.parent
+                while parent is not None:
+                    if parent.type == 'namespace_definition':
+                        namespace = parent
+                        break
+                    parent = parent.parent
+                if namespace is None:
+                    prior = [n for n in namespaces if n.start_byte < node.start_byte and n.child_by_field_name('body') is None]
+                    namespace = prior[-1] if prior else None
+                prefix = namespace.child_by_field_name('name') if namespace is not None else None
+                qualified = prefix.text.decode('utf-8') + '\\' + short if prefix is not None else short
+                for name in dict.fromkeys((short, qualified)):
+                    paths = names.setdefault(name, [])
+                    if str(path) not in paths:
+                        paths.append(str(path))
+        except Exception as exc:
+            warning_logger(f"PHP pre-scan failed for {path}: {exc}")
+    return names
