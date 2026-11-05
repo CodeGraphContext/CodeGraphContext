@@ -963,6 +963,10 @@ class SolidityTreeSitterParser:
             if args_node is not None:
                 for arg in args_node.named_children:
                     args.append(self._get_node_text(arg))
+            else:
+                # language-pack 1.20 uses direct call_argument children.
+                args = [self._get_node_text(arg) for arg in node.named_children
+                        if arg.type == 'call_argument']
 
             calls.append(
                 {
@@ -1038,32 +1042,23 @@ class SolidityTreeSitterParser:
 
 
 def pre_scan_solidity(files: list[Path], parser_wrapper: Any) -> dict:
-    """Map contract/interface/library/struct/enum names to defining file paths."""
-    name_to_files: Dict[str, List[str]] = {}
-    pattern = re.compile(
-        r"^\s*(?:abstract\s+)?(contract|interface|library|struct|enum)\s+(\w+)",
-        re.MULTILINE,
-    )
-
+    """Index declared type names without line-layout or comment assumptions."""
+    names: Dict[str, List[str]] = {}
     for path in files:
         try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError as exc:
-            error_logger(f"Error pre-scanning Solidity file {path}: {exc}")
-            continue
-
-        for match in pattern.finditer(content):
-            symbol = match.group(2)
-            name_to_files.setdefault(symbol, [])
-            path_str = str(path)
-            if path_str not in name_to_files[symbol]:
-                name_to_files[symbol].append(path_str)
-
-        # Also map file stem for path-style imports (`import "./Foo.sol"`).
-        stem = path.stem
-        name_to_files.setdefault(stem, [])
-        path_str = str(path)
-        if path_str not in name_to_files[stem]:
-            name_to_files[stem].append(path_str)
-
-    return name_to_files
+            root = parser_wrapper.parser.parse(path.read_bytes()).root_node
+            for node, capture in execute_query(parser_wrapper.language, SOLIDITY_QUERIES['classes'], root):
+                if capture != 'class' or node.type not in TYPE_CONTAINER_TYPES:
+                    continue
+                name_node = node.child_by_field_name('name')
+                if name_node is not None:
+                    symbol = name_node.text.decode('utf-8')
+                    paths = names.setdefault(symbol, [])
+                    if str(path) not in paths:
+                        paths.append(str(path))
+            paths = names.setdefault(path.stem, [])
+            if str(path) not in paths:
+                paths.append(str(path))
+        except Exception as exc:
+            warning_logger(f"Solidity pre-scan failed for {path}: {exc}")
+    return names
