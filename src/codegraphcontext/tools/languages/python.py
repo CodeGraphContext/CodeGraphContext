@@ -559,11 +559,43 @@ class PythonTreeSitterParser:
     def _find_calls(self, root_node, local_names=None):
         calls = []
         self._walk_call_tree(root_node, None, calls, local_names)
+        calls.extend(self._find_decorator_calls(root_node))
 
         # Dictionary-based method references (indirect calls)
         dict_method_calls = self._find_dict_method_references(root_node)
         calls.extend(dict_method_calls)
 
+        return calls
+
+    def _find_decorator_calls(self, root_node):
+        """Bare @decorator references invoke the decorator at definition time.
+
+        A @factory(...) expression is already a normal call; its returned
+        callable cannot be inferred here, so do not invent another edge.
+        """
+        calls = []
+        pending = [root_node]
+        while pending:
+            node = pending.pop()
+            pending.extend(reversed(node.named_children))
+            if node.type != "decorator" or not node.named_children:
+                continue
+            target = node.named_children[0]
+            if target.type not in {"identifier", "attribute"}:
+                continue
+            definition = node.parent.named_children[-1]
+            decorated_name = definition.child_by_field_name("name")
+            calls.append({
+                "name": self._extract_call_name(target),
+                "full_name": self._get_node_text(target),
+                "line_number": node.start_point[0] + 1,
+                "args": [self._get_node_text(decorated_name)] if decorated_name else [],
+                "inferred_obj_type": None,
+                "context": self._get_parent_context(node, types=("function_definition",)),
+                "class_context": self._get_parent_context(node, types=("class_definition",))[:2],
+                "lang": self.language_name,
+                "is_dependency": False,
+            })
         return calls
     
     def _find_dict_method_references(self, root_node):

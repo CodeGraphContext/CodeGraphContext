@@ -1627,6 +1627,8 @@ class CodeFinder:
 
                 return {
                     "query_type": "who_modifies", "target": target, "results": results,
+                    "analysis_kind": "variable_binding_containers",
+                    "limitations": "This locates stored variable bindings and their containers; it does not trace write sites, aliases or dataflow.",
                     "summary": summary, "truncated": truncated, "result_limit": req_limit
                 }
             
