@@ -87,9 +87,17 @@ class PythonTreeSitterParser:
         return None, None, None
 
     def _calculate_complexity(self, node):
+        """Score decisions owned by this function, excluding nested scopes.
+
+        Each if/elif, loop, exception handler, with statement, boolean
+        operator, comprehension, match case and conditional expression adds
+        one to the base score of one. Nested functions/classes/lambdas are
+        separate scopes; their bodies do not contribute to the parent.
+        """
         from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
         complexity_nodes = {
-            "if_statement", "for_statement", "while_statement", "except_clause",
+            "if_statement", "elif_clause", "conditional_expression",
+            "for_statement", "while_statement", "except_clause",
             "with_statement", "boolean_operator", "list_comprehension", 
             "generator_expression", "case_clause"
         }
@@ -100,6 +108,8 @@ class PythonTreeSitterParser:
             nonlocal count, skipped
             if depth > MAX_AST_DEPTH:
                 skipped = True
+                return
+            if n is not node and n.type in {"function_definition", "class_definition", "lambda"}:
                 return
             if n.type in complexity_nodes:
                 count += 1
