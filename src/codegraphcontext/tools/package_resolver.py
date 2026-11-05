@@ -1,11 +1,31 @@
 import importlib.util
 from pathlib import Path
+import shutil
 import subprocess
 from typing import Optional
 import sys
 import sysconfig
 
 from ..utils.debug_log import debug_log
+
+
+def _run_tool(args: list[str], **kwargs) -> subprocess.CompletedProcess:
+    """Run a package manager's command line tool and read its output as UTF-8.
+
+    On Windows, npm and gem are batch files (npm.cmd, gem.cmd), which a bare
+    name doesn't launch; shutil.which finds them through PATHEXT. The tools
+    print UTF-8, not the locale's code page, so a path under a non-ASCII user
+    name would otherwise come back garbled.
+    """
+    exe = shutil.which(args[0]) or args[0]
+    return subprocess.run(
+        [exe, *args[1:]],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        **kwargs,
+    )
 
 
 # ----------------------------
@@ -83,7 +103,7 @@ def _get_npm_package_path(package_name: str) -> Optional[str]:
         if local_path.exists():
             return str(local_path.resolve())
 
-        result = subprocess.run(["npm", "root", "-g"], capture_output=True, text=True)
+        result = _run_tool(["npm", "root", "-g"])
         if result.returncode == 0:
             global_root = result.stdout.strip()
             package_path = Path(global_root) / package_name
@@ -146,11 +166,8 @@ def _get_c_package_path(package_name: str) -> Optional[str]:
         debug_log(f"Getting local path for C package: {package_name}")
 
         try:
-            result = subprocess.run(
-                ["pkg-config", "--variable=includedir", package_name],
-                capture_output=True,
-                text=True,
-                timeout=5
+            result = _run_tool(
+                ["pkg-config", "--variable=includedir", package_name], timeout=5
             )
             if result.returncode == 0:
                 path = Path(result.stdout.strip())
@@ -183,11 +200,7 @@ def _get_go_package_path(package_name: str) -> Optional[str]:
     try:
         debug_log(f"Getting Go package: {package_name}")
 
-        result = subprocess.run(
-            ["go", "list", "-f", "{{.Dir}}", package_name],
-            capture_output=True,
-            text=True
-        )
+        result = _run_tool(["go", "list", "-f", "{{.Dir}}", package_name])
 
         if result.returncode == 0:
             p = Path(result.stdout.strip())
@@ -207,11 +220,7 @@ def _get_go_package_path(package_name: str) -> Optional[str]:
 
 def _get_ruby_package_path(package_name: str) -> Optional[str]:
     try:
-        result = subprocess.run(
-            ["gem", "which", package_name],
-            capture_output=True,
-            text=True
-        )
+        result = _run_tool(["gem", "which", package_name])
 
         if result.returncode == 0:
             p = Path(result.stdout.strip())
