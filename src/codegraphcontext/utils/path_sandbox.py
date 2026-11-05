@@ -70,6 +70,20 @@ def is_path_under_root(path: Path, root: Path) -> bool:
         return False
 
 
+def is_index_path_allowed(path: Path, repo_root: Path) -> bool:
+    """Check a discovered file against an already admitted repository root.
+
+    CLI/dependency callers may admit a repository outside cwd. Ordinary files
+    under that root remain valid, but links escaping it need an explicit
+    allowed root or the all-paths override. Recheck before parsing as well.
+    """
+    try:
+        return is_path_under_root(path, repo_root) or is_path_allowed(path)
+    except (OSError, RuntimeError):
+        # Broken/looping links must not abort a whole repository scan.
+        return False
+
+
 def sanitize_bundle_filename(filename: str, default: str = "bundle.cgc") -> str:
     """Return a safe basename for a downloaded bundle file."""
     if not filename or ".." in filename or "/" in filename or "\\" in filename:
