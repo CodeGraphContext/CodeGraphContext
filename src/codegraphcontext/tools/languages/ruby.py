@@ -93,12 +93,11 @@ class RubyTreeSitterParser:
         captures = list(execute_query(self.language, query_str, root_node))
         for node, cap in captures:
             if cap == "module_node":
-                name = None
-                for n, c in captures:
-                    if c == "name":
-                        if n.start_byte >= node.start_byte and n.end_byte <= node.end_byte:
-                            name = self._get_node_text(n)
-                            break
+                # The module's own `name` field — not the first @name inside
+                # its byte range, which for nested modules depended on capture
+                # order.
+                name_node = node.child_by_field_name("name")
+                name = self._get_node_text(name_node) if name_node is not None else None
                 if name:
                     module_data = {
                         "name": name,
@@ -287,23 +286,21 @@ class RubyTreeSitterParser:
         # Collect all captures first
         all_captures = list(execute_query(self.language, query_str, root_node))
         
-        # Group captures by function node using a different approach
+        # Each definition's name is its own `name` field. Matching @name
+        # captures to definitions by byte range assigned a nested `def`'s name
+        # to the enclosing method (the first container in capture order) and
+        # dropped the inner one — and since execute_query's capture order is
+        # not stable across parses, which container came first varied.
+        # Same reasoning as _find_classes below.
         captures_by_function = {}
         for node, capture_name in all_captures:
-            if capture_name == 'function_node':
-                captures_by_function[id(node)] = {'node': node, 'name': None}
-        
-        # Now find names for each function
-        for node, capture_name in all_captures:
-            if capture_name == 'name':
-                # Find which function this name belongs to
-                for func_id, func_data in captures_by_function.items():
-                    func_node = func_data['node']
-                    # Check if this name node is within the function node
-                    if (node.start_byte >= func_node.start_byte and 
-                        node.end_byte <= func_node.end_byte):
-                        captures_by_function[func_id]['name'] = self._get_node_text(node)
-                        break
+            if capture_name != 'function_node':
+                continue
+            name_node = node.child_by_field_name('name')
+            captures_by_function[(node.start_byte, node.end_byte)] = {
+                'node': node,
+                'name': self._get_node_text(name_node) if name_node is not None else None,
+            }
 
         # Build function entries
         for func_data in captures_by_function.values():
@@ -411,32 +408,24 @@ class RubyTreeSitterParser:
         # Collect all captures first
         all_captures = list(execute_query(self.language, query_str, root_node))
         
-        # Group captures by import node using a different approach
+        # Attach each @method_name / @path to its own call (field / parent
+        # relation), not to the first call whose byte range contains it: an
+        # outer call contains a nested call's captures, and which container
+        # came first used to depend on capture order.
         captures_by_import = {}
+        def _bucket(call_node):
+            return captures_by_import.setdefault(
+                (call_node.start_byte, call_node.end_byte),
+                {'node': call_node, 'method_name': None, 'path': None},
+            )
         for node, capture_name in all_captures:
             if capture_name == 'import':
-                captures_by_import[id(node)] = {'node': node, 'method_name': None, 'path': None}
-        
-        # Now find method names and paths for each import
-        for node, capture_name in all_captures:
-            if capture_name == 'method_name':
-                # Find which import this method name belongs to
-                for import_id, import_data in captures_by_import.items():
-                    import_node = import_data['node']
-                    # Check if this method name node is within the import node
-                    if (node.start_byte >= import_node.start_byte and 
-                        node.end_byte <= import_node.end_byte):
-                        captures_by_import[import_id]['method_name'] = self._get_node_text(node)
-                        break
-            elif capture_name == 'path':
-                # Find which import this path belongs to
-                for import_id, import_data in captures_by_import.items():
-                    import_node = import_data['node']
-                    # Check if this path node is within the import node
-                    if (node.start_byte >= import_node.start_byte and 
-                        node.end_byte <= import_node.end_byte):
-                        captures_by_import[import_id]['path'] = self._get_node_text(node)
-                        break
+                _bucket(node)
+            elif capture_name == 'method_name' and node.parent is not None:
+                _bucket(node.parent)['method_name'] = self._get_node_text(node)
+            elif capture_name == 'path' and node.parent is not None and node.parent.parent is not None:
+                # (string) -> argument_list -> call
+                _bucket(node.parent.parent)['path'] = self._get_node_text(node)
 
         # Build import entries
         for import_data in captures_by_import.values():
