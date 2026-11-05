@@ -268,13 +268,18 @@ class PerlTreeSitterParser:
             if capture_name != "name":
                 continue
             name = self._get_node_text(node)
+            call = node.parent
+            while call is not None and call.type not in ('function_call_expression', 'ambiguous_function_call_expression', 'method_call_expression'):
+                call = call.parent
+            arguments = call.child_by_field_name('arguments') if call is not None else None
+            args = [self._get_node_text(arg) for arg in arguments.named_children] if arguments is not None else []
             context, context_type, context_line = self._get_parent_context(node)
             
             calls.append({
                 "name": name,
                 "full_name": name,
                 "line_number": node.start_point[0] + 1,
-                "args": [],
+                "args": args,
                 "context": (context, context_type, context_line),
                 "lang": self.language_name,
                 "is_dependency": False,
