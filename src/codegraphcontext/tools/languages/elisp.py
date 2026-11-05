@@ -63,7 +63,7 @@ ELISP_QUERIES = {
 
 FUNCTION_FORMS = {"defun", "defsubst", "defmacro", "cl-defun"}
 VARIABLE_FORMS = {"defvar", "defconst", "defcustom"}
-IMPORT_FORMS = {"require", "provide", "autoload"}
+IMPORT_FORMS = {"require", "provide", "autoload", "load", "load-file", "load-library"}
 SPECIAL_FORMS = {
     "and",
     "catch",
@@ -564,6 +564,8 @@ class ElispTreeSitterParser:
         seen = set()
 
         for node in self._iter_nodes(root_node):
+            if self._has_quote_ancestor(node):
+                continue
             head = self._form_head(node)
             if head not in IMPORT_FORMS:
                 continue
@@ -575,6 +577,12 @@ class ElispTreeSitterParser:
                 name = self._quoted_symbol_argument(node)
                 imported_name = name
                 full_import_name = f"{head} '{name}" if name else None
+            elif head in {"load", "load-file", "load-library"}:
+                named = self._named_children(node)
+                if len(named) > 1 and named[1].type == "string":
+                    name = self._string_value(named[1])
+                    imported_name = name
+                    full_import_name = name
             elif head == "autoload":
                 name = self._quoted_symbol_argument(node)
                 imported_name = name
