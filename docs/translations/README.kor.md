@@ -3,7 +3,7 @@
 **코드 저장소를 AI 에이전트가 쿼리할 수 있는 그래프로 변환합니다.**
 
 🌐 **언어:**
-- 🇬🇧 [English](README.md)
+- 🇬🇧 [English](../../README.md)
 - 🇨🇳 [中文](README.zh-CN.md)
 - 🇰🇷 [한국어](README.kor.md)
 - 🇺🇦 [Українська](README.uk.md)
@@ -99,7 +99,7 @@
 ## 프로젝트 세부 정보
 - **버전:** 0.4.16
 - **저자:** Shashank Shekhar Singh <shashankshekharsingh1205@gmail.com>
-- **라이선스:** MIT License (자세한 내용은 [LICENSE](LICENSE) 참조)
+- **라이선스:** MIT License (자세한 내용은 [LICENSE](../../LICENSE) 참조)
 - **웹사이트:** [CodeGraphContext](http://codegraphcontext.vercel.app/)
 
 ---
@@ -130,7 +130,7 @@
 ## 기능
 -   **코드 인덱싱:** 코드를 분석하고 구성 요소의 지식 그래프를 구축합니다.
 -   **관계 분석:** 호출자, 피호출자, 클래스 계층 구조, 호출 체인 등을 쿼리합니다.
--   **사전 인덱싱된 번들:** `.cgc` 번들로 유명한 저장소를 즉시 로드합니다 - 인덱싱이 필요 없습니다! ([자세히 알아보기](docs/BUNDLES.md))
+-   **사전 인덱싱된 번들:** `.cgc` 번들로 유명한 저장소를 즉시 로드합니다 - 인덱싱이 필요 없습니다! ([자세히 알아보기](../docs/guides/bundles.md))
 -   **실시간 파일 감시:** 디렉토리의 변경 사항을 감시하고 그래프를 실시간으로 자동 업데이트합니다 (`cgc watch`).
 -   **대화형 설정:** 쉬운 설정을 위한 사용자 친화적인 명령줄 마법사.
 -   **듀얼 모드:** 개발자를 위한 독립 실행형 **CLI 도구 모음**과 AI 에이전트를 위한 **MCP 서버**로 작동합니다.
@@ -307,7 +307,7 @@ cgc watch .
 cgc help
 ```
 
-**사용 가능한 모든 명령어와 사용 시나리오는 [CLI 명령 가이드](CLI_Commands.md)를 참조하세요.**
+**사용 가능한 모든 명령어와 사용 시나리오는 [CLI 명령 가이드](../CLI_COMPLETE_REFERENCE.md)를 참조하세요.**
 
 ### 🎨 프리미엄 대화형 시각화
 CodeGraphContext는 코드의 멋진 대화형 지식 그래프를 생성할 수 있습니다. 정적 다이어그램과 달리 프리미엄 웹 기반 탐색기입니다:
@@ -481,7 +481,7 @@ cgc find pattern "Auth" --viz
 ## 기여하기
 
 기여를 환영합니다! 🎉
-자세한 가이드라인은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참조하세요.
+자세한 가이드라인은 [CONTRIBUTING.md](../../.github/CONTRIBUTING.md)를 참조하세요.
 새로운 기능, 통합 또는 개선에 대한 아이디어가 있으시면 [이슈](https://github.com/CodeGraphContext/CodeGraphContext/issues)를 열거나 Pull Request를 제출해 주세요.
 
 토론에 참여하고 CodeGraphContext의 미래를 함께 만들어 가세요.

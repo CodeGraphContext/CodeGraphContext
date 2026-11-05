@@ -465,7 +465,7 @@ success, message = bundle.import_from_bundle(
 
 ### Creating Bundles for Popular Repos
 
-We welcome contributions of pre-indexed bundles! See [CONTRIBUTING.md](../docs/contributing.md) for guidelines.
+We welcome contributions of pre-indexed bundles! See [CONTRIBUTING.md](../contributing.md) for guidelines.
 
 ### Improving Bundle Format
 

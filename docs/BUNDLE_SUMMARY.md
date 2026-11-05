@@ -32,7 +32,7 @@ A **complete pre-indexed graph bundle system** that enables:
    - Shortcuts: `cgc export` and `cgc load`
 
 ### Automation
-3. **`.github/workflows/index-famous-repos.yml`** (7.5KB, ~230 lines)
+3. **`.github/workflows/generate-bundle-on-demand.yml`** (7.5KB, ~230 lines)
    - Weekly automated indexing
    - Matrix strategy for parallel builds
    - Creates GitHub Releases
@@ -384,7 +384,7 @@ CLI_Commands.md                 # Updated with bundle commands
 - `BUNDLE_ARCHITECTURE.md`: 12KB
 - `BUNDLE_IMPLEMENTATION.md`: 7.8KB
 - `BUNDLE_QUICKREF.md`: 6.4KB
-- `index-famous-repos.yml`: 7.5KB
+- `generate-bundle-on-demand.yml`: 7.5KB
 - `create-bundle.sh`: 3.4KB
 
 **Total**: ~70KB of new code and documentation
@@ -412,8 +412,8 @@ We've successfully built a **complete, production-ready bundle system** that:
 - **Architecture**: [docs/BUNDLE_ARCHITECTURE.md](BUNDLE_ARCHITECTURE.md)
 - **Quick Reference**: [docs/BUNDLE_QUICKREF.md](BUNDLE_QUICKREF.md)
 - **Implementation**: [docs/BUNDLE_IMPLEMENTATION.md](BUNDLE_IMPLEMENTATION.md)
-- **CLI Commands**: [CLI_Commands.md](../CLI_Commands.md)
-- **GitHub Workflow**: [.github/workflows/index-famous-repos.yml](../.github/workflows/index-famous-repos.yml)
+- **CLI Commands**: [CLI_Commands.md](CLI_COMPLETE_REFERENCE.md)
+- **GitHub Workflow**: [.github/workflows/generate-bundle-on-demand.yml](../.github/workflows/generate-bundle-on-demand.yml)
 
 ---
 
