@@ -48,16 +48,20 @@ def _fail_services_init() -> None:
     raise typer.Exit(code=1)
 
 
-def _kuzu_fallback_path(ctx: ResolvedContext) -> Optional[str]:
-    """Derive a KùzuDB directory when falling back from another backend."""
+def _ladybug_fallback_path(ctx: ResolvedContext) -> Optional[str]:
+    """Derive a Ladybug directory without reusing another engine's files."""
     runtime = os.getenv("CGC_RUNTIME_DB_PATH")
     if runtime:
-        return str(Path(runtime).expanduser().resolve())
+        runtime_path = Path(runtime).expanduser().resolve()
+        if runtime_path.name.lower() in {"falkordb", "falkordb.db", "kuzudb", "kuzudb.db"}:
+            return str(runtime_path.parent / "ladybugdb")
+        return str(runtime_path.with_name(f"{runtime_path.name}.ladybugdb"))
     if ctx.db_path:
-        return str(Path(ctx.db_path).parent / "kuzudb")
+        return str(Path(ctx.db_path).parent / "ladybugdb")
     try:
         from .config_manager import _default_global_db_path
-        return _default_global_db_path("kuzudb")
+
+        return _default_global_db_path("ladybugdb")
     except Exception:
         return None
 
@@ -176,13 +180,13 @@ def _initialize_services(
     try:
         db_manager.get_driver()
     except Exception as e:
-        # Check if this is a FalkorDB failure that should trigger a KùzuDB fallback
+        # A late FalkorDB failure still falls back to the maintained embedded engine.
         from ..core.database_falkordb import FalkorDBUnavailableError
         if isinstance(e, FalkorDBUnavailableError):
             from ..core import mark_falkordb_unavailable
             mark_falkordb_unavailable()
             console.print(f"[yellow]⚠ FalkorDB Lite is not functional in this environment: {e}[/yellow]")
-            console.print("[cyan]Falling back to KùzuDB for a reliable experience...[/cyan]")
+            console.print("[cyan]Falling back to LadybugDB for a reliable experience...[/cyan]")
             
             # Close the broken driver/socket
             try:
@@ -190,15 +194,21 @@ def _initialize_services(
             except Exception:
                 pass
             
-            # Re-initialize explicitly with KùzuDB (never reuse the FalkorDB directory)
-            from ..core.database_kuzu import KuzuDBManager
-            kuzu_path = _kuzu_fallback_path(ctx)
-            db_manager = KuzuDBManager(db_path=kuzu_path)
+            # Never reuse the FalkorDB directory: the storage formats differ.
+            from ..core import _ready_manager
+            from ..core.database_ladybug import LadybugDBManager
+
+            ladybug_path = _ladybug_fallback_path(ctx)
+            db_manager = LadybugDBManager(db_path=ladybug_path)
             try:
                 db_manager.get_driver()
-                console.print("[green]✓[/green] Successfully switched to KùzuDB fallback")
-            except Exception as kuzu_e:
-                console.print(f"[bold red]Critical Error:[/bold red] Both FalkorDB and KùzuDB failed: {kuzu_e}")
+                _ready_manager(db_manager, ladybug_path)
+                console.print("[green]✓[/green] Successfully switched to LadybugDB fallback")
+            except Exception as ladybug_error:
+                console.print(
+                    "[bold red]Critical Error:[/bold red] "
+                    f"Both FalkorDB and LadybugDB failed: {ladybug_error}"
+                )
                 _fail_services_init()
         else:
             selected_db = (
@@ -213,18 +223,28 @@ def _initialize_services(
                 allow_fallback = os.environ.get("CGC_ALLOW_NEO4J_FALLBACK", "false").lower() in {"1", "true", "yes", "on"}
 
                 if selected_db == "neo4j" and allow_fallback:
-                    console.print("[cyan]Neo4j failed and CGC_ALLOW_NEO4J_FALLBACK=true. Falling back to KuzuDB...[/cyan]")
+                    console.print(
+                        "[cyan]Neo4j failed and CGC_ALLOW_NEO4J_FALLBACK=true. "
+                        "Falling back to LadybugDB...[/cyan]"
+                    )
                     try:
-                        from ..core.database_kuzu import KuzuDBManager
-                        db_manager = KuzuDBManager(db_path=_kuzu_fallback_path(ctx))
+                        from ..core import _ready_manager
+                        from ..core.database_ladybug import LadybugDBManager
+
+                        ladybug_path = _ladybug_fallback_path(ctx)
+                        db_manager = LadybugDBManager(db_path=ladybug_path)
                         db_manager.get_driver()
-                        console.print("[green]✓[/green] Successfully switched to KuzuDB fallback")
-                    except Exception as kuzu_e:
-                        console.print(f"[bold red]Critical Error:[/bold red] Neo4j failed and KuzuDB fallback failed: {kuzu_e}")
+                        _ready_manager(db_manager, ladybug_path)
+                        console.print("[green]✓[/green] Successfully switched to LadybugDB fallback")
+                    except Exception as ladybug_error:
+                        console.print(
+                            "[bold red]Critical Error:[/bold red] Neo4j failed and LadybugDB fallback failed: "
+                            f"{ladybug_error}"
+                        )
                         _fail_services_init()
                 else:
                     if selected_db == "neo4j":
-                        console.print("[yellow]Tip:[/yellow] To continue without Neo4j, rerun with --db kuzudb")
+                        console.print("[yellow]Tip:[/yellow] To continue without Neo4j, rerun with --db ladybugdb")
                     _fail_services_init()
             else:
                 console.print(f"[bold red]Database Connection Error:[/bold red] {e}")
