@@ -7,10 +7,18 @@ queried, ``CodeFinder.list_indexed_repositories`` emits a ``logging`` warning if
 any ``Repository`` row has a missing path, so the issue is visible in normal CLI
 runs (see application logging configuration in ``cli.main``).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, Iterable
+
+
+def repository_directory_prefix(repo_path: str | None) -> str | None:
+    """Return a slash-delimited prefix for the indexed files below a repo root."""
+    if not repo_path:
+        return None
+    return Path(repo_path).as_posix().rstrip("/") + "/"
 
 
 def repo_record_matches_path(repo: Dict[str, Any], path_obj: Path) -> bool:
