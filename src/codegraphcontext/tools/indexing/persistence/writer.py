@@ -319,7 +319,9 @@ class GraphWriter:
             "SpringDataRepository", "Mixin", "Extension", "Object",
         })
 
-    def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
+    def add_repository_to_graph(
+        self, repo_path: Path, is_dependency: bool = False, *, preserve_existing: bool = False
+    ) -> None:
         repo_name = repo_path.name
         # Use _normalize_path so the stored path always uses forward slashes,
         # making STARTS WITH queries work on Windows too.
@@ -329,25 +331,25 @@ class GraphWriter:
         indexed_at = datetime.now(timezone.utc).isoformat()
 
         backend = get_backend_type(self.driver, self._db_manager)
+        # Keep the test for existing metadata inside the write query: MCP can
+        # start background indexing concurrently with watch attachment. A
+        # separate existence read could race with that index's repository write.
+        assignments = ", ".join(
+            f"r.{key} = coalesce(r.{key}, ${key})" if preserve_existing else f"r.{key} = ${key}"
+            for key in ("name", "is_dependency", "indexed_at")
+        )
         def _work(session):
             session.run(
-                """
-                MERGE (r:Repository {path: $path})
-                SET r.name = $name,
-                    r.is_dependency = $is_dependency,
-                    r.indexed_at = $indexed_at
-                """,
+                f"MERGE (r:Repository {{path: $path}}) SET {assignments}",
                 path=repo_path_str,
                 name=repo_name,
                 is_dependency=is_dependency,
                 indexed_at=indexed_at,
             )
             if commit_hash:
+                value = "coalesce(r.commit_hash, $commit_hash)" if preserve_existing else "$commit_hash"
                 session.run(
-                    """
-                    MATCH (r:Repository {path: $path})
-                    SET r.commit_hash = $commit_hash
-                    """,
+                    f"MATCH (r:Repository {{path: $path}}) SET r.commit_hash = {value}",
                     path=repo_path_str,
                     commit_hash=commit_hash,
                 )

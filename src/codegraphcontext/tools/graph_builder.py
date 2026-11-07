@@ -191,7 +191,9 @@ class GraphBuilder:
 
 
     # Language-agnostic method
-    def add_repository_to_graph(self, repo_path: Path, is_dependency: bool = False) -> None:
+    def add_repository_to_graph(
+        self, repo_path: Path, is_dependency: bool = False, *, preserve_existing: bool = False
+    ) -> None:
         """Add a repository node to the graph.
 
         Delegates to :meth:`GraphWriter.add_repository_to_graph`.
@@ -202,8 +204,13 @@ class GraphBuilder:
             Filesystem path to the repository root.
         is_dependency : bool, optional
             Whether this repository is a dependency (default ``False``).
+        preserve_existing : bool, optional
+            Preserve existing non-null indexing metadata. Used when attaching
+            a watcher without performing a new index.
         """
-        self._writer.add_repository_to_graph(repo_path, is_dependency)
+        self._writer.add_repository_to_graph(
+            repo_path, is_dependency, preserve_existing=preserve_existing
+        )
 
     def add_file_to_graph(
         self, file_data: Dict, repo_name: str, imports_map: dict, repo_path_str: str = None
