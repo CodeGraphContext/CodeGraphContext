@@ -15,6 +15,7 @@ def isolated_provider_keys(monkeypatch):
         "ATLAS_CLOUD_API_KEY",
         "CHEAPER_INFERENCE_API_KEY",
         "API_ROUTE_API_KEY",
+        "STANDARDCOMPUTE_API_KEY",
         "API_ROUTE_API_BASE",
         "API_ROUTE_MODEL",
     ):

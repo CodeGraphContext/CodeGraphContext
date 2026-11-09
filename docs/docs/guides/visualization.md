@@ -59,6 +59,30 @@ API Route key for this server process to select it. AI queries send the question
 graph schema and query results to the selected provider to generate and explain
 read-only Cypher queries.
 
+### Natural-language graph queries with Standard Compute
+
+The visualizer's AI query feature can also use
+[Standard Compute](https://standardcompute.com), an OpenAI-compatible gateway.
+Set your key before starting the server:
+
+```bash
+export STANDARDCOMPUTE_API_KEY="your-standard-compute-key"
+cgc visualize
+```
+
+The default endpoint is `https://api.stdcmpt.com/v1` and the default model is
+`StandardCompute`, which sends each request to the cheapest enabled model that
+can handle it, with automatic fallback. To pin a specific model, set
+`STANDARDCOMPUTE_MODEL` to any id listed by
+`GET https://api.stdcmpt.com/v1/models`. Set `STANDARDCOMPUTE_API_BASE` to
+override the endpoint.
+
+When multiple provider keys are configured, Gemini, OpenAI, Atlas Cloud,
+Cheaper Inference and API Route retain their existing priority over Standard
+Compute. Use only the Standard Compute key for this server process to select it.
+AI queries send the question, graph schema and query results to the selected
+provider to generate and explain read-only Cypher queries.
+
 ---
 
 ## 3. Neo4j Browser Visualizations (Neo4j Backend Only)
