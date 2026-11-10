@@ -16,11 +16,12 @@ Below is the standard directory structure under global and local scopes:
         .cgcignore              <-- Global ignore patterns
         db/
             falkordb/           <-- Global-mode FalkorDB Lite storage (default on Unix)
-            kuzudb/             <-- Global-mode KuzuDB storage directory
+            ladybugdb/          <-- Maintained embedded fallback storage
+            kuzudb/             <-- Legacy KuzuDB storage pending migration
     contexts/
         ProjectA/
             db/
-                kuzudb/         <-- Named-context KuzuDB storage directory
+                ladybugdb/      <-- Named-context LadybugDB storage directory
             .cgcignore          <-- Context-specific ignore patterns
 ```
 
@@ -33,7 +34,9 @@ When executing a CLI command (e.g., `cgc index`) or starting an MCP session, CGC
 1. **Context Override Flag**: If `--context <name>` or `-c <name>` is provided, CGC routes all writes and queries to the specified named context.
 2. **Local Repository Scope**: If the current directory contains a `.codegraphcontext/` folder, CGC operates in per-repo mode.
 3. **Global Config Setting**: CGC reads the active mode (`global`, `per-repo`, or `named`) and default context name specified in `~/.codegraphcontext/config.yaml`.
-4. **Default Fallback**: On Linux/macOS with Python 3.12+, connects to FalkorDB Lite at `~/.codegraphcontext/global/db/falkordb/`; otherwise KuzuDB at `~/.codegraphcontext/global/db/kuzudb/`.
+4. **Default Fallback**: On Linux/macOS with Python 3.12+, connects to FalkorDB Lite at
+   `~/.codegraphcontext/global/db/falkordb/`; otherwise uses LadybugDB at
+   `~/.codegraphcontext/global/db/ladybugdb/`.
 
 ---
 
@@ -79,7 +82,7 @@ When indexing inside a project, a local database folder is created within the re
 ```bash
 cd ~/projects/service-api
 cgc index .
-# Creates: ~/projects/service-api/.codegraphcontext/db/kuzudb/
+# Creates: ~/projects/service-api/.codegraphcontext/db/ladybugdb/
 ```
 
 Graphs are completely isolated, and commands run within a repository only inspect the local database.
@@ -121,7 +124,7 @@ cgc stats
 ### Create a Named Context
 Create a context and optionally specify its target database driver and storage path:
 ```bash
-cgc context create mobile-app --database kuzudb   # Or use shorthand aliases: --db, -db, -d
+cgc context create mobile-app --database ladybugdb   # Or use shorthand aliases: --db, -db, -d
 cgc context create mobile-app --db-path /mnt/fast/cgc
 ```
 
