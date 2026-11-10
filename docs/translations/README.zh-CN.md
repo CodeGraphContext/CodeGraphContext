@@ -10,6 +10,7 @@
 - 🇷🇺 [Русский](README.ru-RU.md)
 - 🇯🇵 [日本語](README.ja.md)
 - 🇮🇳 [தமிழ்](README.ta.md)
+- 🇮🇳 [हिन्दी](README.hi.md) 
 - 🇪🇸 Español (即将推出)
 
 🌍 **在 [GitHub Issues](https://github.com/CodeGraphContext/CodeGraphContext/issues) 上提交 Issue 和 PR，帮助我们将 CodeGraphContext 翻译成你的语言！**
