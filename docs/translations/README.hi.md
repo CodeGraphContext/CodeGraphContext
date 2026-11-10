@@ -4,7 +4,7 @@
 
 🌐 **भाषाएँ:**
 
-- 🇬🇧 [English](../../README.md)
+- 🇬🇧 [English](README.md)
 - 🇨🇳 [中文](README.zh-CN.md)
 - 🇰🇷 [한국어](README.kor.md)
 - 🇺🇦 [Українська](README.uk.md)
