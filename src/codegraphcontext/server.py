@@ -19,6 +19,7 @@ from .utils.gcf_encoder import encode_response
 from .prompts import LLM_SYSTEM_PROMPT, build_system_prompt
 from .core import get_database_manager
 from .core.jobs import JobManager, JobStatus
+from .core.read_timeout import ReadQueryTimeout, timeout_error, tool_call_scope
 from .core.watcher import CodeWatcher
 from .tools.graph_builder import GraphBuilder
 from .tools.code_finder import CodeFinder
@@ -761,7 +762,19 @@ class MCPServer:
         }
         handler = tool_map.get(tool_name)
         if handler:
-            result = await asyncio.to_thread(handler, **args)
+            # The read-query ceiling is per tool (core/read_timeout.py):
+            # to_thread copies this context, so read_driver() in the handler's
+            # thread sees the tool name. A read that timed out anywhere in the
+            # call makes the answer the uniform timeout error, whatever the
+            # handler did with the exception (wrapped it, fell back, …).
+            with tool_call_scope(tool_name) as timeouts:
+                try:
+                    result = await asyncio.to_thread(handler, **args)
+                except ReadQueryTimeout as exc:
+                    result = timeout_error(exc)
+            if timeouts and not (isinstance(result, dict) and result.get("timed_out")):
+                extra = {"query": result["query"]} if isinstance(result, dict) and "query" in result else {}
+                result = timeout_error(timeouts[0], **extra)
 
             if self._context_note_pending and tool_name not in (
                 "discover_codegraph_contexts", "switch_context"

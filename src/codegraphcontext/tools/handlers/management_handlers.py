@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 from dataclasses import asdict
 from datetime import datetime
 from ...core.jobs import JobManager, JobStatus
+from ...core.read_timeout import read_driver
 from ...utils.debug_log import debug_log
 from ...utils.tool_limits import get_tool_result_limit
 from ..code_finder import CodeFinder
@@ -340,7 +341,7 @@ def get_repository_stats(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     try:
         debug_log(f"Getting stats for: {repo_path or 'all repositories'}")
 
-        with code_finder.db_manager.get_driver(graph_name).session() as session:
+        with read_driver(code_finder.db_manager, graph_name).session() as session:
             if repo_path:
                 # Stats for specific repository
                 repo_path_obj = Path(repo_path).resolve().as_posix()

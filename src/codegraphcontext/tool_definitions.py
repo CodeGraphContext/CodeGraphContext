@@ -147,7 +147,12 @@ TOOLS = {
 
     "execute_cypher_query": {
         "name": "execute_cypher_query",
-        "description": "Run a read-only Cypher query against the code graph.",
+        "description": (
+            "Run a read-only Cypher query against the code graph. On Neo4j the statement is aborted after the "
+            "execute_cypher_query ceiling (TOOL_QUERY_TIMEOUTS, default 300 s) and the answer is an error with "
+            "timeout_s. Avoid unbounded variable-length patterns over CALLS ([:CALLS*1..n]): they are exponential "
+            "in n; use analyze_code_relationships find_all_callers/find_all_callees/call_chain instead."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {

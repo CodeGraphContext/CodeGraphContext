@@ -1,5 +1,6 @@
 # src/codegraphcontext/tools/handlers/analysis_handlers.py
 from typing import Any, Dict
+from ...core.read_timeout import ReadQueryTimeout, timeout_error
 from ..code_finder import CodeFinder
 from ...utils.debug_log import debug_log
 from ...utils.tool_limits import get_tool_result_limit
@@ -106,6 +107,9 @@ def analyze_code_relationships(code_finder: CodeFinder, **args) -> Dict[str, Any
                 return {"error": f"Invalid 'depth' value: {depth!r}. Must be an integer between 1 and 20."}
         debug_log(f"Analyzing relationships: {query_type} for {target}, repo_path={repo_path}, depth={depth}")
         results = code_finder.analyze_code_relationships(query_type, target, context, repo_path=repo_path, depth=depth, graph_name=graph_name)
+        if isinstance(results, dict) and results.get("error"):
+            # CodeFinder reports a failed query as {"error": …}: an error, never "success"
+            return {**results, "query_type": query_type, "target": target, "context": context}
 
         response = {
             "success": True, "query_type": query_type, "target": target,
@@ -116,6 +120,8 @@ def analyze_code_relationships(code_finder: CodeFinder, **args) -> Dict[str, Any
             response["result_limit"] = results.get("result_limit")
         return response
 
+    except ReadQueryTimeout as e:
+        return timeout_error(e, query_type=query_type, target=target, context=context)
     except Exception as e:
         debug_log(f"Error analyzing relationships: {str(e)}")
         return {"error": f"Failed to analyze relationships: {str(e)}"}

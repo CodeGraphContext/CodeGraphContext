@@ -17,6 +17,7 @@ from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..core.database import DatabaseManager
+from ..core.read_timeout import read_driver
 from ..utils.debug_log import debug_log
 from ..utils.path_sandbox import is_path_allowed
 from ..utils.cypher_readonly import is_read_only_cypher as _is_read_only_cypher, read_only_rejection_message
@@ -156,7 +157,7 @@ async def get_graph(repo_path: Optional[str] = None, cypher_query: Optional[str]
         # This endpoint only ever reads. Open the session in READ access mode so
         # the database enforces read-only (Neo4j default_access_mode / FalkorDB
         # GRAPH.RO_QUERY) in addition to the regex guard on any user query.
-        with db_manager.get_driver().session(**_read_session_kwargs(db_manager)) as session:
+        with read_driver(db_manager).session(**_read_session_kwargs(db_manager)) as session:
             if cypher_query:
                 if not _is_read_only_cypher(cypher_query):
                     raise HTTPException(
@@ -664,7 +665,7 @@ Respond ONLY with a JSON object in this format:
         edges = []
         records_data = []
 
-        with db_manager.get_driver().session(**_read_session_kwargs(db_manager)) as session:
+        with read_driver(db_manager).session(**_read_session_kwargs(db_manager)) as session:
             result = session.run(cypher_query)
             for record in result:
                 # Store truncated record data for explanation phase

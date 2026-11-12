@@ -12,6 +12,7 @@ except ImportError:
 
 if TYPE_CHECKING:
     from ..core.database import DatabaseManager
+from ..core.read_timeout import read_driver
 from ..core.jobs import JobManager, JobStatus
 from ..utils.debug_log import debug_log
 
@@ -103,7 +104,7 @@ class SystemTools:
             session_kwargs["default_access_mode"] = "READ"
 
         try:
-            with self.db_manager.get_driver().session(**session_kwargs) as session:
+            with read_driver(self.db_manager).session(**session_kwargs) as session:
                 result = session.run(cypher_query)
                 records = [record.data() for record in result]
                 return {
@@ -121,7 +122,7 @@ class SystemTools:
         """Finds potentially unused functions (dead code)."""
         # This logic was moved from CodeFinder to be a system diagnostic tool
         try:
-            with self.db_manager.get_driver().session() as session:
+            with read_driver(self.db_manager).session() as session:
                 result = session.run("""
                     MATCH (func:Function)
                     WHERE func.is_dependency = false
