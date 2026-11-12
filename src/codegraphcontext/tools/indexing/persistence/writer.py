@@ -1421,6 +1421,106 @@ class GraphWriter:
         execute_write_operation(self.driver, backend, _work)
         info_logger(f"[INHERITS] Complete: {len(inheritance_batch)} inheritance links processed.")
 
+    def write_c_use_links(self, all_file_data: List[Dict[str, Any]], batch_size: int = 2000) -> None:
+        """C/C++ uses the CALLS pass does not record: macro invocations and
+        struct field accesses.
+
+        - (Function)-[:USES_MACRO {lines}]->(Macro). A call whose name is a
+          macro resolves to a definition in the same file, else in a file the
+          caller includes (by file name), else to every definition when there
+          are at most three; more is ambiguous and skipped.
+        - (Function|Macro)-[:READS_FIELD|WRITES_FIELD|TAKES_ADDRESS_OF_FIELD
+          {lines}]->(Field {name}). Fields are keyed by name only (the parser
+          has no types).
+        """
+        backend = get_backend_type(self.driver, self._db_manager)
+        if backend.startswith("kuzu"):
+            info_logger("[C-USES] Skipped: the Kuzu schema has no Field table or use edges.")
+            return
+
+        c_files = [fd for fd in all_file_data if fd.get("lang") in ("c", "cpp")]
+        macro_defs: Dict[str, List[Tuple[str, int]]] = {}
+        for fd in c_files:
+            for macro in fd.get("macros", []):
+                macro_defs.setdefault(macro["name"], []).append((_normalize_path(fd["path"]), macro["line_number"]))
+
+        macro_rows: Dict[tuple, set] = {}
+        for fd in c_files:
+            path = _normalize_path(fd["path"])
+            includes = {os.path.basename(str(i.get("name", ""))) for i in fd.get("imports", [])}
+            for call in fd.get("function_calls", []):
+                defs = macro_defs.get(call.get("name"))
+                ctx = call.get("context") or (None, None, None)
+                if not defs or ctx[1] != "function_definition":
+                    continue
+                targets = [d for d in defs if d[0] == path] \
+                    or [d for d in defs if os.path.basename(d[0]) in includes] \
+                    or (defs if len(defs) <= 3 else [])
+                for macro_path, macro_line in targets:
+                    key = (ctx[0], path, ctx[2], call["name"], macro_path, macro_line)
+                    macro_rows.setdefault(key, set()).add(call["line_number"])
+
+        field_rows: Dict[str, List[Dict[str, Any]]] = {"read": [], "write": [], "address": []}
+        macro_field_rows: Dict[str, List[Dict[str, Any]]] = {"read": [], "write": []}
+        for fd in c_files:
+            for row in fd.get("field_accesses", []):
+                if row.get("macro"):
+                    macro_field_rows[row["access"]].append({
+                        "macro": row["macro"], "path": _normalize_path(fd["path"]), "macro_line": row["macro_line"],
+                        "field": row["field"], "lines": row["lines"],
+                    })
+                else:
+                    field_rows[row["access"]].append({
+                        "fn": row["function"], "path": _normalize_path(fd["path"]), "fn_line": row["function_line"],
+                        "field": row["field"], "lines": row["lines"],
+                    })
+
+        rel = {"read": "READS_FIELD", "write": "WRITES_FIELD", "address": "TAKES_ADDRESS_OF_FIELD"}
+        macro_batch = [
+            {"fn": k[0], "path": k[1], "fn_line": k[2], "macro": k[3], "macro_path": k[4], "macro_line": k[5], "lines": sorted(v)}
+            for k, v in macro_rows.items()
+        ]
+
+        def _run(session, query: str, rows: List[Dict[str, Any]]) -> None:
+            for i in range(0, len(rows), batch_size):
+                session.run(query, batch=rows[i : i + batch_size])
+
+        def _work(session):
+            _run(session, """
+                UNWIND $batch AS row
+                MATCH (fn:Function {name: row.fn, path: row.path, line_number: row.fn_line})
+                MATCH (m:Macro {name: row.macro, path: row.macro_path, line_number: row.macro_line})
+                MERGE (fn)-[r:USES_MACRO]->(m)
+                SET r.lines = row.lines
+            """, macro_batch)
+            # Field nodes first, so the edge queries only MATCH.
+            names = sorted({r["field"] for rows in (*field_rows.values(), *macro_field_rows.values()) for r in rows})
+            _run(session, "UNWIND $batch AS row MERGE (:Field {name: row.name})", [{"name": n} for n in names])
+            for access, rows in field_rows.items():
+                _run(session, f"""
+                    UNWIND $batch AS row
+                    MATCH (fn:Function {{name: row.fn, path: row.path, line_number: row.fn_line}})
+                    MATCH (fd:Field {{name: row.field}})
+                    MERGE (fn)-[r:{rel[access]}]->(fd)
+                    SET r.lines = row.lines
+                """, rows)
+            for access, rows in macro_field_rows.items():
+                _run(session, f"""
+                    UNWIND $batch AS row
+                    MATCH (m:Macro {{name: row.macro, path: row.path, line_number: row.macro_line}})
+                    MATCH (fd:Field {{name: row.field}})
+                    MERGE (m)-[r:{rel[access]}]->(fd)
+                    SET r.lines = row.lines
+                """, rows)
+
+        t0 = time.time()
+        execute_write_operation(self.driver, backend, _work)
+        info_logger(
+            f"[C-USES] {len(macro_batch)} macro-use, "
+            f"{sum(len(r) for r in field_rows.values())} function field and "
+            f"{sum(len(r) for r in macro_field_rows.values())} macro field links in {time.time() - t0:.1f}s."
+        )
+
     def write_implements_links(self, implements_batch: List[Dict[str, Any]]) -> None:
         if not implements_batch:
             return

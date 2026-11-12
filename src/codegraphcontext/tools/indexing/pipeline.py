@@ -345,6 +345,9 @@ async def run_tree_sitter_index_async(
     if job_id:
         job_manager.update_job(job_id, status_message="Writing function CALLS edges...")
     await asyncio.to_thread(writer.write_function_call_groups, *resolved_calls)
+    if job_id:
+        job_manager.update_job(job_id, status_message="Writing C macro-use and field-access edges...")
+    await asyncio.to_thread(writer.write_c_use_links, all_file_data)
     t2 = time.time()
     info_logger(f"Function calls created in {t2 - t1:.1f}s. Total post-processing: {t2 - t0:.1f}s")
 

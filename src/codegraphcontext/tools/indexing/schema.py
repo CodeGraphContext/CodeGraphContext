@@ -94,6 +94,7 @@ def create_graph_schema(driver: Any, db_manager: Any) -> None:
                 ddl.run("CREATE INDEX IF NOT EXISTS FOR (f:File) ON (f.path)")
                 ddl.run("CREATE INDEX IF NOT EXISTS FOR (d:Directory) ON (d.path)")
                 ddl.run("CREATE INDEX IF NOT EXISTS FOR (m:Module) ON (m.name)")
+                ddl.run("CREATE INDEX IF NOT EXISTS FOR (fd:Field) ON (fd.name)")
                 # occurrence_index is part of the MERGE key for these labels
                 # (#1393), so it belongs in the supporting index.
                 for _label, _var in POSITIONAL_IDENTITY_LABELS.items():

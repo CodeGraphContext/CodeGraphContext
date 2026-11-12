@@ -5,6 +5,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
 
+
+# ->field or .field in a macro body (not a number like 1.5), and whether a
+# plain assignment follows.
+MACRO_FIELD = re.compile(r"(?:->|(?<![\w)\]])\.|(?<=[\w)\]])\.)\s*([A-Za-z_]\w*)\b(\s*=(?!=))?")
+
 C_QUERIES = {
     # A pointer return type wraps the function declarator from the OUTSIDE:
     # `char* f()` is
@@ -138,6 +143,9 @@ C_QUERIES = {
             )
         )
     """,
+    "field_accesses": """
+        (field_expression field: (field_identifier)) @access
+    """,
     "macros": """
         [
             (preproc_def
@@ -171,7 +179,12 @@ class CTreeSitterParser:
         tree = self.parser.parse(bytes(source_code, "utf8"))
         root_node = tree.root_node
 
+        # Before every other pass: _get_parent_context attributes calls and
+        # field accesses inside a macro-defined body (ZTEST() { ... }) to that
+        # function via these ranges.
+        macro_functions = self._find_macro_defined_functions(root_node)
         functions = self._find_functions(root_node)
+        functions.extend(macro_functions)
         functions.extend(self._synthesize_define_handler_functions(source_code, path))
         classes = self._find_structs_unions_enums(root_node)
         imports = self._find_imports(root_node)
@@ -179,6 +192,8 @@ class CTreeSitterParser:
         variables = self._find_variables(root_node)
         macros = self._find_macros(root_node)
         enum_members = self._find_enum_members(root_node, source_code, classes, macros)
+        field_accesses = self._find_field_accesses(root_node)
+        field_accesses.extend(self._find_macro_field_accesses(macros))
 
         return {
             "path": str(path),
@@ -189,6 +204,7 @@ class CTreeSitterParser:
             "function_calls": function_calls,
             "macros": macros,
             "enum_members": enum_members,
+            "field_accesses": field_accesses,
             "is_dependency": is_dependency,
             "lang": self.language_name,
         }
@@ -217,6 +233,10 @@ class CTreeSitterParser:
                     if name_node:
                         return self._get_node_text(name_node), curr.type, name_node.start_point[0] + 1
             curr = curr.parent
+        if 'function_definition' in types:
+            for start, end, name, line in getattr(self, "_macro_fn_ranges", ()):
+                if start <= node.start_byte and node.end_byte <= end:
+                    return name, 'function_definition', line
         return None, None, None
 
     def _calculate_complexity(self, node: Any) -> int:
@@ -376,6 +396,169 @@ class CTreeSitterParser:
                 
                 functions.append(func_data)
         return functions
+
+    def _find_macro_defined_functions(self, root_node: Any) -> list[Dict[str, Any]]:
+        """Functions whose definition a macro hides: ``NAME(args) { ... }``.
+
+        Zephyr's ``ZTEST(suite, name) { ... }``, GoogleTest's ``TEST(Suite,
+        Name) { ... }`` and the like expand to a function definition, but
+        tree-sitter does not expand macros: it reads the head as an expression
+        statement (a call with no semicolon) followed by a free-standing
+        compound statement. Plain C never has that pair at file scope, so the
+        shape itself identifies these macros and no list of names is needed
+        (in Zephyr it finds exactly the ZTEST family: ZTEST, ZTEST_F,
+        ZTEST_USER, ZTEST_P, ZTEST_BENCHMARK, ...). Macros without a body,
+        such as ZTEST_SUITE(...), are not paired and are skipped.
+
+        The function is named by the second identifier argument if there is
+        one (``ZTEST(suite, name)``, ``TEST(Suite, Name)``), else the first.
+        A one-argument head (``START_TEST(name) { ... }``) parses instead as a
+        function_definition with type ``START_TEST`` and a parenthesized
+        declarator ``(name)``, which no real C function has; it is taken too.
+
+        The same pair also comes from a real function with an attribute macro
+        before its name (``void __soc_ram_code f(void) { ... }``), which
+        tree-sitter misparses into ``f(void)`` and a block. A ``(void)``
+        argument list marks that case: it is kept as function ``f``, without
+        ``defined_by_macro`` (the ordinary pass loses these functions).
+
+        A macro that expands to a struct head (``SCSI_CMD_STRUCT(op) { ... }
+        __packed;``) has the same shape. It is told apart by two things
+        together: something (``;``, an attribute) on the closing brace's line,
+        and a body of declarations only. Either alone is not enough: some
+        functions, ZTESTs among them, end in a stray ``};``. Macros that name the function elsewhere, such
+        as Linux's ``SYSCALL_DEFINE3(read, type, arg, ...)``, get the wrong
+        name; that needs the macro's #define, which is usually in another file.
+        """
+        self._macro_fn_ranges = []
+        found = []
+
+        def macro_head(node: Any, nxt: Any) -> Optional[tuple]:
+            """(macro, identifier args, body) for either parse of NAME(args) { ... }."""
+            if node.type == "function_definition":
+                typ, decl = node.child_by_field_name("type"), node.child_by_field_name("declarator")
+                body = node.child_by_field_name("body")
+                if typ is None or typ.type != "type_identifier" or decl is None or decl.type != "parenthesized_declarator":
+                    return None
+                inner = [self._get_node_text(c) for c in decl.named_children if c.type == "identifier"]
+                if not inner or body is None:
+                    return None
+                if inner[0] == "void":
+                    return (None, [self._get_node_text(typ)], body)
+                return (self._get_node_text(typ), inner[:1], body)
+            if node.type != "expression_statement" or nxt is None or nxt.type != "compound_statement":
+                return None
+            call = node.children[0] if node.children else None
+            if call is None or call.type != "call_expression":
+                return None
+            fn, args = call.child_by_field_name("function"), call.child_by_field_name("arguments")
+            if fn is None or fn.type != "identifier" or args is None:
+                return None
+            if self._get_node_text(args).replace(" ", "") == "(void)":
+                return (None, [self._get_node_text(fn)], nxt)
+            idents = [self._get_node_text(a) for a in args.children if a.type == "identifier"]
+            return (self._get_node_text(fn), idents, nxt) if idents else None
+
+        def scan(parent: Any) -> None:
+            children = parent.children
+            for i, child in enumerate(children):
+                if child.type in ("preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif", "preproc_elifdef"):
+                    scan(child)
+                    continue
+                head = macro_head(child, children[i + 1] if i + 1 < len(children) else None)
+                if head is None:
+                    continue
+                macro, idents, body = head
+                after = (child if body.parent == child else body).next_sibling
+                closed_inline = after is not None and after.type != "comment" and after.start_point[0] == body.end_point[0]
+                fields_only = all(c.type in ("declaration", "comment") for c in body.named_children)
+                if closed_inline and fields_only and body.named_children:
+                    continue  # "} __packed;": a struct or union definition
+                name = idents[1] if len(idents) >= 2 else idents[0]
+                line = child.start_point[0] + 1
+                self._macro_fn_ranges.append((body.start_byte, body.end_byte, name, line))
+                func = {
+                    "name": name,
+                    "line_number": line,
+                    "end_line": body.end_point[0] + 1,
+                    "args": [],
+                    "docstring": self._get_docstring(child),
+                    "cyclomatic_complexity": self._calculate_complexity(body),
+                    "context": None,
+                    "context_type": None,
+                    "class_context": None,
+                    "decorators": [macro] if macro else [],
+                    "lang": self.language_name,
+                    "is_dependency": False,
+                    "detailed_args": [],
+                }
+                if macro:
+                    func["defined_by_macro"] = macro
+                    func["macro_args"] = idents
+                if self.index_source:
+                    func["source"] = self._get_node_text(child) if body.parent == child else self._get_node_text(child) + "\n" + self._get_node_text(body)
+                found.append(func)
+
+        scan(root_node)
+        return found
+
+    def _find_field_accesses(self, root_node: Any) -> list[Dict[str, Any]]:
+        """Struct field reads and writes inside functions, one row per
+        (function, field, access) with the lines it occurs on.
+
+        access is "write" for the target of an assignment (=, +=, ...) or of
+        ++/--, "address" for ``&x->field`` (the callee may write it), else
+        "read". Fields are keyed by name only: tree-sitter has no types, so
+        ``a->len`` and ``b->len`` are the same field here.
+        """
+        rows: Dict[tuple, set] = {}
+        for node, capture_name in execute_query(self.language, C_QUERIES["field_accesses"], root_node):
+            if capture_name != "access":
+                continue
+            field_node = node.child_by_field_name("field")
+            if field_node is None:
+                continue
+            child, parent = node, node.parent
+            while parent is not None and parent.type == "parenthesized_expression":
+                child, parent = parent, parent.parent
+            access = "read"
+            if parent is not None:
+                if parent.type == "assignment_expression":
+                    left = parent.child_by_field_name("left")
+                    if left is not None and left.start_byte == child.start_byte and left.end_byte == child.end_byte:
+                        access = "write"
+                elif parent.type == "update_expression":
+                    access = "write"
+                elif parent.type == "pointer_expression" and parent.children and parent.children[0].type == "&":
+                    access = "address"
+            func, ctx_type, func_line = self._get_parent_context(node, types=("function_definition",))
+            if ctx_type != "function_definition":
+                continue
+            key = (func, func_line, self._get_node_text(field_node), access)
+            rows.setdefault(key, set()).add(node.start_point[0] + 1)
+        return [
+            {"function": f, "function_line": fl, "field": name, "access": access, "lines": sorted(lines)}
+            for (f, fl, name, access), lines in rows.items()
+        ]
+
+    def _find_macro_field_accesses(self, macros: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        """Field accesses in macro bodies, which tree-sitter keeps as raw text.
+
+        ``->name`` and ``.name`` are taken from the body; followed by a single
+        ``=`` they are writes (designated initializers included), else reads.
+        Rows carry the macro instead of a function.
+        """
+        rows: Dict[tuple, set] = {}
+        for macro in macros:
+            body = macro.get("value") or ""
+            for m in MACRO_FIELD.finditer(body):
+                access = "write" if m.group(2) else "read"
+                key = (macro["name"], macro["line_number"], m.group(1), access)
+                rows.setdefault(key, set()).add(macro["line_number"] + body.count("\n", 0, m.start()))
+        return [
+            {"macro": name, "macro_line": line, "field": field, "access": access, "lines": sorted(lines)}
+            for (name, line, field, access), lines in rows.items()
+        ]
 
     def _find_structs_unions_enums(self, root_node: Any) -> list[Dict[str, Any]]:
         """Find structs, unions, and enums (treated as classes in C)."""

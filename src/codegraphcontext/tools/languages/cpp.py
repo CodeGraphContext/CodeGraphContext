@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
+# C headers (.h) are parsed as C++; share the C parser's field/macro-use passes.
+from codegraphcontext.tools.languages.c import CTreeSitterParser as _CParser
 
 CPP_QUERIES = {
     # A pointer or reference return type wraps the function declarator from the
@@ -210,7 +212,9 @@ class CppTreeSitterParser:
         unions = self._find_unions(root_node)
         macros = self._find_macros(root_node)
         variables = self._find_variables(root_node)
-        
+        field_accesses = _CParser._find_field_accesses(self, root_node)
+        field_accesses.extend(_CParser._find_macro_field_accesses(self, macros))
+
         return {
             "path": str(path),
             "functions": functions,
@@ -223,6 +227,7 @@ class CppTreeSitterParser:
             "declarations": [], # Placeholder
             "imports": imports,
             "function_calls": function_calls, 
+            "field_accesses": field_accesses,
             "is_dependency": is_dependency,
             "lang": self.language_name,
         }
@@ -491,6 +496,9 @@ class CppTreeSitterParser:
                     "line_number": node.start_point[0] + 1,
                     "end_line": end_line,
                 }
+                value_node = macro_node.child_by_field_name('value')
+                if value_node is not None:
+                    macro_data["value"] = self._get_node_text(value_node)
                 if capture_name == 'func_name':
                     parameters_node = macro_node.child_by_field_name('parameters')
                     params = []
