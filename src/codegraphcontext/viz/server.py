@@ -364,11 +364,19 @@ def call_llm(system_prompt: str, user_prompt: str) -> str:
     atlascloud_key = os.getenv("ATLASCLOUD_API_KEY") or os.getenv("ATLAS_CLOUD_API_KEY")
     cheaperinference_key = os.getenv("CHEAPER_INFERENCE_API_KEY")
     api_route_key = os.getenv("API_ROUTE_API_KEY")
+    runcrate_key = os.getenv("RUNCRATE_API_KEY")
     
-    if not gemini_key and not openai_key and not atlascloud_key and not cheaperinference_key and not api_route_key:
+    if (
+        not gemini_key
+        and not openai_key
+        and not atlascloud_key
+        and not cheaperinference_key
+        and not api_route_key
+        and not runcrate_key
+    ):
         raise ValueError(
-            "GEMINI_API_KEY, OPENAI_API_KEY, ATLASCLOUD_API_KEY, CHEAPER_INFERENCE_API_KEY, or API_ROUTE_API_KEY "
-            "environment variable is required."
+            "GEMINI_API_KEY, OPENAI_API_KEY, ATLASCLOUD_API_KEY, CHEAPER_INFERENCE_API_KEY, API_ROUTE_API_KEY, "
+            "or RUNCRATE_API_KEY environment variable is required."
         )
     
     if gemini_key:
@@ -410,13 +418,20 @@ def call_llm(system_prompt: str, user_prompt: str) -> str:
             base_url = (base_url or "https://api.cheaperinference.com/v1").rstrip("/")
             url = f"{base_url}/chat/completions"
             model = os.getenv("CHEAPER_INFERENCE_MODEL") or "gpt-5.4-mini"
-        else:
+        elif api_route_key:
             provider_name = "API Route"
             api_key = api_route_key
             base_url = os.getenv("API_ROUTE_API_BASE")
             base_url = (base_url or "https://global.api-route.com/v1").rstrip("/")
             url = f"{base_url}/chat/completions"
             model = os.getenv("API_ROUTE_MODEL") or "gpt-6.1-sol"
+        else:
+            provider_name = "Runcrate"
+            api_key = runcrate_key
+            base_url = os.getenv("RUNCRATE_API_BASE")
+            base_url = (base_url or "https://api.runcrate.ai/v1").rstrip("/")
+            url = f"{base_url}/chat/completions"
+            model = os.getenv("RUNCRATE_MODEL") or "deepseek-ai/DeepSeek-V4.1-Flash"
 
         headers = {
             "Content-Type": "application/json",
@@ -594,13 +609,21 @@ async def ai_query(request: AIQueryRequest):
     atlascloud_key = os.getenv("ATLASCLOUD_API_KEY") or os.getenv("ATLAS_CLOUD_API_KEY")
     cheaperinference_key = os.getenv("CHEAPER_INFERENCE_API_KEY")
     api_route_key = os.getenv("API_ROUTE_API_KEY")
+    runcrate_key = os.getenv("RUNCRATE_API_KEY")
     
-    if not gemini_key and not openai_key and not atlascloud_key and not cheaperinference_key and not api_route_key:
+    if (
+        not gemini_key
+        and not openai_key
+        and not atlascloud_key
+        and not cheaperinference_key
+        and not api_route_key
+        and not runcrate_key
+    ):
         raise HTTPException(
             status_code=400,
             detail=(
                 "AI querying requires GEMINI_API_KEY, OPENAI_API_KEY, ATLASCLOUD_API_KEY, "
-                "CHEAPER_INFERENCE_API_KEY, or API_ROUTE_API_KEY. "
+                "CHEAPER_INFERENCE_API_KEY, API_ROUTE_API_KEY, or RUNCRATE_API_KEY. "
                 "Please set one in your configuration or .env."
             )
         )

@@ -14,6 +14,7 @@ def test_ai_query_no_api_keys(monkeypatch):
     monkeypatch.delenv("ATLAS_CLOUD_API_KEY", raising=False)
     monkeypatch.delenv("CHEAPER_INFERENCE_API_KEY", raising=False)
     monkeypatch.delenv("API_ROUTE_API_KEY", raising=False)
+    monkeypatch.delenv("RUNCRATE_API_KEY", raising=False)
     
     # Mock db_manager
     mock_db = MagicMock()
