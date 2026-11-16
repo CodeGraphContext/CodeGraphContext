@@ -100,6 +100,12 @@ class HTMLTreeSitterParser:
                     elif attr_name == 'id':
                         ids.setdefault(attr_value, line_number)
                     elif attr_name == 'src' or attr_name == 'href':
+                        resource = attr_value.strip()
+                        scheme = resource.partition(':')[0].lower()
+                        if not resource or resource.startswith('#') or scheme in {
+                            'data', 'javascript', 'mailto', 'tel', 'blob', 'about',
+                        }:
+                            continue
                         # Check tag name
                         tag_node = parent_attr.parent # start_tag
                         if tag_node:
@@ -110,8 +116,8 @@ class HTMLTreeSitterParser:
                                 tag_name = self._get_node_text(tag_name_node).lower()
                                 if tag_name in ('script', 'link', 'img', 'a'):
                                     imports.append({
-                                        "name": attr_value,
-                                        "source": attr_value,
+                                        "name": resource,
+                                        "source": resource,
                                         "line_number": node.start_point[0] + 1,
                                         "type": tag_name
                                     })
