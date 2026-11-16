@@ -231,6 +231,7 @@ class GraphBuilder:
         all_file_data: list[Dict],
         imports_map: dict,
         file_class_lookup: Optional[Dict[str, set]] = None,
+        emit_paths: Optional[set[str]] = None,
     ) -> None:
         """Resolve and persist CALLS relationships.
 
@@ -242,6 +243,9 @@ class GraphBuilder:
             Global imports map for cross-file resolution.
         file_class_lookup : dict, optional
             Pre-built ``{file_path: set_of_class_names}`` for incremental mode.
+        emit_paths : set[str], optional
+            Persist only edges from these files, while resolving against all
+            parsed repository data supplied in ``all_file_data``.
         """
         diagnostics: list[Dict[str, Any]] = []
         groups = build_function_call_groups(
@@ -249,6 +253,7 @@ class GraphBuilder:
             imports_map,
             file_class_lookup,
             diagnostics=diagnostics,
+            emit_paths=emit_paths,
         )
         self.last_call_resolution_diagnostics = diagnostics
         if diagnostics:
@@ -271,7 +276,8 @@ class GraphBuilder:
     ) -> None:
         self.link_function_calls(all_file_data, imports_map, file_class_lookup)
 
-    def link_inheritance(self, all_file_data: list[Dict], imports_map: dict) -> None:
+    def link_inheritance(self, all_file_data: list[Dict], imports_map: dict,
+                         emit_paths: Optional[set[str]] = None) -> None:
         """Resolve and persist INHERITS / C# IMPLEMENTS / Go IMPLEMENTS relationships.
 
         Parameters
@@ -280,6 +286,8 @@ class GraphBuilder:
             Parsed data for all files in the repository.
         imports_map : dict
             Global imports map for cross-file resolution.
+        emit_paths : set[str], optional
+            Restrict relationship sources, retaining the full lookup context.
         """
         from .indexing.resolution.inheritance import (
             build_binds_links,
@@ -296,20 +304,27 @@ class GraphBuilder:
         )
 
         info_logger(f"[INHERITS] Resolving inheritance links across {len(all_file_data)} files...")
+        emitted = {Path(path).resolve().as_posix() for path in emit_paths} if emit_paths is not None else None
+
+        def selected(rows, source_key='path'):
+            if emitted is None:
+                return rows
+            return [row for row in rows if Path(row[source_key]).resolve().as_posix() in emitted]
+
         inheritance_batch, csharp_files = build_inheritance_and_csharp_files(all_file_data, imports_map)
         implements_batch = build_go_implements_links(all_file_data)
         implements_batch.extend(build_haskell_implements_links(all_file_data))
         implements_batch.extend(build_elixir_implements_links(all_file_data))
-        self._writer.write_inheritance_links(inheritance_batch, csharp_files, imports_map)
-        self._writer.write_implements_links(implements_batch)
-        self._writer.write_embeds_links(build_embeds_links(all_file_data))
-        self._writer.write_companion_of_links(build_companion_of_links(all_file_data))
-        self._writer.write_partial_of_links(build_partial_of_links(all_file_data))
-        self._writer.write_part_of_links(build_part_of_links(all_file_data))
-        self._writer.write_metaclass_links(build_metaclass_links(all_file_data, imports_map))
-        self._writer.write_decorated_by_links(build_decorated_by_links(all_file_data, imports_map))
-        self._writer.write_binds_links(build_binds_links(all_file_data, imports_map))
-        self._writer.write_previews_links(build_previews_links(all_file_data, imports_map))
+        self._writer.write_inheritance_links(selected(inheritance_batch), selected(csharp_files), imports_map)
+        self._writer.write_implements_links(selected(implements_batch))
+        self._writer.write_embeds_links(selected(build_embeds_links(all_file_data)))
+        self._writer.write_companion_of_links(selected(build_companion_of_links(all_file_data), 'companion_path'))
+        self._writer.write_partial_of_links(selected(build_partial_of_links(all_file_data)))
+        self._writer.write_part_of_links(selected(build_part_of_links(all_file_data), 'child_path'))
+        self._writer.write_metaclass_links(selected(build_metaclass_links(all_file_data, imports_map)))
+        self._writer.write_decorated_by_links(selected(build_decorated_by_links(all_file_data, imports_map), 'decorated_path'))
+        self._writer.write_binds_links(selected(build_binds_links(all_file_data, imports_map), 'source_path'))
+        self._writer.write_previews_links(selected(build_previews_links(all_file_data, imports_map), 'preview_path'))
 
     def _create_all_inheritance_links(self, all_file_data: list[Dict], imports_map: dict) -> None:
         self.link_inheritance(all_file_data, imports_map)
