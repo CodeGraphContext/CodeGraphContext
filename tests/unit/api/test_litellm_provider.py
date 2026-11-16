@@ -12,6 +12,8 @@ from codegraphcontext.viz import server
 PROVIDER_ENV = (
     "LITELLM_MODEL",
     "LITELLM_API_BASE",
+    "RUNCRATE_API_KEY",
+    "STANDARDCOMPUTE_API_KEY",
     "GEMINI_API_KEY",
     "OPENAI_API_KEY",
     "ATLASCLOUD_API_KEY",
@@ -62,6 +64,8 @@ def test_litellm_model_wins_over_exported_provider_keys(monkeypatch, fake_litell
     monkeypatch.setenv("LITELLM_MODEL", "bedrock/anthropic.claude-sonnet-4-6")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-should-not-be-used")
     monkeypatch.setenv("GEMINI_API_KEY", "should-not-be-used")
+    monkeypatch.setenv("STANDARDCOMPUTE_API_KEY", "should-not-be-used")
+    monkeypatch.setenv("RUNCRATE_API_KEY", "should-not-be-used")
     post = MagicMock()
     monkeypatch.setattr(server.requests, "post", post)
 

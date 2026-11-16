@@ -59,6 +59,51 @@ API Route key for this server process to select it. AI queries send the question
 graph schema and query results to the selected provider to generate and explain
 read-only Cypher queries.
 
+### Natural-language graph queries with Standard Compute
+
+The visualizer's AI query feature can also use
+[Standard Compute](https://standardcompute.com), an OpenAI-compatible gateway.
+Set your key before starting the server:
+
+```bash
+export STANDARDCOMPUTE_API_KEY="your-standard-compute-key"
+cgc visualize
+```
+
+The default endpoint is `https://api.stdcmpt.com/v1` and the default model is
+`StandardCompute`. To pin a specific model, set
+`STANDARDCOMPUTE_MODEL` to any id listed by
+`GET https://api.stdcmpt.com/v1/models`. Set `STANDARDCOMPUTE_API_BASE` to
+override the endpoint.
+
+When multiple provider keys are configured, Gemini, OpenAI, Atlas Cloud,
+Cheaper Inference and API Route retain their existing priority over Standard
+Compute. An explicit `LITELLM_MODEL` takes precedence over all provider keys.
+Use only the Standard Compute key and unset `LITELLM_MODEL` to select it.
+AI queries send the question, graph schema and query results to the selected
+provider to generate and explain read-only Cypher queries.
+
+### Natural-language graph queries with Runcrate
+
+The AI query feature can also use [Runcrate](https://www.runcrate.ai/),
+an OpenAI-compatible API.
+Set your key before starting the server:
+
+```bash
+export RUNCRATE_API_KEY="your-runcrate-key"
+cgc visualize
+```
+
+The default endpoint is `https://api.runcrate.ai/v1` and the default model is
+`deepseek-ai/DeepSeek-V4.1-Flash`. Set `RUNCRATE_API_BASE` or `RUNCRATE_MODEL` to
+override them, for example `RUNCRATE_MODEL=openai/gpt-oss-120b`.
+
+Gemini, OpenAI, Atlas Cloud, Cheaper Inference, API Route and Standard Compute
+keep their priority over Runcrate. An explicit `LITELLM_MODEL` takes precedence
+over all provider keys. Use only the Runcrate key and unset `LITELLM_MODEL` to select it.
+AI queries send the question, graph schema and query results to the selected
+provider to generate and explain read-only Cypher queries.
+
 ---
 
 ## 3. Neo4j Browser Visualizations (Neo4j Backend Only)
