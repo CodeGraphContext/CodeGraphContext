@@ -275,6 +275,8 @@ async def test_request_keeps_cleanup_and_both_context_switch_guards_active(tmp_p
     block = BlockedWrite()
     writer.add_repository_to_graph.side_effect = block
     server = MCPServer.__new__(MCPServer)
+    server._context_lock = threading.RLock()
+    server._gateway_owner = None
     server.job_manager = jobs
     server._stop_current_watcher = MagicMock()
     server.db_manager = MagicMock()

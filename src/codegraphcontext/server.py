@@ -849,7 +849,7 @@ class MCPServer:
             # Release watcher/DB resources even when stdin reaches EOF or the
             # loop exits unexpectedly.
             try:
-                self.shutdown()
+                await self.shutdown_async()
             except Exception as exc:
                 warning_logger(f"Error during server shutdown: {exc}")
 
@@ -958,6 +958,14 @@ class MCPServer:
                 }
                 print(json.dumps(error_response), flush=True)
 
+    async def shutdown_async(self):
+        """Stop producers, finish scheduled indexing, then release native DBs."""
+        self.code_watcher.stop()
+        futures = self.job_manager.pending_futures()
+        if futures:
+            await asyncio.gather(*(asyncio.wrap_future(future) for future in futures), return_exceptions=True)
+        self.shutdown()
+
     def shutdown(self):
         """Gracefully shuts down the server and its components."""
         debug_logger("Shutting down server...")
@@ -965,4 +973,6 @@ class MCPServer:
             if self._gateway_owner is not None:
                 self._gateway_owner.invalidate()
             self.code_watcher.stop()
+            if self.job_manager.pending_futures():
+                raise RuntimeError("Indexing is still active; await shutdown_async() before closing the database")
             _teardown_db_manager(self.db_manager)

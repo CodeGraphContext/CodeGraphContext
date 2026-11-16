@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.responses import HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
-from .router import router, cli_router
+from .router import router, cli_router, close_server
 from . import router as router_module
 from ..gateway_discovery import GatewayOwner
 import logging
@@ -106,9 +106,12 @@ def _combine_lifespans(outer_lifespan, mcp_app):
 
     @asynccontextmanager
     async def combined(app):
-        async with outer_lifespan(app):
-            async with mcp_app.router.lifespan_context(mcp_app):
-                yield
+        try:
+            async with outer_lifespan(app):
+                async with mcp_app.router.lifespan_context(mcp_app):
+                    yield
+        finally:
+            await close_server()
 
     return combined
 

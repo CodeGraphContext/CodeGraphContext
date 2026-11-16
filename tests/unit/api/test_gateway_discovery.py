@@ -7,12 +7,13 @@ from pathlib import Path
 import threading
 from time import monotonic
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from codegraphcontext import gateway_discovery as discovery
 from codegraphcontext.api import auth
+from codegraphcontext.api import app as app_module
 from codegraphcontext.cli import cli_helpers, config_manager
 from codegraphcontext.server import MCPServer
 
@@ -28,6 +29,7 @@ def owner(tmp_path, monkeypatch):
     monkeypatch.setenv("CGC_RUNTIME_DB_TYPE", "ladybugdb")
     monkeypatch.delenv("CGC_RUNTIME_DB_PATH", raising=False)
     monkeypatch.setattr(auth, "get_configured_api_key", lambda: "fixture-api-key")
+    monkeypatch.setattr(app_module, "get_configured_api_key", lambda: "fixture-api-key")
     ctx = config_manager.ResolvedContext(
         "global", "", "ladybugdb", str(tmp_path / "graph"), str(root / "global" / ".cgcignore")
     )
@@ -35,6 +37,7 @@ def owner(tmp_path, monkeypatch):
     manager.get_backend_type.return_value = "ladybugdb"
     manager.db_path = ctx.db_path
     server = MCPServer.__new__(MCPServer)
+    server.shutdown_async = AsyncMock()
     server._context_lock = threading.RLock()
     server.resolved_context = ctx
     server.db_manager = manager
@@ -390,6 +393,7 @@ def test_health_does_not_publish_and_lifespan_cleans_initialized_owner(owner, mo
     assert not owner.path.exists()
     assert router._gateway_owner is None
     assert owner.server._gateway_owner is None
+    owner.server.shutdown_async.assert_awaited_once()
     # Discovery cleanup does not take over the separate indexing-job lifecycle.
     owner.server.db_manager.close_driver.assert_not_called()
 

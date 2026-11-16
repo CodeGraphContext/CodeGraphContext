@@ -248,7 +248,8 @@ def test_language_golden(project_name, update_goldens, tmp_path):
     have_nodes_path = golden_proj_dir / "nodes_have.jsonl"
     have_edges_path = golden_proj_dir / "edges_have.jsonl"
     
-    # 1. Environment Setup (Clean FalkorDBLite database per test)
+    # 1. Isolated database per test. Keep FalkorDB Lite as the default;
+    # explicit embedded runs provide real engine evidence without fallback.
     env = os.environ.copy()
     test_home = tmp_path / "home"
     test_home.mkdir()
@@ -257,7 +258,11 @@ def test_language_golden(project_name, update_goldens, tmp_path):
     env["SCIP_INDEXER"] = "false"
     env["ENABLE_INHERIT_RESOLVE"] = "false"
     env["ENABLE_VECTOR_RESOLVE"] = "false"
-    env["CGC_RUNTIME_DB_TYPE"] = "falkordb"
+    backend = os.getenv("CGC_GOLDEN_BACKEND", "falkordb")
+    assert backend in {"falkordb", "kuzudb", "ladybugdb"}, "Unsupported CGC_GOLDEN_BACKEND"
+    env["CGC_RUNTIME_DB_TYPE"] = backend
+    if backend != "falkordb":
+        env["CGC_RUNTIME_DB_PATH"] = str(tmp_path / f"test_{backend}.db")
     env["FALKORDB_PATH"] = str(tmp_path / "test_falkor.db")
     env["FALKORDB_SOCKET_PATH"] = str(tmp_path / "test_falkor.sock")
     src_path = str(WORKSPACE_ROOT / "src")
@@ -282,7 +287,8 @@ bundle_export(output=bundle_path, repo=project_path, no_stats=False, context=Non
         [sys.executable, "-c", index_and_export_script, str(project_path), str(bundle_path)],
         env=env,
         capture_output=True,
-        text=True
+        text=True,
+        timeout=180,
     )
     assert run_res.returncode == 0, f"Index/export failed for {project_name}:\nSTDOUT: {run_res.stdout}\nSTDERR: {run_res.stderr}"
     assert bundle_path.exists(), f"Bundle export did not create {bundle_path} for {project_name}:\nSTDOUT: {run_res.stdout}\nSTDERR: {run_res.stderr}"

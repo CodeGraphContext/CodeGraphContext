@@ -86,7 +86,7 @@ def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args)
         coro = graph_builder.build_graph_from_path_async(
             path_obj, is_dependency, job_id
         )
-        asyncio.run_coroutine_threadsafe(coro, loop)
+        job_manager.track_future(asyncio.run_coroutine_threadsafe(coro, loop))
         
         debug_log(f"Started background job {job_id} for path: {str(path_obj)}, is_dependency: {is_dependency}")
         
@@ -152,7 +152,7 @@ def add_package_to_graph(graph_builder, job_manager, loop, list_repos_func, **ar
         coro = graph_builder.build_graph_from_path_async(
             path_obj, is_dependency, job_id
         )
-        asyncio.run_coroutine_threadsafe(coro, loop)
+        job_manager.track_future(asyncio.run_coroutine_threadsafe(coro, loop))
         
         debug_log(f"Started background job {job_id} for package: {package_name} at {package_path}, is_dependency: {is_dependency}")
         
