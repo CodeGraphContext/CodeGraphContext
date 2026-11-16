@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import MagicMock
 
 from codegraphcontext.tools.indexing.persistence.writer import build_import_rows, build_module_inclusion_rows
 from codegraphcontext.tools.indexing.sanitize import MAX_STR_LEN
@@ -35,3 +36,24 @@ def test_inclusions_share_the_module_guard_and_properties_are_sanitized():
     assert rows == [{'class_name': 'Example', 'module_name': 'Valid'}]
     row = build_import_rows([{'name': 'Valid', 'source': 'Valid', 'alias': 'x' * 10000}], 'python')[0]
     assert len(row['alias']) == MAX_STR_LEN
+
+
+@pytest.mark.parametrize('name', ['data', 'about', 'tel', 'blob', 'mailto', 'javascript'])
+def test_relative_resources_that_resemble_schemes_are_retained(tmp_path, name):
+    path = tmp_path / 'index.html'
+    path.write_text(f'<a href="{name}">link</a>')
+    assert [row['name'] for row in TreeSitterParser('html').parse(path)['imports']] == [name]
+
+
+def test_an_entirely_rejected_inclusion_batch_is_not_sent_to_the_database(tmp_path, monkeypatch):
+    from codegraphcontext.tools.indexing.persistence import writer as module
+    session = MagicMock()
+    monkeypatch.setattr(module, 'execute_write_operation', lambda driver, backend, operation: operation(session))
+    monkeypatch.setattr(module, 'get_backend_type', lambda *args: 'kuzudb')
+    graph_writer = module.GraphWriter(MagicMock())
+    path = tmp_path / 'example.rb'
+    path.write_text('class Example; end')
+    graph_writer.add_file_to_graph({'path': str(path), 'repo_path': str(tmp_path), 'lang': 'ruby',
+                                   'module_inclusions': [{'class': 'Example', 'module': 'x' * (MAX_STR_LEN + 1)}]},
+                                  tmp_path.name, {}, repo_path_str=str(tmp_path))
+    assert not any('INCLUDES' in call.args[0] for call in session.run.call_args_list)

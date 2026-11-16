@@ -910,8 +910,8 @@ class GraphWriter:
                     file_path=file_path_str,
                 )
 
-            module_inclusions = file_data.get("module_inclusions", [])
-            if module_inclusions:
+            inclusion_rows = build_module_inclusion_rows(file_data.get("module_inclusions", []))
+            if inclusion_rows:
                 session.run(
                     """
                     UNWIND $batch AS row
@@ -919,7 +919,7 @@ class GraphWriter:
                     MERGE (m:Module {name: row.module_name})
                     MERGE (c)-[:INCLUDES]->(m)
                 """,
-                    batch=build_module_inclusion_rows(module_inclusions),
+                    batch=inclusion_rows,
                     file_path=file_path_str,
                 )
 
