@@ -488,6 +488,47 @@ def _occurrence_range(occ, typed: str = "typed_range", legacy: str = "range") ->
     return [r.start_line, r.start_character, r.end_line, r.end_character]
 
 
+def _kind_buckets(Kind) -> Dict[int, str]:
+    return {
+        Kind.Function: "functions", Kind.Method: "functions",
+        Kind.StaticMethod: "functions", Kind.Constructor: "functions",
+        Kind.Class: "classes", Kind.Delegate: "classes",
+        Kind.Interface: "interfaces", Kind.Protocol: "interfaces",
+        Kind.Enum: "enums", Kind.Struct: "structs", Kind.Trait: "traits",
+        Kind.Variable: "variables", Kind.Field: "variables",
+    }
+
+
+def _document_position_encoding(doc, tool_name: str) -> int:
+    from . import scip_pb2
+
+    if doc.position_encoding:
+        return doc.position_encoding
+    # scip-dotnet declares nothing before sourcegraph/scip-dotnet#124, but Roslyn columns are always UTF-16.
+    if tool_name == "scip-dotnet":
+        return scip_pb2.PositionEncoding.UTF16CodeUnitOffsetFromLineStart
+    return scip_pb2.PositionEncoding.UnspecifiedPositionEncoding
+
+
+def _str_index(line: str, character: int, encoding: int) -> int:
+    """Index into the decoded line for a SCIP `character` offset; unspecified is taken as code points."""
+    from . import scip_pb2
+
+    Enc = scip_pb2.PositionEncoding
+    if encoding == Enc.UTF8CodeUnitOffsetFromLineStart:
+        width = lambda ch: len(ch.encode("utf-8", errors="surrogateescape"))  # noqa: E731
+    elif encoding == Enc.UTF16CodeUnitOffsetFromLineStart:
+        width = lambda ch: 2 if ord(ch) > 0xFFFF else 1  # noqa: E731
+    else:
+        return character
+    units = 0
+    for i, ch in enumerate(line):
+        if units >= character:
+            return i
+        units += width(ch)
+    return len(line) + (character - units)
+
+
 class ScipIndexParser:
     """
     Parses an index.scip (Protobuf) file and extracts function calls,
@@ -501,6 +542,7 @@ class ScipIndexParser:
             error_logger(f"Failed to import codegraphcontext.tools.scip_pb2: {e}")
             return {}
         Kind = scip_pb2.SymbolInformation
+        kind_buckets = _kind_buckets(Kind)
 
         try:
             with open(index_scip_path, "rb") as f:
@@ -565,7 +607,7 @@ class ScipIndexParser:
         for doc in index.documents:
             src_path = project_path / doc.relative_path
             try:
-                doc_source_lines[doc.relative_path] = src_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                doc_source_lines[doc.relative_path] = src_path.read_text(encoding="utf-8", errors="surrogateescape").splitlines()
             except Exception:
                 doc_source_lines[doc.relative_path] = []
 
@@ -601,7 +643,7 @@ class ScipIndexParser:
             rust_impls = symbol_def_table.get("rust_impls", {})
             name = self._name_from_symbol(sym)
             if name in rust_impls and info.get("kind") in (
-                Kind.Class, Kind.Enum, Kind.Interface, Kind.Struct, Kind.Trait, Kind.Protocol
+                Kind.Class, Kind.Interface, Kind.Struct, Kind.Trait, Kind.Protocol
             ):
                 info["bases"] = list(set(info.get("bases", []) + list(rust_impls[name])))
 
@@ -609,6 +651,7 @@ class ScipIndexParser:
             rel_path = doc.relative_path
             abs_path = str((project_path / rel_path).resolve())
             source_lines = doc_source_lines.get(rel_path, [])
+            position_encoding = _document_position_encoding(doc, index.metadata.tool_info.name)
 
             file_data: Dict[str, Any] = {
                 "functions": [], "classes": [], "variables": [], "imports": [],
@@ -666,35 +709,20 @@ class ScipIndexParser:
                         "return_type": return_type, "args": args,
                     }
 
-                    if kind in (26, 17):
+                    bucket = kind_buckets.get(kind)
+                    # A Module kind on a type descriptor is a VB module (a static class), not a namespace.
+                    if kind == Kind.Module and sym.endswith("#"):
+                        bucket = "classes"
+                    if bucket == "functions":
                         node.update({"cyclomatic_complexity": 1, "decorators": [], "context": None, "class_context": None})
-                        file_data["functions"].append(node)
-                    elif kind == 7:
-                        node["bases"] = [self._name_from_symbol(b) for b in defn.get("bases", [])]
-                        node["context"] = None
-                        file_data["classes"].append(node)
-                    elif kind in (Kind.Interface, Kind.Protocol):
-                        node["bases"] = [self._name_from_symbol(b) for b in defn.get("bases", [])]
-                        node["context"] = None
-                        if "interfaces" not in file_data: file_data["interfaces"] = []
-                        file_data["interfaces"].append(node)
-                    elif kind == Kind.Enum:
-                        node["context"] = None
-                        if "enums" not in file_data: file_data["enums"] = []
-                        file_data["enums"].append(node)
-                    elif kind == 49: # Struct
-                        node["bases"] = [self._name_from_symbol(b) for b in defn.get("bases", [])]
-                        node["context"] = None
-                        if "structs" not in file_data: file_data["structs"] = []
-                        file_data["structs"].append(node)
-                    elif kind == 53: # Trait
-                        node["bases"] = [self._name_from_symbol(b) for b in defn.get("bases", [])]
-                        node["context"] = None
-                        if "traits" not in file_data: file_data["traits"] = []
-                        file_data["traits"].append(node)
-                    elif kind in (61, 15):
+                    elif bucket == "variables":
                         node.update({"value": None, "type": return_type, "context": None, "class_context": None})
-                        file_data["variables"].append(node)
+                    elif bucket is not None:
+                        if bucket != "enums" or defn.get("bases"):
+                            node["bases"] = [self._name_from_symbol(b) for b in defn.get("bases", [])]
+                        node["context"] = None
+                    if bucket is not None:
+                        file_data.setdefault(bucket, []).append(node)
 
                 else: # Reference
                     if sym not in symbol_def_table: continue
@@ -708,6 +736,7 @@ class ScipIndexParser:
                     else:
                         col_end = r[1] if len(r) > 1 else 0
                     src_line = source_lines[ref_line_idx] if ref_line_idx < len(source_lines) else ""
+                    col_end = _str_index(src_line, col_end, position_encoding)
                     char_after = src_line[col_end:col_end + 1] if col_end < len(src_line) else ""
 
                     if char_after != "(": continue
