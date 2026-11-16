@@ -7,7 +7,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from ....utils.debug_log import info_logger, warning_logger
 from ....utils.git_utils import get_repo_commit_hash
@@ -41,18 +41,117 @@ def sort_import_rows_for_metadata(rows: List[Dict[str, Any]]) -> List[Dict[str, 
     return sorted(rows, key=metadata_priority)
 
 
+#: Import records written with the specifier as the Module name. Routed on the
+#: RECORD's language, so a Vue/Svelte script block's imports -- whose file lang is
+#: "vue"/"svelte" -- are written like any JS/TS import.
+JS_IMPORT_LANGS = frozenset({"javascript", "typescript", "tsx", "jsx"})
+
+#: The one IMPORTS write, for every language: one edge per (line, imported name)
+#: (``IMPORTS_MERGE_KEYS``). Every property set is the importer's own data
+#: (``IMPORTS_PROPERTIES``). Module ``lang`` / ``full_import_name`` stay
+#: first-writer-wins as before, and JS/TS rows leave them alone (``module_lang``
+#: and ``full_import_name`` are null there), as the old JS/TS write did.
+#:
+#: Written as node-only then relationship-only batches (#1748):
+#: ``IMPORTS_MODULE_QUERY`` then ``IMPORTS_EDGE_QUERY`` (via ``_run_node_then_rel``),
+#: with the combined ``IMPORTS_MERGE_QUERY`` as the per-row fallback and
+#: LadybugDB's path. The edge MERGE/SET and the Module MERGE/SET are each spelled
+#: identically in the split query and the combined one
+#: (tests/unit/tools/test_imports_contract.py pins that), so the two paths
+#: cannot write different edges.
+IMPORTS_MODULE_QUERY = """
+    UNWIND $batch AS row
+    MATCH (f:File {path: $file_path})
+    MERGE (m:Module {name: row.name})
+    SET m.lang = coalesce(m.lang, row.module_lang),
+        m.full_import_name = coalesce(m.full_import_name, row.full_import_name)
+"""
+IMPORTS_EDGE_QUERY = """
+    UNWIND $batch AS row
+    MATCH (f:File {path: $file_path})
+    MATCH (m:Module {name: row.name})
+    MERGE (f)-[r:IMPORTS {line_number: row.line_number, imported_name: row.imported_name}]->(m)
+    SET r.alias = row.alias,
+        r.full_import_name = row.full_import_name,
+        r.lang = row.lang
+"""
+IMPORTS_MERGE_QUERY = """
+    UNWIND $batch AS row
+    MATCH (f:File {path: $file_path})
+    MERGE (m:Module {name: row.name})
+    SET m.lang = coalesce(m.lang, row.module_lang),
+        m.full_import_name = coalesce(m.full_import_name, row.full_import_name)
+    MERGE (f)-[r:IMPORTS {line_number: row.line_number, imported_name: row.imported_name}]->(m)
+    SET r.alias = row.alias,
+        r.full_import_name = row.full_import_name,
+        r.lang = row.lang
+"""
+
+
+def build_import_rows(imports: Iterable[Dict[str, Any]], file_lang: Optional[str]) -> List[Dict[str, Any]]:
+    """The ``IMPORTS_MERGE_QUERY`` rows for a file's parsed import records (pure).
+
+    JS/TS records (by their own ``lang``, else the file's): the Module is the
+    specifier (``source``); ``imported_name`` the binding (``default``, ``*``,
+    a name). Every other language keeps its established mapping: a Python
+    from-import's Module is its ``source`` (the package), anything else the
+    record's ``name`` (or ``source`` / ``full_import_name``). Rows are complete
+    (every key present, alias never null) so embedded struct typing never
+    depends on which keys a batch holds.
+    """
+    rows: List[Dict[str, Any]] = []
+    for imp in imports or []:
+        lang = imp.get("lang") or file_lang
+        line = imp.get("line_number") or 0
+        alias = imp.get("alias") or ""
+        if lang in JS_IMPORT_LANGS:
+            module_name = imp.get("source")
+            if not module_name:
+                continue
+            rows.append({
+                "name": module_name,
+                "imported_name": imp.get("imported_name") or imp.get("name") or "*",
+                "alias": alias,
+                "line_number": line,
+                "lang": lang,
+                "module_lang": None,
+                "full_import_name": None,
+            })
+            continue
+        # Python from-imports keep `name` as the imported symbol (call
+        # resolution) and stash the module in `source`.
+        if lang == "python" and imp.get("source"):
+            module_name = imp.get("source")
+        else:
+            module_name = imp.get("name") or imp.get("source") or imp.get("full_import_name")
+        if not module_name:
+            continue
+        full_import_name = imp.get("full_import_name") or imp.get("source") or module_name
+        rows.append({
+            "name": module_name,
+            "imported_name": imp.get("imported_name") or imp.get("name") or module_name,
+            "alias": alias,
+            "line_number": line,
+            "lang": lang,
+            "module_lang": lang,
+            "full_import_name": full_import_name,
+        })
+    return sort_import_rows_for_metadata(rows)
+
+
 # Parameter, Module and ExternalClass used to be written as `UNWIND … MERGE (node) … MERGE (a)-[r]->(node)`. The
 # embedded wrapper forces that shape (node MERGE plus a relationship, Kuzu #1605) onto a per-row loop, one query per
 # row. These three writers instead run a node-only UNWIND with distinct node keys, then a relationship-only UNWIND,
 # neither of which the guard touches. Each node phase keeps the old MATCH, so no node is created that the combined
 # query would not have created.
 def _module_node_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """One row per Module name holding, per field, the first non-null value in `rows` order: what the sequential
-    `SET m.x = coalesce(m.x, row.x)` of the combined query leaves on the node."""
+    """``IMPORTS_MODULE_QUERY`` rows, on the ``build_import_rows`` shape: one row per Module name holding, per field,
+    the first non-null value in `rows` order -- what the sequential `SET m.x = coalesce(m.x, row.x)` of the combined
+    query leaves on the node (``module_lang`` is the node's ``lang``; the edge's ``lang`` is the record's)."""
     nodes: Dict[str, Dict[str, Any]] = {}
     for r in rows:
-        n = nodes.setdefault(r["name"], {"name": r["name"], "lang": None, "full_import_name": None})
-        for k in ("lang", "full_import_name"):
+        n = nodes.setdefault(r["name"], {"name": r["name"], "module_lang": None, "full_import_name": None})
+        for k in ("module_lang", "full_import_name"):
             if n[k] is None:
                 n[k] = r.get(k)
     return list(nodes.values())
@@ -765,104 +864,20 @@ class GraphWriter:
                     file_path=file_path_str,
                 )
 
-            js_imports = []
-
-            other_imports = []
-            for imp in file_data.get("imports", []):
-                if lang in {"javascript", "typescript", "tsx"}:
-                    module_name = imp.get("source")
-                    if module_name:
-                        js_imports.append(
-                            {
-                                "module_name": module_name,
-                                "imported_name": imp.get("name", "*"),
-                                "alias": imp.get("alias") or "",
-                                "line_number": imp.get("line_number") or 0,
-                                "lang": imp.get("lang") or lang,
-                            }
-                        )
-                else:
-                    # Python from-imports keep `name` as the imported symbol
-                    # (call resolution) and stash the module in `source`.
-                    if lang == "python" and imp.get("source"):
-                        module_name = imp.get("source")
-                    else:
-                        module_name = (
-                            imp.get("name")
-                            or imp.get("source")
-                            or imp.get("full_import_name")
-                        )
-                    if not module_name:
-                        continue
-                    full_import_name = (
-                        imp.get("full_import_name")
-                        or imp.get("source")
-                        or module_name
-                    )
-                    other_imports.append(
-                        {
-                            "name": module_name,
-                            "full_import_name": full_import_name,
-                            "imported_name": (
-                                imp.get("imported_name")
-                                or imp.get("name")
-                                or module_name
-                            ),
-                            "alias": imp.get("alias"),
-                            "line_number": imp.get("line_number") or 0,
-                            "lang": imp.get("lang") or lang,
-                        }
-                    )
-
-            if js_imports:
-                session.run(
-                    """
-                    UNWIND $batch AS row
-                    MATCH (f:File {path: $file_path})
-                    MERGE (m:Module {name: row.module_name})
-                    MERGE (f)-[r:IMPORTS {line_number: row.line_number}]->(m)
-                    SET r.imported_name = row.imported_name,
-                        r.alias = row.alias,
-                        r.lang = row.lang
-                """,
-                    batch=js_imports,
-                    file_path=file_path_str,
-                )
-
-            if other_imports:
-                other_imports = sort_import_rows_for_metadata(other_imports)
+            import_rows = build_import_rows(file_data.get("imports", []), lang)
+            if import_rows:
+                # Node-only then relationship-only batches (#1748); the combined
+                # query is the per-row fallback and LadybugDB's path. Rows sharing
+                # an edge key collapse to the last one, as the row-by-row combined
+                # SET leaves it.
                 _run_node_then_rel(
                     session,
-                    """
-                    UNWIND $batch AS row
-                    MATCH (f:File {path: $file_path})
-                    MERGE (m:Module {name: row.name})
-                    SET m.lang = coalesce(m.lang, row.lang),
-                        m.full_import_name = coalesce(m.full_import_name, row.full_import_name)
-                """,
-                    _module_node_rows(other_imports),
-                    """
-                    UNWIND $batch AS row
-                    MATCH (f:File {path: $file_path})
-                    MATCH (m:Module {name: row.name})
-                    MERGE (f)-[r:IMPORTS {line_number: row.line_number, imported_name: row.imported_name}]->(m)
-                    SET r.alias = coalesce(row.alias, ""),
-                        r.full_import_name = row.full_import_name,
-                        r.lang = row.lang
-                """,
-                    _last_row_per_key(other_imports, lambda r: (r["name"], r["line_number"], r["imported_name"])),
-                    """
-                    UNWIND $batch AS row
-                    MATCH (f:File {path: $file_path})
-                    MERGE (m:Module {name: row.name})
-                    SET m.lang = coalesce(m.lang, row.lang),
-                        m.full_import_name = coalesce(m.full_import_name, row.full_import_name)
-                    MERGE (f)-[r:IMPORTS {line_number: row.line_number, imported_name: row.imported_name}]->(m)
-                    SET r.alias = coalesce(row.alias, ""),
-                        r.full_import_name = row.full_import_name,
-                        r.lang = row.lang
-                """,
-                    other_imports,
+                    IMPORTS_MODULE_QUERY,
+                    _module_node_rows(import_rows),
+                    IMPORTS_EDGE_QUERY,
+                    _last_row_per_key(import_rows, lambda r: (r["name"], r["line_number"], r["imported_name"])),
+                    IMPORTS_MERGE_QUERY,
+                    import_rows,
                     split=backend != "ladybugdb",
                     file_path=file_path_str,
                 )
