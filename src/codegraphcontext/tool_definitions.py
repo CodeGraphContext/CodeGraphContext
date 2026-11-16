@@ -466,10 +466,6 @@ TOOLS = {
                 "repo_path": {
                     "type": "string",
                     "description": "Path to the repository (defaults to current workspace)."
-                },
-                "context": {
-                    "type": "string",
-                    "description": "Optional: Specific CGC context to use."
                 }
             }
         }
@@ -523,10 +519,6 @@ TOOLS = {
                         ],
                         "required": ["type"]
                     }
-                },
-                "context": {
-                    "type": "string",
-                    "description": "Optional: Specific CGC context to use."
                 }
             },
             "required": ["changes"]
@@ -547,10 +539,6 @@ TOOLS = {
                     "type": "integer",
                     "description": "Number of commits to analyze (default: 50).",
                     "default": 50
-                },
-                "context": {
-                    "type": "string",
-                    "description": "Optional: Specific CGC context to use."
                 }
             }
         }
