@@ -75,6 +75,16 @@ ELIXIR_KEYWORDS = MODULE_KEYWORDS | FUNCTION_KEYWORDS | IMPORT_KEYWORDS | {
 }
 
 
+def _unguarded_head(node):
+    """The declaration head is the left side of each `when`, not its guard."""
+    while node is not None and node.type == 'binary_operator':
+        operator = node.child_by_field_name('operator')
+        if operator is None or operator.text != b'when':
+            break
+        node = node.child_by_field_name('left')
+    return node
+
+
 class ElixirTreeSitterParser:
     """An Elixir-specific parser using tree-sitter."""
 
@@ -109,6 +119,9 @@ class ElixirTreeSitterParser:
                                 if arg_child.type != 'arguments':
                                     continue
                                 for ac in arg_child.children:
+                                    ac = _unguarded_head(ac)
+                                    if ac is None:
+                                        continue
                                     if ac.type == 'call':
                                         name_node = ac.child_by_field_name('target')
                                         if name_node:
@@ -318,6 +331,9 @@ class ElixirTreeSitterParser:
                         keyword = kw
                 elif child.type == 'arguments' and keyword:
                     for ac in child.children:
+                        ac = _unguarded_head(ac)
+                        if ac is None:
+                            continue
                         if ac.type == 'call':
                             # The function head: name(arg1, arg2)
                             target = ac.child_by_field_name('target')
@@ -367,33 +383,39 @@ class ElixirTreeSitterParser:
         return imports
 
     def _find_imports_recursive(self, node: Any, imports: list):
-        """Recursively find import-like statements."""
-        if node.type == 'call':
-            keyword = None
-            path = None
-
-            for child in node.children:
-                if child.type == 'identifier':
-                    kw = self._get_node_text(child)
-                    if kw in IMPORT_KEYWORDS:
-                        keyword = kw
-                elif child.type == 'arguments' and keyword:
-                    for ac in child.children:
-                        if ac.type == 'alias':
-                            path = self._get_node_text(ac)
-                            break
-
-            if keyword and path:
-                imports.append({
-                    "name": path,
-                    "full_import_name": f"{keyword} {path}",
-                    "line_number": node.start_point[0] + 1,
-                    "alias": path.split('.')[-1] if keyword == 'alias' else None,
-                    "lang": self.language_name,
-                    "is_dependency": False,
-                    "import_type": keyword,  # use, import, alias, require
-                })
-
+        target = node.child_by_field_name('target') if node.type == 'call' else None
+        keyword = self._get_node_text(target) if target is not None else None
+        if keyword in IMPORT_KEYWORDS:
+            arguments = next((c for c in node.named_children if c.type == 'arguments'), None)
+            if arguments is not None:
+                paths = []
+                explicit_alias = None
+                for argument in arguments.named_children:
+                    if argument.type == 'alias':
+                        paths.append(self._get_node_text(argument))
+                    elif argument.type == 'dot':
+                        prefix = argument.child_by_field_name('left')
+                        group = argument.child_by_field_name('right')
+                        if prefix is not None and group is not None and group.type == 'tuple':
+                            for member in group.named_children:
+                                if member.type == 'alias':
+                                    paths.append(self._get_node_text(prefix) + '.' + self._get_node_text(member))
+                    elif argument.type == 'keywords':
+                        for pair in argument.named_children:
+                            key = pair.child_by_field_name('key')
+                            value = pair.child_by_field_name('value')
+                            if key is not None and self._get_node_text(key).strip().rstrip(':') == 'as' and value is not None:
+                                explicit_alias = self._get_node_text(value)
+                for path in paths:
+                    imports.append({
+                        "name": path,
+                        "full_import_name": path,
+                        "line_number": node.start_point[0] + 1,
+                        "alias": explicit_alias or (path.split('.')[-1] if keyword == 'alias' else None),
+                        "lang": self.language_name,
+                        "is_dependency": False,
+                        "import_type": keyword,
+                    })
         for child in node.children:
             self._find_imports_recursive(child, imports)
 
@@ -483,7 +505,14 @@ class ElixirTreeSitterParser:
                         # Skip the signature (the first nested call) but keep
                         # the inline `, do: body` keywords — that IS the body.
                         for arg in child.children:
-                            if arg.type != 'call':
+                            if arg.type == 'binary_operator' and _unguarded_head(arg) != arg:
+                                guard = arg
+                                while guard is not None and guard.type == 'binary_operator' and _unguarded_head(guard) != guard:
+                                    right = guard.child_by_field_name('right')
+                                    if right is not None:
+                                        self._find_calls_recursive(right, calls)
+                                    guard = guard.child_by_field_name('left')
+                            elif arg.type not in ('call', 'identifier'):
                                 self._find_calls_recursive(arg, calls)
                 return
 
@@ -528,6 +557,9 @@ def _pre_scan_recursive(node, path: Path, imports_map: dict):
                     for sib in node.children:
                         if sib.type == 'arguments':
                             for ac in sib.children:
+                                ac = _unguarded_head(ac)
+                                if ac is None:
+                                    continue
                                 if ac.type == 'call':
                                     target = ac.child_by_field_name('target')
                                     if target:

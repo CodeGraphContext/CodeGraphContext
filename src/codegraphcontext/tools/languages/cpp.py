@@ -18,6 +18,7 @@ CPP_QUERIES = {
             declarator: (function_declarator
                 declarator: [
                     (identifier) @name
+                    (destructor_name) @name
                     (field_identifier) @name
                     (qualified_identifier) @qualified_name
                 ]
@@ -79,8 +80,10 @@ CPP_QUERIES = {
         (call_expression
             function: [
                 (identifier) @function_name
+                (template_function name: (identifier) @function_name)
                 (field_expression
-                    field: (field_identifier) @method_name
+                    field: [(field_identifier) @method_name
+                            (template_method name: (field_identifier) @method_name)]
                 )
                 (qualified_identifier) @scoped_name
             ]
@@ -636,7 +639,7 @@ class CppTreeSitterParser:
                     # Traverse declarator to find name, handling qualified names
                     decl = curr.child_by_field_name('declarator')
                     while decl:
-                        if decl.type == 'identifier':
+                        if decl.type in ('identifier', 'destructor_name'):
                              return self._get_node_text(decl), curr.type, decl.start_point[0] + 1
                         if decl.type == 'qualified_identifier':
                             # e.g. QueueElement::execute — return just the method name
@@ -675,13 +678,15 @@ class CppTreeSitterParser:
                 if capture_name == "scoped_name" and '::' in raw_text:
                     # e.g. QueueElement::setStatus or std::move
                     parts = raw_text.rsplit('::', 1)
-                    func_name = parts[1]
+                    func_name = parts[1].split('<', 1)[0]
                     inferred_obj_type = parts[0]
                 elif capture_name == "method_name":
                     # e.g. obj.method() or ptr->method() — field_expression
                     func_name = raw_text
                     # Try to get the object expression for type inference
-                    field_expr = node.parent  # field_expression node
+                    field_expr = node.parent
+                    if field_expr is not None and field_expr.type == 'template_method':
+                        field_expr = field_expr.parent
                     if field_expr and field_expr.type == 'field_expression':
                         obj_node = field_expr.child_by_field_name('argument')
                         if obj_node:

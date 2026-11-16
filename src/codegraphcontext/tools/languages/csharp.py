@@ -467,7 +467,7 @@ class CSharpTreeSitterParser:
                 })
         return variables
 
-    def _get_parent_context(self, node: Any, types: Tuple[str, ...] = ('class_declaration', 'struct_declaration', 'function_declaration', 'method_declaration')):
+    def _get_parent_context(self, node: Any, types: Tuple[str, ...] = ('class_declaration', 'struct_declaration', 'record_declaration', 'interface_declaration', 'method_declaration', 'constructor_declaration', 'local_function_statement')):
         """Find parent context for C# constructs."""
         curr = node.parent
         while curr:

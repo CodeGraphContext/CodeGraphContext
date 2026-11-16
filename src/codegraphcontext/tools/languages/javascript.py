@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional, Tuple
 import re
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
+from .js_dynamic_imports import extract_dynamic_import_call
 
 # --- Helpers to classify JS methods ---
 _GETTER_RE = re.compile(r"^\s*(?:static\s+)?get\b")
@@ -98,13 +99,14 @@ JS_QUERIES = {
         ) @import
     """,
     "calls": """
+        (call_expression function: (import)) @dynamic_import
         (call_expression function: (identifier) @name)
         (call_expression function: (member_expression property: (property_identifier) @name))
         (new_expression constructor: (identifier) @name)
         (new_expression constructor: (member_expression property: (property_identifier) @name))
     """,
     "variables": """
-        (variable_declarator name: (identifier) @name)
+        (variable_declarator) @variable
     """,
     "docstrings": """
         (comment) @docstring_comment
@@ -579,8 +581,11 @@ class JavascriptTreeSitterParser:
         calls = []
         query_str = JS_QUERIES['calls']
         for node, capture_name in execute_query(self.language, query_str, root_node):
-            # Placeholder for JS call extraction logic
-            if capture_name == 'name':
+            if capture_name == 'dynamic_import':
+                call = extract_dynamic_import_call(self, node)
+                if call is not None:
+                    calls.append(call)
+            elif capture_name == 'name':
                 # Traverse up to find the call/new expression
                 call_node = node.parent
                 while call_node and call_node.type not in ('call_expression', 'new_expression') and call_node.type != 'program':
@@ -614,54 +619,44 @@ class JavascriptTreeSitterParser:
         return calls
 
 
+    def _binding_nodes(self, pattern):
+        """Only declaration targets; keys/default expressions are not bindings."""
+        if pattern is None:
+            return
+        if pattern.type in ('identifier', 'shorthand_property_identifier_pattern'):
+            yield pattern
+        elif pattern.type == 'pair_pattern':
+            yield from self._binding_nodes(pattern.child_by_field_name('value'))
+        elif pattern.type in ('assignment_pattern', 'object_assignment_pattern'):
+            yield from self._binding_nodes(pattern.child_by_field_name('left'))
+        elif pattern.type in ('object_pattern', 'array_pattern', 'rest_pattern', 'rest_element'):
+            for child in pattern.named_children:
+                yield from self._binding_nodes(child)
+
     def _find_variables(self, root_node):
         variables = []
-        query_str = JS_QUERIES['variables']
-        for match in execute_query(self.language, query_str, root_node):
-            capture_name = match[1]
-            node = match[0]
-
-            if capture_name == 'name':
-                var_node = node.parent
-                name = self._get_node_text(node)
-                value = None 
-                type_text = None
-
-                # Detect if variable assigned to a function
-                value_node = var_node.child_by_field_name("value") if var_node else None
-
-                if value_node:
-                    value_type = value_node.type
-
-                    # --- Skip variables that are assigned a function ---
-                    if value_type in ("function_expression", "arrow_function"):
-                        continue
-                    
-                    # Some grammars might have async_arrow_function or similar
-                    if "function" in value_type or "arrow" in value_type:
-                        continue
-
-                    # --- Handle various assignment types ---
-                    if value_type == "call_expression":
-                        func_node = value_node.child_by_field_name("function")
-                        value = self._get_node_text(func_node) if func_node else name
-                    else:
-                        value = self._get_node_text(value_node)
-
-                context, context_type, context_line = self._get_parent_context(node)
-                class_context = context if context_type == 'class_declaration' else None
-
-                variable_data = {
-                    "name": name,
+        for var_node, capture in execute_query(self.language, JS_QUERIES['variables'], root_node):
+            if capture != 'variable':
+                continue
+            value_node = var_node.child_by_field_name('value')
+            if value_node is not None and ('function' in value_node.type or 'arrow' in value_node.type):
+                continue
+            value = None
+            if value_node is not None:
+                callee = value_node.child_by_field_name('function') if value_node.type == 'call_expression' else None
+                value = self._get_node_text(callee if callee is not None else value_node)
+            for node in self._binding_nodes(var_node.child_by_field_name('name')):
+                context, context_type, _ = self._get_parent_context(node)
+                variables.append({
+                    "name": self._get_node_text(node),
                     "line_number": node.start_point[0] + 1,
                     "value": value,
-                    "type": type_text,
+                    "type": None,
                     "context": context,
-                    "class_context": class_context,
+                    "class_context": context if context_type == 'class_declaration' else None,
                     "lang": self.language_name,
                     "is_dependency": False,
-                }
-                variables.append(variable_data)
+                })
         return variables
 
     def _find_react_components(self, root_node):

@@ -29,6 +29,23 @@ To create a production build of the website, run:
 npm run build
 ```
 
+## AI providers
+
+In the graph explorer, open **AI Knowledge Explorer → BYOK Settings** to select
+Google Gemini, Mistral AI, or Anthropic (Claude) and enter your own API key.
+Anthropic defaults to `claude-sonnet-4-6`; the optional model field accepts another
+Claude model ID available to your account.
+
+The key is saved in this browser's local storage, and graph context is sent directly
+to the selected provider. Changing providers clears the key and custom model fields
+so credentials are not reused with a different provider.
+
+Run the provider regression tests (mocked requests; no API key required):
+
+```bash
+npm run test:summary
+```
+
 ## API Security Configuration
 
 The on-demand bundle trigger endpoint (`/api/trigger-bundle`) now includes abuse protections.
