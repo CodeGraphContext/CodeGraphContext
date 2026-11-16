@@ -133,6 +133,10 @@ DEFAULT_CONFIG = {
     # Default LLM model names used for graph queries when no value is explicitly configured
     "OPENAI_MODEL": "gpt-4o",
     "ANTHROPIC_MODEL": "claude-3-5-sonnet-20241022",
+    # LiteLLM model for graph queries, e.g. "anthropic/claude-sonnet-4-6".
+    # Empty = use the provider picked from whichever API key is set.
+    "LITELLM_MODEL": "",
+    "LITELLM_API_BASE": "",
     # Optional API key for the HTTP API gateway. Empty = auth disabled
     # (backward compatible). When set, HTTP endpoints require the key via
     # `Authorization: Bearer <key>` or `X-API-Key`. May also be set via the
@@ -197,6 +201,8 @@ CONFIG_DESCRIPTIONS = {
         "Embedding backend for ENABLE_VECTOR_RESOLVE. "
         "'local' uses fastembed (BAAI/bge-small-en-v1.5, 384-dim, runs on CPU, no GPU or API key needed). "
         "'openai' uses OpenAI text-embedding-3-small (requires OPENAI_API_KEY env var, costs money per token). "
+        "'litellm/<provider>/<model>' uses any LiteLLM embedding model, e.g. "
+        "litellm/bedrock/amazon.titan-embed-text-v2:0 (requires the litellm extra and that provider's credentials). "
         "Default: local"
     ),
     "CGC_EMBEDDING_BATCH_SIZE": (
@@ -222,6 +228,17 @@ CONFIG_DESCRIPTIONS = {
         "Default Anthropic model used for graph queries. "
         "Requires ANTHROPIC_API_KEY environment variable. "
         "Default: claude-3-5-sonnet-20241022"
+    ),
+    "LITELLM_MODEL": (
+        "LiteLLM model used for graph queries, in <provider>/<model> form "
+        "(e.g. anthropic/claude-sonnet-4-6, bedrock/..., ollama/llama3). "
+        "When set it takes precedence over the provider chosen from API keys. "
+        "Requires the litellm extra (pip install 'codegraphcontext[litellm]') and the "
+        "provider's own credentials (e.g. ANTHROPIC_API_KEY). Default: empty"
+    ),
+    "LITELLM_API_BASE": (
+        "Optional endpoint passed to LiteLLM for graph queries and litellm/ embeddings, "
+        "for routes that need one, e.g. http://localhost:11434 for ollama/. Default: empty (provider default)"
     ),
     "CGC_API_KEY": (
         "Optional API key protecting the HTTP API gateway. Empty = "
@@ -549,6 +566,12 @@ def validate_config_value(key: str, value: str) -> tuple[bool, Optional[str]]:
         available_keys = ", ".join(sorted(DEFAULT_CONFIG.keys()))
         return False, f"Unknown config key: {key}. Available keys: {available_keys}"
     
+    # LiteLLM embedding models are open-ended: accept any litellm/<model>.
+    if key == "CGC_EMBEDDING_MODEL" and value.startswith("litellm/"):
+        if len(value) == len("litellm/"):
+            return False, "CGC_EMBEDDING_MODEL=litellm/ needs a model, e.g. litellm/cohere/embed-english-v3.0"
+        return True, None
+
     # Validate against specific validators if they exist
     if key in CONFIG_VALIDATORS:
         valid_values = CONFIG_VALIDATORS[key]
