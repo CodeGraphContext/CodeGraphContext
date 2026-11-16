@@ -1,6 +1,4 @@
 from pathlib import Path
-from unittest.mock import MagicMock
-
 import pytest
 
 from codegraphcontext.tools.languages.solidity import (
@@ -101,9 +99,9 @@ def test_parse_base_and_interface(parser):
     assert any(f["name"] == "add" and f["class_context"] == "MathLib" for f in lib["functions"])
 
 
-def test_pre_scan_maps_symbols():
+def test_pre_scan_maps_symbols(solidity_available):
     files = sorted(FIXTURE_DIR.glob("*.sol"))
-    mapping = pre_scan_solidity(files, MagicMock())
+    mapping = pre_scan_solidity(files, TreeSitterParser("solidity"))
     assert "Greeter" in mapping
     assert "IGreeter" in mapping
     assert "MathLib" in mapping
