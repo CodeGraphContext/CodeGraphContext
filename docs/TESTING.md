@@ -15,6 +15,8 @@ We provide a helper script `tests/run_tests.sh` to simplify test execution.
 | **Unit Tests** | `./tests/run_tests.sh unit` | Focus on individual components (parsers, database logic). |
 | **User Journeys** | `./tests/run_tests.sh e2e` | Validate full end-to-end user workflows. |
 
+The [indexing cancellation contract](INDEXING_CANCELLATION.md) documents the worker-barrier, real subprocess, and lifecycle regressions included in the fast suite.
+
 ---
 
 ## 🏗️ Test Architecture

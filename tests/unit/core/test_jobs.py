@@ -97,3 +97,78 @@ class TestJobManager:
         manager.cleanup_old_jobs(max_age_hours=24)
 
         assert manager.get_job(done_id) is None
+
+    def test_cancellation_request_is_idempotent_and_prevents_pending_admission(self):
+        manager = JobManager()
+        job_id = manager.create_job("/pending")
+        assert manager.cancel_job("unknown") is False
+        assert manager.cancel_job(job_id) is True
+        assert manager.cancel_job(job_id) is False
+        assert manager.begin_job(job_id) is False
+        assert manager.get_job(job_id).status == JobStatus.CANCELLED
+        assert manager.get_job(job_id).cancel_requested is True
+        assert manager.get_job(job_id).end_time is not None
+        assert manager.list_active_jobs() == []
+
+    @pytest.mark.parametrize("outcome", [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED])
+    def test_active_terminal_updates_wait_for_quiescence(self, outcome):
+        from datetime import datetime
+
+        manager = JobManager()
+        job_id = manager.create_job("/active")
+        assert manager.begin_job(job_id) is True
+        assert manager.begin_job(job_id) is False
+        manager.update_job(job_id, status=outcome, end_time=datetime.now())
+        assert manager.get_job(job_id).status == JobStatus.RUNNING
+        assert manager.get_job(job_id).end_time is None
+        assert manager.find_active_job_by_path("/active").job_id == job_id
+        assert manager.finish_job(job_id) == outcome
+        assert manager.begin_job(job_id) is False
+        assert manager.cancel_job(job_id) is False
+
+    def test_request_before_completion_wins_and_preserves_failure_diagnostics(self):
+        manager = JobManager()
+        job_id = manager.create_job("/active")
+        assert manager.begin_job(job_id)
+        assert manager.cancel_job(job_id)
+        manager.fail_job(job_id, OSError("native write failed while draining"))
+        assert manager.get_job(job_id).status == JobStatus.RUNNING
+        assert manager.get_job(job_id).end_time is None
+        assert manager.finish_job(job_id) == JobStatus.CANCELLED
+        job = manager.get_job(job_id)
+        assert job.errors == ["native write failed while draining"]
+        assert job.error_type == "OSError"
+        assert "OSError" in job.traceback
+        ended = job.end_time
+        manager.update_job(job_id, status=JobStatus.COMPLETED, processed_files=99)
+        manager.fail_job(job_id, RuntimeError("late callback"))
+        assert job.status == JobStatus.CANCELLED
+        assert job.processed_files == 0
+        assert job.end_time == ended
+        assert job.errors == ["native write failed while draining"]
+
+    def test_completed_operation_rejects_late_request(self):
+        manager = JobManager()
+        job_id = manager.create_job("/finished")
+        assert manager.begin_job(job_id)
+        assert manager.finish_job(job_id) == JobStatus.COMPLETED
+        assert manager.cancel_job(job_id) is False
+        assert manager.get_job(job_id).cancel_requested is False
+
+    @pytest.mark.parametrize("cancel", [False, True])
+    def test_cleanup_retains_owned_worker_even_without_recent_progress(self, cancel):
+        from datetime import datetime, timedelta
+
+        manager = JobManager()
+        job_id = manager.create_job("/blocked-native-call")
+        assert manager.begin_job(job_id)
+        if cancel:
+            assert manager.cancel_job(job_id)
+        job = manager.get_job(job_id)
+        job.start_time = datetime.now() - timedelta(hours=48)
+        job.last_update_time = datetime.now() - timedelta(hours=30)
+        manager.cleanup_old_jobs()
+        assert manager.get_job(job_id) is job
+        assert job.status == JobStatus.RUNNING
+        assert job.end_time is None
+        assert manager.finish_job(job_id) == (JobStatus.CANCELLED if cancel else JobStatus.COMPLETED)

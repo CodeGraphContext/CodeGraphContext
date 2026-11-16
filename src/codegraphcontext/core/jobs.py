@@ -47,6 +47,7 @@ class JobInfo:
     last_update_time: Optional[datetime] = None
     error_type: Optional[str] = None
     traceback: Optional[str] = None
+    cancel_requested: bool = False
 
     def __post_init__(self):
         """Ensures the errors list is initialized after the object is created."""
@@ -78,6 +79,9 @@ class JobManager:
     def __init__(self):
         self.jobs: Dict[str, JobInfo] = {}
         self.lock = threading.Lock() # A lock to ensure thread-safe access to the jobs dictionary.
+        # An admitted indexing operation owns its resources until finish_job.
+        # Terminal updates are deferred while that operation drains its workers.
+        self._operations: Dict[str, Optional[JobStatus]] = {}
 
     def create_job(self, path: str, is_dependency: bool = False) -> str:
         """Creates a new job, assigns it a unique ID, and stores it."""
@@ -92,13 +96,83 @@ class JobManager:
             )
         return job_id
 
+    def begin_job(self, job_id: str) -> bool:
+        """Atomically admit one indexing operation, unless already cancelled/terminal."""
+        with self.lock:
+            job = self.jobs.get(job_id)
+            if (job is None or job_id in self._operations or job.cancel_requested
+                    or job.status not in (JobStatus.PENDING, JobStatus.RUNNING)):
+                return False
+            self._operations[job_id] = None
+            job.status = JobStatus.RUNNING
+            job.end_time = None
+            job.last_update_time = datetime.now()
+            return True
+
+    def cancel_job(self, job_id: str) -> bool:
+        """Request cancellation; return True only for the first accepted request.
+
+        Pending work is cancelled before admission. Running work stays active
+        until its indexing operation has drained and calls finish_job.
+        Unknown, terminal, and already-requested jobs return False.
+        """
+        with self.lock:
+            job = self.jobs.get(job_id)
+            if (job is None or job.cancel_requested
+                    or job.status not in (JobStatus.PENDING, JobStatus.RUNNING)):
+                return False
+            job.cancel_requested = True
+            job.last_update_time = datetime.now()
+            if job.status == JobStatus.PENDING and job_id not in self._operations:
+                job.status = JobStatus.CANCELLED
+                job.end_time = job.last_update_time
+            return True
+
+    def is_cancel_requested(self, job_id: str) -> bool:
+        """Read cancellation intent from either an active or cancelled job."""
+        with self.lock:
+            job = self.jobs.get(job_id)
+            return job is not None and (job.cancel_requested or job.status == JobStatus.CANCELLED)
+
+    def finish_job(self, job_id: str) -> Optional[JobStatus]:
+        """Publish a terminal result only after the operation releases its workers.
+
+        An accepted cancellation wins over completion/failure; failure diagnostics
+        recorded during draining remain available. No worker is waited on here.
+        """
+        with self.lock:
+            job = self.jobs.get(job_id)
+            if job is None:
+                return None
+            if job_id not in self._operations:
+                return job.status
+            outcome = self._operations.pop(job_id)
+            job.status = JobStatus.CANCELLED if job.cancel_requested else (outcome or JobStatus.COMPLETED)
+            job.end_time = datetime.now()
+            job.last_update_time = job.end_time
+            return job.status
+
     def update_job(self, job_id: str, **kwargs):
         """Updates the information for a specific job in a thread-safe manner."""
         with self.lock:
             if job_id in self.jobs:
                 job = self.jobs[job_id]
+                if job.status not in (JobStatus.PENDING, JobStatus.RUNNING):
+                    return
+                if job_id in self._operations:
+                    kwargs.pop("end_time", None)
+                status = kwargs.get("status")
+                if status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+                    if status == JobStatus.CANCELLED:
+                        job.cancel_requested = True
+                    if job_id in self._operations:
+                        self._operations[job_id] = status
+                        kwargs.pop("status", None)
+                        kwargs.pop("end_time", None)
+                    elif job.cancel_requested:
+                        kwargs["status"] = JobStatus.CANCELLED
                 for key, value in kwargs.items():
-                    if hasattr(job, key):
+                    if key != "cancel_requested" and hasattr(job, key):
                         setattr(job, key, value)
                 job.last_update_time = datetime.now()
 
@@ -179,6 +253,11 @@ class JobManager:
 
             for job in self.jobs.values():
                 if job.status in active:
+                    # A blocked native call may legitimately report no progress.
+                    # Its admitted operation, including cancellation draining,
+                    # still owns the database and must remain resource-active.
+                    if job.job_id in self._operations:
+                        continue
                     last_progress = job.last_update_time or job.start_time
                     if last_progress < cutoff_time:
                         job.status = JobStatus.FAILED
