@@ -11,6 +11,11 @@ Example .env entry::
 
 If the env value is absent or unparseable the function always returns the
 caller-supplied *default*, so existing behaviour is preserved.
+
+``TOOL_QUERY_TIMEOUTS`` (same file, same shape) holds per-tool time ceilings
+for read statements, in seconds; see ``get_tool_query_timeout``::
+
+    TOOL_QUERY_TIMEOUTS={"default": 60, "find_dead_code": 600}
 """
 
 from __future__ import annotations
@@ -84,3 +89,73 @@ def get_tool_result_limit(tool_name: str, default: Optional[int] = None) -> Opti
         return default
 
     return _BUILTIN_DEFAULTS.get(tool_name)
+
+
+# ── per-tool read-query time ceilings ─────────────────────────────────────────
+
+#: Ceiling in seconds for every read statement of a tool without its own entry.
+#: 10x the slowest read measured on a 168,745-function graph (12 s, find_dead_code).
+DEFAULT_TOOL_QUERY_TIMEOUT_S: float = 120.0
+
+#: Tools whose cost grows with repository size (measured 3-12 s on that graph).
+_BUILTIN_QUERY_TIMEOUTS: dict[str, float] = {
+    "find_dead_code": 300.0,
+    "generate_report": 300.0,
+    "get_repository_stats": 300.0,
+    "export_diagram": 300.0,
+    "execute_cypher_query": 300.0,
+}
+
+#: Key in TOOL_QUERY_TIMEOUTS that sets the ceiling of every tool without its own entry.
+QUERY_TIMEOUT_DEFAULT_KEY = "default"
+
+
+def _parse_timeout(value) -> Optional[float]:
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds >= 0 else None
+
+
+def get_tool_query_timeout(tool_name: Optional[str], default: Optional[float] = None) -> float:
+    """Per-statement time ceiling, in seconds, for read queries of *tool_name* (0 = none).
+
+    Applied by ``core.read_timeout.read_driver`` on Neo4j-protocol backends.
+
+    Resolution order
+    ----------------
+    1. ``TOOL_QUERY_TIMEOUTS`` JSON entry for *tool_name*
+    2. *default* argument (caller override)
+    3. built-in entry for *tool_name* (300 s for the repo-size-bound tools)
+    4. ``TOOL_QUERY_TIMEOUTS["default"]``
+    5. ``DEFAULT_TOOL_QUERY_TIMEOUT_S`` (120 s)
+
+    So ``"default"`` lowers or raises every tool *without* its own ceiling;
+    the repo-size-bound tools keep their 300 s unless named explicitly.
+    *tool_name* is None outside a tool call (CLI commands that open no
+    ``tool_scope``), which resolves through steps 2, 4 and 5. Unparseable or
+    negative values are ignored.
+    """
+    from codegraphcontext.cli.config_manager import get_config_value
+
+    raw = get_config_value("TOOL_QUERY_TIMEOUTS") or "{}"
+    try:
+        configured = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        configured = {}
+    if not isinstance(configured, dict):
+        configured = {}
+
+    def configured_value(key):
+        return _parse_timeout(configured[key]) if key in configured else None
+
+    if tool_name and configured_value(tool_name) is not None:
+        return configured_value(tool_name)
+    if default is not None:
+        return float(default)
+    if tool_name in _BUILTIN_QUERY_TIMEOUTS:
+        return _BUILTIN_QUERY_TIMEOUTS[tool_name]
+    if configured_value(QUERY_TIMEOUT_DEFAULT_KEY) is not None:
+        return configured_value(QUERY_TIMEOUT_DEFAULT_KEY)
+    return DEFAULT_TOOL_QUERY_TIMEOUT_S
