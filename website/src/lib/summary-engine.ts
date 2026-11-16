@@ -3,7 +3,7 @@
  *
  * Supports two modes:
  *  1. Heuristic (default) — client-side name/type/relationship analysis
- *  2. LLM-powered (BYOK) — optional Gemini or Mistral API calls for richer summaries
+ *  2. LLM-powered (BYOK) — optional Gemini, Mistral, or Anthropic API calls
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -35,7 +35,9 @@ export interface NodeSummary {
   neighborTypeBreakdown: Record<string, number>;
 }
 
-export type LLMProvider = 'gemini' | 'mistral' | 'none';
+export type LLMProvider = 'gemini' | 'mistral' | 'anthropic' | 'none';
+
+export const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 
 export interface LLMConfig {
   provider: LLMProvider;
@@ -407,6 +409,8 @@ Respond with ONLY the summary, no markdown formatting.`;
       return await callGemini(prompt, config.apiKey, config.model);
     } else if (config.provider === 'mistral') {
       return await callMistral(prompt, config.apiKey, config.model);
+    } else if (config.provider === 'anthropic') {
+      return await callAnthropic(prompt, config.apiKey, config.model);
     }
   } catch (err) {
     console.error(`LLM summary failed (${config.provider}):`, err);
@@ -468,6 +472,8 @@ JSON Format:
       rawResult = await callGemini(prompt, config.apiKey, config.model, 2000, true);
     } else if (config.provider === 'mistral') {
       rawResult = await callMistral(prompt, config.apiKey, config.model, 2000, true);
+    } else if (config.provider === 'anthropic') {
+      rawResult = await callAnthropic(prompt, config.apiKey, config.model, 2000, true);
     }
 
     if (!rawResult) throw new Error("Empty response from LLM");
@@ -544,6 +550,64 @@ async function callMistral(prompt: string, apiKey: string, model?: string, maxTo
 
   const data = await res.json();
   return data?.choices?.[0]?.message?.content || '';
+}
+
+async function callAnthropic(prompt: string, apiKey: string, model?: string, maxTokens: number = 200, jsonMode: boolean = false): Promise<string> {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey.trim()}`,
+      'anthropic-version': '2026-10-21',
+      // Users supply their own key; requests go directly to Anthropic.
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: model?.trim() || DEFAULT_ANTHROPIC_MODEL,
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+      ...(jsonMode ? {
+        output_config: {
+          format: {
+            type: 'json_schema',
+            schema: {
+              type: 'object',
+              properties: {
+                explanation: { type: 'string' },
+                nodeIds: { type: 'array', items: { type: ['string', 'number'] } },
+              },
+              required: ['explanation', 'nodeIds'],
+              additionalProperties: false,
+            },
+          },
+        },
+      } : {}),
+    }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => null);
+    const message = typeof error?.error?.message === 'string'
+      ? error.error.message
+      : res.statusText || 'Request failed';
+    throw new Error(`Anthropic API error: ${res.status} — ${message}`);
+  }
+
+  const data = await res.json();
+  if (data?.stop_reason === 'max_tokens') {
+    throw new Error('Claude reached the response limit. Try a more focused question.');
+  }
+  if (data?.stop_reason === 'refusal') {
+    throw new Error('Claude declined this request. Try rephrasing your question.');
+  }
+
+  const text = Array.isArray(data?.content)
+    ? data.content.flatMap((block: { type?: string; text?: string } | null) =>
+        block?.type === 'text' && typeof block.text === 'string' ? [block.text] : []
+      ).join('').trim()
+    : '';
+  if (!text) throw new Error('Anthropic returned an empty response.');
+  return text;
 }
 
 // ─── Domain Clustering ───────────────────────────────────────────────────────

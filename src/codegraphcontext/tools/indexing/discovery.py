@@ -7,6 +7,7 @@ from typing import Any, FrozenSet, List, Optional, Set, Tuple
 
 from ...core.cgcignore import build_ignore_spec
 from ...utils.debug_log import debug_log, warning_logger
+from ...utils.path_sandbox import is_index_path_allowed
 from .constants import DEFAULT_IGNORE_PATTERNS
 
 # Generic file types that are added as minimal File nodes (no source parsing).
@@ -143,4 +144,14 @@ def discover_files_to_index(
                 filtered_files.append(f)
         files = filtered_files
 
-    return sorted(files, key=lambda file: file.as_posix()), ignore_root
+    # Apply the boundary to every resolved file, not only the requested root.
+    # Keep ignore matching on the lexical path above, then return canonical
+    # paths so retargeting a discovered symlink cannot change what is opened.
+    admitted_root = path if path.is_dir() else path.parent
+    safe_files = set()
+    for file in files:
+        if is_index_path_allowed(file, admitted_root):
+            safe_files.add(file.resolve())
+        else:
+            warning_logger(f"Skipping file outside allowed indexing roots: {file}")
+    return sorted(safe_files, key=lambda file: file.as_posix()), ignore_root

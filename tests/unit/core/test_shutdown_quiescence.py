@@ -125,6 +125,8 @@ def test_file_delete_removes_orphan_symbols_but_preserves_shared_module(tmp_path
 
 def test_async_shutdown_waits_for_indexing_before_teardown(monkeypatch):
     value = MCPServer.__new__(MCPServer)
+    value._context_lock = threading.RLock()
+    value._gateway_owner = None
     value.code_watcher = MagicMock()
     value.db_manager = object()
     value.job_manager = JobManager()

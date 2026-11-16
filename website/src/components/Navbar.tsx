@@ -15,6 +15,20 @@ function handleScroll(e: React.MouseEvent<HTMLAnchorElement>) {
   }
 }
 
+interface NavigationLink {
+  label: string;
+  href: string;
+}
+
+// Keep section links in the same order as the homepage in pages/Index.tsx.
+const NAVIGATION_LINKS: NavigationLink[] = [
+  { label: "Demo", href: "#demo" },
+  { label: "Features", href: "#features" },
+  { label: "Installation", href: "#installation" },
+  { label: "Pre-indexed", href: "#bundle-registry" },
+  { label: "Cookbook", href: "#cookbook" },
+];
+
 const Navbar: React.FC = () => {
   const location = useLocation();
   const isLandingPage = location.pathname === "/" || location.pathname === "/pre-indexed";
@@ -25,7 +39,7 @@ const Navbar: React.FC = () => {
   useEffect(() => {
     if (!isLandingPage) return;
 
-    const sections = ["features", "bundle-registry", "cookbook", "demo", "installation"];
+    const sections = NAVIGATION_LINKS.map((link) => link.href.slice(1));
     
     const observer = new IntersectionObserver(
       (entries) => {
@@ -94,47 +108,25 @@ const Navbar: React.FC = () => {
         {/* Center: Anchors */}
         {isLandingPage && (
           <ul className="hidden lg:flex items-center gap-6 font-bold text-[10px] uppercase tracking-widest text-gray-500">
-            {[
-              { label: "Features", href: "#features" },
-              { label: "Understand", href: "/understand", isRoute: true },
-              { label: "Pre-indexed", href: "#bundle-registry" },
-              { label: "Cookbook", href: "#cookbook" },
-              { label: "Demo", href: "#demo" },
-              { label: "Installation", href: "#installation" },
-            ].map((link) => {
-              const isRoute = (link as any).isRoute;
-              const id = link.href.replace("#", "");
-              const isActive = isRoute
-                ? location.pathname === link.href
-                : activeSection === id;
+            {NAVIGATION_LINKS.map((link) => {
+              const id = link.href.slice(1);
+              const isActive = activeSection === id;
               
               return (
                 <li key={link.label} className="relative flex items-center h-full py-4">
-                  {isRoute ? (
-                    <Link
-                      to={link.href}
-                      className={`transition-colors duration-200 relative pb-1 ${isActive ? "text-white" : "hover:text-white text-gray-500"}`}
-                    >
-                      {link.label}
-                      {isActive && (
-                        <span className="absolute bottom-0 left-0 w-full h-[2px] bg-purple-500 transition-all duration-300" />
-                      )}
-                    </Link>
-                  ) : (
-                    <a
-                      href={link.href}
-                      className={`transition-colors duration-200 relative pb-1 ${isActive ? "text-white" : "hover:text-white text-gray-500"}`}
-                      onClick={(e) => {
-                        setActiveSection(id);
-                        handleScroll(e);
-                      }}
-                    >
-                      {link.label}
-                      {isActive && (
-                        <span className="absolute bottom-0 left-0 w-full h-[2px] bg-purple-500 transition-all duration-300" />
-                      )}
-                    </a>
-                  )}
+                  <a
+                    href={link.href}
+                    className={`transition-colors duration-200 relative pb-1 ${isActive ? "text-white" : "hover:text-white text-gray-500"}`}
+                    onClick={(e) => {
+                      setActiveSection(id);
+                      handleScroll(e);
+                    }}
+                  >
+                    {link.label}
+                    {isActive && (
+                      <span className="absolute bottom-0 left-0 w-full h-[2px] bg-purple-500 transition-all duration-300" />
+                    )}
+                  </a>
                 </li>
               );
             })}
@@ -190,19 +182,14 @@ const Navbar: React.FC = () => {
       {isOpen && isLandingPage && (
         <div className="lg:hidden w-full border-b border-white/10 bg-black absolute top-[100%] left-0">
           <ul className="flex flex-col text-[10px] font-bold uppercase tracking-widest text-gray-400 p-4 divide-y divide-white/10">
-            {[
-              { label: "Features", href: "#features" },
-              { label: "Pre-indexed Bundles", href: "#bundle-registry" },
-              { label: "Cookbook / Guides", href: "#cookbook" },
-              { label: "Interactive Demo", href: "#demo" },
-              { label: "Get Started / Install", href: "#installation" },
-            ].map((link) => (
+            {NAVIGATION_LINKS.map((link) => (
               <li key={link.label}>
                 <a
                   href={link.href}
                   className="block py-4 hover:text-white transition-colors duration-200"
                   onClick={(e) => {
                     setIsOpen(false);
+                    setActiveSection(link.href.slice(1));
                     handleScroll(e);
                   }}
                 >

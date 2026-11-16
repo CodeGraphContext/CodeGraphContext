@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from ...utils.repo_path import repository_directory_prefix
+
 
 class JavaToolkit:
     """Spring-aware Java analysis methods backed by CodeFinder / raw Cypher.
@@ -68,7 +70,7 @@ class JavaToolkit:
             params["path_pattern"] = path_pattern
         if repo_path:
             conditions.append("fn.path STARTS WITH $repo_path")
-            params["repo_path"] = repo_path
+            params["repo_path"] = repository_directory_prefix(repo_path)
 
         where = " AND ".join(conditions)
         return self._run(
@@ -107,7 +109,7 @@ class JavaToolkit:
             params["stereotype"] = stereotype.upper()
         if repo_path:
             conditions.append("c.path STARTS WITH $repo_path")
-            params["repo_path"] = repo_path
+            params["repo_path"] = repository_directory_prefix(repo_path)
 
         where = " AND ".join(conditions)
         return self._run(
@@ -143,7 +145,7 @@ class JavaToolkit:
         params: Dict[str, Any] = {"class_name": class_name}
         if repo_path:
             conditions.append("injector.path STARTS WITH $repo_path")
-            params["repo_path"] = repo_path
+            params["repo_path"] = repository_directory_prefix(repo_path)
 
         where = " AND ".join(conditions)
         return self._run(
@@ -174,7 +176,7 @@ class JavaToolkit:
         params: Dict[str, Any] = {}
         if repo_path:
             conditions.append("fn.path STARTS WITH $repo_path")
-            params["repo_path"] = repo_path
+            params["repo_path"] = repository_directory_prefix(repo_path)
 
         where = " AND ".join(conditions)
         return self._run(
@@ -239,7 +241,7 @@ class JavaToolkit:
         params: Dict[str, Any] = {"limit": limit}
         if repo_path:
             conditions.append("caller.path STARTS WITH $repo_path")
-            params["repo_path"] = repo_path
+            params["repo_path"] = repository_directory_prefix(repo_path)
 
         where = " AND ".join(conditions)
         return self._run(

@@ -9,6 +9,23 @@ import pytest
 from pathlib import Path
 from typing import Tuple, Dict
 
+def _ladybug_unavailable_reason_in_subprocess():
+    """``core.ladybugdb_unavailable_reason()`` evaluated in a child process.
+
+    The probe imports LadybugDB's native engine; doing that in the pytest process
+    loads it next to kuzu (see _probe_embedded_backend's warning)."""
+    code = ("from codegraphcontext.core import ladybugdb_unavailable_reason as r\n"
+            "print('REASON:' + (r() or ''))\n")
+    try:
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        return "LadybugDB probe timed out"
+    line = next((ln for ln in r.stdout.splitlines() if ln.startswith("REASON:")), None)
+    if line is None:
+        return f"LadybugDB probe failed (exit {r.returncode}): {(r.stderr or '').strip()[-300:]}"
+    return line[len("REASON:"):] or None
+
+
 def _probe_embedded_backend(module_name: str):
     """探测嵌入式后端（kuzu / ladybug）在本环境是否真的可用。
 
@@ -309,9 +326,11 @@ async def _run_database_parity_e2e(temp_test_dir):
             continue
         if db == "ladybugdb":
             # Installed is not runnable: some ladybug wheels (Windows, #1731)
-            # ship without the native engine.
-            from codegraphcontext.core import ladybugdb_unavailable_reason
-            reason = ladybugdb_unavailable_reason()
+            # ship without the native engine. The probe loads that engine, so it
+            # runs in a child process like _probe_embedded_backend above: loaded
+            # here it put ladybug into the pytest process next to kuzu, failing
+            # every later Kùzu test and aborting the run (double free).
+            reason = _ladybug_unavailable_reason_in_subprocess()
             if reason is not None:
                 print(f"Skipping {db}: {reason}")
                 continue

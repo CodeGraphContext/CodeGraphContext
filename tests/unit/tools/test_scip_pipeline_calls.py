@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from codegraphcontext.core.jobs import JobManager
 from codegraphcontext.tools.indexing.scip_pipeline import run_scip_index_async
 
 
@@ -71,7 +72,8 @@ async def test_scip_pipeline_runs_build_function_call_groups(tmp_path: Path):
     }
 
     writer = MagicMock()
-    job_manager = MagicMock()
+    job_manager = MagicMock(wraps=JobManager())
+    job_id = job_manager.create_job(str(repo))
     fake_groups = ([{"caller_name": "main"}], [], [], [], [], [], [], [], [], [])
 
     with patch(
@@ -84,7 +86,7 @@ async def test_scip_pipeline_runs_build_function_call_groups(tmp_path: Path):
         await run_scip_index_async(
             repo,
             is_dependency=False,
-            job_id="job-1",
+            job_id=job_id,
             lang="python",
             writer=writer,
             job_manager=job_manager,
@@ -103,5 +105,5 @@ async def test_scip_pipeline_runs_build_function_call_groups(tmp_path: Path):
     writer.write_function_call_groups.assert_called_once_with(*fake_groups)
     writer.write_scip_call_edges.assert_called_once()
     job_manager.update_job.assert_any_call(
-        "job-1", status_message="Resolving function CALLS edges..."
+        job_id, status_message="Resolving function CALLS edges..."
     )

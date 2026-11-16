@@ -26,6 +26,42 @@ def _resolved_posix(path: str) -> str:
     return Path(path).resolve().as_posix()
 
 
+def import_path_in_candidate(import_name: str, candidate_path: str, repo_root: Optional[str] = None) -> bool:
+    """The FQN path-substring heuristic: does *import_name* (dots as slashes) occur in *candidate_path*?
+
+    Tested on the candidate's path **from its repository directory down**:
+    relative to the root's *parent*, so the repository directory's own name
+    stays in (``mypkg/adapters.py`` when the indexed root is the package dir
+    ``…/site-packages/mypkg`` — ``add_package_to_graph`` and ``cgc index
+    src/mypkg`` index exactly that — still matches ``import mypkg.adapters``),
+    while everything above it is cut. Against the absolute path the test also
+    saw the checkout location, so resolution depended on where the repository
+    lives on disk: a JavaScript ``import { _t }`` matched every candidate once
+    the repository sat under a directory whose name contained ``_t`` (e.g. a
+    ``tempfile.mkdtemp()`` copy whose random suffix starts with ``t``),
+    turning tier-8 HEURISTIC_CALLS into tier-7 CALLS and re-picking
+    first-of-many targets. Without a usable root (callers that do not know
+    it), the absolute path is used as before.
+
+    Still a plain substring test (``_t`` matches ``account_tax/…`` inside the
+    repository); anchoring it at path-segment boundaries would change
+    resolution beyond location independence.
+    """
+    needle = import_name.replace(".", "/")
+    return needle in _repo_relative_posix(candidate_path, repo_root)
+
+
+def _repo_relative_posix(path: str, repo_root: Optional[str]) -> str:
+    """*path* from the repository directory down (``<repo dir name>/<path in repo>``)."""
+    if not repo_root:
+        return path
+    root = _resolved_posix(repo_root).rstrip("/")
+    if not root or not path.startswith(root + "/"):
+        return path
+    parent = root.rsplit("/", 1)[0]
+    return path[len(parent) + 1:] if parent else path.lstrip("/")
+
+
 # Confidence score for each resolution tier.
 # Higher = more certain the edge points to the correct target.
 _TIER_CONFIDENCE: Dict[int, float] = {
@@ -54,7 +90,7 @@ _SUFFIX_TO_LANG = {
     ".java": "java",
     ".py": "python", ".ipynb": "python",
     ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
-    ".ts": "typescript", ".tsx": "typescript",
+    ".ts": "typescript", ".tsx": "typescript", ".mts": "typescript", ".cts": "typescript",
     ".go": "go",
     ".rs": "rust",
     ".cpp": "cpp", ".hpp": "cpp", ".hh": "cpp",
@@ -72,6 +108,13 @@ _SUFFIX_TO_LANG = {
     ".ex": "elixir", ".exs": "elixir",
     ".el": "elisp",
     ".sol": "solidity",
+    # Parsed, but never callers: their "functions" (CSS selectors, HTML handlers)
+    # must not be taken for a callback of another language. An unknown suffix
+    # stays compatible with everything (languages_are_compatible).
+    ".css": "css", ".scss": "css", ".sass": "css", ".less": "css",
+    ".html": "html", ".htm": "html",
+    # A Vue/Svelte component's script block is JavaScript or TypeScript (one family).
+    ".vue": "javascript", ".svelte": "javascript",
 }
 
 def detect_lang_from_path(path: str) -> Optional[str]:
@@ -118,8 +161,14 @@ def resolve_function_call(
     extension_method_index: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None,
     local_class_trait_methods: Optional[Dict[str, Dict[str, Tuple[str, str]]]] = None,
     diagnostics: Optional[List[Dict[str, Any]]] = None,
+    repo_root: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Resolve a single function call to its target. Returns call params dict or None if skipped."""
+    """Resolve a single function call to its target. Returns call params dict or None if skipped.
+
+    *repo_root* is the caller's repository root (``file_data["repo_path"]``):
+    path-substring heuristics test candidate paths relative to it, so the
+    result does not depend on where the repository is checked out.
+    """
     caller_lang = detect_lang_from_path(caller_file_path)
     called_name = call["name"]
     if called_name in __builtins__:
@@ -1519,7 +1568,7 @@ def resolve_function_call(
                         resolution_tier = 6
                 if not resolved_path:
                     for path in possible_paths:
-                        if full_import_name.replace(".", "/") in path:
+                        if import_path_in_candidate(full_import_name, path, repo_root):
                             resolved_path = path
                             resolution_tier = 7
                             break
@@ -1547,7 +1596,7 @@ def resolve_function_call(
                 for imp_name in local_imports.values():
                     if not isinstance(imp_name, str):
                         continue
-                    if imp_name.replace(".", "/") in path:
+                    if import_path_in_candidate(imp_name, path, repo_root):
                         resolved_path = path
                         is_unresolved_external = False
                         resolution_tier = 7
@@ -1658,6 +1707,14 @@ def resolve_function_call(
         "confidence_label": conf_label,
         "resolution_tier": resolution_tier,
     }
+
+
+def _calls_the_name_itself(full_name: Optional[str], name: str) -> bool:
+    """The call expression calls *name* directly (``fn(…)``, ``fn``, ``await fn(…)``),
+    not a member of something else that happens to share the name (``Math.min(…)``)."""
+    text = (full_name or name).strip()
+    text = re.sub(r"^(?:await|new)\s+", "", text)
+    return bool(re.match(r"^" + re.escape(name) + r"(?:\s*[(<!?]|\s*$)", text))
 
 
 def build_function_call_groups(
@@ -1944,6 +2001,14 @@ def build_function_call_groups(
         context_names.extend(companion_owner_context_names(fd, func, package_name))
         return list(dict.fromkeys(context_names))
 
+    # Keep protocol requirements as graph nodes, but prefer their matching
+    # concrete Swift extension implementation when resolving a call target.
+    swift_implementations = {
+        (func.get('class_context') or func.get('context'), func.get('signature'))
+        for fd in all_file_data if fd.get('lang') == 'swift'
+        for func in fd.get('functions', [])
+        if func.get('signature') and not func.get('is_declaration')
+    }
     for fd in all_file_data:
         file_path = _resolved_posix(fd["path"])
         package_name = file_package(fd)
@@ -1966,6 +2031,10 @@ def build_function_call_groups(
             for class_name in class_keys:
                 global_class_bases[class_name] = base_types
         for func in fd.get("functions", []):
+            if fd.get('lang') == 'swift' and func.get('is_declaration') and (
+                func.get('class_context') or func.get('context'), func.get('signature')
+            ) in swift_implementations:
+                continue
             indexed_func = {**func, "path": fd["path"], "package": package_name}
             function_index.setdefault((file_path, func["name"]), []).append(indexed_func)
             
@@ -2097,6 +2166,13 @@ def build_function_call_groups(
                 "haskell":    {".hs"},
                 "elixir":     {".ex", ".exs"},
                 "solidity":   {".sol"},
+                # An unlisted language saw the unfiltered map, i.e. every other
+                # language's definitions: Vue and Svelte script blocks are
+                # JavaScript or TypeScript and import from both and from other
+                # components.
+                "elisp":      {".el"},
+                "vue":        {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".vue", ".svelte"},
+                "svelte":     {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".vue", ".svelte"},
             }
             exts = _LANG_EXTS.get(caller_lang)
             if not exts:
@@ -2131,14 +2207,31 @@ def build_function_call_groups(
     def functions_named(name: str) -> List[Tuple[str, Dict[str, Any]]]:
         return _functions_by_name.get(name, [])
 
+    # Both name lookups below are global, across every language of the
+    # repository. A Python call `f(cb)` matched a JavaScript `f` and a JavaScript
+    # `cb` (plus JS/Python -> CSS selector "functions"). A call can only reach a
+    # function, and pass a function, of its own language family, so both the
+    # callee and the callback candidates are restricted to languages compatible
+    # with the call site's.
+    _path_lang: Dict[str, Optional[str]] = {}
+
+    def same_language(caller_lang: Optional[str], path: str) -> bool:
+        lang = _path_lang.get(path)
+        if lang is None and path not in _path_lang:
+            lang = _path_lang[path] = detect_lang_from_path(path)
+        return languages_are_compatible(caller_lang, lang)
+
     for fd in all_file_data:
         caller_fp = _resolved_posix(fd["path"])
+        caller_site_lang = detect_lang_from_path(caller_fp)
         for call in fd.get("function_calls", []):
             callee_name = call.get("name")
             if not callee_name:
                 continue
             call_args = call.get("args") or []
             for callee_fp, callee_fn in functions_named(callee_name):
+                if not same_language(caller_site_lang, callee_fp):
+                    continue
                 params = callee_fn.get("args") or callee_fn.get("parameters") or []
                 for param_index, param in enumerate(params):
                     if param_index >= len(call_args):
@@ -2146,7 +2239,10 @@ def build_function_call_groups(
                     arg_text = str(call_args[param_index]).strip()
                     if not re.fullmatch(r"[A-Za-z_]\w*", arg_text):
                         continue
-                    callback_matches = functions_named(arg_text)
+                    callback_matches = [
+                        match for match in functions_named(arg_text)
+                        if same_language(caller_site_lang, match[0])
+                    ]
                     if len(callback_matches) > 1:
                         same_file = [
                             match for match in callback_matches if match[0] == caller_fp
@@ -2749,6 +2845,13 @@ def build_function_call_groups(
                 param_names = enclosing_fn.get("args") or enclosing_fn.get("parameters") or []
                 called_name = call_to_resolve.get("name")
                 if called_name and called_name in param_names:
+                    if not _calls_the_name_itself(call_to_resolve.get("full_name"), called_name):
+                        # `Math.min(…)` inside `function clamp(value, min, max)`, or
+                        # `obj.message()` inside `function send(message)`: a member call
+                        # calls a PROPERTY, not the parameter — neither a callback of what
+                        # callers pass as `min` / `message` nor a Function->Parameter edge.
+                        # Such a member call stays unresolved, as it was.
+                        continue
                     callback_targets = callback_arg_targets.get(
                         (caller_file_path, enclosing_fn["name"], called_name),
                         [],
@@ -2991,9 +3094,20 @@ def build_function_call_groups(
                 extension_method_index=extension_method_index,
                 local_class_trait_methods=local_class_trait_methods,
                 diagnostics=diagnostics,
+                repo_root=file_data.get("repo_path"),
             )
             if not resolved:
                 continue
+            if call_to_resolve.get('call_kind') == 'generic_or_conversion':
+                target_path = resolved.get('called_file_path')
+                definitions = function_index.get((_resolved_posix(target_path), resolved.get('called_name')), []) if target_path else []
+                actual_generic = [fn for fn in definitions if fn.get('is_generic') and (
+                    resolved.get('called_line_number') in (None, 0, fn.get('line_number'))
+                )]
+                if not actual_generic:
+                    continue  # Type conversions and unknown externals are not function edges.
+                if '.' not in call_to_resolve.get('full_name', '') and Path(target_path).parent != Path(caller_file_path).parent:
+                    continue  # Bare Go functions belong to this package directory.
 
             # Annotate C++ calls with concrete Neo4j labels so the writer can use
             # label-specific MATCH queries instead of the slow label-OR scan.

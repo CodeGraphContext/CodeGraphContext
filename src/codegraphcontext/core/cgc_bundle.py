@@ -29,7 +29,7 @@ import hmac
 import base64
 import secrets
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 from datetime import datetime, date
 import subprocess
 
@@ -137,16 +137,47 @@ def _rebase_bundle_path(val: str, dest_root: str) -> str:
     return dest_root + "/" + rel
 
 
+#: Properties that hold an import SPECIFIER as written in source ('./lib.js',
+#: '../pages/X'), never a repository path: export never produces them from the
+#: repo root, so a './' value there is the code's own text and must not be
+#: rebased onto the bundle's install root (it turned the Module './lib.js' into
+#: '<install root>/lib.js' on import).
+_SPECIFIER_PROPERTIES: Dict[str, frozenset] = {
+    "Module": frozenset({"name", "full_import_name"}),
+    "IMPORTS": frozenset({"imported_name", "full_import_name", "alias"}),
+}
+
+
 def _rebase_property_map(
-    props: Optional[Dict[str, Any]], dest_root: Optional[str]
+    props: Optional[Dict[str, Any]], dest_root: Optional[str], kinds: Sequence[str] = ()
 ) -> Dict[str, Any]:
-    """Rewrite every bundle-relative string property in *props* in place."""
+    """Rewrite every bundle-relative string property in *props* in place — except the
+    specifier properties of the node labels / relationship type *kinds*."""
     if not props or not dest_root:
         return props or {}
+    keep = frozenset().union(*(_SPECIFIER_PROPERTIES.get(k, frozenset()) for k in kinds)) if kinds else frozenset()
     for key, val in list(props.items()):
+        if key in keep:
+            continue
         if isinstance(val, str) and _is_bundle_relative_path(val):
             props[key] = _rebase_bundle_path(val, dest_root)
     return props
+
+
+#: LadybugDB spells the internal keys of a node / relationship row in upper case
+#: (``_ID``, ``_LABEL``, ``_SRC``, ``_DST``); Kùzu in lower case. Export keyed on the
+#: lower-case spelling only, so on LadybugDB no node carried an ``_id``, every
+#: edge fell back to a Python object id, and the import re-linked none of them:
+#: a bundle round trip silently lost every relationship.
+_INTERNAL_KEY_ALIASES = {"_ID": "_id", "_LABEL": "_label", "_SRC": "_src", "_DST": "_dst"}
+
+
+def _normalize_internal_keys(d: Dict[str, Any]) -> Dict[str, Any]:
+    """Rename an embedded row's upper-case internal keys to the lower-case spelling, in place."""
+    for upper, lower in _INTERNAL_KEY_ALIASES.items():
+        if upper in d and lower not in d:
+            d[lower] = d.pop(upper)
+    return d
 
 
 class CGCBundle:
@@ -620,6 +651,7 @@ class CGCBundle:
                 node_dict = dict(node._properties)
             elif hasattr(node, 'properties'):
                 node_dict = dict(node.properties)
+        _normalize_internal_keys(node_dict)
         node_dict.pop('_label', None)
         for key, val in list(node_dict.items()):
             if key != '_id' and val is None:
@@ -795,6 +827,7 @@ class CGCBundle:
                         # endpoint IDs as properties. Prefer those over Python
                         # wrapper object ids so exported edges can be re-linked to
                         # the node rows in nodes.jsonl.
+                        _normalize_internal_keys(rel_props)
                         from_id = rel_props.pop('_src', None)
                         to_id = rel_props.pop('_dst', None)
                         rel_props.pop('_label', None)
@@ -1636,7 +1669,7 @@ cgc import <bundle-file>.cgc
             primary_label = labels[0]
 
             if dest_root:
-                _rebase_property_map(properties, dest_root)
+                _rebase_property_map(properties, dest_root, labels)
 
             pk_field = self._PK_MAP.get(primary_label)
             parts = self._UID_PARTS.get(primary_label, []) if pk_field == 'uid' else []
@@ -1714,7 +1747,7 @@ cgc import <bundle-file>.cgc
             rel_type = _validate_cypher_identifier(edge.get('type'), "relationship type")
             properties = edge.get('properties', {}) or {}
             if dest_root:
-                properties = _rebase_property_map(properties, dest_root)
+                properties = _rebase_property_map(properties, dest_root, [rel_type])
             
             # Map old IDs to new IDs
             new_from = id_mapping.get(old_from)

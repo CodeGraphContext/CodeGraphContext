@@ -9,6 +9,7 @@ from pathlib import Path
 if TYPE_CHECKING:
     from ..core.database import DatabaseManager
 from ..utils.path_ignore import cypher_path_not_under_ignore_dirs
+from ..utils.repo_path import repository_directory_prefix
 from ..utils.tool_limits import get_tool_result_limit
 
 logger = logging.getLogger(__name__)
@@ -249,12 +250,12 @@ class CodeFinder:
         if not isinstance(repo_path, str):
             return repo_path
 
-        candidate = repo_path.strip().rstrip("/")
+        candidate = repo_path.strip()
+        if Path(candidate).is_absolute():
+            return Path(candidate).as_posix()
+        candidate = candidate.rstrip("/")
         if not candidate:
             return None
-
-        if Path(candidate).is_absolute():
-            return candidate
 
         # Reuse the currently active graph so this lookup doesn't reset scoping.
         repos = self.list_indexed_repositories(graph_name=self._active_graph)
@@ -297,13 +298,16 @@ class CodeFinder:
         # than guess; the STARTS WITH filter will simply match nothing, same as today.
         return candidate
 
+    def _repo_path_prefix(self, repo_path: Optional[str]) -> Optional[str]:
+        return repository_directory_prefix(self._normalize_repo_path_filter(repo_path))
+
     def audit_kotlin_call_ambiguity(
         self,
         repo_path: Optional[str] = None,
         limit: int = 20,
     ) -> Dict[str, Any]:
         """Audit Kotlin function-to-function CALLS edges for multi-target callsites."""
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         repo_filter = "AND a.path STARTS WITH $repo_path" if repo_path else ""
         query = f"""
             MATCH (a:Function)-[r:CALLS|HEURISTIC_CALLS]->(b:Function)
@@ -416,6 +420,7 @@ class CodeFinder:
         edit_distance: int = 2,
     ) -> List[Dict]:
         """Find functions by name matching."""
+        repo_path = repository_directory_prefix(repo_path)
         if not fuzzy_search:
             with self.driver.session() as session:
                 result = session.run(f"""
@@ -449,6 +454,7 @@ class CodeFinder:
         edit_distance: int = 2,
     ) -> List[Dict]:
         """Find classes by name matching."""
+        repo_path = repository_directory_prefix(repo_path)
         if not fuzzy_search:
             with self.driver.session() as session:
                 result = session.run(f"""
@@ -476,6 +482,7 @@ class CodeFinder:
 
     def find_by_variable_name(self, search_term: str, repo_path: Optional[str] = None) -> List[Dict]:
         """Find variables by name matching"""
+        repo_path = repository_directory_prefix(repo_path)
         with self.driver.session() as session:
             result = session.run(f"""
                 MATCH (v:Variable)
@@ -490,6 +497,7 @@ class CodeFinder:
 
     def find_by_content(self, search_term: str, repo_path: Optional[str] = None) -> List[Dict]:
         """Find code by content matching in source or docstrings using the full-text index."""
+        repo_path = repository_directory_prefix(repo_path)
         if self._lacks_native_fulltext:
             return self._find_by_content_falkordb(search_term, repo_path)
         with self.driver.session() as session:
@@ -636,7 +644,7 @@ class CodeFinder:
     
     def find_functions_by_argument(self, argument_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find functions that take a specific argument name or type."""
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             path_filter = "AND f.path = $path" if path else ""
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
@@ -669,7 +677,7 @@ class CodeFinder:
 
     def find_functions_by_decorator(self, decorator_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find functions that have a specific decorator applied to them."""
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
             limit_clause = "LIMIT $limit" if limit is not None else ""
@@ -703,11 +711,7 @@ class CodeFinder:
         """Find callers of a function or class constructor using CALLS relationships with improved matching"""
         if path:
             path = Path(path).as_posix()
-        repo_path = self._normalize_repo_path_filter(repo_path)
-        # Indexed symbols live below the repository directory. A separator
-        # prevents a /repo filter from including its sibling /repo-other.
-        if repo_path:
-            repo_path = Path(repo_path).as_posix().rstrip("/") + "/"
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
             limit_clause = "LIMIT $limit" if limit is not None else ""
@@ -753,12 +757,12 @@ class CodeFinder:
                     results = result.data()
             else:
                 result = session.run(f"""
-                    MATCH (caller:Function)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name}})
-                    WHERE (target:Function OR target:Class) {repo_filter}
+                    MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name}})
+                    WHERE (target:Function OR target:Class) AND (caller:Function OR caller:Class OR caller:File) {repo_filter}
                     OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
                     RETURN DISTINCT
                         caller.name as caller_function,
-                        caller.path as caller_file_path,
+                        COALESCE(caller.path, caller_file.path) as caller_file_path,
                         caller.line_number as caller_line_number,
                         call.line_number as call_line_number,
                         call.args as call_args,
@@ -773,11 +777,7 @@ class CodeFinder:
     
     def what_does_function_call(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find functions and class constructors a specific function calls using CALLS relationships"""
-        repo_path = self._normalize_repo_path_filter(repo_path)
-        # Indexed symbols live below the repository directory. A separator
-        # prevents a /repo filter from including its sibling /repo-other.
-        if repo_path:
-            repo_path = Path(repo_path).as_posix().rstrip("/") + "/"
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             limit_clause = "LIMIT $limit" if limit is not None else ""
             params = {"function_name": function_name, "repo_path": repo_path}
@@ -828,7 +828,7 @@ class CodeFinder:
     
     def who_imports_module(self, module_name: str, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find what files import a specific module using IMPORTS relationships"""
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND file.path STARTS WITH $repo_path" if repo_path else ""
             limit_clause = "LIMIT $limit" if limit is not None else ""
@@ -859,7 +859,7 @@ class CodeFinder:
     
     def who_modifies_variable(self, variable_name: str, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find what functions contain or modify a specific variable"""
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND container.path STARTS WITH $repo_path" if repo_path else ""
             limit_clause = "LIMIT $limit" if limit is not None else ""
@@ -896,7 +896,7 @@ class CodeFinder:
     
     def find_class_hierarchy(self, class_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> Dict[str, Any]:
         """Find class inheritance relationships using INHERITS relationships"""
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND parent.path STARTS WITH $repo_path" if repo_path else ""
             if path:
@@ -960,7 +960,7 @@ class CodeFinder:
     
     def find_function_overrides(self, function_name: str, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find all implementations of a function across different classes"""
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND class.path STARTS WITH $repo_path" if repo_path else ""
             limit_clause = "LIMIT $limit" if limit is not None else ""
@@ -998,7 +998,7 @@ class CodeFinder:
         representative sample should request the full set and sample
         themselves.
         """
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         if exclude_decorated_with is None:
             exclude_decorated_with = []
 
@@ -1139,7 +1139,7 @@ class CodeFinder:
         Returns {"edges": [(src, dst), ...], "total_count": n, "truncated": bool}
         — the cap is reported, never silent.
         """
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             if level == "call":
                 repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
@@ -1203,9 +1203,7 @@ class CodeFinder:
         """Find direct/indirect callers of a function or class constructor."""
         if path:
             path = Path(path).as_posix()
-        repo_path = self._normalize_repo_path_filter(repo_path)
-        if repo_path:
-            repo_path = Path(repo_path).as_posix().rstrip("/") + "/"
+        repo_path = self._repo_path_prefix(repo_path)
         depth = _sanitize_depth(depth)
         repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
         path_filter = "AND target.path = $path" if path else ""
@@ -1223,9 +1221,7 @@ class CodeFinder:
         """Find direct/indirect function and class-constructor callees."""
         if path:
             path = Path(path).as_posix()
-        repo_path = self._normalize_repo_path_filter(repo_path)
-        if repo_path:
-            repo_path = Path(repo_path).as_posix().rstrip("/") + "/"
+        repo_path = self._repo_path_prefix(repo_path)
         depth = _sanitize_depth(depth)
         repo_filter = "AND callee.path STARTS WITH $repo_path" if repo_path else ""
         path_filter = "AND caller.path = $path" if path else ""
@@ -1240,8 +1236,16 @@ class CodeFinder:
 
     def find_function_call_chain(self, start_function: str, end_function: str, max_depth: int = 5, start_file: Optional[str] = None, end_file: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find call chains between two functions"""
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
+            # Kùzu/Ladybug lists use one-based indexes; Neo4j/FalkorDB use zero-based indexes.
+            backend = getattr(self.db_manager, "get_backend_type", lambda: "neo4j")()
+            path_end_index = (
+                "size(func_nodes)"
+                if backend in {"kuzudb", "ladybugdb"}
+                else "size(func_nodes)-1"
+            )
+
             # Build match clauses based on whether files are specified
             start_props = "{name: $start_function" + (", path: $start_file}" if start_file else "}")
             end_props = "{name: $end_function" + (", path: $end_file}" if end_file else "}")
@@ -1255,7 +1259,7 @@ class CodeFinder:
                 WITH start as start, end_target as end_target
                 MATCH path = (start)-[:CALLS|HEURISTIC_CALLS*1..{max_depth}]->()
                 WITH path as path, end_target as end_target, nodes(path) as func_nodes, relationships(path) as call_rels
-                WITH path as path, func_nodes as func_nodes, call_rels as call_rels, end_target as end_target, func_nodes[size(func_nodes)-1] as path_end
+                WITH path as path, func_nodes as func_nodes, call_rels as call_rels, end_target as end_target, func_nodes[{path_end_index}] as path_end
                 WHERE path_end.name = end_target.name AND (end_target.path IS NULL OR path_end.path = end_target.path)
                 RETURN func_nodes as function_nodes, call_rels as call_nodes, size(call_rels) as chain_length
                 ORDER BY chain_length ASC
@@ -1382,7 +1386,7 @@ class CodeFinder:
     
     def find_module_dependencies(self, module_name: str, repo_path: Optional[str] = None) -> Dict[str, Any]:
         """Find all dependencies and dependents of a module"""
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND file.path STARTS WITH $repo_path" if repo_path else ""
             backend = getattr(self.db_manager, "get_backend_type", lambda: "")()
@@ -1456,7 +1460,7 @@ class CodeFinder:
     
     def find_variable_usage_scope(self, variable_name: str, path: Optional[str] = None, repo_path: Optional[str] = None) -> Dict[str, Any]:
         """Find the scope and usage patterns of a variable, optional file path filtering"""
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND var.path STARTS WITH $repo_path" if repo_path else ""
             path_filter = "(var.path ENDS WITH $path OR var.path = $path)" if path else "1=1"
@@ -1627,6 +1631,8 @@ class CodeFinder:
 
                 return {
                     "query_type": "who_modifies", "target": target, "results": results,
+                    "analysis_kind": "variable_binding_containers",
+                    "limitations": "This locates stored variable bindings and their containers; it does not trace write sites, aliases or dataflow.",
                     "summary": summary, "truncated": truncated, "result_limit": req_limit
                 }
             
@@ -1742,7 +1748,7 @@ class CodeFinder:
     def get_cyclomatic_complexity(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: str = None) -> Optional[Dict]:
         self._active_graph = graph_name
         """Get the cyclomatic complexity of a function."""
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
             if path:
@@ -1775,7 +1781,7 @@ class CodeFinder:
         ``limit=None`` returns the full set — CI enforcement must not have its
         violation count truncated by a display page (#1333).
         """
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
             path_ignore = cypher_path_not_under_ignore_dirs("f.path")
@@ -1795,7 +1801,7 @@ class CodeFinder:
 
     def find_most_complex_functions_in_file(self, file_path: str, limit: Optional[int] = 20, repo_path: Optional[str] = None) -> List[Dict]:
         """Find the most complex functions in a specific file (limit=None = all)."""
-        repo_path = self._normalize_repo_path_filter(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND f.path STARTS WITH $repo_path" if repo_path else ""
             limit_clause = "LIMIT $limit" if limit is not None else ""

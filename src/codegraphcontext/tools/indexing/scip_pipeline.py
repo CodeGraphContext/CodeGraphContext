@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import tempfile
-import threading
 import time
 import traceback
 from datetime import datetime
@@ -19,6 +17,7 @@ from ...utils.path_ignore import file_path_has_ignore_dir_segment
 from .constants import DEFAULT_IGNORE_PATTERNS
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
+from .operation import IndexingOperation
 from .resolution.calls import build_function_call_groups
 from .resolution.inheritance import build_inheritance_and_csharp_files
 
@@ -45,23 +44,28 @@ async def run_scip_index_async(
     scip_indexer_mod: Any,
     cgcignore_path: Optional[str] = None,
     index_summary: Optional[dict] = None,
+    *,
+    _operation: Optional[IndexingOperation] = None,
 ) -> None:
     """Run blocking SCIP phases on one worker, including thread-local parsers.
 
     Cancellation stops subsequent phases when the current native/subprocess
     call returns. It cannot roll back or interrupt an already-running write.
     """
-    cancelled = threading.Event()
-    try:
-        await asyncio.to_thread(
-            _run_scip_index,
-            path, is_dependency, job_id, lang, writer, job_manager,
-            parsers_keys, get_parser, scip_indexer_mod, cgcignore_path,
-            index_summary, cancellation_event=cancelled,
+    if _operation is None:
+        return await IndexingOperation(job_manager, job_id).run(
+            lambda operation: run_scip_index_async(
+                path, is_dependency, job_id, lang, writer, job_manager,
+                parsers_keys, get_parser, scip_indexer_mod, cgcignore_path,
+                index_summary, _operation=operation,
+            )
         )
-    except asyncio.CancelledError:
-        cancelled.set()
-        raise
+    await _operation.run_in_thread(
+        _run_scip_index,
+        path, is_dependency, job_id, lang, writer, job_manager,
+        parsers_keys, get_parser, scip_indexer_mod, cgcignore_path,
+        index_summary, operation=_operation,
+    )
 
 
 def _run_scip_index(
@@ -77,14 +81,11 @@ def _run_scip_index(
     cgcignore_path: Optional[str] = None,
     index_summary: Optional[dict] = None,
     *,
-    cancellation_event: threading.Event,
+    operation: IndexingOperation,
 ) -> None:
     """Run SCIP CLI, write graph, supplement with Tree-sitter, write SCIP CALLS edges."""
 
-    def check_cancelled():
-        job = job_manager.get_job(job_id) if job_id else None
-        if cancellation_event.is_set() or (job is not None and job.status == JobStatus.CANCELLED):
-            raise asyncio.CancelledError
+    check_cancelled = operation.check_cancelled
 
     check_cancelled()
     ScipIndexer = scip_indexer_mod.ScipIndexer
@@ -96,6 +97,7 @@ def _run_scip_index(
     repo_root = path if path.is_dir() else path.parent.resolve()
     check_cancelled()
     writer.add_repository_to_graph(repo_root, is_dependency)
+    check_cancelled()
     repo_name = repo_root.name
     index_root = path.resolve() if path.is_dir() else path.parent.resolve()
 
@@ -127,8 +129,10 @@ def _run_scip_index(
         return ignore_spec.match_file(rel_path)
 
     try:
+        check_cancelled()
         with tempfile.TemporaryDirectory(prefix="cgc_scip_") as tmpdir:
             scip_file = ScipIndexer().run(path, lang, Path(tmpdir))
+            check_cancelled()
 
             if not scip_file:
                 warning_logger(
@@ -138,6 +142,7 @@ def _run_scip_index(
                 raise RuntimeError("SCIP produced no index — triggering Tree-sitter fallback")
 
             scip_data = ScipIndexParser().parse(scip_file, path)
+            check_cancelled()
 
         if not scip_data:
             raise RuntimeError("SCIP parse returned empty result")
@@ -167,9 +172,11 @@ def _run_scip_index(
                 job_manager.update_job(job_id, current_file=abs_path_str)
 
             ts_parser = get_parser(file_path.suffix)
+            check_cancelled()
             if file_path.exists() and ts_parser:
                 try:
                     ts_data = ts_parser.parse(file_path, is_dependency, index_source=True)
+                    check_cancelled()
                     if "error" not in ts_data:
                         ts_funcs = {f["name"]: f for f in ts_data.get("functions", [])}
                         ts_funcs_at = {(f["name"], f["line_number"]): f for f in ts_data.get("functions", [])}
@@ -218,12 +225,14 @@ def _run_scip_index(
                         if ts_data.get("function_calls"):
                             file_data["function_calls"] = ts_data["function_calls"]
                 except Exception as e:
+                    check_cancelled(e)
                     debug_log(f"Tree-sitter supplement failed for {abs_path_str}: {e}")
 
             try:
                 check_cancelled()
                 writer.add_file_to_graph(file_data, repo_name, imports_map)
             except Exception as e:
+                check_cancelled(e)
                 # One unwritable file must not abort the run, and it must
                 # still be accounted for — otherwise the graph stays short of
                 # the discovery census and `cgc index` reports "only N of M
@@ -233,6 +242,7 @@ def _run_scip_index(
                     check_cancelled()
                     writer.add_minimal_file_node(Path(abs_path_str), index_root, is_dependency)
                 except Exception as e2:
+                    check_cancelled(e2)
                     debug_log(f"Minimal node fallback also failed for {abs_path_str}: {e2}")
 
             processed += 1
@@ -269,6 +279,7 @@ def _run_scip_index(
             if abs_str in scip_abs_paths:
                 continue
             ts_parser = get_parser(repo_file.suffix)
+            check_cancelled()
             if not ts_parser:
                 # No parser: still record the file. `discover_files_to_index`
                 # returns supported extensions *plus* generic ones (.md, .json,
@@ -295,10 +306,12 @@ def _run_scip_index(
                             job_id, processed_files=processed, current_file=abs_str
                         )
                 except Exception as e:
+                    check_cancelled(e)
                     debug_log(f"Minimal file node failed for {abs_str}: {e}")
                 continue
             try:
                 ts_data = ts_parser.parse(repo_file, is_dependency, index_source=True)
+                check_cancelled()
                 if "error" in ts_data:
                     # Same accounting rule as the Tree-sitter pipeline: a file
                     # that failed to parse still gets a minimal File node so
@@ -322,6 +335,7 @@ def _run_scip_index(
                         job_id, processed_files=processed, current_file=abs_str
                     )
             except Exception as e:
+                check_cancelled(e)
                 debug_log(f"Tree-sitter supplement (non-SCIP file) failed for {abs_str}: {e}")
                 try:
                     check_cancelled()
@@ -329,6 +343,7 @@ def _run_scip_index(
                     minimal_nodes += 1
                     processed += 1
                 except Exception as e2:
+                    check_cancelled(e2)
                     debug_log(f"Minimal node fallback also failed for {abs_str}: {e2}")
         if supplemented:
             check_cancelled()
@@ -352,6 +367,7 @@ def _run_scip_index(
         )
         check_cancelled()
         writer.write_inheritance_links(inheritance_batch, csharp_files, imports_map)
+        check_cancelled()
 
         all_file_data = list(files_data.values())
         info_logger(
@@ -396,10 +412,11 @@ def _run_scip_index(
             check_cancelled()
             job_manager.update_job(job_id, status=JobStatus.COMPLETED, end_time=datetime.now())
 
-    except RuntimeError:
+    except RuntimeError as e:
+        check_cancelled(e)
         raise
     except Exception as e:
-        check_cancelled()
         error_logger(f"SCIP indexing failed for {path}: {e}\n{traceback.format_exc()}")
         if job_id:
             job_manager.fail_job(job_id, e)
+        check_cancelled()

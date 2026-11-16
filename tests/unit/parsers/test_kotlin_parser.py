@@ -1184,12 +1184,14 @@ fun make() = A.Inner()
             }
 
             class AService {
+                operator fun component1(): AService = this
                 fun doIt(): String {
                     return "a"
                 }
             }
 
             class BService {
+                operator fun component1(): BService = this
                 fun doIt(): String {
                     return "b"
                 }

@@ -418,3 +418,33 @@ class TestPathConsistencyEndToEnd:
             f"  queried:  {queried_path}\n"
             "This would cause STARTS WITH to silently fail on Windows."
         )
+class TestDeleteIndexedRepository:
+    @pytest.mark.parametrize(
+        "stored_path,prefix",
+        [
+            ("/missing repo/project", "/missing repo/project/"),
+            ("C:/Work/project", "C:/Work/project/"),
+            ("C:\\Work\\project", "C:\\Work\\project\\"),
+        ],
+    )
+    def test_exact_key_and_lexical_prefix(self, stored_path, prefix):
+        writer, session = _make_writer_with_delete_mocks()
+        with patch.object(Path, "resolve", side_effect=AssertionError("must not resolve a stored key")):
+            assert writer.delete_indexed_repository_from_graph(stored_path)
+        assert session.run.call_args_list[0].kwargs["path"] == stored_path
+        for call in session.run.call_args_list:
+            if "path" in call.kwargs:
+                assert call.kwargs["path"] == stored_path
+            if "prefix" in call.kwargs:
+                assert call.kwargs["prefix"] == prefix
+
+    def test_missing_key_does_not_fall_back_to_a_symlink_target(self, tmp_path):
+        target = tmp_path / "target"
+        target.mkdir()
+        selected = tmp_path / "selected"
+        selected.symlink_to(target, target_is_directory=True)
+        writer, session = _make_writer()
+        session.run.return_value.single.return_value = {"cnt": 0}
+        assert not writer.delete_indexed_repository_from_graph(str(selected))
+        assert session.run.call_count == 1
+        assert session.run.call_args.kwargs["path"] == str(selected)

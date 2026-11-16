@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict
 from codegraphcontext.utils.debug_log import debug_log, info_logger, error_logger, warning_logger, debug_logger
 from codegraphcontext.utils.tree_sitter_manager import execute_query
+from .js_dynamic_imports import extract_dynamic_import_call
 
 TS_QUERIES = {
     "functions": """
@@ -33,6 +34,10 @@ TS_QUERIES = {
         )
 
         (method_definition
+            name: (property_identifier) @name
+            parameters: (formal_parameters) @params
+        ) @function_node
+        (abstract_method_signature
             name: (property_identifier) @name
             parameters: (formal_parameters) @params
         ) @function_node
@@ -77,13 +82,14 @@ TS_QUERIES = {
         ) @import
     """,
     "calls": """
+        (call_expression function: (import)) @dynamic_import
         (call_expression function: (identifier) @name)
         (call_expression function: (member_expression property: (property_identifier) @name))
         (new_expression constructor: (identifier) @name)
         (new_expression constructor: (member_expression property: (property_identifier) @name))
     """,
     "variables": """
-        (variable_declarator name: (identifier) @name)
+        (variable_declarator) @variable
     """,
     "docstrings": """
         (comment) @docstring_comment
@@ -105,7 +111,7 @@ class TypescriptTreeSitterParser:
     def _get_node_text(self, node) -> str:
         return node.text.decode('utf-8')
 
-    def _get_parent_context(self, node, types=('function_declaration', 'class_declaration', 'method_definition', 'function_expression', 'arrow_function')):
+    def _get_parent_context(self, node, types=('function_declaration', 'class_declaration', 'abstract_class_declaration', 'method_definition', 'abstract_method_signature', 'function_expression', 'arrow_function')):
         curr = node.parent
         while curr:
             if curr.type in types:
@@ -224,7 +230,7 @@ class TypescriptTreeSitterParser:
         def _fn_for_name(name_node):
             current = name_node.parent
             while current:
-                if current.type in ('function_declaration', 'function', 'arrow_function', 'method_definition', 'function_expression'):
+                if current.type in ('function_declaration', 'function', 'arrow_function', 'method_definition', 'abstract_method_signature', 'function_expression'):
                     return current
                 elif current.type in ('variable_declarator', 'assignment_expression'):
                     for child in current.children:
@@ -235,7 +241,7 @@ class TypescriptTreeSitterParser:
         def _fn_for_params(params_node):
             current = params_node.parent
             while current:
-                if current.type in ('function_declaration', 'function', 'arrow_function', 'method_definition', 'function_expression'):
+                if current.type in ('function_declaration', 'function', 'arrow_function', 'method_definition', 'abstract_method_signature', 'function_expression'):
                     return current
                 current = current.parent
             return None
@@ -268,7 +274,7 @@ class TypescriptTreeSitterParser:
         for _, data in captures_by_function.items():
             func_node = data['node']
             name = data.get('name')
-            if not name and func_node.type == 'method_definition':
+            if not name and func_node.type in ('method_definition', 'abstract_method_signature'):
                 nm = func_node.child_by_field_name('name')
                 if nm:
                     name = self._get_node_text(nm)
@@ -280,7 +286,7 @@ class TypescriptTreeSitterParser:
             elif data.get('single_param'):
                 args = [self._get_node_text(data['single_param'])]
             context, context_type, _ = self._get_parent_context(func_node)
-            class_context = context if context_type == 'class_declaration' else None
+            class_context = context if context_type in ('class_declaration', 'abstract_class_declaration') else None
             docstring = None
             decorators = self._collect_preceding_decorators(func_node)
             func_data = {
@@ -477,41 +483,15 @@ class TypescriptTreeSitterParser:
                                 'lang': self.language_name})
         return imports
 
-    def _find_dynamic_imports(self, root_node):
-        calls = []
-        query_str = """
-            (call_expression
-                function: (import)
-                arguments: (arguments) @args
-            ) @dynamic_import
-        """
-        for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name != "dynamic_import":
-                continue
-            args_node = node.child_by_field_name("arguments")
-            import_arg = None
-            if args_node and args_node.named_child_count > 0:
-                import_arg = self._get_node_text(args_node.named_child(0))
-            context = self._get_parent_context(node)
-            calls.append({
-                "name": "import",
-                "full_name": self._get_node_text(node),
-                "line_number": node.start_point[0] + 1,
-                "args": [import_arg] if import_arg else [],
-                "inferred_obj_type": None,
-                "context": context,
-                "class_context": self._get_parent_context(node, types=('class_declaration', 'abstract_class_declaration')),
-                "lang": self.language_name,
-                "is_dependency": False,
-                "call_kind": "dynamic_import",
-            })
-        return calls
-
     def _find_calls(self, root_node):
-        calls = self._find_dynamic_imports(root_node)
+        calls = []
         query_str = TS_QUERIES['calls']
         for node, capture_name in execute_query(self.language, query_str, root_node):
-            if capture_name == 'name':
+            if capture_name == 'dynamic_import':
+                call = extract_dynamic_import_call(self, node)
+                if call is not None:
+                    calls.append(call)
+            elif capture_name == 'name':
                 # Traverse up to find the call/new expression
                 call_node = node.parent
                 while call_node and call_node.type not in ('call_expression', 'new_expression') and call_node.type != 'program':
@@ -548,53 +528,79 @@ class TypescriptTreeSitterParser:
                 calls.append(call_data)
         return calls
 
+    def _binding_nodes(self, pattern):
+        """Only declaration targets; keys/default expressions are not bindings."""
+        if pattern is None:
+            return
+        if pattern.type in ('identifier', 'shorthand_property_identifier_pattern'):
+            yield pattern
+        elif pattern.type == 'pair_pattern':
+            yield from self._binding_nodes(pattern.child_by_field_name('value'))
+        elif pattern.type in ('assignment_pattern', 'object_assignment_pattern'):
+            yield from self._binding_nodes(pattern.child_by_field_name('left'))
+        elif pattern.type in ('object_pattern', 'array_pattern', 'rest_pattern', 'rest_element'):
+            for child in pattern.named_children:
+                yield from self._binding_nodes(child)
+
     def _find_variables(self, root_node):
         variables = []
-        query_str = TS_QUERIES['variables']
-        for match in execute_query(self.language, query_str, root_node):
-            capture_name = match[1]
-            node = match[0]
-            if capture_name == 'name':
-                var_node = node.parent
-                name = self._get_node_text(node)
-                value = None
-                type_text = None
-
-                # Detect if variable assigned to a function
-                value_node = var_node.child_by_field_name("value") if var_node else None
-
-                if value_node:
-                    value_type = value_node.type
-
-                    # --- Skip variables that are assigned a function ---
-                    if value_type in ("function_expression", "arrow_function"):
-                        continue
-                    
-                    if "function" in value_type or "arrow" in value_type:
-                        continue
-
-                    # --- Handle various assignment types ---
-                    if value_type == "call_expression":
-                        func_node = value_node.child_by_field_name("function")
-                        value = self._get_node_text(func_node) if func_node else name
-                    else:
-                        value = self._get_node_text(value_node)
-
-                context, context_type, context_line = self._get_parent_context(node)
-                class_context = context if context_type == 'class_declaration' else None
-
-                variable_data = {
-                    "name": name,
+        for var_node, capture in execute_query(self.language, TS_QUERIES['variables'], root_node):
+            if capture != 'variable':
+                continue
+            value_node = var_node.child_by_field_name('value')
+            if value_node is not None and ('function' in value_node.type or 'arrow' in value_node.type):
+                continue
+            value = None
+            if value_node is not None:
+                callee = value_node.child_by_field_name('function') if value_node.type == 'call_expression' else None
+                value = self._get_node_text(callee if callee is not None else value_node)
+            for node in self._binding_nodes(var_node.child_by_field_name('name')):
+                context, context_type, _ = self._get_parent_context(node)
+                variables.append({
+                    "name": self._get_node_text(node),
                     "line_number": node.start_point[0] + 1,
                     "value": value,
-                    "type": type_text,
+                    "type": None,
                     "context": context,
-                    "class_context": class_context,
+                    "class_context": context if context_type in ('class_declaration', 'abstract_class_declaration') else None,
                     "lang": self.language_name,
                     "is_dependency": False,
-                }
-                variables.append(variable_data)
+                })
         return variables
+
+    def _find_react_components(self, root_node):
+        """Find React components in JavaScript/JSX files."""
+        components = []
+        # Similar logic to typescriptjsx but for JS
+        query_strings = [
+            '(class_declaration name: (identifier) @name)',
+            '(variable_declarator name: (identifier) @name value: (arrow_function) @fn)',
+            '(variable_declarator name: (identifier) @name value: (function_expression) @fn)',
+            '(function_declaration name: (identifier) @name)',
+        ]
+
+        # We only treat it as a component if it's in a .jsx file or contains JSX
+        # For simplicity, if we find JSX elements in the file, we're more likely to treat these as components
+        has_jsx = len(execute_query(self.language, TS_QUERIES['jsx_elements'], root_node)) > 0
+
+        if not has_jsx:
+            return []
+
+        for query_str in query_strings:
+            for node, capture_name in execute_query(self.language, query_str, root_node):
+                if capture_name == 'name':
+                    name = self._get_node_text(node)
+                    # React components usually start with uppercase
+                    if name and name[0].isupper():
+                        components.append({
+                            "name": name,
+                            "line_number": node.start_point[0] + 1,
+                            "type": "component",
+                            "lang": self.language_name,
+                        })
+        return components
+
+
 
 def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
     """Scans TypeScript files to create a map of class/function names to their file paths."""
@@ -603,6 +609,7 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
     # Simplified queries that capture the parent nodes, then extract names manually
     query_strings = [
         "(class_declaration) @class",
+        "(abstract_class_declaration) @class",
         "(function_declaration) @function",
         "(variable_declarator) @var_decl",
         "(method_definition) @method",
@@ -639,7 +646,7 @@ def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:
                             name_node = node.child_by_field_name('name')
                             value_node = node.child_by_field_name('value')
                             if name_node and value_node:
-                                if value_node.type in ('function', 'arrow_function'):
+                                if value_node.type in ('function', 'function_expression', 'arrow_function'):
                                     name = name_node.text.decode('utf-8')
                         
                         elif capture_name == 'method':

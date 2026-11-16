@@ -93,12 +93,11 @@ class RubyTreeSitterParser:
         captures = list(execute_query(self.language, query_str, root_node))
         for node, cap in captures:
             if cap == "module_node":
-                name = None
-                for n, c in captures:
-                    if c == "name":
-                        if n.start_byte >= node.start_byte and n.end_byte <= node.end_byte:
-                            name = self._get_node_text(n)
-                            break
+                # The module's own `name` field — not the first @name inside
+                # its byte range, which for nested modules depended on capture
+                # order.
+                name_node = node.child_by_field_name("name")
+                name = self._get_node_text(name_node) if name_node is not None else None
                 if name:
                     module_data = {
                         "name": name,
@@ -287,23 +286,21 @@ class RubyTreeSitterParser:
         # Collect all captures first
         all_captures = list(execute_query(self.language, query_str, root_node))
         
-        # Group captures by function node using a different approach
+        # Each definition's name is its own `name` field. Matching @name
+        # captures to definitions by byte range assigned a nested `def`'s name
+        # to the enclosing method (the first container in capture order) and
+        # dropped the inner one — and since execute_query's capture order is
+        # not stable across parses, which container came first varied.
+        # Same reasoning as _find_classes below.
         captures_by_function = {}
         for node, capture_name in all_captures:
-            if capture_name == 'function_node':
-                captures_by_function[id(node)] = {'node': node, 'name': None}
-        
-        # Now find names for each function
-        for node, capture_name in all_captures:
-            if capture_name == 'name':
-                # Find which function this name belongs to
-                for func_id, func_data in captures_by_function.items():
-                    func_node = func_data['node']
-                    # Check if this name node is within the function node
-                    if (node.start_byte >= func_node.start_byte and 
-                        node.end_byte <= func_node.end_byte):
-                        captures_by_function[func_id]['name'] = self._get_node_text(node)
-                        break
+            if capture_name != 'function_node':
+                continue
+            name_node = node.child_by_field_name('name')
+            captures_by_function[(node.start_byte, node.end_byte)] = {
+                'node': node,
+                'name': self._get_node_text(name_node) if name_node is not None else None,
+            }
 
         # Build function entries
         for func_data in captures_by_function.values():
@@ -411,32 +408,24 @@ class RubyTreeSitterParser:
         # Collect all captures first
         all_captures = list(execute_query(self.language, query_str, root_node))
         
-        # Group captures by import node using a different approach
+        # Attach each @method_name / @path to its own call (field / parent
+        # relation), not to the first call whose byte range contains it: an
+        # outer call contains a nested call's captures, and which container
+        # came first used to depend on capture order.
         captures_by_import = {}
+        def _bucket(call_node):
+            return captures_by_import.setdefault(
+                (call_node.start_byte, call_node.end_byte),
+                {'node': call_node, 'method_name': None, 'path': None},
+            )
         for node, capture_name in all_captures:
             if capture_name == 'import':
-                captures_by_import[id(node)] = {'node': node, 'method_name': None, 'path': None}
-        
-        # Now find method names and paths for each import
-        for node, capture_name in all_captures:
-            if capture_name == 'method_name':
-                # Find which import this method name belongs to
-                for import_id, import_data in captures_by_import.items():
-                    import_node = import_data['node']
-                    # Check if this method name node is within the import node
-                    if (node.start_byte >= import_node.start_byte and 
-                        node.end_byte <= import_node.end_byte):
-                        captures_by_import[import_id]['method_name'] = self._get_node_text(node)
-                        break
-            elif capture_name == 'path':
-                # Find which import this path belongs to
-                for import_id, import_data in captures_by_import.items():
-                    import_node = import_data['node']
-                    # Check if this path node is within the import node
-                    if (node.start_byte >= import_node.start_byte and 
-                        node.end_byte <= import_node.end_byte):
-                        captures_by_import[import_id]['path'] = self._get_node_text(node)
-                        break
+                _bucket(node)
+            elif capture_name == 'method_name' and node.parent is not None:
+                _bucket(node.parent)['method_name'] = self._get_node_text(node)
+            elif capture_name == 'path' and node.parent is not None and node.parent.parent is not None:
+                # (string) -> argument_list -> call
+                _bucket(node.parent.parent)['path'] = self._get_node_text(node)
 
         # Build import entries
         for import_data in captures_by_import.values():
@@ -497,9 +486,7 @@ class RubyTreeSitterParser:
                 
                 elif capture_name == 'args':
                     if node == call_node.child_by_field_name('arguments'):
-                        args_text = self._get_node_text(node)
-                        # Simple heuristic: split by comma
-                        captures_by_call[call_id]['args'] = [a.strip() for a in args_text.strip("()").split(',') if a.strip()]
+                        captures_by_call[call_id]['args'] = [self._get_node_text(arg) for arg in node.named_children]
 
         for call_data in captures_by_call.values():
             call_node = call_data['node']
@@ -529,6 +516,85 @@ class RubyTreeSitterParser:
                     "is_dependency": False,
                 })
 
+        calls.extend(self._find_bare_calls(root_node))
+        return calls
+
+    def _find_bare_calls(self, root_node):
+        """Ruby vcall identifiers are calls unless a lexical local is in scope."""
+        scopes = {'program', 'class', 'module', 'method', 'singleton_method', 'block', 'do_block', 'lambda'}
+        closures = {'block', 'do_block', 'lambda'}
+        cache = {}
+
+        def targets(pattern):
+            if pattern is None:
+                return
+            if pattern.type == 'identifier':
+                yield pattern
+                return
+            name = pattern.child_by_field_name('name')
+            if name is not None:
+                yield from targets(name)
+            elif pattern.type in ('method_parameters', 'block_parameters', 'lambda_parameters',
+                                  'left_assignment_list', 'destructured_parameter', 'splat_parameter',
+                                  'hash_splat_parameter', 'rest_assignment'):
+                for child in pattern.named_children:
+                    yield from targets(child)
+
+        def bindings(scope):
+            if scope.id in cache:
+                return cache[scope.id]
+            found = {}
+            parameters = scope.child_by_field_name('parameters')
+            if parameters is not None:
+                for target in targets(parameters):
+                    found.setdefault(self._get_node_text(target), []).append(-1)
+            stack = list(scope.named_children)
+            while stack:
+                current = stack.pop()
+                if current.type in scopes:
+                    continue
+                if current.type in ('assignment', 'operator_assignment'):
+                    for target in targets(current.child_by_field_name('left')):
+                        found.setdefault(self._get_node_text(target), []).append(target.start_byte)
+                elif current.type == 'for':
+                    for target in targets(current.child_by_field_name('pattern')):
+                        found.setdefault(self._get_node_text(target), []).append(target.start_byte)
+                stack.extend(current.named_children)
+            cache[scope.id] = found
+            return found
+
+        calls = []
+        stack = [root_node]
+        while stack:
+            node = stack.pop()
+            stack.extend(reversed(node.named_children))
+            if node.type != 'identifier' or node.parent is None:
+                continue
+            parent = node.parent
+            if parent.type == 'call' and parent.child_by_field_name('method') == node:
+                continue
+            if parent.type in ('method', 'singleton_method') and parent.child_by_field_name('name') == node:
+                continue
+            name = self._get_node_text(node)
+            scope = parent
+            bound = False
+            while scope is not None:
+                if scope.type in scopes:
+                    if any(position <= node.start_byte for position in bindings(scope).get(name, [])):
+                        bound = True
+                        break
+                    if scope.type not in closures:
+                        break
+                scope = scope.parent
+            if bound:
+                continue
+            context = self._get_parent_context(node)
+            class_context, _, _ = self._get_parent_context(node, ('class', 'module'))
+            calls.append({
+                'name': name, 'full_name': name, 'line_number': node.start_point[0] + 1,
+                'args': [], 'context': context, 'class_context': class_context,
+                'inferred_obj_type': None, 'lang': self.language_name, 'is_dependency': False,
+            })
         return calls
 
     def _find_variables(self, root_node: Any) -> list[Dict[str, Any]]:

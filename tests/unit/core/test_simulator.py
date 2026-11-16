@@ -1,6 +1,10 @@
 # tests/unit/core/test_simulator.py
+import shutil
+import subprocess
+
 import pytest
 from pathlib import Path
+from codegraphcontext.core import simulator
 from codegraphcontext.core.simulator import CodeGraphTwin, EvolutionTimeline, resolve_node_id
 
 
@@ -146,3 +150,38 @@ def test_compare_scenarios():
     assert diff["circular_dependencies"]["simulated"] == 0
     assert diff["circular_dependencies"]["delta"] == -1
     assert diff["maintainability_score"]["simulated"] > diff["maintainability_score"]["baseline"]
+
+
+def _git(repo, *args):
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_growth_trend_reads_non_ascii_commits(tmp_path):
+    """git prints UTF-8; decoding it with a cp950 or cp1252 locale lost every commit."""
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.name", "Zoë Ångström")
+    _git(tmp_path, "config", "user.email", "zoe@example.com")
+    (tmp_path / "a.txt").write_text("a\n", encoding="utf-8")
+    _git(tmp_path, "add", "a.txt")
+    _git(tmp_path, "commit", "-q", "-m", "修正登入流程 café")
+
+    growth = EvolutionTimeline.get_growth_trend(str(tmp_path), num_commits=5)
+
+    assert [(c["author"], c["subject"]) for c in growth] == [("Zoë Ångström", "修正登入流程 café")]
+    assert EvolutionTimeline.get_git_churn(str(tmp_path), num_commits=5) == {"a.txt": 1}
+
+
+def test_git_output_is_decoded_as_utf8(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(simulator.subprocess, "run", fake_run)
+    EvolutionTimeline.get_growth_trend("/repo")
+    EvolutionTimeline.get_git_churn("/repo")
+
+    assert len(calls) == 2
+    assert all(kwargs.get("encoding") == "utf-8" for kwargs in calls)

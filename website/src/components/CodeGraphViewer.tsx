@@ -21,7 +21,7 @@ import { exportSvg } from "../lib/svg-exporter";
 import { packageInteractiveExport } from "../lib/html-exporter";
 import { toast } from "sonner";
 import { getOrCreateSessionId } from "../lib/utils";
-import { generateNodeSummary, type NodeSummary, loadLLMConfig, saveLLMConfig, type LLMConfig, executeClientAIQuery } from "../lib/summary-engine";
+import { generateNodeSummary, type NodeSummary, loadLLMConfig, saveLLMConfig, type LLMConfig, executeClientAIQuery, DEFAULT_ANTHROPIC_MODEL } from "../lib/summary-engine";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1693,27 +1693,46 @@ export default function CodeGraphViewer({ data: rawData, onClose }: { data: any,
                     {!new URLSearchParams(window.location.search).get("backend") && (llmConfig.provider === 'none' || showLlmSettings) ? (
                       <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg space-y-3">
                         <div className="text-[11px] text-purple-200 leading-relaxed">
-                          <strong>Client-Side Engine:</strong> Configure your API key to run queries locally in your browser.
+                          <strong>Bring your own key:</strong> Graph context is sent directly to your selected AI provider. Your key is saved in this browser.
                         </div>
                         <select
+                          aria-label="AI provider"
                           value={llmConfig.provider}
-                          onChange={e => setLlmConfig({...llmConfig, provider: e.target.value as any})}
+                          onChange={e => {
+                            setShowLlmSettings(true);
+                            setLlmConfig({ provider: e.target.value as LLMConfig['provider'], apiKey: '' });
+                          }}
                           className={`w-full p-2 text-xs rounded border ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
                         >
                           <option value="none">Select Provider</option>
                           <option value="gemini">Google Gemini</option>
                           <option value="mistral">Mistral AI</option>
+                          <option value="anthropic">Anthropic (Claude)</option>
                         </select>
                         <input
                           type="password"
+                          aria-label="API key"
                           placeholder="API Key"
                           value={llmConfig.apiKey}
                           onChange={e => setLlmConfig({...llmConfig, apiKey: e.target.value})}
                           className={`w-full p-2 text-xs rounded border ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
                         />
+                        {llmConfig.provider === 'anthropic' && (
+                          <label className="block text-[11px] text-gray-400 space-y-1">
+                            <span>Claude model (optional)</span>
+                            <input
+                              type="text"
+                              placeholder={DEFAULT_ANTHROPIC_MODEL}
+                              value={llmConfig.model || ''}
+                              onChange={e => setLlmConfig({ ...llmConfig, model: e.target.value })}
+                              className={`w-full p-2 text-xs rounded border ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
+                            />
+                          </label>
+                        )}
                         <Button 
                           size="sm" 
                           className="w-full text-xs" 
+                          disabled={llmConfig.provider === 'none' || !llmConfig.apiKey.trim()}
                           onClick={() => {
                             saveLLMConfig(llmConfig);
                             setShowLlmSettings(false);
