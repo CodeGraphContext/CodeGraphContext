@@ -20,7 +20,35 @@ def parity(monkeypatch):
     monkeypatch.setattr(core, 'is_falkordb_usable', lambda: True)
     monkeypatch.setattr(core, 'ladybugdb_unavailable_reason', lambda: None, raising=False)
     monkeypatch.setattr(parity, '_probe_embedded_backend', lambda name: None)
+    monkeypatch.setattr(parity, '_ladybug_unavailable_reason_in_subprocess', lambda: None)
     return parity
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('configured', [False, True])
+@pytest.mark.parametrize('fail', [False, True])
+async def test_parity_preserves_parent_neo4j_environment(monkeypatch, tmp_path, parity, configured, fail):
+    import os
+    keys = ('NEO4J_URI', 'NEO4J_USERNAME', 'NEO4J_PASSWORD')
+    for key in keys:
+        if configured:
+            monkeypatch.setenv(key, f'original-{key}')
+        else:
+            monkeypatch.delenv(key, raising=False)
+    before = {key: os.environ.get(key) for key in keys}
+
+    async def index(*args):
+        if fail:
+            raise RuntimeError('index failed')
+        return 0.0, {'NODE_File': 1}, [], [], []
+
+    monkeypatch.setattr(parity, 'run_indexing_in_process', index)
+    if fail:
+        with pytest.raises(RuntimeError, match='index failed'):
+            await parity._run_database_parity_e2e(tmp_path)
+    else:
+        await parity._run_database_parity_e2e(tmp_path)
+    assert {key: os.environ.get(key) for key in keys} == before
 
 
 @pytest.mark.asyncio
