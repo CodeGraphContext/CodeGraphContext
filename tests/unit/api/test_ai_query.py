@@ -8,12 +8,16 @@ client = TestClient(app)
 
 def test_ai_query_no_api_keys(monkeypatch):
     # Ensure no supported provider key is in env
+    monkeypatch.delenv("LITELLM_MODEL", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ATLASCLOUD_API_KEY", raising=False)
     monkeypatch.delenv("ATLAS_CLOUD_API_KEY", raising=False)
     monkeypatch.delenv("CHEAPER_INFERENCE_API_KEY", raising=False)
     monkeypatch.delenv("API_ROUTE_API_KEY", raising=False)
+    monkeypatch.delenv("STANDARDCOMPUTE_API_KEY", raising=False)
+
+    monkeypatch.delenv("RUNCRATE_API_KEY", raising=False)
     
     # Mock db_manager
     mock_db = MagicMock()
@@ -27,6 +31,7 @@ def test_ai_query_no_api_keys(monkeypatch):
 
 @patch("codegraphcontext.viz.server.requests.post")
 def test_call_llm_with_atlascloud(mock_post, monkeypatch):
+    monkeypatch.delenv("LITELLM_MODEL", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("ATLASCLOUD_API_KEY", "fake-atlas-key")
@@ -62,6 +67,7 @@ def test_call_llm_with_atlascloud(mock_post, monkeypatch):
 
 @patch("codegraphcontext.viz.server.requests.post")
 def test_call_llm_with_atlas_cloud_alias_defaults(mock_post, monkeypatch):
+    monkeypatch.delenv("LITELLM_MODEL", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ATLASCLOUD_API_KEY", raising=False)
@@ -84,6 +90,7 @@ def test_call_llm_with_atlas_cloud_alias_defaults(mock_post, monkeypatch):
 
 @patch("codegraphcontext.viz.server.requests.post")
 def test_call_llm_with_cheaperinference(mock_post, monkeypatch):
+    monkeypatch.delenv("LITELLM_MODEL", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ATLASCLOUD_API_KEY", raising=False)
@@ -121,6 +128,7 @@ def test_call_llm_with_cheaperinference(mock_post, monkeypatch):
 
 @patch("codegraphcontext.viz.server.requests.post")
 def test_call_llm_with_cheaperinference_defaults(mock_post, monkeypatch):
+    monkeypatch.delenv("LITELLM_MODEL", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ATLASCLOUD_API_KEY", raising=False)
