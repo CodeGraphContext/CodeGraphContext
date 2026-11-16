@@ -307,9 +307,10 @@ class ScipIndexer:
             project_path / "compile_commands.json",
             project_path / "build" / "compile_commands.json",
         ]
-        for p in project_path.glob("cmake-build-*/compile_commands.json"):
+        # sorted: the first existing candidate wins
+        for p in sorted(project_path.glob("cmake-build-*/compile_commands.json")):
             candidates.append(p)
-        for p in project_path.glob("out/*/compile_commands.json"):
+        for p in sorted(project_path.glob("out/*/compile_commands.json")):
             candidates.append(p)
         for c in candidates:
             if c.is_file():
@@ -383,9 +384,10 @@ class ScipIndexer:
     @staticmethod
     def _find_csharp_project(project_path: Path) -> Optional[Path]:
         """Find the first .sln or .csproj file for scip-dotnet."""
-        for sln in project_path.glob("*.sln"):
+        # sorted: first match wins, and glob order is filesystem order
+        for sln in sorted(project_path.glob("*.sln")):
             return sln
-        for csproj in project_path.rglob("*.csproj"):
+        for csproj in sorted(project_path.rglob("*.csproj")):
             if not file_path_has_ignore_dir_segment(csproj, project_path):
                 return csproj
         return None
