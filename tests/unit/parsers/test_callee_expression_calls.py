@@ -77,14 +77,13 @@ def test_python_callee_expression_shapes(tmp_path, expr, names):
 
 
 def test_python_callee_call_keeps_the_context_of_its_call(tmp_path):
-    """A call in the arguments of a local function's call has that function as its
-    context (``nested_call``); a call in the callee expression of such an argument is
-    evaluated in the same place, so it gets the same context."""
+    """Both argument calls and their callee expressions execute in the lexical
+    caller before the local function is entered."""
     r = _parse(tmp_path, "python", "a.py",
                "def local_fn(x):\n    return x\n\n\n"
                "def f(p):\n    return local_fn(open_secret(p).strip())\n")
     ctx = {c["name"]: c["context"] for c in r["function_calls"]}
-    assert ctx["strip"] == ("local_fn", "nested_call", 6)
+    assert ctx["strip"] == ("f", "function_definition", 5)
     assert ctx["open_secret"] == ctx["strip"]
 
 

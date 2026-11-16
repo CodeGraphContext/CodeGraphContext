@@ -1663,20 +1663,7 @@ def resolve_function_call(
 
     caller_context = call.get("context")
     if caller_context and len(caller_context) == 3 and caller_context[0] is not None:
-        caller_name, caller_type, caller_line_number = caller_context
-        if caller_type == "nested_call":
-            fp = _resolved_posix(caller_file_path)
-            candidates = function_index.get((fp, caller_name), [])
-            if candidates:
-                lines = [
-                    c["line_number"]
-                    for c in candidates
-                    if c.get("line_number") is not None
-                ]
-                if lines:
-                    caller_line_number = min(lines)
-            elif caller_name == "<module>":
-                caller_line_number = 1
+        caller_name, _caller_type, caller_line_number = caller_context
         return {
             "type": "function",
             "caller_name": caller_name,
@@ -2786,8 +2773,6 @@ def build_function_call_groups(
         def enclosing_function_for_call(call_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             context = call_dict.get("context")
             if not context or len(context) != 3:
-                return None
-            if context[1] == "nested_call":
                 return None
             fn_name, _, fn_line = context
             if not fn_name or fn_name == "<module>":

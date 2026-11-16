@@ -98,8 +98,8 @@ class TestPythonParser:
 
         assert json_import["line_number"] == 8
 
-    def test_nested_module_level_calls_attribute_to_outer_callee(self, parser, temp_test_dir):
-        """Nested call expressions attribute inner calls to the outer callee."""
+    def test_nested_module_level_calls_keep_module_context(self, parser, temp_test_dir):
+        """Every argument call is evaluated by the module, before its callee."""
         code = (
             "def f1(x): return x + 1\n"
             "def f2(x): return x * 2\n"
@@ -113,10 +113,8 @@ class TestPythonParser:
         calls = {call["name"]: call for call in result["function_calls"]}
 
         assert calls["f1"]["context"] == ("<module>", "module", 1)
-        assert calls["f2"]["context"][0] == "f1"
-        assert calls["f2"]["context"][1] == "nested_call"
-        assert calls["f3"]["context"][0] == "f2"
-        assert calls["f3"]["context"][1] == "nested_call"
+        assert calls["f2"]["context"] == ("<module>", "module", 1)
+        assert calls["f3"]["context"] == ("<module>", "module", 1)
 
     def test_nested_call_inside_method_uses_enclosing_function_context(self, parser, temp_test_dir):
         """Calls nested inside method arguments (e.g. list.append(helper())) should
@@ -137,6 +135,14 @@ class TestPythonParser:
         # NOT "append" (which is a method, not a Function node in the graph).
         assert helper_call["context"][0] == "process"
         assert helper_call["context"][1] == "function_definition"
+
+    def test_local_nested_argument_calls_keep_the_enclosing_function(self, parser, temp_test_dir):
+        path = temp_test_dir / 'nested_local.py'
+        path.write_text('def f(x): return x\ndef g(x): return x\ndef h(x): return g(f(x))\n')
+        calls = parser.parse(str(path))['function_calls']
+        assert {(call['name'], tuple(call['context'])) for call in calls} == {
+            ('f', ('h', 'function_definition', 3)), ('g', ('h', 'function_definition', 3)),
+        }
 
     def test_method_name_collision_uses_enclosing_function_context(self, parser, temp_test_dir):
         """When a local function has the same name as a method call,
