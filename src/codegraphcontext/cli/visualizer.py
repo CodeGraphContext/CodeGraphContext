@@ -27,6 +27,17 @@ ALLOWED_GRAPH_LABELS = frozenset({
     "Union", "Variable",
 })
 
+_TYPE_SORT_KEYS = {
+    "DbTable": "n.path, n.name, n.fqn",
+    "Directory": "n.path",
+    "ExternalClass": "n.path, n.name",
+    "ExternalFunction": "n.path, n.name",
+    "File": "n.path",
+    "Module": "n.path, n.name, n.full_import_name",
+    "Parameter": "n.path, n.function_line_number, n.name, n.uid",
+    "Repository": "n.path",
+}
+
 
 def _escape_cypher_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
@@ -74,25 +85,23 @@ def visualize_search_results(
     **_: Any,
 ) -> None:
     term = _escape_cypher_string(name)
-    if search_type == "pattern":
-        query = (
-            f"MATCH (n) WHERE n.name CONTAINS '{term}' "
-            f"RETURN n AS n, null AS rel, null AS m LIMIT 80"
-        )
-    elif search_type == "type":
+    if search_type == "type":
         try:
             label = _validate_graph_label(name)
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
-        query = (
-            f"MATCH (n:{label}) "
-            f"RETURN n AS n, null AS rel, null AS m LIMIT 80"
-        )
+        match = f"MATCH (n:{label}) "
+        # Embedded databases require each key to exist on the matched label.
+        sort_keys = _TYPE_SORT_KEYS.get(label, "n.path, n.line_number, n.name, n.uid")
     else:
-        query = (
-            f"MATCH (n) WHERE n.name = '{term}' "
-            f"RETURN n AS n, null AS rel, null AS m LIMIT 80"
-        )
+        operator = "CONTAINS" if search_type == "pattern" else "="
+        match = f"MATCH (n) WHERE n.name {operator} '{term}' "
+        sort_keys = "n.path, n.line_number, n.name, labels(n)[0], n.uid, n.fqn"
+    query = (
+        match
+        + "RETURN n AS n, null AS rel, null AS m "
+        f"ORDER BY {sort_keys} LIMIT 80"
+    )
     _launch_visualizer(query)
 
 
@@ -107,13 +116,18 @@ def visualize_call_graph(
     if direction == "incoming":
         query = (
             f"MATCH (caller)-[rel:CALLS]->(target:Function {props}) "
-            f"RETURN caller AS n, rel AS rel, target AS m LIMIT 120"
+            "RETURN caller AS n, rel AS rel, target AS m "
         )
     else:
         query = (
             f"MATCH (caller:Function {props})-[rel:CALLS]->(called) "
-            f"RETURN caller AS n, rel AS rel, called AS m LIMIT 120"
+            "RETURN caller AS n, rel AS rel, called AS m "
         )
+    query += (
+        "ORDER BY n.path, n.line_number, n.name, labels(n)[0], n.uid, "
+        "rel.line_number, "
+        "m.path, m.line_number, m.name, labels(m)[0], m.uid, rel.args_key LIMIT 120"
+    )
     _launch_visualizer(query)
 
 
@@ -180,7 +194,9 @@ def visualize_overrides(
     fn = _escape_cypher_string(function_name)
     query = (
         f"MATCH (class:Class)-[rel:CONTAINS]->(func:Function {{name: '{fn}'}}) "
-        f"RETURN class AS n, rel AS rel, func AS m LIMIT 120"
+        "RETURN class AS n, rel AS rel, func AS m "
+        "ORDER BY n.path, n.line_number, n.name, n.uid, "
+        "m.path, m.line_number, m.name, m.uid LIMIT 120"
     )
     _launch_visualizer(query)
 
