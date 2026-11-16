@@ -344,6 +344,10 @@ class GraphBuilder:
             return self._writer.delete_repository_from_graph(repo_path)
         return GraphWriter(self._driver_for(graph_name)).delete_repository_from_graph(repo_path)
 
+    def delete_indexed_repository_from_graph(self, stored_path: str) -> bool:
+        """Delete an exact selected graph key without resolving the filesystem."""
+        return self._writer.delete_indexed_repository_from_graph(stored_path)
+
     def get_caller_file_paths(self, file_path_str: str) -> set:
         """Get all files that have CALLS relationships to the given file.
 
