@@ -20,6 +20,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 dependencies = [
+    "jsonschema>=4.18",
     "neo4j>=5.15.0",
     "watchdog>=3.0.0",
     "stdlibs>=2023.11.18",

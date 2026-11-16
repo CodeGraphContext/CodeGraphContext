@@ -38,7 +38,7 @@ async def handle_call_tool(ctx, params) -> CallToolResult:
 
     if "error" in result:
         return CallToolResult(
-            content=[TextContent(type="text", text=f"Error: {result['error']}")],
+            content=[TextContent(type="text", text=_apply_response_token_limit(params.name, json.dumps(result)))],
             isError=True,
         )
 
