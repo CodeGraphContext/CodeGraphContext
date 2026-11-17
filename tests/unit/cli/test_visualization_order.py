@@ -24,9 +24,16 @@ def indexed_graphs(tmp_path_factory):
                     "CREATE (:Function {uid: 'target', name: 'target', "
                     "path: '/repo/target.py', line_number: 1})"
                 )
+                session.run("CREATE (:Module {name: 'target_module'})")
+                session.run(
+                    "CREATE (:Class {uid: 'base', name: 'Base', "
+                    "path: '/repo/base.py', line_number: 1})"
+                )
                 session.run(
                     "UNWIND $paths AS path "
                     "MATCH (target:Function {uid: 'target'}) "
+                    "MATCH (module:Module {name: 'target_module'}) "
+                    "MATCH (base:Class {uid: 'base'}) "
                     "CREATE (file:File {path: path, name: 'source.py'}) "
                     "CREATE (handler:Function {uid: path, name: 'handler', "
                     "path: path, line_number: 3}) "
@@ -34,7 +41,9 @@ def indexed_graphs(tmp_path_factory):
                     "path: path, line_number: 1}) "
                     "CREATE (handler)-[:CALLS {line_number: 4}]->(target) "
                     "CREATE (target)-[:CALLS {line_number: 2}]->(handler) "
-                    "CREATE (owner)-[:CONTAINS]->(handler)",
+                    "CREATE (owner)-[:CONTAINS]->(handler) "
+                    "CREATE (file)-[:IMPORTS {line_number: 1}]->(module) "
+                    "CREATE (owner)-[:INHERITS]->(base)",
                     paths=paths,
                 )
         finally:
@@ -63,6 +72,8 @@ def indexed_graphs(tmp_path_factory):
         ),
         (visualizer.visualize_call_graph, "target", {}, "m", 120),
         (visualizer.visualize_overrides, "handler", {}, "n", 120),
+        (visualizer.visualize_dependencies, "target_module", {}, "n", 120),
+        (visualizer.visualize_inheritance_tree, "Base", {}, "n", 120),
     ],
 )
 def test_visualization_limit_is_independent_of_index_order(
@@ -78,7 +89,8 @@ def test_visualization_limit_is_independent_of_index_order(
         try:
             with manager.get_driver().session() as session:
                 rows = session.run(queries[0]).data()
-                observed.append([row[column]["path"] for row in rows])
+                # The view draws a set of rows; UNION output order is backend-defined.
+                observed.append(sorted(row[column]["path"] for row in rows))
         finally:
             manager.close_driver()
     assert observed[0] == observed[1]
