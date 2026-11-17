@@ -89,8 +89,11 @@ def test_visualization_limit_is_independent_of_index_order(
         try:
             with manager.get_driver().session() as session:
                 rows = session.run(queries[0]).data()
-                # The view draws a set of rows; UNION output order is backend-defined.
-                observed.append(sorted(row[column]["path"] for row in rows))
+                paths = [row[column]["path"] for row in rows]
+                if render is visualizer.visualize_inheritance_tree:
+                    # UNION output order is backend-defined; compare the drawn set.
+                    paths.sort()
+                observed.append(paths)
         finally:
             manager.close_driver()
     assert observed[0] == observed[1]
