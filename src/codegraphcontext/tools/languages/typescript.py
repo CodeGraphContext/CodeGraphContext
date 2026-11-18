@@ -424,7 +424,27 @@ class TypescriptTreeSitterParser:
                 continue
             line_number = node.start_point[0] + 1
             if node.type == 'import_statement':
-                source = self._get_node_text(node.child_by_field_name('source')).strip('\'"')
+                # Import-equals keeps its source inside import_require_clause,
+                # rather than on import_statement like an ES import (#1845).
+                require_clause = next(
+                    (c for c in node.named_children if c.type == 'import_require_clause'), None
+                )
+                if require_clause:
+                    source_node = require_clause.child_by_field_name('source')
+                    alias_node = next(
+                        (c for c in require_clause.named_children if c.type == 'identifier'), None
+                    )
+                    if source_node and source_node.type == 'string' and alias_node:
+                        source = self._get_node_text(source_node).strip('\'"')
+                        imports.append({'name': source, 'source': source,
+                                        'alias': self._get_node_text(alias_node),
+                                        'line_number': line_number, 'lang': self.language_name})
+                    continue
+                source_node = node.child_by_field_name('source')
+                if not source_node:
+                    # Incomplete imports are normal while a watcher is active.
+                    continue
+                source = self._get_node_text(source_node).strip('\'"')
                 # `import_clause` is an unnamed child of import_statement, not a
                 # field, so child_by_field_name('import') always returned None and
                 # every ES import collapsed into the bare-module fallback (#1526).
