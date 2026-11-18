@@ -92,9 +92,8 @@ with tempfile.TemporaryDirectory() as root:
                                                 repo_path=str(repo))) == {
                 ("entry", "build"), ("build", "Widget"), ("build", "leaf"),
             }
-        # Cover the existing missing-path fallback and the traversal-depth bound.
-        fallback = finder.who_calls_function("Widget", path=str(repo / "missing.py"), repo_path=str(repo))
-        assert [r["caller_function"] for r in fallback] == ["build"], fallback
+        # An explicit path must not fall back to a different definition.
+        assert finder.who_calls_function("Widget", path=str(repo / "missing.py"), repo_path=str(repo)) == []
         assert edges(finder.find_all_callers("Widget", repo_path=str(repo), depth=1)) == {("build", "Widget")}
         assert finder.find_all_callers("Widget", path=other_path, repo_path=str(repo)) == []
         assert [r["caller_function"] for r in finder.who_calls_function("leaf", repo_path=str(repo))] == ["build"]

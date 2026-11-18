@@ -716,7 +716,7 @@ class CodeFinder:
     def who_calls_function(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find callers of a function or class constructor using CALLS relationships with improved matching"""
         if path:
-            path = Path(path).as_posix()
+            path = Path(path).resolve().as_posix()
         repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
@@ -743,24 +743,6 @@ class CodeFinder:
                 """, **params)
                 
                 results = result.data()
-                if not results:
-                    params_no_path = {k: v for k, v in params.items() if k != "path"}
-                    result = session.run(f"""
-                        MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name}})
-                        WHERE (target:Function OR target:Class) AND (caller:Function OR caller:Class OR caller:File) {repo_filter}
-                        OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
-                        RETURN DISTINCT
-                            caller.name as caller_function,
-                            COALESCE(caller.path, caller_file.path) as caller_file_path,
-                            caller.line_number as caller_line_number,
-                            call.line_number as call_line_number,
-                            call.args as call_args,
-                            caller.is_dependency as caller_is_dependency,
-                            target.path as target_file_path
-                    ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
-                        {limit_clause}
-                    """, **params_no_path)
-                    results = result.data()
             else:
                 result = session.run(f"""
                     MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name}})
