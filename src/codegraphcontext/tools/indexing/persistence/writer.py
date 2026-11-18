@@ -13,6 +13,7 @@ from ....utils.debug_log import info_logger, warning_logger
 from ....utils.git_utils import get_repo_commit_hash
 from ..sanitize import sanitize_props as sanitize_props
 from ..sanitize import sanitize_props_with_secrets
+from ..sanitize import MAX_STR_LEN
 from ..schema_contract import NODE_LABELS
 from .utils import get_backend_type, execute_write_operation, execute_read_operation
 
@@ -88,6 +89,32 @@ IMPORTS_MERGE_QUERY = """
 """
 
 
+def _indexable_module_name(value: Any) -> Optional[str]:
+    """Avoid exceeding backend index limits without conflating long identities.
+
+    The conservative limit is in UTF-8 bytes, not Unicode characters. Skipping
+    an oversized identity is explicit; truncating two names to the same prefix
+    would silently join unrelated modules.
+    """
+    if not value:
+        return None
+    name = str(value)
+    size = len(name.encode('utf-8'))
+    if size > MAX_STR_LEN:
+        warning_logger(f'Skipping oversized module name ({size} UTF-8 bytes; limit {MAX_STR_LEN}).')
+        return None
+    return name
+
+
+def build_module_inclusion_rows(inclusions: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows = []
+    for inclusion in inclusions:
+        module = _indexable_module_name(inclusion.get('module'))
+        if module is not None:
+            rows.append(sanitize_props({'class_name': inclusion['class'], 'module_name': module}))
+    return rows
+
+
 def build_import_rows(imports: Iterable[Dict[str, Any]], file_lang: Optional[str]) -> List[Dict[str, Any]]:
     """The ``IMPORTS_MERGE_QUERY`` rows for a file's parsed import records (pure).
 
@@ -105,7 +132,7 @@ def build_import_rows(imports: Iterable[Dict[str, Any]], file_lang: Optional[str
         line = imp.get("line_number") or 0
         alias = imp.get("alias") or ""
         if lang in JS_IMPORT_LANGS:
-            module_name = imp.get("source")
+            module_name = _indexable_module_name(imp.get("source"))
             if not module_name:
                 continue
             rows.append({
@@ -124,6 +151,7 @@ def build_import_rows(imports: Iterable[Dict[str, Any]], file_lang: Optional[str
             module_name = imp.get("source")
         else:
             module_name = imp.get("name") or imp.get("source") or imp.get("full_import_name")
+        module_name = _indexable_module_name(module_name)
         if not module_name:
             continue
         full_import_name = imp.get("full_import_name") or imp.get("source") or module_name
@@ -136,7 +164,7 @@ def build_import_rows(imports: Iterable[Dict[str, Any]], file_lang: Optional[str
             "module_lang": lang,
             "full_import_name": full_import_name,
         })
-    return sort_import_rows_for_metadata(rows)
+    return sort_import_rows_for_metadata([sanitize_props(row) for row in rows])
 
 
 # Parameter, Module and ExternalClass used to be written as `UNWIND … MERGE (node) … MERGE (a)-[r]->(node)`. The
@@ -882,8 +910,8 @@ class GraphWriter:
                     file_path=file_path_str,
                 )
 
-            module_inclusions = file_data.get("module_inclusions", [])
-            if module_inclusions:
+            inclusion_rows = build_module_inclusion_rows(file_data.get("module_inclusions", []))
+            if inclusion_rows:
                 session.run(
                     """
                     UNWIND $batch AS row
@@ -891,9 +919,7 @@ class GraphWriter:
                     MERGE (m:Module {name: row.module_name})
                     MERGE (c)-[:INCLUDES]->(m)
                 """,
-                    batch=[
-                        {"class_name": i["class"], "module_name": i["module"]} for i in module_inclusions
-                    ],
+                    batch=inclusion_rows,
                     file_path=file_path_str,
                 )
 
