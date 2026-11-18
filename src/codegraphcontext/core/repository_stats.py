@@ -1,5 +1,7 @@
 """CLI statistics acquired from an already-open database manager."""
 
+from .read_timeout import read_driver
+
 
 def repository_stats(db_manager, repo_path=None):
     """Return the same metrics for direct and gateway-backed CLI reads.
@@ -7,7 +9,7 @@ def repository_stats(db_manager, repo_path=None):
     Scoped containment counts must be DISTINCT: a method can be reachable
     through both File->Function and File->Class->Function.
     """
-    with db_manager.get_driver().session() as session:
+    with read_driver(db_manager, tool="get_repository_stats").session() as session:
         if repo_path is not None:
             if not session.run(
                 "MATCH (r:Repository {path: $path}) RETURN r", path=repo_path

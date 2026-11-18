@@ -87,10 +87,11 @@ def test_kuzu_declares_the_heuristic_calls_table():
     'Binder exception: Table HEURISTIC_CALLS does not exist'. That broke
     `cgc analyze dead-code` completely on KùzuDB, which is the Windows default
     and the universal fallback backend."""
-    from codegraphcontext.core import database_embedded_kuzu as kuzu_mod
+    from codegraphcontext.core.embedded_schema import REL_TABLES
 
-    source = inspect.getsource(kuzu_mod)
-    assert '("HEURISTIC_CALLS", """' in source
+    schemas = {name: schema for name, schema, _ in REL_TABLES}
+    assert 'HEURISTIC_CALLS' in schemas
+    assert schemas['HEURISTIC_CALLS'].split() == schemas['CALLS'].split()
 
 
 def test_schema_comment_does_not_claim_indexes_enforce_uniqueness():

@@ -23,6 +23,7 @@ import json
 import os
 import re
 import zipfile
+from .embedded_schema import NODE_PRIMARY_KEYS
 import tempfile
 import hashlib
 import hmac
@@ -1602,7 +1603,7 @@ cgc import <bundle-file>.cgc
         return count
     
     # Must stay in step with the node tables declared in
-    # database_embedded_kuzu.py. A label missing here falls through to the
+    # embedded_schema.py. A label missing here falls through to the
     # `CREATE (n:Label) SET n = $props` branch, which Kùzu rejects with
     # "Create node n expects primary key <field> as input" — so an omission is
     # not a slow path, it is a hard import failure for any bundle containing
@@ -1611,19 +1612,7 @@ cgc import <bundle-file>.cgc
     # DbColumn and RedisKeyPattern had composite natural keys, which Kùzu
     # cannot declare as a PRIMARY KEY; they are keyed on a synthesized uid
     # (name+table_fqn / pattern+datasource_name) like the positional labels.
-    _PK_MAP = {
-        'Repository': 'path', 'File': 'path', 'Directory': 'path',
-        'Module': 'name',
-        'Function': 'uid', 'Class': 'uid', 'Variable': 'uid',
-        'Trait': 'uid', 'Interface': 'uid', 'Macro': 'uid',
-        'Struct': 'uid', 'Enum': 'uid', 'Union': 'uid',
-        'Annotation': 'uid', 'Record': 'uid', 'Property': 'uid',
-        'Parameter': 'uid', 'EnumMember': 'uid', 'Mixin': 'uid',
-        'Extension': 'uid', 'Object': 'uid',
-        'DbTable': 'fqn', 'Datasource': 'name', 'ExternalClass': 'name',
-        'DbColumn': 'uid', 'RedisKeyPattern': 'uid',
-        'GradleModule': 'name', 'MavenModule': 'uid', 'ExternalLibrary': 'uid',
-    }
+    _PK_MAP = dict(NODE_PRIMARY_KEYS)
     _UID_PARTS = {
         'Function': ['name', 'path', 'line_number', 'occurrence_index'],
         'Class': ['name', 'path', 'line_number', 'occurrence_index'],

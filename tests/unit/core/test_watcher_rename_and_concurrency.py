@@ -56,19 +56,18 @@ def test_on_moved_ignores_directories(tmp_path):
     assert seen == []
 
 
-def test_handle_removal_deletes_the_stale_node(tmp_path):
+def test_handle_removal_relinks_after_removing_the_stale_node(tmp_path):
     handler = _handler(tmp_path)
     old = tmp_path / "oldname.py"
 
+    handler._handle_modification_locked = MagicMock()
     handler._handle_removal(str(old))
-
-    handler.graph_builder.delete_file_from_graph.assert_called_once()
-    assert "oldname.py" in handler.graph_builder.delete_file_from_graph.call_args[0][0]
+    handler._handle_modification_locked.assert_called_once_with(str(old))
 
 
 def test_handle_removal_survives_a_failing_delete(tmp_path):
     handler = _handler(tmp_path)
-    handler.graph_builder.delete_file_from_graph.side_effect = RuntimeError("boom")
+    handler._handle_modification_locked = MagicMock(side_effect=RuntimeError("boom"))
 
     handler._handle_removal(str(tmp_path / "x.py"))   # must not raise
 

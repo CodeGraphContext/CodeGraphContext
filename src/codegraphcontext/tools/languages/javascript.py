@@ -118,6 +118,11 @@ JS_QUERIES = {
 }
 
 
+# Tree-sitter node types that define a class: declarations and class
+# expressions (``const X = class {...}``, #1864).
+_CLASS_NODE_TYPES = ('class_declaration', 'class')
+
+
 class JavascriptTreeSitterParser:
     """A JavaScript-specific parser using tree-sitter, encapsulating language-specific logic."""
 
@@ -130,12 +135,40 @@ class JavascriptTreeSitterParser:
     def _get_node_text(self, node) -> str:
         return node.text.decode('utf-8')
 
-    def _get_parent_context(self, node, types=('function_declaration', 'class_declaration', 'function_expression', 'method_definition', 'arrow_function')):
+    def _class_name_node(self, class_node):
+        """Name node for a class declaration or class expression.
+
+        A class expression is named by its binding (``const X = class {}``,
+        ``X = class {}``, ``obj.X = class {}``), since that is the name callers
+        use; an unbound named expression falls back to its own name.
+        """
+        if class_node.type == 'class':
+            parent = class_node.parent
+            if parent is not None and parent.type == 'variable_declarator':
+                if parent.child_by_field_name('value') == class_node:
+                    binding = parent.child_by_field_name('name')
+                    if binding is not None and binding.type == 'identifier':
+                        return binding
+            elif parent is not None and parent.type == 'assignment_expression':
+                if parent.child_by_field_name('right') == class_node:
+                    left = parent.child_by_field_name('left')
+                    if left is not None and left.type == 'identifier':
+                        return left
+                    if left is not None and left.type == 'member_expression':
+                        prop = left.child_by_field_name('property')
+                        if prop is not None and prop.type == 'property_identifier':
+                            return prop
+        return class_node.child_by_field_name('name')
+
+    def _get_parent_context(self, node, types=('function_declaration', 'class_declaration', 'class', 'function_expression', 'method_definition', 'arrow_function')):
         # JS specific context types
         curr = node.parent
         while curr:
             if curr.type in types:
-                name_node = curr.child_by_field_name('name')
+                if curr.type in _CLASS_NODE_TYPES:
+                    name_node = self._class_name_node(curr)
+                else:
+                    name_node = curr.child_by_field_name('name')
                 if not name_node and curr.type in ('function_expression', 'arrow_function'):
                     # Try to find name from variable declaration
                     if curr.parent and curr.parent.type == 'variable_declarator':
@@ -157,6 +190,15 @@ class JavascriptTreeSitterParser:
                         return name_text, curr.type, curr.start_point[0] + 1
             curr = curr.parent
         return None, None, None
+
+    def _call_class_context(self, node):
+        """``(class name, class line)`` of the class enclosing a call.
+
+        The resolver reads the second slot as the owning class's line to tell
+        same-named classes in one file apart, as for Java and Kotlin calls.
+        """
+        name, _, line = self._get_parent_context(node, types=_CLASS_NODE_TYPES)
+        return (name, line)
 
     def _calculate_complexity(self, node):
         from codegraphcontext.tools.indexing.constants import MAX_AST_DEPTH
@@ -301,7 +343,8 @@ class JavascriptTreeSitterParser:
 
             # Context & docstring
             context, context_type, context_line = self._get_parent_context(func_node)
-            class_context = context if context_type == 'class_declaration' else None
+            is_class_member = context_type in _CLASS_NODE_TYPES
+            class_context = context if is_class_member else None
             docstring = self._get_jsdoc_comment(func_node)
 
             # Classify getter/setter/static (methods only)
@@ -334,6 +377,10 @@ class JavascriptTreeSitterParser:
                 func_data["docstring"] = docstring
             if js_kind is not None:
                 func_data["type"] = js_kind
+            if is_class_member:
+                # Two classes bound to the same name in one file are kept
+                # apart by line, so their methods don't merge (#1864).
+                func_data["class_context_line"] = context_line
 
             functions.append(func_data)
 
@@ -469,7 +516,7 @@ class JavascriptTreeSitterParser:
         query_str = JS_QUERIES['classes']
         for class_node, capture_name in execute_query(self.language, query_str, root_node):
             if capture_name == 'class':
-                name_node = class_node.child_by_field_name('name')
+                name_node = self._class_name_node(class_node)
                 if not name_node: continue
                 name = self._get_node_text(name_node)
 
@@ -611,7 +658,7 @@ class JavascriptTreeSitterParser:
                     "args": args,
                     "inferred_obj_type": None,
                     "context": self._get_parent_context(node),
-                    "class_context": self._get_parent_context(node, types=('class_declaration',))[:2],
+                    "class_context": self._call_class_context(node),
                     "lang": self.language_name,
                     "is_dependency": False,
                 }
@@ -653,7 +700,7 @@ class JavascriptTreeSitterParser:
                     "value": value,
                     "type": None,
                     "context": context,
-                    "class_context": context if context_type == 'class_declaration' else None,
+                    "class_context": context if context_type in _CLASS_NODE_TYPES else None,
                     "lang": self.language_name,
                     "is_dependency": False,
                 })
@@ -700,6 +747,7 @@ def pre_scan_javascript(files: list[Path], parser_wrapper) -> dict:
         (function_declaration name: (identifier) @name)
         (variable_declarator name: (identifier) @name value: (function_expression))
         (variable_declarator name: (identifier) @name value: (arrow_function))
+        (variable_declarator name: (identifier) @name value: (class))
         (method_definition name: (property_identifier) @name)
         (assignment_expression
             left: (member_expression 

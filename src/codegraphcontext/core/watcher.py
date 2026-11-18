@@ -312,6 +312,10 @@ class RepositoryEventHandler(FileSystemEventHandler):
                 parsed = self.graph_builder.parse_file(self.repo_path, path)
             if isinstance(parsed, dict) and parsed.get('path') and 'error' not in parsed:
                 current[key] = (signature, deepcopy(parsed))
+        self._resolution_context_changed = cache.keys() != current.keys() or any(
+            key not in cache or cache[key][1] != value[1]
+            for key, value in current.items()
+        )
         self._resolution_cache = current
         return deepcopy([current[key][1] for key in sorted(current)])
 
@@ -323,6 +327,10 @@ class RepositoryEventHandler(FileSystemEventHandler):
             return
 
         changed_path_str = changed_path.resolve().as_posix()
+        was_indexed = changed_path_str in {
+            str(path).replace('\\', '/')
+            for path in self.graph_builder.get_repo_file_paths(self.repo_path)
+        }
 
         caller_paths = {
             p
@@ -344,6 +352,13 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
         changed_data = self.graph_builder.update_file_in_graph(changed_path, self.repo_path, self.imports_map)
         resolution_context = self._resolution_context(changed_path, changed_data)
+        if self._resolution_context_changed or not was_indexed:
+            # Existing edges cannot identify unresolved/ambiguous callers or
+            # consumers of a newly added definition. Conservatively invalidate
+            # every source when parsed facts change (including a cold cache).
+            # Warm unchanged saves still write only the graph neighbourhood.
+            affected_paths.update(Path(data['path']).resolve().as_posix() for data in resolution_context)
+            self.imports_map = self.graph_builder.pre_scan_imports(self._iter_supported_files())
 
         # Every file in affected_paths is emitted below from full resolution
         # context, so every one of them needs its outgoing CALLS
@@ -354,7 +369,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
         # why this never showed up there.) The changed file itself is excluded:
         # update_file_in_graph above already deleted and rebuilt it.
         other_callers = list(affected_paths - {changed_path_str})
-        other_inheritors = list(inheritor_paths)
+        other_inheritors = list(affected_paths - {changed_path_str})
         if other_callers:
             self.graph_builder.delete_outgoing_calls_from_files(other_callers)
         if other_inheritors:
@@ -444,10 +459,10 @@ class RepositoryEventHandler(FileSystemEventHandler):
         self._debounce(event.dest_path, lambda: self._handle_modification(event.dest_path))
 
     def _handle_removal(self, path_str):
-        """Drop a path that no longer exists (the source side of a rename)."""
+        """Remove a renamed-away path and recompute consumers of its definitions."""
         with self._update_lock:
             try:
-                self.graph_builder.delete_file_from_graph(str(Path(path_str).resolve()))
+                self._handle_modification_locked(path_str)
                 info_logger(f"[WATCH] removed stale node for moved file: {path_str}")
             except Exception as exc:  # noqa: BLE001 - a watcher must not die on one file
                 error_logger(f"[WATCH] failed to remove {path_str}: {exc}")

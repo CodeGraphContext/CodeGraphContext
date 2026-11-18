@@ -26,6 +26,7 @@ from ..core import get_database_manager
 from ..core.repository_stats import repository_stats
 from ..gateway_discovery import GatewayReadError, try_gateway_read
 from ..core.jobs import JobManager
+from ..core.read_timeout import read_driver
 from ..tools.code_finder import CodeFinder
 from ..tools.graph_builder import GraphBuilder
 from ..utils import graph_shapes
@@ -669,7 +670,8 @@ def cypher_helper(query: str, context: Optional[str] = None):
     )
 
     try:
-        with db_manager.get_driver().session(**session_kwargs) as session:
+        # the execute_cypher_query ceiling (TOOL_QUERY_TIMEOUTS) applies to `cgc query` too
+        with read_driver(db_manager, tool="execute_cypher_query").session(**session_kwargs) as session:
             result = session.run(query)
             records = [record.data() for record in result]
             console.print(json.dumps(records, indent=2))
@@ -809,7 +811,7 @@ def _render_offline_visualization(
             }
         return None
 
-    with db_manager.get_driver().session() as session:
+    with read_driver(db_manager).session() as session:
         for record in session.run(query):
             values = list(record.values()) if hasattr(record, "values") else list(record)
             for value in values:
