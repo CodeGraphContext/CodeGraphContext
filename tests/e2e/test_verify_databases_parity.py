@@ -278,10 +278,6 @@ async def _run_database_parity_e2e(temp_test_dir):
     Run indexing against KuzuDB, LadybugDB, FalkorDB Lite, and Neo4j
     and verify 100% mathematical parity across all extracted nodes and relationships.
     """
-    os.environ.setdefault('NEO4J_URI', 'bolt://localhost:7687')
-    os.environ.setdefault('NEO4J_USERNAME', 'neo4j')
-    os.environ.setdefault('NEO4J_PASSWORD', '12345678')
-    
     import importlib.util
     # FalkorDB Lite 的可用性由产品自身判定：Unix + Python >= 3.12 + redislite.falkordb_client，
     # Windows 明确不支持。仅凭 pip 包存在就排入待跑，会经 get_database_manager 的
