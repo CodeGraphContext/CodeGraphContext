@@ -27,15 +27,23 @@ def _escape_lucene(text: str) -> str:
     return _LUCENE_OPERATOR.sub(lambda match: match.group().lower(), escaped)
 
 
+def _sanitize_edit_distance(value) -> int:
+    try:
+        return max(0, min(2, int(value)))
+    except (TypeError, ValueError, OverflowError):
+        return 2
+
+
 def _lucene_query(text: str, edit_distance: Optional[int] = None, field: str = '') -> str:
     """Build Lucene syntax from literal code text, escaping before fuzzy suffixes."""
     if not any(char.isalnum() for char in text):
         return ''
     if edit_distance is None:
         return _escape_lucene(text)
+    edit_distance = _sanitize_edit_distance(edit_distance)
     prefix = f'{field}:' if field else ''
     return ' '.join(f'{prefix}{_escape_lucene(token)}~{edit_distance}'
-                    for token in text.replace('_', ' ').split()
+                    for token in text.split()
                     if any(char.isalnum() for char in token))
 
 # Names that are entry points rather than dead code. Matched on the *whole*
@@ -616,18 +624,15 @@ class CodeFinder:
         self._active_graph = graph_name
         """Find code related to a query using multiple search strategies"""
         repo_path = self._normalize_repo_path_filter(repo_path)
-        # For Lucene backends: split snake_case/underscore tokens so Lucene sees
-        # individual words, then append the fuzzy modifier.
-        # For portable backends: keep user_query verbatim — _find_by_name_fuzzy_portable
-        # handles normalisation via _normalize_identifier.
+        edit_distance = _sanitize_edit_distance(edit_distance)
+        # The standard analyzer retains underscores inside identifiers. Escape
+        # each whitespace token before appending its fuzzy modifier.
         if fuzzy_search and not self._lacks_native_fulltext:
             lucene_fuzzy_query = _lucene_query(user_query, edit_distance)
         else:
             lucene_fuzzy_query = user_query
 
-        # For portable backends, always pass the *original* query to the fuzzy name
-        # matcher — _find_by_name_fuzzy_portable applies its own normalisation.
-        # For Lucene-capable backends, use the Lucene fuzzy token form.
+        # Each database boundary constructs its query from the original text.
         name_lookup_q = user_query
         content_lookup_q = user_query
 
@@ -640,9 +645,17 @@ class CodeFinder:
                 name_lookup_q, fuzzy_search, repo_path, edit_distance
             ),
             "variables_by_name": self.find_by_variable_name(user_query, repo_path),  # no fuzzy for variables as they are not using full-text index
-            "content_matches": self.find_by_content(content_lookup_q, repo_path,
-                                                     fuzzy_search=fuzzy_search, edit_distance=edit_distance),
+            "content_matches": [],
         }
+        try:
+            results["content_matches"] = self.find_by_content(
+                content_lookup_q, repo_path, fuzzy_search=fuzzy_search, edit_distance=edit_distance
+            )
+        except ReadQueryTimeout:
+            raise
+        except Exception as exc:
+            results["content_error"] = str(exc)
+            logger.warning("Content search failed; retaining name matches: %s", exc)
         
         all_results: List[Dict[str, Any]] = []
         

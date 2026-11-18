@@ -19,7 +19,7 @@ from codegraphcontext.core.cgc_bundle import CGCBundle
 
 SCHEMA_FILE = (
     Path(__file__).resolve().parents[3]
-    / "src" / "codegraphcontext" / "core" / "database_embedded_kuzu.py"
+    / "src" / "codegraphcontext" / "core" / "embedded_schema.py"
 )
 
 # Composite primary keys no longer exist in the Kùzu schema: Kùzu cannot

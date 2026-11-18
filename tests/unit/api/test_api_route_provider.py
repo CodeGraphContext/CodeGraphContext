@@ -9,12 +9,15 @@ from codegraphcontext.viz import server
 @pytest.fixture(autouse=True)
 def isolated_provider_keys(monkeypatch):
     for key in (
+        "LITELLM_MODEL",
+        "RUNCRATE_API_KEY",
         "GEMINI_API_KEY",
         "OPENAI_API_KEY",
         "ATLASCLOUD_API_KEY",
         "ATLAS_CLOUD_API_KEY",
         "CHEAPER_INFERENCE_API_KEY",
         "API_ROUTE_API_KEY",
+        "STANDARDCOMPUTE_API_KEY",
         "API_ROUTE_API_BASE",
         "API_ROUTE_MODEL",
     ):

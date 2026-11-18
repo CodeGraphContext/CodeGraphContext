@@ -163,7 +163,9 @@ def visualize_dependencies(
     query = (
         f"MATCH (f:File)-[rel:IMPORTS]->(m:Module) "
         f"WHERE m.name CONTAINS '{term}' OR m.full_import_name CONTAINS '{term}' "
-        f"RETURN f AS n, rel AS rel, m AS m LIMIT 120"
+        f"RETURN f AS n, rel AS rel, m AS m "
+        "ORDER BY n.path, rel.line_number, m.name, rel.imported_name, rel.alias "
+        "LIMIT 120"
     )
     _launch_visualizer(query)
 
@@ -175,13 +177,17 @@ def visualize_inheritance_tree(
     **_: Any,
 ) -> None:
     props = _file_props(class_name, file)
+    # A trailing ORDER BY/LIMIT binds only to the last UNION arm, so order each arm.
+    order = (
+        "ORDER BY n.path, n.line_number, n.name, n.uid, "
+        "m.path, m.line_number, m.name, m.uid LIMIT 120"
+    )
     query = (
         f"MATCH (c:Class {props})-[rel:INHERITS]->(parent:Class) "
-        f"RETURN c AS n, rel AS rel, parent AS m "
+        f"RETURN c AS n, rel AS rel, parent AS m {order} "
         f"UNION "
         f"MATCH (child:Class)-[rel:INHERITS]->(c:Class {props}) "
-        f"RETURN child AS n, rel AS rel, c AS m "
-        f"LIMIT 120"
+        f"RETURN child AS n, rel AS rel, c AS m {order}"
     )
     _launch_visualizer(query)
 
