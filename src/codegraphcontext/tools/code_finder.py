@@ -142,6 +142,38 @@ def _normalize_identifier(s: str) -> str:
     return s.lower().replace('_', '').replace(' ', '')
 
 
+_LUCENE_SPECIAL_CHARS = set('+-&|!(){}[]^"~*?:\\/')
+_LUCENE_OPERATORS = {"AND", "OR", "NOT", "TO"}
+
+
+def _escape_lucene_term(term: str) -> str:
+    """Escape Lucene query syntax in one user token so it matches literally.
+
+    Neo4j's full-text index parses its input as Lucene, so unescaped special
+    characters (``( ) [ ] { } + - ! ^ " ~ * ? : \\ /``) make a code query such
+    as ``apply_route(`` a syntax error instead of a search. Whole-word boolean
+    operators are lowercased rather than escaped: the index analyzer lowercases
+    terms anyway, so ``not`` is an ordinary term while ``NOT`` is the operator.
+    """
+    if term.upper() in _LUCENE_OPERATORS:
+        return term.lower()
+    return "".join(f"\\{c}" if c in _LUCENE_SPECIAL_CHARS else c for c in term)
+
+
+def _escape_lucene_query(query: str) -> str:
+    """Escape every whitespace-separated token of a user query."""
+    return " ".join(_escape_lucene_term(t) for t in query.split())
+
+
+def _has_searchable_content(query: str) -> bool:
+    """True when the query has alphanumeric content to search for.
+
+    An all-symbol query escapes to an empty Lucene query, which is itself a
+    parse error, so the caller should skip the full-text lookup entirely.
+    """
+    return any(c.isalnum() for c in query)
+
+
 def summarize_kotlin_call_ambiguity(
     rows: List[Dict[str, Any]],
     limit: int = 20,
@@ -506,6 +538,11 @@ class CodeFinder:
         repo_path = repository_directory_prefix(repo_path)
         if self._lacks_native_fulltext:
             return self._find_by_content_falkordb(search_term, repo_path)
+        # A query with no alphanumeric content escapes to an empty Lucene query,
+        # which the parser rejects. Skip the lookup so a symbol-only term yields
+        # no content matches without discarding the caller's name matches.
+        if not _has_searchable_content(search_term):
+            return []
         with self.driver.session() as session:
             result = session.run(f"""
                 CALL db.index.fulltext.queryNodes("code_search_index", $search_term) YIELD node, score
@@ -593,7 +630,12 @@ class CodeFinder:
         # handles normalisation via _normalize_identifier.
         if fuzzy_search and not self._lacks_native_fulltext:
             lucene_base = user_query.replace("_", " ").strip()
-            lucene_fuzzy_query = " ".join(f"{t}~{edit_distance}" for t in lucene_base.split())
+            # Escape each user token before appending the fuzzy modifier so the
+            # user's characters match literally while CGC's own `~` stays the
+            # Lucene fuzzy operator.
+            lucene_fuzzy_query = " ".join(
+                f"{_escape_lucene_term(t)}~{edit_distance}" for t in lucene_base.split()
+            )
         else:
             lucene_fuzzy_query = user_query
 
@@ -605,7 +647,16 @@ class CodeFinder:
         else:
             name_lookup_q = lucene_fuzzy_query if fuzzy_search else user_query
 
-        content_lookup_q = lucene_fuzzy_query if (fuzzy_search and not self._lacks_native_fulltext) else user_query
+        # Portable backends (FalkorDB, Kùzu) match content with a Cypher
+        # CONTAINS, so they take the raw term. The native full-text backend
+        # parses content as Lucene, so a non-fuzzy query must be escaped (the
+        # fuzzy form is already escaped per token above).
+        if self._lacks_native_fulltext:
+            content_lookup_q = user_query
+        elif fuzzy_search:
+            content_lookup_q = lucene_fuzzy_query
+        else:
+            content_lookup_q = _escape_lucene_query(user_query)
 
         results: Dict[str, Any] = {
             "query": lucene_fuzzy_query if fuzzy_search else user_query,

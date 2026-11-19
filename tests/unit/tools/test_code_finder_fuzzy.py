@@ -1,4 +1,7 @@
 from codegraphcontext.tools.code_finder import (
+    _escape_lucene_query,
+    _escape_lucene_term,
+    _has_searchable_content,
     _levenshtein_distance,
     summarize_kotlin_call_ambiguity,
 )
@@ -10,6 +13,42 @@ def test_levenshtein_single_typo():
 
 def test_levenshtein_identical():
     assert _levenshtein_distance("abc", "abc") == 0
+
+
+def test_escape_lucene_term_plain_text_untouched():
+    assert _escape_lucene_term("apply_route") == "apply_route"
+
+
+def test_escape_lucene_term_escapes_parenthesis():
+    assert _escape_lucene_term("apply_route(") == "apply_route\\("
+
+
+def test_escape_lucene_term_escapes_brackets():
+    assert _escape_lucene_term("[x]") == "\\[x\\]"
+
+
+def test_escape_lucene_term_escapes_slash():
+    assert _escape_lucene_term("a/b") == "a\\/b"
+
+
+def test_escape_lucene_term_lowercases_operators():
+    assert _escape_lucene_term("NOT") == "not"
+    assert _escape_lucene_term("AND") == "and"
+    assert _escape_lucene_term("OR") == "or"
+    assert _escape_lucene_term("TO") == "to"
+
+
+def test_escape_lucene_query_escapes_each_token():
+    assert _escape_lucene_query("foo NOT bar") == "foo not bar"
+    assert _escape_lucene_query("call(x)") == "call\\(x\\)"
+
+
+def test_has_searchable_content():
+    assert _has_searchable_content("[x]") is True
+    assert _has_searchable_content("apply_route(") is True
+    assert _has_searchable_content("[]") is False
+    assert _has_searchable_content("()") is False
+    assert _has_searchable_content("") is False
 
 
 def test_summarize_kotlin_call_ambiguity_groups_multi_target_calls():
