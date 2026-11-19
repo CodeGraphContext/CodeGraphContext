@@ -149,6 +149,8 @@ def visualize_call_chain(
         f"WITH nodes(p) AS ns, relationships(p) AS rs "
         f"UNWIND range(0, size(rs) - 1) AS i "
         f"RETURN ns[i] AS n, rs[i] AS rel, ns[i + 1] AS m "
+        f"ORDER BY ns[i].path, ns[i].name, ns[i].line_number, ns[i].uid, "
+        f"ns[i + 1].path, ns[i + 1].name, ns[i + 1].line_number, ns[i + 1].uid "
         f"LIMIT 200"
     )
     _launch_visualizer(query)

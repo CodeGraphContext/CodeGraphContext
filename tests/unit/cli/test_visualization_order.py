@@ -1,5 +1,7 @@
 """Visual previews should select the same graph rows after a reindex."""
 
+import inspect
+
 import pytest
 
 from codegraphcontext.cli import visualizer
@@ -98,3 +100,18 @@ def test_visualization_limit_is_independent_of_index_order(
             manager.close_driver()
     assert observed[0] == observed[1]
     assert observed[0] == expected
+
+
+def test_call_chain_has_order_by_before_limit():
+    """visualize_call_chain was missing ORDER BY before LIMIT 200 (#1865).
+
+    The path-unwind pattern returns one row per hop across every discovered
+    path.  Without ORDER BY the hop order depends on insertion order, so the
+    same two-function chain produces different subgraphs after a re-index.
+    This test is source-based so it runs without a database.
+    """
+    src = inspect.getsource(visualizer.visualize_call_chain)
+    assert "ORDER BY" in src, "visualize_call_chain must have an ORDER BY clause"
+    order_pos = src.index("ORDER BY")
+    limit_pos = src.index("LIMIT 200")
+    assert order_pos < limit_pos, "ORDER BY must appear before LIMIT 200"
