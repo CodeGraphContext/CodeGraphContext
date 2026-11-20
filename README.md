@@ -58,7 +58,7 @@
   <a href="http://codegraphcontext.vercel.app/">
     <img src="https://img.shields.io/badge/website-up-brightgreen?style=flat-square" alt="Website">
   </a>
-  <a href="https://codegraphcontext.vercel.app/">
+  <a href="https://codegraphcontext.github.io/">
     <img src="https://img.shields.io/badge/docs-GitHub%20Pages-blue?style=flat-square" alt="Docs">
   </a>
   <a href="https://youtu.be/KYYSdxhg1xU">
@@ -176,7 +176,7 @@ flowchart LR
 -   **Live File Watching:** Watch directories for changes and automatically update the graph in real-time (`cgc watch`).
 -   **Interactive Setup:** A user-friendly command-line wizard for easy setup.
 -   **Dual Mode:** Works as a standalone **CLI toolkit** for developers and as an **MCP server** for AI agents.
--   **Multi-Language Support:** Full support for 23 programming languages.
+-   **Multi-Language Support:** Parsers for the [languages and formats listed below](#supported-programming-languages), with coverage that varies by language.
 -   **Flexible Database Backend:** FalkorDB Lite (Default), KuzuDB, LadybugDB, FalkorDB Remote, Nornic DB, or Neo4j (all platforms via Docker/native).
 
 
@@ -221,7 +221,7 @@ CodeGraphContext provides comprehensive parsing and analysis for the following l
 | 🎨 | **CSS** | ⚛️ | **TSX** | ⛓️ | **Solidity** |
 | 🏗️ | **HCL (Terraform/Terragrunt)** | | | | |
 
-Each language parser extracts functions, classes, methods, parameters, inheritance relationships, function calls, and imports to build a comprehensive code graph.
+Extracted entities and relationship coverage vary by language and indexer. The notes below describe important differences between programming languages and declarative formats.
 
 **HCL notes:** `.tf`, `.tfvars` and `.hcl` cover Terraform, OpenTofu and Terragrunt. HCL declares
 rather than calls, so it contributes blocks, variables and cross-configuration imports but no

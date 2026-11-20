@@ -1,142 +1,77 @@
 # Database Backends
 
-CodeGraphContext (CGC) implements a pluggable database architecture. A common interface abstracts graph creation, updates, and traversals, allowing you to choose the database engine that best fits your scale, operating system, and visualization needs.
+CGC can keep a code graph in a local engine or connect to a graph server. Choose based on your environment, ownership model and workload. Backend support does not imply identical query features, latency or capacity.
 
----
+## Supported backends
 
-## Backend Comparison Matrix
+| Backend | CGC identifier | Deployment | Practical notes |
+| --- | --- | --- | --- |
+| FalkorDB Lite | `falkordb` | Local engine managed by CGC | Unix, Python 3.12+; requires a usable native worker. |
+| KuzuDB | `kuzudb` | Native in-process property graph | Driver availability depends on Python and platform. CGC excludes Kuzu on macOS/Windows with Python 3.14+. |
+| LadybugDB | `ladybugdb` | Native in-process property graph | Embedded alternative when a compatible native library is available; use CGC's declared package bounds. |
+| FalkorDB Remote | `falkordb-remote` | Redis-compatible graph server | Configure `FALKORDB_HOST` and connection settings. |
+| Neo4j | `neo4j` | Bolt graph server | Configure URI, username and password, or use `cgc neo4j setup`. |
+| Nornic DB | `nornic` | Neo4j-compatible Bolt server | CGC connects through the Neo4j Python driver using `NORNIC_*` settings. |
 
-| Feature / Metric | FalkorDB (Lite, Default) | KuzuDB | LadybugDB | FalkorDB (Remote) | Neo4j |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Type** | Embedded In-Memory | Embedded C++ | Embedded SQL | Remote Client | Remote Client |
-| **Operating System** | Linux / macOS | Cross-Platform | Cross-Platform | Cross-Platform | Cross-Platform |
-| **Setup Overhead** | None | None | None | Low (Docker) | Medium (Docker/Aura) |
-| **Read Latency** | Extremely Low | Very Low | Low | Low | Medium |
-| **Max Capacity** | RAM-Bounded | Large | Medium | Unlimited | Unlimited |
-| **Visualization** | CLI / Custom Web UI | CLI / Custom Web UI | CLI / Custom Web UI | Neo4j Client (via Cypher) | Neo4j Browser Console |
+Performance and graph size depend on repository structure, query shape, memory, disk and server configuration. This guide does not assign universal latency rankings or unlimited capacity to any backend. See [MCP operating notes](../reference/mcp-operating-notes.md) for measured examples and limitations.
 
----
+## Installation and dependency bounds
 
-## 1. KuzuDB
+Install CGC so the package resolver applies the project's driver constraints:
 
-KuzuDB is an in-process property graph database management system. It requires zero configuration and stores graph data inside a directory on your filesystem.
-
-- **OLAP Optimized**: Designed for structured graph analysis and multi-hop queries.
-- **Cross-Platform**: Natively supports Windows, Linux, and macOS on Python 3.10+.
-- **Data Directory**: Graphs are saved inside the local `.codegraphcontext/` directory within the workspace.
-
-### Version Compatibility
-
-| Package | Declared bounds (`pyproject.toml`) | Versions |
-| :--- | :--- | :--- |
-| `kuzu` | Not declared | `0.10.0`, `0.11.0`, `0.11.1`, `0.11.2`, `0.11.3` |
-
-### Setup
-Ensure the driver is installed:
 ```bash
-pip install kuzu
+pip install codegraphcontext
+cgc version
+cgc doctor
 ```
-Select KuzuDB as the default backend:
+
+The declared bounds and environment markers in [pyproject.toml](https://github.com/CodeGraphContext/CodeGraphContext/blob/main/pyproject.toml) are authoritative. A separately released driver version is not automatically supported by CGC. Ladybug's current upper bound is deliberate; [issue #1708](https://github.com/CodeGraphContext/CodeGraphContext/issues/1708) tracks the native Python 3.14 validation gate.
+
+Native grammars may download on first use. For offline use, follow the [grammar cache instructions](../reference/mcp-operating-notes.md#first-use-grammars-and-offline-work).
+
+## Local engines and process ownership
+
+KuzuDB and LadybugDB are native graph engines. Ladybug uses a property graph model, Cypher and columnar storage; it does not simulate a graph through SQLite. See the [Ladybug documentation](https://docs.ladybugdb.com/) for its engine model.
+
+Use one owner for an embedded store. Multiple connections within an owning process differ from independent processes opening the same on-disk database. A running gateway or watcher can own the database lock. See [Ladybug's concurrency model](https://docs.ladybugdb.com/concurrency/) and CGC's [ownership guidance](../reference/mcp-operating-notes.md#memory-response-limits-and-ownership).
+
+CGC can delegate supported read-only `list`/`stats` commands to an authoritative local gateway. This does not provide general write delegation for `cgc update`; [issue #1683](https://github.com/CodeGraphContext/CodeGraphContext/issues/1683) remains open for that workflow.
+
+Storage locations depend on the active configuration context and database path. They are not always inside the repository. See [Configuration Contexts](../guides/contexts.md) before changing paths or moving stores.
+
+Select one local backend:
+
 ```bash
+cgc config db falkordb
+# Or, when the corresponding native driver is available:
 cgc config db kuzudb
-```
-
----
-
-## 2. LadybugDB
-
-LadybugDB is an embedded graph database engine implemented over relational SQL drivers.
-
-- **Concurreny Safe**: Thread-safe operations suitable for concurrent watcher tasks.
-- **Relational Backend**: Uses SQLite/relational queries underneath to simulate property graph operations.
-
-### Setup
-Select LadybugDB as the default backend:
-```bash
 cgc config db ladybugdb
 ```
 
----
+## Server connections
 
-## 3. FalkorDB (Lite & Remote)
+Server backends use a network connection, even when the server runs on the same machine.
 
-FalkorDB is a low-latency, high-performance graph database. It supports two execution modes.
+For FalkorDB Remote:
 
-### FalkorDB Lite
-An embedded, in-memory graph engine that uses local shared memory drivers.
-- **Limitation**: Unix-only (Linux and macOS) and requires Python 3.12+.
-- **Speed**: Optimal traversal latency due to in-memory index layouts.
-- **Content search**: `cgc find content` uses portable substring matching on `source` and `docstring` fields (no Neo4j Lucene index required).
-
-### FalkorDB Remote
-Connects to an external Redis-compatible FalkorDB server instance running in a Docker container or network host.
-
-### Version Compatibility
-
-| Package | Declared bounds (`pyproject.toml`) | Versions |
-| :--- | :--- | :--- |
-| `falkordblite` | `>=0.7, <0.10` | `0.7.0`, `0.8.0`, `0.9.0` |
-| `falkordb` | `>=1.0, <1.6` | `1.5.0` |
-| `redis` | `>=5, <6` | `5.3.1` |
-
-### Setup
-Install the target drivers:
 ```bash
-# For FalkorDB Lite
-pip install falkordblite
-
-# For FalkorDB Remote
-pip install falkordb
-```
-Configure FalkorDB:
-```bash
-# Switch default database
-cgc config db falkordb
-
-# For Remote: configure connections
+cgc config db falkordb-remote
 cgc config set FALKORDB_HOST 127.0.0.1
 cgc config set FALKORDB_PORT 6379
 ```
 
----
+For Neo4j, run the interactive setup or configure an existing server:
 
-## 4. Neo4j (Enterprise & Shared)
-
-Neo4j is the enterprise standard for graph database clustering, management, and analysis.
-
-- **Neo4j Browser**: Connect to `http://localhost:7474` to visualize and interact with your code graph using Neo4j's query visualizer.
-- **Scale**: Handles repositories containing millions of lines of code.
-
-### Version Compatibility
-
-| Package | Declared bounds (`pyproject.toml`) | Versions |
-| :--- | :--- | :--- |
-| `neo4j` | `>=5.15.0` | `6.2.0` |
-
-### Setup
-Start a Neo4j server (e.g., using Docker):
 ```bash
-docker run -d --name neo4j-cgc -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:latest
-```
-Install the Neo4j client library:
-```bash
-pip install neo4j
-```
-Configure CGC to connect to Neo4j:
-```bash
+cgc neo4j setup
+# Alternatively:
 cgc config db neo4j
 cgc config set NEO4J_URI bolt://localhost:7687
 cgc config set NEO4J_USERNAME neo4j
-cgc config set NEO4J_PASSWORD password
+cgc config set NEO4J_PASSWORD <password>
 ```
 
-Or run the interactive wizard: `cgc neo4j setup`.
-
----
-
-## 5. Nornic DB
-
-Nornic is a Neo4j-compatible embedded graph driver. Configure it when you want Bolt/Cypher semantics without a standalone Neo4j server.
+For an existing Nornic server:
 
 ```bash
 cgc config db nornic
@@ -145,18 +80,13 @@ cgc config set NORNIC_USERNAME nornic
 cgc config set NORNIC_PASSWORD <password>
 ```
 
-Connection keys mirror the Neo4j section in [Configuration Reference](../reference/config.md).
+Use the appropriate authentication and transport settings for your deployment. See the [Configuration Reference](../reference/config.md) for supported keys.
 
----
+## Selection and fallback order
 
-## Backend Selection Logic
+1. `CGC_RUNTIME_DB_TYPE` selects a per-invocation backend, including CLI `--database` choices.
+2. `DEFAULT_DATABASE` selects the configured default (`cgc config db`).
+3. Without either override, `FALKORDB_HOST` selects remote FalkorDB.
+4. Otherwise CGC tries usable FalkorDB Lite, available KuzuDB, available LadybugDB, configured Neo4j, then configured Nornic.
 
-When executing commands, CGC automatically resolves the active database connection using the following precedence:
-
-1. **CLI Flag Override**: Explicitly set using `--database` or `-db` (e.g., `cgc index --database neo4j`).
-2. **Environment Variable**: Resolves via `CGC_RUNTIME_DB_TYPE` settings.
-3. **Global Config File**: Reads the value set via `cgc config db`.
-4. **Fallback Auto-Detection**:
-   - If `FALKORDB_HOST` env is present, connects to FalkorDB Remote.
-   - On Unix: Tries to initialize FalkorDB Lite -> KuzuDB -> Neo4j.
-   - On Windows: Tries to initialize KuzuDB -> Neo4j.
+This follows `get_database_manager` in [the backend selector](https://github.com/CodeGraphContext/CodeGraphContext/blob/main/src/codegraphcontext/core/__init__.py). Some explicit selections can also fall back when their backend is unavailable. A requested backend name does not prove that it supplied the results: inspect startup diagnostics and `cgc doctor` when validating backend behavior.

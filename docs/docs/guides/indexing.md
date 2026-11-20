@@ -82,14 +82,9 @@ sequenceDiagram
     Watch->>ParsingQueue: Queue updated file
 ```
 
-- **Listing Watchers**: View active file monitors with:
-  ```bash
-  cgc watching
-  ```
-- **Stopping Watchers**: Terminate directory monitoring using:
-  ```bash
-  cgc unwatch /path/to/project
-  ```
+`cgc watch` runs in the foreground. Press **Ctrl+C in its terminal** to stop monitoring and close the embedded database cleanly. Separate CLI processes cannot manage its watcher: `cgc watching` and `cgc unwatch` currently return an unsupported-operation error.
+
+For watchers owned by the MCP server, call `list_watched_paths` or `unwatch_directory` through that same running server.
 
 On startup, each watcher can **reconcile** the graph with disk: files present on disk but missing from the graph are indexed, and graph entries for deleted files are removed before live monitoring begins.
 

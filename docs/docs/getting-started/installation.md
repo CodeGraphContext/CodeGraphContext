@@ -31,30 +31,11 @@ pip install codegraphcontext
 
 ## 2. Database Driver Setup
 
-CGC requires Python driver bindings for your selected database backend. On **Unix with Python 3.12+**, FalkorDB Lite is the default when `falkordblite` is installed; on **Windows** (or when FalkorDB Lite is unavailable), CGC falls back to **KuzuDB**. See [Important defaults](../reference/config.md#important-defaults-read-this-first).
+A standard CGC installation resolves the drivers permitted by its Python and platform dependency markers. Avoid independently upgrading native drivers past CGC's declared bounds; [pyproject.toml](https://github.com/CodeGraphContext/CodeGraphContext/blob/main/pyproject.toml) is authoritative.
 
-### Installing KuzuDB Drivers
-KuzuDB is embedded and runs directly inside the Python process.
-```bash
-pip install kuzu
-```
+On Unix with Python 3.12+, CGC tries available FalkorDB Lite first. It then considers available KuzuDB and LadybugDB engines before configured graph servers. Kuzu is excluded from CGC installs on macOS/Windows with Python 3.14+, where Ladybug provides an embedded alternative. An explicit configuration can change this selection. See [Database Backends](../concepts/backends.md) and run `cgc doctor` to verify the actual engine.
 
-### Installing FalkorDB Drivers (Optional)
-If using the FalkorDB backend:
-- **Embedded Lite** (Unix and Python 3.12+ only):
-  ```bash
-  pip install falkordblite
-  ```
-- **Remote Server Client**:
-  ```bash
-  pip install falkordb
-  ```
-
-### Installing Neo4j Drivers (Optional)
-If connecting to a standalone Neo4j instance:
-```bash
-pip install neo4j
-```
+Native parser grammars can require a first-use download. Prepare them before an offline demo using the [grammar cache guidance](../reference/mcp-operating-notes.md#first-use-grammars-and-offline-work).
 
 ---
 
@@ -64,14 +45,14 @@ Set your preferred default database backend in the global configuration:
 
 ```bash
 cgc config db falkordb          # FalkorDB Lite (default on Unix when falkordblite is installed)
-cgc config db kuzudb          # KuzuDB (cross-platform fallback)
+cgc config db kuzudb          # KuzuDB (where a compatible driver is available)
 cgc config db ladybugdb       # LadybugDB
 cgc config db falkordb-remote # Remote FalkorDB server
 cgc config db neo4j           # Neo4j
 cgc config db nornic          # Nornic (Neo4j-compatible)
 ```
 
-For remote databases (FalkorDB Remote, Neo4j), refer to the database connection properties in the [Configuration Reference](../reference/config.md).
+For server databases (FalkorDB Remote, Neo4j, Nornic), refer to the database connection properties in the [Configuration Reference](../reference/config.md).
 
 ---
 

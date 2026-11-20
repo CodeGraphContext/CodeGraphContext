@@ -19,7 +19,7 @@ These flags apply to most subcommands:
 | `--version` | `-v` | Print package version and exit. |
 | `--help` | `-h` | Show help and exit. |
 
-Use `cgc version` (or `cgc --version`) to print the installed release (currently **0.5.0**).
+Use `cgc version` (or `cgc --version`) to print your installed package version. This may differ from the documentation source version shown in the header.
 
 ---
 
@@ -85,11 +85,11 @@ cgc analyze <subcommand> [args] [options]
 | :--- | :--- |
 | `analyze callers <function>` | Direct callers of a function. |
 | `analyze calls <function>` | Direct callees of a function. |
-| `analyze chain <source> <target>` | Shortest call path between two symbols. |
+| `analyze chain <source> <target>` | Call paths between two symbols; depth and result limits apply. |
 | `analyze deps <module>` | Module import dependencies. |
 | `analyze tree <class>` | Class inheritance tree. |
 | `analyze complexity <function>` | Cyclomatic complexity for one function. |
-| `analyze dead-code` | Unreferenced functions/files (with optional filters). |
+| `analyze dead-code` | Functions without indexed callers, as candidates for review (with optional filters). |
 | `analyze overrides <function>` | Implementations of a function across classes. |
 | `analyze variable <name>` | Variable scope and modification sites. |
 | `analyze kotlin-call-audit` | Kotlin-specific call resolution audit. |
@@ -193,9 +193,10 @@ cgc registry request <github_url>
 
 ```bash
 cgc watch [PATH]          # Shortcut: cgc w
-cgc unwatch <PATH>
-cgc watching
+# Press Ctrl+C in this terminal to stop.
 ```
+
+`cgc watch` runs in the foreground. `cgc unwatch` and `cgc watching` cannot reach another process's watcher and currently exit with an unsupported-operation error. For MCP-owned watchers, use `unwatch_directory` and `list_watched_paths` on the same running server.
 
 With `--sync-on-start`, watchers reconcile the graph with the filesystem (add missing files, remove deleted paths) before monitoring changes. This is off by default.
 
