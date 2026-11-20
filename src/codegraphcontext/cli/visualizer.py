@@ -141,15 +141,20 @@ def visualize_call_chain(
     **_: Any,
 ) -> None:
     start = _file_props(from_func, from_file)
-    end = _file_props(to_func, to_file)
+    target = _file_props(to_func, to_file)
     depth = max(1, min(int(max_depth), 15))
+    # Unwind relationships directly: list subscripts are zero-based in Neo4j
+    # and one-based in the embedded engines. Rebind by relationship identity to
+    # return each hop's real endpoints, including parallel calls.
     query = (
-        f"MATCH (start:Function {start}), (end:Function {end}) "
-        f"MATCH p = (start)-[:CALLS*1..{depth}]->(end) "
-        f"WITH nodes(p) AS ns, relationships(p) AS rs "
-        f"UNWIND range(0, size(rs) - 1) AS i "
-        f"RETURN ns[i] AS n, rs[i] AS rel, ns[i + 1] AS m "
-        f"LIMIT 200"
+        f"MATCH p = (source:Function {start})-[:CALLS*1..{depth}]->(target:Function {target}) "
+        "WITH relationships(p) AS edges "
+        "UNWIND edges AS edge "
+        "MATCH (n:Function)-[rel:CALLS]->(m:Function) WHERE id(rel) = id(edge) "
+        "RETURN DISTINCT n, rel, m "
+        "ORDER BY n.path, n.name, n.line_number, n.uid, "
+        "m.path, m.name, m.line_number, m.uid, rel.line_number, rel.args_key "
+        "LIMIT 200"
     )
     _launch_visualizer(query)
 
