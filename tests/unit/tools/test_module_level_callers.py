@@ -74,14 +74,12 @@ def call_graph(tmp_path_factory):
 
 
 @pytest.mark.parametrize("target", TARGETS)
-@pytest.mark.parametrize("context", ["none", "exact", "fallback"])
+@pytest.mark.parametrize("context", ["none", "exact"])
 def test_callers_include_files_classes_and_contained_functions(
     call_graph, target, context
 ):
     finder, _, target_path, source_path = call_graph
-    path = {"none": None, "exact": target_path, "fallback": target_path + ".missing"}[
-        context
-    ]
+    path = None if context == "none" else target_path
     rows = finder.who_calls_function(target, path=path)
     assert {row["caller_function"] for row in rows} == {
         "boot.ts",
@@ -97,6 +95,12 @@ def test_callers_include_files_classes_and_contained_functions(
         assert row["call_args"] == ["value"]
         if row["caller_function"] != "outside.ts":
             assert row["caller_file_path"] == source_path
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_missing_explicit_target_path_never_falls_back(call_graph, target):
+    finder, _, target_path, _ = call_graph
+    assert finder.who_calls_function(target, path=target_path + ".missing") == []
 
 
 @pytest.mark.parametrize("target", TARGETS)

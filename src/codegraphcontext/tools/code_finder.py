@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import Counter
+from contextvars import ContextVar
 
 from typing import Any, Dict, List, Literal, Optional, TYPE_CHECKING
 from pathlib import Path
@@ -281,7 +282,9 @@ class CodeFinder:
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
         self._lacks_native_fulltext = getattr(db_manager, 'get_backend_type', lambda: 'neo4j')() != 'neo4j'
-        self._active_graph = None
+        # asyncio.to_thread copies the calling context. A graph choice belongs
+        # to that call, even when several tools share this CodeFinder (#1920).
+        self._graph_context = ContextVar('cgc_active_graph', default=None)
 
     @property
     def driver(self):
@@ -291,7 +294,7 @@ class CodeFinder:
         current tool's time ceiling (core/read_timeout.py); other backends get
         the manager's driver unchanged.
         """
-        return read_driver(self.db_manager, self._active_graph)
+        return read_driver(self.db_manager, self._graph_context.get())
 
     def _normalize_repo_path_filter(self, repo_path: Optional[str]) -> Optional[str]:
         """Resolve a caller-supplied repo_path to the absolute path stored on indexed
@@ -313,7 +316,7 @@ class CodeFinder:
             return None
 
         # Reuse the currently active graph so this lookup doesn't reset scoping.
-        repos = self.list_indexed_repositories(graph_name=self._active_graph)
+        repos = self.list_indexed_repositories(graph_name=self._graph_context.get())
         norm = candidate.lower()
         matches: List[str] = []
         for repo in repos:
@@ -475,7 +478,7 @@ class CodeFinder:
         edit_distance: int = 2,
     ) -> List[Dict]:
         """Find functions by name matching."""
-        repo_path = repository_directory_prefix(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         if not fuzzy_search:
             with self.driver.session() as session:
                 result = session.run(f"""
@@ -511,7 +514,7 @@ class CodeFinder:
         edit_distance: int = 2,
     ) -> List[Dict]:
         """Find classes by name matching."""
-        repo_path = repository_directory_prefix(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         if not fuzzy_search:
             with self.driver.session() as session:
                 result = session.run(f"""
@@ -541,7 +544,7 @@ class CodeFinder:
 
     def find_by_variable_name(self, search_term: str, repo_path: Optional[str] = None) -> List[Dict]:
         """Find variables by name matching"""
-        repo_path = repository_directory_prefix(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             result = session.run(f"""
                 MATCH (v:Variable)
@@ -557,7 +560,7 @@ class CodeFinder:
     def find_by_content(self, search_term: str, repo_path: Optional[str] = None,
                         *, fuzzy_search: bool = False, edit_distance: int = 2) -> List[Dict]:
         """Find code by content matching in source or docstrings using the full-text index."""
-        repo_path = repository_directory_prefix(repo_path)
+        repo_path = self._repo_path_prefix(repo_path)
         if self._lacks_native_fulltext:
             return self._find_by_content_falkordb(search_term, repo_path)
         search_term = _lucene_query(search_term, edit_distance if fuzzy_search else None)
@@ -641,7 +644,7 @@ class CodeFinder:
             return result.data()
 
     def find_related_code(self, user_query: str, fuzzy_search: bool, edit_distance: int, repo_path: Optional[str] = None, graph_name: str = None) -> Dict[str, Any]:
-        self._active_graph = graph_name
+        self._graph_context.set(graph_name)
         """Find code related to a query using multiple search strategies"""
         repo_path = self._normalize_repo_path_filter(repo_path)
         edit_distance = _sanitize_edit_distance(edit_distance)
@@ -774,7 +777,7 @@ class CodeFinder:
     def who_calls_function(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Find callers of a function or class constructor using CALLS relationships with improved matching"""
         if path:
-            path = Path(path).as_posix()
+            path = Path(path).resolve().as_posix()
         repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
             repo_filter = "AND caller.path STARTS WITH $repo_path" if repo_path else ""
@@ -801,24 +804,6 @@ class CodeFinder:
                 """, **params)
                 
                 results = result.data()
-                if not results:
-                    params_no_path = {k: v for k, v in params.items() if k != "path"}
-                    result = session.run(f"""
-                        MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name}})
-                        WHERE (target:Function OR target:Class) AND (caller:Function OR caller:Class OR caller:File) {repo_filter}
-                        OPTIONAL MATCH (caller_file:File)-[:CONTAINS]->(caller)
-                        RETURN DISTINCT
-                            caller.name as caller_function,
-                            COALESCE(caller.path, caller_file.path) as caller_file_path,
-                            caller.line_number as caller_line_number,
-                            call.line_number as call_line_number,
-                            call.args as call_args,
-                            caller.is_dependency as caller_is_dependency,
-                            target.path as target_file_path
-                    ORDER BY caller_is_dependency ASC, caller_file_path, caller_line_number
-                        {limit_clause}
-                    """, **params_no_path)
-                    results = result.data()
             else:
                 result = session.run(f"""
                     MATCH (caller)-[call:CALLS|HEURISTIC_CALLS]->(target {{name: $function_name}})
@@ -1051,7 +1036,7 @@ class CodeFinder:
             return result.data()
     
     def find_dead_code(self, exclude_decorated_with: Optional[List[str]] = None, repo_path: Optional[str] = None, graph_name: str = None, limit: Optional[int] = None, include_low_confidence: bool = False) -> Dict[str, Any]:
-        self._active_graph = graph_name
+        self._graph_context.set(graph_name)
         """Find potentially unused functions (not called by other functions in the project), optionally excluding those with specific decorators.
 
         Returns `potentially_unused_functions` (at most `limit` rows, all of
@@ -1589,9 +1574,10 @@ class CodeFinder:
             }
 
     def analyze_code_relationships(self, query_type: str, target: str, context: Optional[str] = None, repo_path: Optional[str] = None, depth: Optional[int] = None, graph_name: str = None) -> Dict[str, Any]:
-        self._active_graph = graph_name
+        self._graph_context.set(graph_name)
         """Main method to analyze different types of code relationships with fixed return types"""
         query_type = query_type.lower().strip()
+        repo_path = self._normalize_repo_path_filter(repo_path)
         
         # Use depth if provided, otherwise default to 3 for 'all' queries
         effective_depth = depth if depth is not None else 3
@@ -1726,7 +1712,7 @@ class CodeFinder:
             
             elif query_type in ["dead_code", "unused", "unreachable"]:
                 # graph_name must be forwarded: find_dead_code defaults it to None and
-                # re-assigns the shared self._active_graph, so omitting it here
+                # selects the call's graph context, so omitting it here
                 # silently redirected the query to the default graph.
                 results = self.find_dead_code(repo_path=repo_path, graph_name=graph_name)
                 return {
@@ -1814,7 +1800,7 @@ class CodeFinder:
             }
 
     def get_cyclomatic_complexity(self, function_name: str, path: Optional[str] = None, repo_path: Optional[str] = None, graph_name: str = None) -> Optional[Dict]:
-        self._active_graph = graph_name
+        self._graph_context.set(graph_name)
         """Get the cyclomatic complexity of a function."""
         repo_path = self._repo_path_prefix(repo_path)
         with self.driver.session() as session:
@@ -1843,7 +1829,7 @@ class CodeFinder:
             return None
 
     def find_most_complex_functions(self, limit: Optional[int] = 10, repo_path: Optional[str] = None, graph_name: str = None) -> List[Dict]:
-        self._active_graph = graph_name
+        self._graph_context.set(graph_name)
         """Find the most complex functions based on cyclomatic complexity.
 
         ``limit=None`` returns the full set — CI enforcement must not have its
@@ -1890,7 +1876,7 @@ class CodeFinder:
             return result.data()
 
     def list_indexed_repositories(self, graph_name: str = None) -> List[Dict]:
-        self._active_graph = graph_name
+        self._graph_context.set(graph_name)
         """List all indexed repositories."""
         with self.driver.session() as session:
             result = session.run("""
