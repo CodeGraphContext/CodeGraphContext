@@ -2,7 +2,6 @@
 """Heuristic resolution of function calls into CALLS edge payloads (no DB I/O)."""
 
 from collections import defaultdict
-from functools import lru_cache
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -10,20 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from ....cli.config_manager import get_config_value
 from ...type_utils import strip_type_modifiers
 from ....utils.debug_log import info_logger
-
-
-@lru_cache(maxsize=None)
-def _resolved_posix(path: str) -> str:
-    """Memoized ``Path(path).resolve().as_posix()``.
-
-    The CALLS pass resolves the same handful of paths hundreds of thousands of
-    times; ``Path.resolve()`` hits the filesystem (``realpath``/``lstat``) on
-    every call. The mapping from a path string to its resolved POSIX form is
-    deterministic for the duration of an index run, so memoizing it is exact.
-    ``build_function_call_groups`` clears this cache on entry to stay fresh
-    across runs in long-lived processes.
-    """
-    return Path(path).resolve().as_posix()
+# the path helpers live in the Python import-target layer (standard library only)
+from .python_import_targets import _repo_relative_posix, _resolved_posix
 
 
 def import_path_in_candidate(import_name: str, candidate_path: str, repo_root: Optional[str] = None) -> bool:
@@ -49,17 +36,6 @@ def import_path_in_candidate(import_name: str, candidate_path: str, repo_root: O
     """
     needle = import_name.replace(".", "/")
     return needle in _repo_relative_posix(candidate_path, repo_root)
-
-
-def _repo_relative_posix(path: str, repo_root: Optional[str]) -> str:
-    """*path* from the repository directory down (``<repo dir name>/<path in repo>``)."""
-    if not repo_root:
-        return path
-    root = _resolved_posix(repo_root).rstrip("/")
-    if not root or not path.startswith(root + "/"):
-        return path
-    parent = root.rsplit("/", 1)[0]
-    return path[len(parent) + 1:] if parent else path.lstrip("/")
 
 
 # Confidence score for each resolution tier.
