@@ -18,8 +18,8 @@ CodeGraphContext (CGC) is designed as a client-server architecture. To ensure a 
 
 | Resource | Minimum Requirement | Notes |
 | :--- | :--- | :--- |
-| **Operating System** | Linux, macOS, or Windows | Windows WSL is supported but native installation works via KuzuDB. |
-| **Python Version** | Python 3.10 or higher | Python 3.10+ is required for the core package and KuzuDB. |
+| **Operating System** | Linux, macOS, or Windows | Windows WSL is supported; LadybugDB supports native embedded operation. |
+| **Python Version** | Python 3.10 or higher | Python 3.10+ is required for the core package and LadybugDB. |
 | **Memory** | 4 GB RAM | Large repositories benefit from 8 GB+ memory during initial scans. |
 
 ---
@@ -31,8 +31,8 @@ CGC supports multiple database engines. You only need to set up the engine that 
 | Database Backend | Setup Type | Target Platform | Use Case |
 | :--- | :--- | :--- | :--- |
 | **FalkorDB Lite (Default)** | In-process (Embedded) | Unix (Linux/macOS), Python 3.12+ | Default when `falkordblite` is installed. In-memory, extremely low latency. |
-| **KuzuDB** | In-process (Embedded) | Cross-Platform (Linux/macOS/Windows) | Automatic fallback on Windows or when FalkorDB Lite is unavailable. Python 3.10+. |
-| **LadybugDB** | In-process (Embedded) | Cross-Platform | Alternative embedded engine; `pip install ladybug`. |
+| **LadybugDB** | In-process (Embedded) | Cross-Platform | Maintained fallback when FalkorDB Lite is unavailable. |
+| **KuzuDB (Legacy)** | In-process (Embedded) | Wheel-dependent | Explicit compatibility and migration only; never selected implicitly. |
 | **FalkorDB Remote** | Networked Server | Cross-Platform Client | Connects to a remote FalkorDB/Redis-compatible server. |
 | **Neo4j** | Networked Server | Cross-Platform Client | Enterprise clustering, Neo4j Browser, AuraDB. |
 | **Nornic DB** | Embedded / Bolt client | Cross-Platform | Neo4j-compatible driver without a full Neo4j deployment. |

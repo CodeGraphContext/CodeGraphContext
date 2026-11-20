@@ -41,7 +41,8 @@ CodeGraphContext (CGC) transforms source code repositories into a **queryable gr
 - **Viz Server** — FastAPI server serving the built React visualization
 - **Website** — Vite + React SPA with in-browser Tree-sitter parsing and graph visualization (https://codegraphcontext.vercel.app/)
 
-The system supports **5 database backends** (FalkorDB Lite, FalkorDB Remote, KuzuDB, Neo4j, Nornic DB), **20 programming languages** via Tree-sitter, and optional **SCIP-based** precise indexing.
+The system supports **6 database backends** (FalkorDB Lite, FalkorDB Remote, LadybugDB, legacy KuzuDB, Neo4j, and
+Nornic DB), **20 programming languages** via Tree-sitter, and optional **SCIP-based** precise indexing.
 
 ---
 
@@ -82,7 +83,8 @@ graph TB
     subgraph DB["Database Layer — get_database_manager()"]
         Falkor["FalkorDB Lite<br/>Embedded<br/>Unix + Py3.12+"]
         FalkorR["FalkorDB Remote<br/>Server"]
-        Kuzu["KuzuDB<br/>Embedded<br/>All Platforms"]
+        Ladybug["LadybugDB<br/>Embedded<br/>Maintained"]
+        Kuzu["KuzuDB<br/>Embedded<br/>Legacy Opt-in"]
         Neo4j["Neo4j<br/>Server<br/>Enterprise"]
         Nornic["Nornic DB<br/>Neo4j-compatible"]
     end
@@ -111,6 +113,7 @@ graph TB
 
     DB --- Falkor
     DB --- FalkorR
+    DB --- Ladybug
     DB --- Kuzu
     DB --- Neo4j
     DB --- Nornic
@@ -204,6 +207,9 @@ classDiagram
     class KuzuDBManager {
         +db_path: str
     }
+    class LadybugDBManager {
+        +db_path: str
+    }
     class Neo4jManager {
         +uri: str
         +username: str
@@ -227,6 +233,7 @@ classDiagram
     GraphWriter --> DatabaseManager
     CodeFinder --> DatabaseManager
     FalkorDBManager ..|> DatabaseManager
+    LadybugDBManager ..|> DatabaseManager
     KuzuDBManager ..|> DatabaseManager
     Neo4jManager ..|> DatabaseManager
     FalkorDBRemoteManager ..|> DatabaseManager
@@ -245,7 +252,7 @@ graph LR
         
         subgraph "Embedded DB (default)"
             FalkorLite["FalkorDB Lite<br/>~/.codegraphcontext/db/falkordb/"]
-            KuzuLocal["KuzuDB<br/>~/.codegraphcontext/db/kuzudb/"]
+            LadybugLocal["LadybugDB<br/>~/.codegraphcontext/db/ladybugdb/"]
         end
     end
     
@@ -256,7 +263,7 @@ graph LR
     
     IDE_App <-->|stdio| CGC_MCP
     CGC_MCP --> FalkorLite
-    CGC_MCP --> KuzuLocal
+    CGC_MCP --> LadybugLocal
     CGC_MCP -.-> Neo4jServer
     CGC_MCP -.-> FalkorRemote
     CGC_CLI --> FalkorLite
@@ -433,7 +440,7 @@ cgc
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                get_database_manager()                     │
-│                core/__init__.py (166 lines)               │
+│                core/__init__.py                            │
 │                                                          │
 │  Selection Priority:                                     │
 │  1. CGC_RUNTIME_DB_TYPE env (CLI --database flag)        │
@@ -441,8 +448,9 @@ cgc
 │  3. Implicit auto-detection:                             │
 │     a. FALKORDB_HOST set → FalkorDB Remote               │
 │     b. Unix + Py3.12+ → FalkorDB Lite                   │
-│     c. KuzuDB installed → KuzuDB                        │
-│     d. Neo4j credentials → Neo4j                        │
+│     c. LadybugDB available → LadybugDB                   │
+│     d. Neo4j/Nornic credentials → configured server      │
+│  KuzuDB is explicit-only during the migration window.    │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -450,7 +458,8 @@ cgc
 |---------|------|-------|--------|----------|
 | FalkorDB Lite | `database_falkordb.py` | 481 | Embedded via `redislite` + `falkordb` | Unix, Python 3.12+ |
 | FalkorDB Remote | `database_falkordb_remote.py` | 200 | Remote FalkorDB server | Any (needs `FALKORDB_HOST`) |
-| KuzuDB | `database_kuzu.py` | 627 | Embedded Kuzu | All platforms (Windows default) |
+| LadybugDB | `database_ladybug.py` | Shared embedded adapter | Embedded property graph | Maintained cross-platform fallback |
+| KuzuDB | `database_kuzu.py` | Shared embedded adapter | Archived embedded Kuzu | Legacy opt-in; wheel-dependent |
 | Neo4j | `database.py` | 274 | Neo4j server (bolt) | Any (needs credentials) |
 | Nornic DB | `database_nornic.py` | 180 | Neo4j-compatible Nornic DB | Any (needs credentials) |
 
@@ -1166,12 +1175,18 @@ flowchart TD
     
     CheckRuntime -->|"kuzudb"| KuzuAvail{kuzu installed?}
     KuzuAvail -->|Yes| UseKuzu[Use KuzuDB]
-    KuzuAvail -->|No| ErrorKuzu[Raise ValueError]
+    KuzuAvail -->|No| KuzuReplacement{Maintained fallback available?}
+    KuzuReplacement -->|Yes| UseLadybug[Use LadybugDB and migrate]
+    KuzuReplacement -->|No| ErrorKuzu[Raise ValueError]
+
+    CheckRuntime -->|"ladybugdb"| LadybugAvail{LadybugDB installed?}
+    LadybugAvail -->|Yes| UseLadybug
+    LadybugAvail -->|No| ErrorLadybug[Raise ValueError]
     
     CheckRuntime -->|"falkordb"| FalkorAvail{FalkorDB Lite<br/>available?}
     FalkorAvail -->|Yes| UseFalkor[Use FalkorDB Lite]
-    FalkorAvail -->|No| FalkorFallback{KuzuDB installed?}
-    FalkorFallback -->|Yes| UseKuzu
+    FalkorAvail -->|No| FalkorFallback{LadybugDB installed?}
+    FalkorFallback -->|Yes| UseLadybug
     FalkorFallback -->|No| ErrorFalkor[Raise ValueError]
     
     CheckRuntime -->|"falkordb-remote"| HostSet{FALKORDB_HOST set?}
@@ -1181,16 +1196,22 @@ flowchart TD
     CheckRuntime -->|"neo4j"| Neo4jCreds{NEO4J_URI +<br/>credentials set?}
     Neo4jCreds -->|Yes| UseNeo4j[Use Neo4j]
     Neo4jCreds -->|No| ErrorNeo4j[Raise ValueError]
+
+    CheckRuntime -->|"nornic"| NornicCreds{NORNIC_URI +<br/>credentials set?}
+    NornicCreds -->|Yes| UseNornic[Use Nornic]
+    NornicCreds -->|No| ErrorNornic[Raise ValueError]
     
     CheckRuntime -->|Not set| ImplicitRemote{FALKORDB_HOST set?}
     ImplicitRemote -->|Yes| UseRemote
     ImplicitRemote -->|No| ImplicitFalkor{FalkorDB Lite<br/>available?}
     ImplicitFalkor -->|Yes| UseFalkor
-    ImplicitFalkor -->|No| ImplicitKuzu{kuzu installed?}
-    ImplicitKuzu -->|Yes| UseKuzu
-    ImplicitKuzu -->|No| ImplicitNeo4j{Neo4j configured?}
+    ImplicitFalkor -->|No| ImplicitLadybug{LadybugDB installed?}
+    ImplicitLadybug -->|Yes| UseLadybug
+    ImplicitLadybug -->|No| ImplicitNeo4j{Neo4j configured?}
     ImplicitNeo4j -->|Yes| UseNeo4j
-    ImplicitNeo4j -->|No| ErrorNone[Raise ValueError:<br/>No backend available]
+    ImplicitNeo4j -->|No| ImplicitNornic{Nornic configured?}
+    ImplicitNornic -->|Yes| UseNornic
+    ImplicitNornic -->|No| ErrorNone[Raise ValueError:<br/>No backend available]
 ```
 
 ---
@@ -1231,7 +1252,7 @@ CodeGraphContext/
 │   │   ├── database.py               # Neo4j backend (274 lines)
 │   │   ├── database_falkordb.py      # FalkorDB Lite (481 lines)
 │   │   ├── database_falkordb_remote.py # FalkorDB Remote (200 lines)
-│   │   ├── database_kuzu.py          # KuzuDB backend (627 lines)
+│   │   ├── database_kuzu.py          # Legacy KuzuDB compatibility backend
 │   │   ├── jobs.py                   # Job tracking (133 lines)
 │   │   ├── watcher.py                # File watcher (261 lines)
 │   │   ├── cgcignore.py              # Ignore rules (119 lines)
@@ -1356,10 +1377,11 @@ CodeGraphContext/
 | 3 | CLI with 55+ commands | `cli/main.py` | Stable |
 | 4 | FalkorDB Lite embedded backend | `database_falkordb.py` | Stable (Unix, Py3.12+) |
 | 5 | FalkorDB Remote backend | `database_falkordb_remote.py` | Stable |
-| 6 | KuzuDB embedded backend | `database_kuzu.py` | Stable |
-| 7 | Neo4j server backend | `database.py` | Stable |
-| 8 | 20 language parsers (Tree-sitter) | `languages/*.py` | Stable |
-| 9 | Python, JS, TS, Go, Rust, C, C++, Java, Ruby, C#, PHP, Kotlin, Scala, Swift, Dart, Perl, Haskell, Elixir, TSX, Lua | | |
+| 6 | LadybugDB maintained embedded backend | `database_ladybug.py` | Stable |
+| 7 | KuzuDB legacy compatibility backend | `database_kuzu.py` | Deprecated |
+| 8 | Neo4j server backend | `database.py` | Stable |
+| 9 | 20 language parsers (Tree-sitter) | `languages/*.py` | Stable |
+| — | Python, JS, TS, Go, Rust, C, C++, Java, Ruby, C#, PHP, Kotlin, Scala, Swift, Dart, Perl, Haskell, Elixir, TSX, Lua | | |
 | 10 | Jupyter notebook parsing | Python parser + `nbformat` | Stable |
 | 11 | SCIP indexing (opt-in) | `scip_indexer.py`, `scip_pipeline.py` | Beta |
 | 12 | Graph schema: 17 node types, 7 relationships | `schema_contract.py` | Stable |
@@ -1421,8 +1443,8 @@ CodeGraphContext/
 
 | # | Limitation | Impact | Severity |
 |---|-----------|--------|----------|
-| L9 | **FalkorDB Lite requires Unix + Python 3.12+** — no Windows support | Windows users fall back to KuzuDB | Medium |
-| L10 | **KuzuDB Cypher dialect differences** — some Cypher constructs (UNWIND, certain aggregations) differ from Neo4j/Falkor | Query compatibility issues; `code_finder.py` has workarounds but not exhaustive | High |
+| L9 | **FalkorDB Lite requires Unix + Python 3.12+** — no Windows support | Windows users fall back to LadybugDB | Medium |
+| L10 | **Embedded Kuzu-dialect differences** — some Cypher constructs (UNWIND, certain aggregations) differ from Neo4j/Falkor | Query compatibility issues; `code_finder.py` has workarounds but not exhaustive | High |
 | L11 | **No connection pooling** — single driver instance per backend | Performance ceiling under concurrent queries | Low |
 | L12 | **Bundle format tied to Cypher** — export/import uses raw Cypher strings; schema changes break bundles | Forward compatibility risk | Medium |
 

@@ -130,7 +130,7 @@ def run_worker():
                     "Searched: " + str(potential_paths)
                 )
                 # Exit with a distinct code so the parent can detect FalkorDB is
-                # unavailable in this environment and fall back to KùzuDB.
+                # unavailable in this environment and fall back to LadybugDB.
                 sys.exit(2)
 
         # Start Embedded DB
@@ -157,7 +157,7 @@ def run_worker():
                     f"FalkorDB module not loaded — GRAPH.QUERY unavailable: {health_err}. "
                     "The Redis server started but the FalkorDB .so module was not loaded."
                 )
-                sys.exit(2)  # same exit code: parent will fall back to KùzuDB
+                sys.exit(2)  # same exit code: parent will fall back to LadybugDB
             else:
                 logger.warning(f"FalkorDB health-check warning (non-fatal): {health_err}")
         
