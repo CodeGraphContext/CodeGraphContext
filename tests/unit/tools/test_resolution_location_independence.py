@@ -37,6 +37,10 @@ FILES = {
     "pkg/models.py": "class Base:\n    pass\n",
     "pkg/other.py": "class Base:\n    pass\n",
     "pkg/user.py": "import re\n\nclass Child(re.Base):\n    pass\n",
+    # ... and a from-import of the ambiguous `Base` (two candidates): the import names
+    # pkg/models.py — never a path that merely contains `models` or `base`
+    "pkg/__init__.py": "",
+    "pkg/user2.py": "from pkg.models import Base\n\nclass Child2(Base):\n    pass\n",
 }
 
 EXT = {".js": "javascript", ".py": "python"}
@@ -93,18 +97,22 @@ def _materialise(parent: Path) -> Path:
 
 def test_placement_invariance(tmp_path):
     """Named so pytest's tmp_path (which embeds the test name) holds no imported name."""
-    if "_t" in str(tmp_path) or "re" in str(tmp_path):
+    if any(n in str(tmp_path) for n in ("_t", "re", "models", "base")):
         pytest.skip(f"the temp root itself contains an imported name: {tmp_path}")
     neutral = _materialise(tmp_path / "copy_zq1w2e3r")
     # random tempfile suffixes that put an imported name into the absolute path
     hostile_t = _materialise(tmp_path / "copy_tq1w2e3r")
     hostile_re = _materialise(tmp_path / "copy_req1w2e3")
+    # an import-bound base under directories named like the module and the class
+    hostile_models = _materialise(tmp_path / "copy_models_base")
     baseline = _resolve(neutral)
     assert ("onClick", "widgets/button.js", "load", "reports/controller.js", 3, 8) in baseline[0]
-    # `re.Base`: neither candidate's repository path contains `re` -> not resolved into the repo
+    # `re.Base`: `re` is the stdlib module, not in the repository -> ExternalClass
     assert [row[3] for row in baseline[1] if row[0] == "Child"] == ["<outside>/__external__"], baseline[1]
+    assert [row[2:] for row in baseline[1] if row[0] == "Child2"] == [("Base", "pkg/models.py")], baseline[1]
     assert _resolve(hostile_t) == baseline
     assert _resolve(hostile_re) == baseline
+    assert _resolve(hostile_models) == baseline
 
 
 def test_import_path_match_ignores_the_checkout_location():

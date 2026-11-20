@@ -171,7 +171,8 @@ class PythonTreeSitterParser:
             functions = self._find_functions(root_node)
             functions.extend(self._find_lambda_assignments(root_node, index_source))
             classes = self._find_classes(root_node)
-            imports = self._find_imports(root_node)
+            star_imports: set = set()
+            imports = self._find_imports(root_node, star_imports)
             function_calls = self._find_calls(root_node)
             self._attach_module_context(functions, function_calls, root_node, index_source)
             variables = self._find_variables(root_node)
@@ -182,6 +183,8 @@ class PythonTreeSitterParser:
                 "classes": classes,
                 "variables": variables,
                 "imports": imports,
+                # `from m import *` modules (resolution/python_import_targets.py)
+                "py_star_imports": sorted(star_imports),
                 "function_calls": function_calls,
                 "is_dependency": is_dependency,
                 "lang": self.language_name,
@@ -416,7 +419,10 @@ class PythonTreeSitterParser:
                 classes.append(class_data)
         return classes
 
-    def _find_imports(self, root_node):
+    def _find_imports(self, root_node, star_imports=None):
+        """The file's import records. *star_imports*: a set that receives the module of
+        each ``from m import *`` (no record carries one: the names it binds are only
+        known through the module, at link time)."""
         imports = []
         seen_modules = {}
         query_str = PY_QUERIES['imports']
@@ -451,7 +457,9 @@ class PythonTreeSitterParser:
                     if not module_name_node: continue
                     
                     module_name = self._get_node_text(module_name_node)
-                    
+                    if star_imports is not None and any(c.type == 'wildcard_import' for c in node.children):
+                        star_imports.add(module_name)
+
                     # Handle 'from ... import ...'
                     # children_by_field_name returns ALL imported names;
                     # child_by_field_name would only return the first one.
