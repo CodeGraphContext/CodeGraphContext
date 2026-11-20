@@ -30,6 +30,13 @@
 | `cgc clean` | None | Remove orphaned nodes and clean up the database. |
 | `cgc add-package` | `<name> <lang>` | Manually add an external package node. |
 
+`cgc index` / `cgc update` / `cgc add-package` end with an execution summary — counts and
+**Index seconds (total)** — and an **Index phase timings** table (seconds and % of total per phase
+that ran: discover, pre_scan, parse, write_nodes, write_imports, inheritance, type_links,
+decorated_by, calls_resolve, calls_write, framework_links, …; SCIP: scip_index, supplement,
+scip_calls). The old "Serialization seconds" row (everything after parsing) is replaced; the summary
+dict keeps it as `post_parse_seconds` with `serialization_seconds` as a deprecated alias.
+
 ---
 
 ## 2. Watching & Monitoring

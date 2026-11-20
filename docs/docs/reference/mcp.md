@@ -27,8 +27,10 @@ lifecycle limitations.
 3. Call `add_code_to_graph` with `repo_path`. A job ID means accepted work,
    not completed indexing.
 4. Poll `check_job_status` with that ID until completed or failed. Inspect
-   `errors`, `error_type` and `traceback` on failure. Jobs are held in memory;
-   they are not durable across server restarts.
+   `errors`, `error_type` and `traceback` on failure; a completed full index
+   carries its summary (counts and per-phase timings, `phase_seconds`) in
+   `job.result.index_summary`. Jobs are held in memory; they are not durable
+   across server restarts.
 5. Call `find_code`, then `analyze_code_relationships`, with an explicit
    `repo_path` when multiple repositories have matching symbol names.
 6. Call `watch_directory` with `repo_path` for ongoing updates. Allow for the

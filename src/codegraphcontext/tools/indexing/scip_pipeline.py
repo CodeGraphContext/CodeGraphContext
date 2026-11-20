@@ -18,6 +18,8 @@ from .constants import DEFAULT_IGNORE_PATTERNS
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
 from .operation import IndexingOperation
+from .phase_timings import PhaseTimings, recording
+from .pipeline import index_timing_fields, publish_index_summary
 from .resolution.calls import build_function_call_groups
 from .resolution.inheritance import build_inheritance_and_csharp_files
 
@@ -84,7 +86,33 @@ def _run_scip_index(
     operation: IndexingOperation,
 ) -> None:
     """Run SCIP CLI, write graph, supplement with Tree-sitter, write SCIP CALLS edges."""
+    # Per-phase wall time (summary["phase_seconds"]); the writer times its IMPORTS
+    # writes as their own phase through the recording context.
+    timings = PhaseTimings()
+    with recording(timings):
+        _run_scip_phases(
+            path, is_dependency, job_id, lang, writer, job_manager, parsers_keys,
+            get_parser, scip_indexer_mod, cgcignore_path, index_summary,
+            operation=operation, timings=timings,
+        )
 
+
+def _run_scip_phases(
+    path: Path,
+    is_dependency: bool,
+    job_id: Optional[str],
+    lang: str,
+    writer: GraphWriter,
+    job_manager: JobManager,
+    parsers_keys: Any,
+    get_parser: Callable[[str], Any],
+    scip_indexer_mod: Any,
+    cgcignore_path: Optional[str],
+    index_summary: Optional[dict],
+    *,
+    operation: IndexingOperation,
+    timings: PhaseTimings,
+) -> None:
     check_cancelled = operation.check_cancelled
 
     check_cancelled()
@@ -94,27 +122,28 @@ def _run_scip_index(
     if job_id:
         job_manager.update_job(job_id, status=JobStatus.RUNNING)
 
-    repo_root = path if path.is_dir() else path.parent.resolve()
-    check_cancelled()
-    writer.add_repository_to_graph(repo_root, is_dependency)
-    check_cancelled()
-    repo_name = repo_root.name
-    index_root = path.resolve() if path.is_dir() else path.parent.resolve()
+    with timings.phase("discover"):
+        repo_root = path if path.is_dir() else path.parent.resolve()
+        check_cancelled()
+        writer.add_repository_to_graph(repo_root, is_dependency)
+        check_cancelled()
+        repo_name = repo_root.name
+        index_root = path.resolve() if path.is_dir() else path.parent.resolve()
 
-    ignore_spec = None
-    try:
-        ignore_spec, resolved_cgcignore = build_ignore_spec(
-            ignore_root=index_root,
-            default_patterns=DEFAULT_IGNORE_PATTERNS,
-            explicit_path=cgcignore_path,
-        )
-        if resolved_cgcignore:
-            debug_log(
-                f"SCIP using .cgcignore at {resolved_cgcignore} "
-                f"(filtering relative to {index_root})"
+        ignore_spec = None
+        try:
+            ignore_spec, resolved_cgcignore = build_ignore_spec(
+                ignore_root=index_root,
+                default_patterns=DEFAULT_IGNORE_PATTERNS,
+                explicit_path=cgcignore_path,
             )
-    except OSError as e:
-        warning_logger(f"Could not load/create .cgcignore for SCIP indexing: {e}")
+            if resolved_cgcignore:
+                debug_log(
+                    f"SCIP using .cgcignore at {resolved_cgcignore} "
+                    f"(filtering relative to {index_root})"
+                )
+        except OSError as e:
+            warning_logger(f"Could not load/create .cgcignore for SCIP indexing: {e}")
 
     def should_skip_file(file_path: Path) -> bool:
         # SCIP indexes can reference documents outside the project root,
@@ -130,176 +159,212 @@ def _run_scip_index(
 
     try:
         check_cancelled()
-        with tempfile.TemporaryDirectory(prefix="cgc_scip_") as tmpdir:
-            scip_file = ScipIndexer().run(path, lang, Path(tmpdir))
-            check_cancelled()
+        with timings.phase("scip_index"):
+            with tempfile.TemporaryDirectory(prefix="cgc_scip_") as tmpdir:
+                scip_file = ScipIndexer().run(path, lang, Path(tmpdir))
+                check_cancelled()
 
-            if not scip_file:
-                warning_logger(
-                    f"SCIP indexer produced no output for {path}. "
-                    "Falling back to Tree-sitter."
-                )
-                raise RuntimeError("SCIP produced no index — triggering Tree-sitter fallback")
+                if not scip_file:
+                    warning_logger(
+                        f"SCIP indexer produced no output for {path}. "
+                        "Falling back to Tree-sitter."
+                    )
+                    raise RuntimeError("SCIP produced no index — triggering Tree-sitter fallback")
 
-            scip_data = ScipIndexParser().parse(scip_file, path)
-            check_cancelled()
+                scip_data = ScipIndexParser().parse(scip_file, path)
+                check_cancelled()
 
-        if not scip_data:
-            raise RuntimeError("SCIP parse returned empty result")
+            if not scip_data:
+                raise RuntimeError("SCIP parse returned empty result")
 
-        files_data = scip_data.get("files", {})
-        files_data = {
-            abs_path_str: file_data
-            for abs_path_str, file_data in files_data.items()
-            if not should_skip_file(Path(abs_path_str))
-        }
-        file_paths = [Path(p) for p in files_data.keys() if Path(p).exists()]
+            files_data = scip_data.get("files", {})
+            files_data = {
+                abs_path_str: file_data
+                for abs_path_str, file_data in files_data.items()
+                if not should_skip_file(Path(abs_path_str))
+            }
+            file_paths = [Path(p) for p in files_data.keys() if Path(p).exists()]
 
         check_cancelled()
-        imports_map = pre_scan_for_imports(file_paths, parsers_keys, get_parser)
+        with timings.phase("pre_scan"):
+            imports_map = pre_scan_for_imports(file_paths, parsers_keys, get_parser)
 
         if job_id:
             job_manager.update_job(job_id, total_files=len(files_data))
 
-        processed = 0
-        for abs_path_str, file_data in files_data.items():
-            check_cancelled()
-            file_path = Path(abs_path_str)
-            if should_skip_file(file_path):
-                continue
-            file_data["repo_path"] = str(index_root)
-            if job_id:
-                job_manager.update_job(job_id, current_file=abs_path_str)
+        # Everything from here to the summary is the post-parse window (as on the
+        # Tree-sitter path: after the index is parsed and the imports map built).
+        post_parse_start = time.perf_counter()
+        with timings.phase("write_nodes"):
+            processed = 0
+            for abs_path_str, file_data in files_data.items():
+                check_cancelled()
+                file_path = Path(abs_path_str)
+                if should_skip_file(file_path):
+                    continue
+                file_data["repo_path"] = str(index_root)
+                if job_id:
+                    job_manager.update_job(job_id, current_file=abs_path_str)
 
-            ts_parser = get_parser(file_path.suffix)
-            check_cancelled()
-            if file_path.exists() and ts_parser:
-                try:
-                    ts_data = ts_parser.parse(file_path, is_dependency, index_source=True)
-                    check_cancelled()
-                    if "error" not in ts_data:
-                        ts_funcs = {f["name"]: f for f in ts_data.get("functions", [])}
-                        ts_funcs_at = {(f["name"], f["line_number"]): f for f in ts_data.get("functions", [])}
-                        for f in file_data.get("functions", []):
-                            ts_f = ts_funcs_at.get((f["name"], f["line_number"])) or ts_funcs.get(f["name"])
-                            if ts_f:
-                                f.update(
-                                    {
-                                        "source": ts_f.get("source"),
-                                        "cyclomatic_complexity": ts_f.get("cyclomatic_complexity", 1),
-                                        "decorators": ts_f.get("decorators", []),
-                                    }
-                                )
-                                if not f.get("args") and ts_f.get("args"):
-                                    f["args"] = ts_f["args"]
+                ts_parser = get_parser(file_path.suffix)
+                check_cancelled()
+                if file_path.exists() and ts_parser:
+                    try:
+                        ts_data = ts_parser.parse(file_path, is_dependency, index_source=True)
+                        check_cancelled()
+                        if "error" not in ts_data:
+                            ts_funcs = {f["name"]: f for f in ts_data.get("functions", [])}
+                            ts_funcs_at = {(f["name"], f["line_number"]): f for f in ts_data.get("functions", [])}
+                            for f in file_data.get("functions", []):
+                                ts_f = ts_funcs_at.get((f["name"], f["line_number"])) or ts_funcs.get(f["name"])
+                                if ts_f:
+                                    f.update(
+                                        {
+                                            "source": ts_f.get("source"),
+                                            "cyclomatic_complexity": ts_f.get("cyclomatic_complexity", 1),
+                                            "decorators": ts_f.get("decorators", []),
+                                        }
+                                    )
+                                    if not f.get("args") and ts_f.get("args"):
+                                        f["args"] = ts_f["args"]
 
-                        ts_item_map = {}
-                        ts_key_map = {}
-                        for k in ["classes", "structs", "traits", "interfaces"]:
-                            for c in ts_data.get(k, []):
-                                ts_item_map[c["name"]] = c
-                                ts_key_map[c["name"]] = k
+                            ts_item_map = {}
+                            ts_key_map = {}
+                            for k in ["classes", "structs", "traits", "interfaces"]:
+                                for c in ts_data.get(k, []):
+                                    ts_item_map[c["name"]] = c
+                                    ts_key_map[c["name"]] = k
 
-                        new_file_data = {k: [] for k in ["classes", "structs", "traits", "interfaces"]}
+                            new_file_data = {k: [] for k in ["classes", "structs", "traits", "interfaces"]}
                         
-                        for key in ["classes", "structs", "traits", "interfaces"]:
-                            for item in file_data.get(key, []):
-                                ts_item = ts_item_map.get(item["name"])
-                                target_key = key
-                                if ts_item:
-                                    item.update({
-                                        "source": ts_item.get("source"),
-                                    })
-                                    item["bases"] = item.get("bases") or ts_item.get("bases", [])
-                                    # Move to Tree-sitter's preferred category if they disagree
-                                    if ts_key_map[item["name"]] != key:
-                                        target_key = ts_key_map[item["name"]]
+                            for key in ["classes", "structs", "traits", "interfaces"]:
+                                for item in file_data.get(key, []):
+                                    ts_item = ts_item_map.get(item["name"])
+                                    target_key = key
+                                    if ts_item:
+                                        item.update({
+                                            "source": ts_item.get("source"),
+                                        })
+                                        item["bases"] = item.get("bases") or ts_item.get("bases", [])
+                                        # Move to Tree-sitter's preferred category if they disagree
+                                        if ts_key_map[item["name"]] != key:
+                                            target_key = ts_key_map[item["name"]]
                                         
-                                new_file_data[target_key].append(item)
+                                    new_file_data[target_key].append(item)
                                 
-                        for key in ["classes", "structs", "traits", "interfaces"]:
-                            file_data[key] = new_file_data[key]
+                            for key in ["classes", "structs", "traits", "interfaces"]:
+                                file_data[key] = new_file_data[key]
 
-                        file_data["imports"] = ts_data.get("imports", [])
-                        file_data["variables"] = ts_data.get("variables", [])
-                        if ts_data.get("function_calls"):
-                            file_data["function_calls"] = ts_data["function_calls"]
+                            file_data["imports"] = ts_data.get("imports", [])
+                            file_data["variables"] = ts_data.get("variables", [])
+                            if ts_data.get("function_calls"):
+                                file_data["function_calls"] = ts_data["function_calls"]
+                    except Exception as e:
+                        check_cancelled(e)
+                        debug_log(f"Tree-sitter supplement failed for {abs_path_str}: {e}")
+
+                try:
+                    check_cancelled()
+                    writer.add_file_to_graph(file_data, repo_name, imports_map)
                 except Exception as e:
                     check_cancelled(e)
-                    debug_log(f"Tree-sitter supplement failed for {abs_path_str}: {e}")
+                    # One unwritable file must not abort the run, and it must
+                    # still be accounted for — otherwise the graph stays short of
+                    # the discovery census and `cgc index` reports "only N of M
+                    # files indexed. Continuing." on every run, forever (#1673).
+                    warning_logger(f"SCIP file write failed for {abs_path_str}: {e}; recording minimal node")
+                    try:
+                        check_cancelled()
+                        writer.add_minimal_file_node(Path(abs_path_str), index_root, is_dependency)
+                    except Exception as e2:
+                        check_cancelled(e2)
+                        debug_log(f"Minimal node fallback also failed for {abs_path_str}: {e2}")
 
-            try:
-                check_cancelled()
-                writer.add_file_to_graph(file_data, repo_name, imports_map)
-            except Exception as e:
-                check_cancelled(e)
-                # One unwritable file must not abort the run, and it must
-                # still be accounted for — otherwise the graph stays short of
-                # the discovery census and `cgc index` reports "only N of M
-                # files indexed. Continuing." on every run, forever (#1673).
-                warning_logger(f"SCIP file write failed for {abs_path_str}: {e}; recording minimal node")
-                try:
+                processed += 1
+                if job_id:
+                    job_manager.update_job(job_id, processed_files=processed)
+                if processed % 50 == 0:
                     check_cancelled()
-                    writer.add_minimal_file_node(Path(abs_path_str), index_root, is_dependency)
-                except Exception as e2:
-                    check_cancelled(e2)
-                    debug_log(f"Minimal node fallback also failed for {abs_path_str}: {e2}")
-
-            processed += 1
-            if job_id:
-                job_manager.update_job(job_id, processed_files=processed)
-            if processed % 50 == 0:
-                check_cancelled()
 
         # ── Supplementary pass: Tree-sitter-only for files SCIP missed ───
         # Some SCIP indexers (e.g. scip-php with Composer classmap) only
         # index a subset of repo files. Discover remaining parseable files
         # and index them via Tree-sitter so the graph has full coverage.
-        scip_abs_paths = set(files_data.keys())
-        check_cancelled()
-        supplemented = 0
-        from .discovery import discover_files_to_index
-        supplementary_files, _ = discover_files_to_index(
-            index_root,
-            cgcignore_path=cgcignore_path,
-            supported_extensions=set(parsers_keys),
-        )
-        # Recompute total_files now that we know the full set (SCIP-covered +
-        # supplementary), so progress_percentage stays <= 100% throughout.
-        if job_id:
-            new_total = len(files_data) + sum(
-                1 for f in supplementary_files
-                if str(f.resolve()) not in scip_abs_paths
+        with timings.phase("supplement"):
+            scip_abs_paths = set(files_data.keys())
+            check_cancelled()
+            supplemented = 0
+            from .discovery import discover_files_to_index
+            supplementary_files, _ = discover_files_to_index(
+                index_root,
+                cgcignore_path=cgcignore_path,
+                supported_extensions=set(parsers_keys),
             )
-            job_manager.update_job(job_id, total_files=new_total)
-        minimal_nodes = 0
-        for repo_file in supplementary_files:
-            check_cancelled()
-            abs_str = str(repo_file.resolve())
-            if abs_str in scip_abs_paths:
-                continue
-            ts_parser = get_parser(repo_file.suffix)
-            check_cancelled()
-            if not ts_parser:
-                # No parser: still record the file. `discover_files_to_index`
-                # returns supported extensions *plus* generic ones (.md, .json,
-                # .yaml, Dockerfile, .gitignore …), and the Tree-sitter pipeline
-                # gives those a minimal File node (pipeline.py, via
-                # `add_minimal_file_node`) precisely so the graph accounts for
-                # every discovered file.
-                #
-                # Skipping them here left the SCIP path short by exactly the
-                # number of non-code files, so `cgc index` compared a graph
-                # count against the discovery count and reported "only N of M
-                # files indexed. Continuing." on every run, forever.
+            # Recompute total_files now that we know the full set (SCIP-covered +
+            # supplementary), so progress_percentage stays <= 100% throughout.
+            if job_id:
+                new_total = len(files_data) + sum(
+                    1 for f in supplementary_files
+                    if str(f.resolve()) not in scip_abs_paths
+                )
+                job_manager.update_job(job_id, total_files=new_total)
+            minimal_nodes = 0
+            for repo_file in supplementary_files:
+                check_cancelled()
+                abs_str = str(repo_file.resolve())
+                if abs_str in scip_abs_paths:
+                    continue
+                ts_parser = get_parser(repo_file.suffix)
+                check_cancelled()
+                if not ts_parser:
+                    # No parser: still record the file. `discover_files_to_index`
+                    # returns supported extensions *plus* generic ones (.md, .json,
+                    # .yaml, Dockerfile, .gitignore …), and the Tree-sitter pipeline
+                    # gives those a minimal File node (pipeline.py, via
+                    # `add_minimal_file_node`) precisely so the graph accounts for
+                    # every discovered file.
+                    #
+                    # Skipping them here left the SCIP path short by exactly the
+                    # number of non-code files, so `cgc index` compared a graph
+                    # count against the discovery count and reported "only N of M
+                    # files indexed. Continuing." on every run, forever.
+                    try:
+                        check_cancelled()
+                        writer.add_minimal_file_node(
+                            repo_file,
+                            index_root,
+                            is_dependency,
+                        )
+                        minimal_nodes += 1
+                        processed += 1
+                        if job_id:
+                            job_manager.update_job(
+                                job_id, processed_files=processed, current_file=abs_str
+                            )
+                    except Exception as e:
+                        check_cancelled(e)
+                        debug_log(f"Minimal file node failed for {abs_str}: {e}")
+                    continue
                 try:
+                    ts_data = ts_parser.parse(repo_file, is_dependency, index_source=True)
                     check_cancelled()
-                    writer.add_minimal_file_node(
-                        repo_file,
-                        index_root,
-                        is_dependency,
-                    )
-                    minimal_nodes += 1
+                    if "error" in ts_data:
+                        # Same accounting rule as the Tree-sitter pipeline: a file
+                        # that failed to parse still gets a minimal File node so
+                        # the graph count converges with discovery (#1673).
+                        check_cancelled()
+                        writer.add_minimal_file_node(repo_file, index_root, is_dependency)
+                        minimal_nodes += 1
+                        processed += 1
+                        continue
+                    ts_data["repo_path"] = str(index_root)
+                    ts_data.setdefault("function_calls_scip", [])
+                    ts_data.setdefault("module_level_calls_scip", [])
+                    check_cancelled()
+                    writer.add_file_to_graph(ts_data, repo_name, imports_map)
+                    # Also include in files_data so inheritance/calls resolution sees them
+                    files_data[abs_str] = ts_data
+                    supplemented += 1
                     processed += 1
                     if job_id:
                         job_manager.update_job(
@@ -307,94 +372,72 @@ def _run_scip_index(
                         )
                 except Exception as e:
                     check_cancelled(e)
-                    debug_log(f"Minimal file node failed for {abs_str}: {e}")
-                continue
-            try:
-                ts_data = ts_parser.parse(repo_file, is_dependency, index_source=True)
+                    debug_log(f"Tree-sitter supplement (non-SCIP file) failed for {abs_str}: {e}")
+                    try:
+                        check_cancelled()
+                        writer.add_minimal_file_node(repo_file, index_root, is_dependency)
+                        minimal_nodes += 1
+                        processed += 1
+                    except Exception as e2:
+                        check_cancelled(e2)
+                        debug_log(f"Minimal node fallback also failed for {abs_str}: {e2}")
+            if supplemented:
                 check_cancelled()
-                if "error" in ts_data:
-                    # Same accounting rule as the Tree-sitter pipeline: a file
-                    # that failed to parse still gets a minimal File node so
-                    # the graph count converges with discovery (#1673).
-                    check_cancelled()
-                    writer.add_minimal_file_node(repo_file, index_root, is_dependency)
-                    minimal_nodes += 1
-                    processed += 1
-                    continue
-                ts_data["repo_path"] = str(index_root)
-                ts_data.setdefault("function_calls_scip", [])
-                ts_data.setdefault("module_level_calls_scip", [])
-                check_cancelled()
-                writer.add_file_to_graph(ts_data, repo_name, imports_map)
-                # Also include in files_data so inheritance/calls resolution sees them
-                files_data[abs_str] = ts_data
-                supplemented += 1
-                processed += 1
-                if job_id:
-                    job_manager.update_job(
-                        job_id, processed_files=processed, current_file=abs_str
-                    )
-            except Exception as e:
-                check_cancelled(e)
-                debug_log(f"Tree-sitter supplement (non-SCIP file) failed for {abs_str}: {e}")
-                try:
-                    check_cancelled()
-                    writer.add_minimal_file_node(repo_file, index_root, is_dependency)
-                    minimal_nodes += 1
-                    processed += 1
-                except Exception as e2:
-                    check_cancelled(e2)
-                    debug_log(f"Minimal node fallback also failed for {abs_str}: {e2}")
-        if supplemented:
-            check_cancelled()
-            # Re-run pre_scan with the expanded file list so imports_map is complete
-            all_paths = [Path(p) for p in files_data.keys() if Path(p).exists()]
-            imports_map = pre_scan_for_imports(all_paths, parsers_keys, get_parser)
-            info_logger(
-                f"[SCIP+TS] Supplemented {supplemented} files not covered by SCIP indexer"
-            )
-        if minimal_nodes:
-            info_logger(
-                f"[SCIP+TS] Recorded {minimal_nodes} non-code file(s) as minimal File nodes"
-            )
+                # Re-run pre_scan with the expanded file list so imports_map is complete
+                all_paths = [Path(p) for p in files_data.keys() if Path(p).exists()]
+                with timings.phase("pre_scan"):
+                    imports_map = pre_scan_for_imports(all_paths, parsers_keys, get_parser)
+                info_logger(
+                    f"[SCIP+TS] Supplemented {supplemented} files not covered by SCIP indexer"
+                )
+            if minimal_nodes:
+                info_logger(
+                    f"[SCIP+TS] Recorded {minimal_nodes} non-code file(s) as minimal File nodes"
+                )
 
         check_cancelled()
         info_logger(
             f"[INHERITS] Resolving inheritance links across {len(files_data)} files..."
         )
-        inheritance_batch, csharp_files = build_inheritance_and_csharp_files(
-            list(files_data.values()), imports_map
-        )
-        check_cancelled()
-        writer.write_inheritance_links(inheritance_batch, csharp_files, imports_map)
+        with timings.phase("inheritance"):
+            inheritance_batch, csharp_files = build_inheritance_and_csharp_files(
+                list(files_data.values()), imports_map
+            )
+            check_cancelled()
+            writer.write_inheritance_links(inheritance_batch, csharp_files, imports_map)
         check_cancelled()
 
         all_file_data = list(files_data.values())
         info_logger(
             f"[CALLS] Resolving Tree-sitter function calls across {len(all_file_data)} files..."
         )
-        t_calls = time.time()
         if job_id:
             job_manager.update_job(job_id, status_message="Resolving function CALLS edges...")
-        resolved_calls = build_function_call_groups(all_file_data, imports_map, None)
+        with timings.phase("calls_resolve"):
+            resolved_calls = build_function_call_groups(all_file_data, imports_map, None)
         check_cancelled()
-        writer.write_function_call_groups(*resolved_calls)
-        info_logger(f"[CALLS] Tree-sitter call resolution complete in {time.time() - t_calls:.1f}s")
+        with timings.phase("calls_write"):
+            writer.write_function_call_groups(*resolved_calls)
+        info_logger(
+            "[CALLS] Tree-sitter call resolution complete in "
+            f"{timings.seconds('calls_resolve', 'calls_write'):.1f}s"
+        )
 
         check_cancelled()
-        writer.write_scip_call_edges(files_data, name_from_symbol)
+        with timings.phase("scip_calls"):
+            writer.write_scip_call_edges(files_data, name_from_symbol)
 
         # CLI-facing summary — the SCIP path never populated one, so
         # `cgc index` finished silently with no file/function/class report
         # at all (#1673).
-        if index_summary is not None:
+        if index_summary is not None or job_id:
             from collections import Counter
             extension_counts = Counter()
             for fp in files_data.keys():
                 suffix = Path(fp).suffix or Path(fp).name
                 extension_counts[suffix] += 1
-            index_summary.clear()
-            index_summary.update({
+            post_parse_seconds = time.perf_counter() - post_parse_start
+            summary = {
                 "total_scanned_files": len(files_data) + minimal_nodes,
                 "files_by_extension": dict(extension_counts),
                 "function_nodes": sum(
@@ -403,10 +446,11 @@ def _run_scip_index(
                 ),
                 "class_nodes": sum(len(fd.get("classes", [])) for fd in all_file_data),
                 "call_edges": sum(len(g) for g in resolved_calls),
-                "serialization_seconds": 0.0,
+                **index_timing_fields(timings, timings.elapsed(), post_parse_seconds),
                 "failed_files": 0,
                 "minimal_file_nodes": minimal_nodes,
-            })
+            }
+            publish_index_summary(summary, index_summary, job_manager, job_id)
 
         if job_id:
             check_cancelled()

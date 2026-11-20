@@ -4,6 +4,7 @@ Uses CGC_EMBEDDING_MODEL=openai with no OPENAI_API_KEY so the probe fails
 deterministically regardless of which embedding packages the environment has.
 """
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -47,3 +48,6 @@ def test_index_summary_shows_embeddings_not_generated(tmp_path: Path):
     assert "NOT generated" in out, out
     # The run itself must still succeed — the feature is optional.
     assert "Successfully finished indexing" in out, out
+    # The phase table shows the time the enabled pass took (here: the failed probe).
+    assert "Index phase timings" in out, out
+    assert re.search(r"\|\s*embeddings\s*\|\s*[\d.]+\s*\|", out), out

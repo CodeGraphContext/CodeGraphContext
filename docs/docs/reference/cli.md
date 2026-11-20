@@ -38,6 +38,23 @@ Run `cgc delete` (or `cgc rm`) in an interactive terminal to search the indexed 
 | **`list`** | `cgc list` | Shortcut: `cgc ls`. Lists indexed repositories. |
 | **`add-package`** | `cgc add-package <name> <language>` | Indexes an installed third-party package as a dependency graph. |
 
+#### Index summary
+
+A full index (`cgc index`, `cgc update`, `cgc add-package`) ends with the **CGC Index Execution
+Summary** (files, function / class nodes, CALLS edges, **Index seconds (total)**) followed by an
+**Index phase timings** table: one row per phase that ran, in pipeline order, with its seconds and
+share of the total — `discover`, `pre_scan`, `parse` (concurrent wall time), `write_nodes`,
+`write_imports`, `inheritance`, `type_links`, `decorated_by`, `calls_resolve`, `calls_write`,
+`framework_links` and the opt-in resolution passes when enabled (`embeddings`,
+`inherit_reresolve`); a SCIP run reports `scip_index`, `supplement` and `scip_calls`
+instead of `parse`. Phases are exclusive: `write_imports` is not part of `write_nodes`, and the rows
+never add up to more than the total (the remainder is untimed bookkeeping between phases).
+
+The former "Serialization seconds" row is gone: it measured everything after parsing (writes,
+inheritance, CALLS, framework passes), not serialization. The summary dict keeps that
+window as `post_parse_seconds`; `serialization_seconds` is a deprecated alias of it, to be removed
+in a later release.
+
 ---
 
 ## Search (`find`)

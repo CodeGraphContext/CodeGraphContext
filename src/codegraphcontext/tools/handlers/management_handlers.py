@@ -118,6 +118,11 @@ def list_jobs(job_manager: JobManager) -> Dict[str, Any]:
         jobs_data = []
         for job in jobs:
             job_dict = asdict(job)
+            # a job's result (an index job's index_summary: counts, files_by_extension,
+            # phase_seconds, failed_file_details) is check_job_status' answer; a row only
+            # points at it, so the list does not grow with every finished index
+            job_dict["result"] = ({"keys": sorted(job.result), "see": "check_job_status"}
+                                  if isinstance(job.result, dict) and job.result else None)
             job_dict["status"] = job.status.value
             job_dict["start_time"] = job.start_time.strftime("%Y-%m-%d %H:%M:%S")
             if job.end_time:

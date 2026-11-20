@@ -20,6 +20,18 @@ Also 0.6.8: SCIP-driven runs (e.g. `scip-dotnet`) previously skipped the
 summary table entirely. Upgrade; the execution summary now prints for both
 pipelines.
 
+### Index summary: where the time goes
+The **Index phase timings** table after `cgc index` / `cgc update` splits the run into its phases
+(seconds and % of the total), so a slow index points at its phase: `parse` (CPU, concurrent),
+`write_nodes` / `write_imports` (per-file graph writes; IMPORTS edges on their own), `calls_resolve`
+/ `calls_write`, `inheritance`, the framework passes and, when enabled, the resolution passes. MCP
+clients get the same numbers from `check_job_status` (`job.result.index_summary.phase_seconds`).
+
+Earlier versions printed only "Serialization seconds": that was everything **after parsing**
+(writes, inheritance, CALLS, framework passes), not serialization — do not read an old
+number as encoding cost. The summary dict still carries it as `post_parse_seconds` (and as the
+deprecated `serialization_seconds`, same value, removed in a later release).
+
 ### A file git ignores is being indexed / isn't being indexed
 Since 0.6.9 (#1680), ignore patterns layer as **defaults → .gitignore →
 .cgcignore**, last match wins. So `.cgcignore` always has the final say:
