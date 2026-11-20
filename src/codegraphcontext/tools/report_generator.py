@@ -237,14 +237,15 @@ def _section_dead_code(driver: Any, limit: int = 20, repo_path: Optional[str] = 
     # `test_*` showed up as dead), while `find_dead_code` restricted callers to
     # `(caller:Function)` and so missed the File-sourced edges that this one
     # correctly counts.
-    from .code_finder import _ENTRY_POINT_NAMES_CYPHER
+    from .code_finder import _ENTRY_POINT_NAMES_CYPHER, _markup_filter
 
     rows = _run_cypher(
         driver,
         f"""
         MATCH (fn:Function)
         WHERE (fn.is_dependency IS NULL OR fn.is_dependency = false)
-          AND ($repo_path IS NULL OR fn.path STARTS WITH $repo_path)
+          {"AND fn.path STARTS WITH $repo_path" if repo_path else ""}
+          AND {_markup_filter('fn')}
           AND NOT toLower(fn.name) IN {_ENTRY_POINT_NAMES_CYPHER}
           AND fn.name <> '<module>'
           AND NOT (fn.name STARTS WITH '__' AND fn.name ENDS WITH '__')

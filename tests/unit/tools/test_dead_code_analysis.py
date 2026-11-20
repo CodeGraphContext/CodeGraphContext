@@ -80,6 +80,32 @@ def test_both_implementations_use_an_anonymous_caller():
     assert "(caller)-[:CALLS|HEURISTIC_CALLS]->(func)" in _query_src()
 
 
+# --------------------------------------------------------------- #1857
+def test_markup_selectors_excluded_from_dead_code():
+    """CSS selectors are stored as Function nodes (tools/languages/css.py) but
+    are never called, so every one of them was reported as dead code.
+
+    The CSS parser does NOT set a per-item ``lang`` field — the nodes have
+    ``lang = None``.  A lang-based IN-list check would silently exclude every
+    null-lang node because Cypher evaluates ``NOT (null IN ['css', 'html'])``
+    as null, which is falsy.  The fix uses path extension, which is always set.
+    The dead-code query must call ``_markup_filter`` for both the main query
+    and the low-confidence (--show-all) query.
+    """
+    src = _query_src()
+    assert "_markup_filter" in src, "must call _markup_filter to exclude markup nodes"
+    # Both the main query and the low-confidence (--show-all) query exclude them.
+    assert src.count("_markup_filter") >= 2, "both queries must exclude markup nodes"
+
+
+def test_report_generator_also_excludes_markup_selectors():
+    """The report is the other dead-code surface and must agree, or CGC_REPORT.md
+    would still list every CSS selector as unused."""
+    src = inspect.getsource(report_generator._section_dead_code)
+    assert "_markup_filter" in src, "report query must also call _markup_filter"
+
+
+
 # --------------------------------------------------------------- #1559 (3)
 def test_cli_forwards_the_path_argument_as_repo_scope():
     """`analyze dead-code .` used to drop the path, so results spanned every
