@@ -62,6 +62,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
         self.all_file_data = []
         self.imports_map = {}
+        self._resolution_cache = {}
 
         if sync_on_start:
             self.synchronize_with_disk()
@@ -273,7 +274,7 @@ class RepositoryEventHandler(FileSystemEventHandler):
         return get_parallel_workers(default=WATCHER_DEFAULT_PARALLEL_WORKERS)
 
     def _handle_modification(self, event_path_str: str):
-        """Incremental update: re-parse and re-link only the changed file and its neighbours."""
+        """Rewrite affected files using the full repository's resolution context."""
         # Serialised: concurrent handlers previously did read-modify-write on
         # the shared imports_map (lost updates) and interleaved
         # delete_file_from_graph / add_file_to_graph /
@@ -281,6 +282,42 @@ class RepositoryEventHandler(FileSystemEventHandler):
         # could delete edges another had just created.
         with self._update_lock:
             self._handle_modification_locked(event_path_str)
+
+    def _resolution_context(self, changed_path: Path, changed_data=None):
+        """Cache parsed facts, but resolve against every current repository file.
+
+        The cache contains parser output, not resolved edges. A deep copy keeps
+        resolver annotations from becoming stale inputs on the next save.
+        Called only while _update_lock is held.
+        """
+        from copy import deepcopy
+
+        cache = getattr(self, '_resolution_cache', {})
+        current = {}
+        changed = changed_path.resolve().as_posix()
+        for path in self._iter_supported_files():
+            key = path.resolve().as_posix()
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            signature = (stat.st_mtime_ns, stat.st_size)
+            cached = cache.get(key)
+            if key == changed and isinstance(changed_data, dict) and changed_data.get('path') and 'error' not in changed_data:
+                parsed = changed_data
+            elif key != changed and cached is not None and cached[0] == signature:
+                current[key] = cached
+                continue
+            else:
+                parsed = self.graph_builder.parse_file(self.repo_path, path)
+            if isinstance(parsed, dict) and parsed.get('path') and 'error' not in parsed:
+                current[key] = (signature, deepcopy(parsed))
+        self._resolution_context_changed = cache.keys() != current.keys() or any(
+            key not in cache or cache[key][1] != value[1]
+            for key, value in current.items()
+        )
+        self._resolution_cache = current
+        return deepcopy([current[key][1] for key in sorted(current)])
 
     def _handle_modification_locked(self, event_path_str: str):
         info_logger(f"File change detected (incremental update): {event_path_str}")
@@ -290,7 +327,10 @@ class RepositoryEventHandler(FileSystemEventHandler):
             return
 
         changed_path_str = changed_path.resolve().as_posix()
-        supported_extensions = self.graph_builder.parsers.keys()
+        was_indexed = changed_path_str in {
+            str(path).replace('\\', '/')
+            for path in self.graph_builder.get_repo_file_paths(self.repo_path)
+        }
 
         caller_paths = {
             p
@@ -310,10 +350,18 @@ class RepositoryEventHandler(FileSystemEventHandler):
 
         self._update_imports_map_for_file(changed_path)
 
-        self.graph_builder.update_file_in_graph(changed_path, self.repo_path, self.imports_map)
+        changed_data = self.graph_builder.update_file_in_graph(changed_path, self.repo_path, self.imports_map)
+        resolution_context = self._resolution_context(changed_path, changed_data)
+        if self._resolution_context_changed or not was_indexed:
+            # Existing edges cannot identify unresolved/ambiguous callers or
+            # consumers of a newly added definition. Conservatively invalidate
+            # every source when parsed facts change (including a cold cache).
+            # Warm unchanged saves still write only the graph neighbourhood.
+            affected_paths.update(Path(data['path']).resolve().as_posix() for data in resolution_context)
+            self.imports_map = self.graph_builder.pre_scan_imports(self._iter_supported_files())
 
-        # Every file in affected_paths is re-parsed below and fed back into
-        # link_function_calls, so every one of them needs its outgoing CALLS
+        # Every file in affected_paths is emitted below from full resolution
+        # context, so every one of them needs its outgoing CALLS
         # cleared first. Clearing only caller_paths left the inheritance-only
         # neighbours to have their edges re-created on top of the existing ones
         # — and on Neo4j/Nornic the writer uses CREATE, not MERGE, so duplicate
@@ -321,27 +369,19 @@ class RepositoryEventHandler(FileSystemEventHandler):
         # why this never showed up there.) The changed file itself is excluded:
         # update_file_in_graph above already deleted and rebuilt it.
         other_callers = list(affected_paths - {changed_path_str})
-        other_inheritors = list(inheritor_paths)
+        other_inheritors = list(affected_paths - {changed_path_str})
         if other_callers:
             self.graph_builder.delete_outgoing_calls_from_files(other_callers)
         if other_inheritors:
             self.graph_builder.delete_inherits_for_files(other_inheritors)
 
-        subset_file_data = []
-        for path_str in affected_paths:
-            p = Path(path_str)
-            if p.exists() and p.suffix in supported_extensions and not self._should_ignore(p):
-                parsed = self.graph_builder.parse_file(self.repo_path, p)
-                if "error" not in parsed:
-                    subset_file_data.append(parsed)
-
         file_class_lookup = self.graph_builder.get_repo_class_lookup(self.repo_path)
 
-        info_logger(f"[INCREMENTAL] Re-linking {len(subset_file_data)} files...")
+        info_logger(f"[INCREMENTAL] Resolving against {len(resolution_context)} files; emitting {len(affected_paths)} files...")
         self.graph_builder.link_function_calls(
-            subset_file_data, self.imports_map, file_class_lookup
+            resolution_context, self.imports_map, file_class_lookup, emit_paths=affected_paths
         )
-        self.graph_builder.link_inheritance(subset_file_data, self.imports_map)
+        self.graph_builder.link_inheritance(resolution_context, self.imports_map, emit_paths=affected_paths)
 
         try:
             from codegraphcontext.cli.config_manager import get_config_value as _gcv
@@ -419,10 +459,10 @@ class RepositoryEventHandler(FileSystemEventHandler):
         self._debounce(event.dest_path, lambda: self._handle_modification(event.dest_path))
 
     def _handle_removal(self, path_str):
-        """Drop a path that no longer exists (the source side of a rename)."""
+        """Remove a renamed-away path and recompute consumers of its definitions."""
         with self._update_lock:
             try:
-                self.graph_builder.delete_file_from_graph(str(Path(path_str).resolve()))
+                self._handle_modification_locked(path_str)
                 info_logger(f"[WATCH] removed stale node for moved file: {path_str}")
             except Exception as exc:  # noqa: BLE001 - a watcher must not die on one file
                 error_logger(f"[WATCH] failed to remove {path_str}: {exc}")

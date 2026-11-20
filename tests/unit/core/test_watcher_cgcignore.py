@@ -9,7 +9,7 @@ def _graph_builder():
     graph_builder = MagicMock()
     graph_builder.parsers = {".py": "python"}
     graph_builder.pre_scan_imports.return_value = {}
-    graph_builder.parse_file.return_value = {"path": "parsed.py"}
+    graph_builder.parse_file.side_effect = lambda _repo, path: {"path": str(path.resolve())}
     graph_builder.link_function_calls.return_value = None
     graph_builder.link_inheritance.return_value = None
     graph_builder.get_caller_file_paths.return_value = set()

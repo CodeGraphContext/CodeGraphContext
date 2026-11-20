@@ -1709,8 +1709,13 @@ def build_function_call_groups(
     imports_map: dict,
     file_class_lookup: Optional[Dict[str, set]] = None,
     diagnostics: Optional[List[Dict[str, Any]]] = None,
+    emit_paths: Optional[set[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Resolve all function calls and return grouped CALLS payloads.
+
+    ``emit_paths`` filters output sources only. Every lookup is still built
+    from all_file_data, so an incremental result equals the full result
+    filtered to those files.
 
     Return order:
     (fn_to_fn, fn_to_class, fn_to_interface, fn_to_object,
@@ -3171,11 +3176,14 @@ def build_function_call_groups(
     file_to_interface: List[Dict[str, Any]] = []
     file_to_object: List[Dict[str, Any]] = []
 
+    emitted = {_resolved_posix(path) for path in emit_paths} if emit_paths is not None else None
     for edge in resolved_calls:
         # Normalize paths for DB consistency (Windows: backslash → forward slash)
         caller_fp = edge.get("caller_file_path")
         if caller_fp:
             edge["caller_file_path"] = _resolved_posix(caller_fp)
+        if emitted is not None and edge.get("caller_file_path") not in emitted:
+            continue
         called_fp = edge.get("called_file_path")
         if called_fp:
             edge["called_file_path"] = _resolved_posix(called_fp)
