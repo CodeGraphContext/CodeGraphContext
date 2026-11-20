@@ -24,6 +24,14 @@ TREE = {
     "backend/app/other_base.py": "class Base:\n    pass\n",
     "backend/app/tasks/__init__.py": "from .base import TaskBase\n",
     "backend/app/tasks/base.py": "class TaskBase:\n    pass\n",
+    "backend/app/rebound_base.py": (
+        "class Base:\n    pass\nclass Replacement:\n    pass\nBase = Replacement\n"),
+    "backend/app/rebound_meta.py": (
+        "class Replacement(type):\n    pass\nclass Meta(type):\n    pass\nMeta = Replacement\n"),
+    "backend/app/rebound_meta_child.py": (
+        "from app.rebound_meta import Meta\nclass ReboundMetaChild(metaclass=Meta):\n    pass\n"),
+    "backend/app/rebound_child.py": (
+        "from app.rebound_base import Base\nclass ReboundChild(Base):\n    pass\n"),
     "backend/app/jobs.py": (
         "from app.tasks.base import TaskBase\nfrom app.tasks import TaskBase as Reexported\n"
         "from app.database import Base as DBBase\n\n"
@@ -72,6 +80,7 @@ TREE = {
 
 #: child -> (parent label, parent name, parent path relative to the repo or None)
 EXPECTED = {
+    "ReboundChild": ("Variable", "Base", "backend/app/rebound_base.py"),
     "P1": ("Class", "TaskBase", "backend/app/tasks/base.py"),
     "P7": ("Class", "Base", "backend/app/database.py"),
     "P8": ("Class", "TaskBase", "backend/app/tasks/base.py"),
@@ -169,6 +178,7 @@ def test_import_bound_python_bases(tmp_path, backend, module):
     # the module-level metaclass, not the nested namesake
     assert [r for r in got["metaclass"] if r[0] == "M1"] == [
         ["M1", "Meta", "backend/app/meta.py", 1]], got["metaclass"]
+    assert not [r for r in got["metaclass"] if r[0] == "ReboundMetaChild"], got["metaclass"]
     # Exact edge sets and counts: no cross-parent links or duplicate writes.
     assert sorted(got["dc"]) == [[7, 5], [11, 1]]
     assert sorted(got["external_children"]) == [[1, "Exception"], [5, "ValueError"]]

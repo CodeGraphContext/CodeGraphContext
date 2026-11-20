@@ -343,3 +343,38 @@ def test_the_metaclass_resolver_is_built_lazily(tmp_path, monkeypatch):
                           "class B(metaclass=Meta):\n    pass\n"})
     monkeypatch.setattr(inheritance_mod, "PythonImportTargets", Boom)
     assert [r["parent_name"] for r in build_metaclass_links(out["data"], out["imports_map"])] == ["Meta"]
+
+
+@pytest.mark.parametrize("imported", [False, True], ids=["same-file", "imported"])
+@pytest.mark.parametrize("assignment_last", [False, True], ids=["class-last", "assignment-last"])
+def test_class_and_assignment_binding_order(tmp_path, imported, assignment_last):
+    definition = "class Base:\n    pass\n"
+    assignment = "Base = Replacement\n"
+    body = definition + assignment if assignment_last else assignment + definition
+    files = {"base.py": "class Replacement:\n    pass\n" + body}
+    if imported:
+        files["child.py"] = "from base import Base\nclass Child(Base):\n    pass\n"
+    else:
+        files["base.py"] += "class Child(Base):\n    pass\n"
+    out = _run(tmp_path, files)
+    label, line = ("Variable", 5) if assignment_last else ("Class", 4)
+    assert out["inherits"]["Child"] == [("Base", "base.py", label, line)]
+
+
+@pytest.mark.parametrize("imported", [False, True], ids=["same-file", "imported"])
+def test_rebound_metaclass_does_not_reach_the_stale_class(tmp_path, imported):
+    files = {"meta.py": "class Replacement(type):\n    pass\nclass Meta(type):\n    pass\nMeta = Replacement\n"}
+    if imported:
+        files["child.py"] = "from meta import Meta\nclass Child(metaclass=Meta):\n    pass\n"
+    else:
+        files["meta.py"] += "class Child(metaclass=Meta):\n    pass\n"
+    out = _run(tmp_path, files)
+    assert out["meta"] == []
+
+
+def test_callable_metaclass_does_not_reach_a_nested_class_namesake(tmp_path):
+    out = _run(tmp_path, {
+        "meta.py": "def Meta(name, bases, attrs):\n    return type(name, bases, attrs)\nclass Outer:\n    class Meta(type):\n        pass\n",
+        "child.py": "from meta import Meta\nclass Child(metaclass=Meta):\n    pass\n",
+    })
+    assert out["meta"] == []

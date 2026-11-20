@@ -802,6 +802,10 @@ def build_metaclass_links(
                 # the class the file's import names: METACLASS links Class to Class,
                 # under its declared name, pinned to its line
                 resolved_path, parent_name, parent_line = target.path, target.name, target.line
+            elif isinstance(target, Found):
+                # A known function/value is not the stale Class namesake. The
+                # METACLASS schema currently supports Class endpoints only.
+                continue
             else:
                 resolved_path = _resolve_decorator_path(
                     meta_name,

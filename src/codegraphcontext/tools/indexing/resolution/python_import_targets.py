@@ -358,7 +358,8 @@ def _candidates(hits: Iterable[Any]) -> Tuple[str, ...]:
 def definition_target(path: str, name: str, defs: Sequence[Tuple[str, Optional[int]]]) -> Any:
     """The target of a name *path* defines at one scope (*defs*: ``[(label, line)]``):
     its one ``class`` / ``def`` statement — several are ambiguous (a conditional
-    definition is never guessed) — else its last assignment (a Variable)."""
+    definition is never guessed) — unless a later assignment replaces that binding,
+    in which case use its last assignment (a Variable)."""
     statements = [(label, line) for label, line in defs if label != "Variable"]
     if len(statements) > 1:
         return Unresolved(name, ambiguous=True, candidates=(path,) * len(statements))
@@ -368,7 +369,13 @@ def definition_target(path: str, name: str, defs: Sequence[Tuple[str, Optional[i
             last[label] = max(last.get(label, line), line)
     lines = tuple(sorted(last.items()))
     if statements:
-        return Found(path, name, statements[0][0], statements[0][1], lines)
+        label, line = statements[0]
+        # A later assignment replaces the class/function binding exposed to
+        # importers. Match its Variable occurrence rather than the stale class.
+        variable_line = last.get("Variable")
+        if variable_line is not None and line is not None and variable_line > line:
+            return Found(path, name, "Variable", variable_line, lines)
+        return Found(path, name, label, line, lines)
     return Found(path, name, "Variable", last.get("Variable"), lines)
 
 
