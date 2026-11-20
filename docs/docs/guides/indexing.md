@@ -58,7 +58,7 @@ C and C++ SCIP requires a `compile_commands.json` in the project (or under `buil
 
 ## 4. Real-Time Directory Watchers
 
-For active development, run a filesystem watcher in the background to capture file writes and incrementally sync the graph.
+For active development, run a foreground filesystem watcher to capture file writes and incrementally sync the graph.
 
 ```bash
 # Start watching the active workspace

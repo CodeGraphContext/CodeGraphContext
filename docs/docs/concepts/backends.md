@@ -1,6 +1,6 @@
 # Database Backends
 
-CGC can keep a code graph in a local engine or connect to a graph server. Choose based on your environment, ownership model and workload. Backend support does not imply identical query features, latency or capacity.
+CGC can keep a code graph in a local engine or connect to a graph server. Choose based on your environment, ownership model and workload. Query features and operational requirements vary by backend.
 
 ## Supported backends
 
@@ -13,7 +13,7 @@ CGC can keep a code graph in a local engine or connect to a graph server. Choose
 | Neo4j | `neo4j` | Bolt graph server | Configure URI, username and password, or use `cgc neo4j setup`. |
 | Nornic DB | `nornic` | Neo4j-compatible Bolt server | CGC connects through the Neo4j Python driver using `NORNIC_*` settings. |
 
-Performance and graph size depend on repository structure, query shape, memory, disk and server configuration. This guide does not assign universal latency rankings or unlimited capacity to any backend. See [MCP operating notes](../reference/mcp-operating-notes.md) for measured examples and limitations.
+Performance and graph size depend on repository structure, query shape, memory, disk and server configuration. Measure latency and capacity with your repository and target resources. See [MCP operating notes](../reference/mcp-operating-notes.md) for measured examples and limitations.
 
 ## Installation and dependency bounds
 
@@ -31,13 +31,13 @@ Native grammars may download on first use. For offline use, follow the [grammar 
 
 ## Local engines and process ownership
 
-KuzuDB and LadybugDB are native graph engines. Ladybug uses a property graph model, Cypher and columnar storage; it does not simulate a graph through SQLite. See the [Ladybug documentation](https://docs.ladybugdb.com/) for its engine model.
+KuzuDB and LadybugDB are native graph engines. Ladybug uses a property graph model, Cypher and columnar storage. See the [Ladybug documentation](https://docs.ladybugdb.com/) for its engine model.
 
 Use one owner for an embedded store. Multiple connections within an owning process differ from independent processes opening the same on-disk database. A running gateway or watcher can own the database lock. See [Ladybug's concurrency model](https://docs.ladybugdb.com/concurrency/) and CGC's [ownership guidance](../reference/mcp-operating-notes.md#memory-response-limits-and-ownership).
 
 CGC can delegate supported read-only `list`/`stats` commands to an authoritative local gateway. This does not provide general write delegation for `cgc update`; [issue #1683](https://github.com/CodeGraphContext/CodeGraphContext/issues/1683) remains open for that workflow.
 
-Storage locations depend on the active configuration context and database path. They are not always inside the repository. See [Configuration Contexts](../guides/contexts.md) before changing paths or moving stores.
+Storage locations depend on the active configuration context and database path. See [Configuration Contexts](../guides/contexts.md) before changing paths or moving stores.
 
 Select one local backend:
 

@@ -107,7 +107,7 @@ cgc config set ALLOW_DB_DELETION false
 | **`DEFAULT_DATABASE`** | `falkordb` | Active database engine. Options: `kuzudb`, `ladybugdb`, `falkordb`, `falkordb-remote`, `neo4j`, `nornic`. |
 | **`ENABLE_AUTO_WATCH`** | `false` | When `true`, indexing a project automatically initializes a directory watcher. |
 | **`PARALLEL_WORKERS`** | `4` | Max thread pool size for parsing code files concurrently. Shared by full indexing and the file watcher. Values above 32 are clamped. An empty or invalid value falls back to 10 for a full index and 4 for the watcher. |
-| **`CACHE_ENABLED`** | `true` | Caches file hashes to support fast incremental scans. |
+| **`CACHE_ENABLED`** | `true` | Compatibility setting; current indexing does not consume this flag. Watcher parse reuse is in memory; persistent parsing cache is tracked in [#1288](https://github.com/CodeGraphContext/CodeGraphContext/issues/1288). |
 
 ### Indexing Scope Configurations
 
