@@ -665,7 +665,7 @@
 {"from": {"offset": 6, "table": 5}, "to": {"offset": 1, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
 {"from": {"offset": 16, "table": 5}, "to": {"offset": 2, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
 {"from": {"offset": 24, "table": 5}, "to": {"offset": 2, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
-{"from": {"offset": 29, "table": 5}, "to": {"offset": 3, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
+{"from": {"offset": 29, "table": 5}, "to": {"offset": 28, "table": 5}, "type": "INHERITS", "properties": {"confidence_label": "EXTRACTED"}}
 {"from": {"offset": 31, "table": 5}, "to": {"offset": 1, "table": 23}, "type": "INHERITS", "properties": {"confidence_label": "INFERRED"}}
 {"from": {"offset": 7, "table": 5}, "to": {"offset": 6, "table": 5}, "type": "METACLASS", "properties": {"line_number": 24, "confidence_label": "EXTRACTED"}}
 {"from": {"offset": 8, "table": 5}, "to": {"offset": 6, "table": 5}, "type": "METACLASS", "properties": {"line_number": 27, "confidence_label": "EXTRACTED"}}

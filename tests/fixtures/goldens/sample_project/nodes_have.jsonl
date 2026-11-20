@@ -515,4 +515,3 @@
 {"_id": {"offset": 0, "table": 23}, "name": "ABC", "_labels": ["ExternalClass"]}
 {"_id": {"offset": 1, "table": 23}, "name": "type", "_labels": ["ExternalClass"]}
 {"_id": {"offset": 2, "table": 23}, "name": "Enum", "_labels": ["ExternalClass"]}
-{"_id": {"offset": 3, "table": 23}, "name": "ParentClass", "_labels": ["ExternalClass"]}

@@ -1314,12 +1314,14 @@ class GraphWriter:
             # (child, parent) record more than once, and while Neo4j's MERGE
             # absorbs the repeat, the embedded backends' rewritten
             # node-MERGE+rel-MERGE shape has been observed writing a duplicate
-            # INHERITS edge for it. Deduping is correct on every backend.
+            # INHERITS edge for it. Deduping is correct on every backend. Rows
+            # that differ by the parent's pinned line name different parents
+            # (two same-named classes of one file, each in its own scope).
             seen_rows: set = set()
             deduped_batch: List[Dict[str, Any]] = []
             for r in inheritance_batch:
                 key = (r.get("child_name"), r.get("path"), r.get("parent_name"),
-                       r.get("resolved_parent_file_path"))
+                       r.get("resolved_parent_file_path"), r.get("parent_line"))
                 if key in seen_rows:
                     continue
                 seen_rows.add(key)
@@ -1341,7 +1343,7 @@ class GraphWriter:
                     return True
 
             # Probed once (~12 queries) and reused by the *fallback* enumerations
-            # further down. Deliberately NOT applied to `pair_groups`: those
+            # further down. Deliberately NOT applied to a group's known labels: those
             # (child_label, parent_label) pairs are derived from the rows
             # themselves, so they are never empty -- probing them would be pure
             # overhead, and a stale or lazily-created label table would make the
@@ -1352,13 +1354,17 @@ class GraphWriter:
                 for i in range(0, len(rows), batch_size):
                     yield rows[i:i + batch_size]
 
-            def _run_internal(rows, child_label, parent_label):
+            def _run_internal(rows, child_label, parent_label, pinned=False):
                 child_cypher = _cypher_label(child_label, backend)
                 parent_cypher = _cypher_label(parent_label, backend)
+                # *pinned*: rows naming their parent's line too (`parent_line`: the one
+                # definition the base names, resolution/inheritance.py) — a nested class
+                # or a function-local variable of that name in the file is not the parent
+                line_key = ", line_number: row.parent_line" if pinned else ""
                 query = f"""
                     UNWIND $batch AS row
                     MATCH (child:{child_cypher} {{name: row.child_name, path: row.path}})
-                    MATCH (parent:{parent_cypher} {{name: row.parent_name, path: row.resolved_parent_file_path}})
+                    MATCH (parent:{parent_cypher} {{name: row.parent_name, path: row.resolved_parent_file_path{line_key}}})
                     MERGE (child)-[r:INHERITS]->(parent)
                     SET r.confidence_label = coalesce(row.confidence_label, 'EXTRACTED')
                 """
@@ -1411,38 +1417,26 @@ class GraphWriter:
             # (child_label, parent_label) pairs that actually occur run — instead of a
             # 12x12 brute force that re-scans the full batch for every combination.
             #   both labels known   -> one exact query per (child, parent) pair
+            #   parent known only   -> enumerate child labels over just those rows
             #   child known only    -> enumerate parent labels over just those rows
             #   neither             -> full 12x12 (rare: ambiguous (name,path) label collision)
             # Rows never gain a label they wouldn't have matched, and unknown/ambiguous
-            # cases fall back to enumeration, so the produced edge set is unchanged.
-            pair_groups: Dict[tuple, List[Dict[str, Any]]] = {}
-            child_only_groups: Dict[str, List[Dict[str, Any]]] = {}
-            legacy_rows: List[Dict[str, Any]] = []
+            # cases fall back to enumeration, so the produced edge set is unchanged. A
+            # row's parent line pin (`parent_line`) holds in every group: it is part of
+            # the group key, whatever the child label's state.
+            groups: Dict[tuple, List[Dict[str, Any]]] = {}
             for row in internal_batch:
-                cl = row.get("child_label")
-                pl = row.get("parent_label")
-                if cl and pl:
-                    pair_groups.setdefault((cl, pl), []).append(row)
-                elif cl:
-                    child_only_groups.setdefault(cl, []).append(row)
-                else:
-                    legacy_rows.append(row)
+                key = (row.get("child_label") or None, row.get("parent_label") or None,
+                       row.get("parent_line") is not None)
+                groups.setdefault(key, []).append(row)
 
-            for (cl, pl), rows in pair_groups.items():
-                _run_internal(rows, cl, pl)
-            for cl, rows in child_only_groups.items():
-                for pl in labels:
-                    if pl not in populated_labels:
-                        continue
-                    _run_internal(rows, cl, pl)
-            if legacy_rows:
-                for cl in labels:
-                    if cl not in populated_labels:
-                        continue
-                    for pl in labels:
-                        if pl not in populated_labels:
-                            continue
-                        _run_internal(legacy_rows, cl, pl)
+            populated = [label for label in labels if label in populated_labels]
+            for (cl, pl, pinned), rows in groups.items():
+                # a known label is used as is (never probed: the rows name it); an
+                # unknown one is enumerated over the populated labels
+                for child_lab in ([cl] if cl else populated):
+                    for parent_lab in ([pl] if pl else populated):
+                        _run_internal(rows, child_lab, parent_lab, pinned)
 
             # External parents (ExternalClass): group by known child label; fall back to
             # enumerating child labels for any label-less rows.
@@ -1757,21 +1751,30 @@ class GraphWriter:
 
         def _work(session):
             for row in metaclass_batch:
+                # `parent_line`: the one class an import names (resolution/inheritance.py)
+                # — a nested class of that name in the file is not the metaclass
+                pinned = row.get("parent_line") is not None
+                line_key = ", line_number: $parent_line" if pinned else ""
+                params = dict(
+                    child_name=row["child_name"],
+                    path=row["path"],
+                    parent_name=row["parent_name"],
+                    resolved_parent_file_path=row["resolved_parent_file_path"],
+                    line_number=row.get("line_number", 0),
+                    confidence_label=row.get("confidence_label", "EXTRACTED"),
+                )
+                if pinned:
+                    params["parent_line"] = row["parent_line"]
                 try:
                     session.run(
-                        """
-                        MATCH (child:Class {name: $child_name, path: $path})
-                        MATCH (parent:Class {name: $parent_name, path: $resolved_parent_file_path})
+                        f"""
+                        MATCH (child:Class {{name: $child_name, path: $path}})
+                        MATCH (parent:Class {{name: $parent_name, path: $resolved_parent_file_path{line_key}}})
                         MERGE (child)-[r:METACLASS]->(parent)
                         SET r.line_number = $line_number
                         SET r.confidence_label = coalesce($confidence_label, 'EXTRACTED')
                         """,
-                        child_name=row["child_name"],
-                        path=row["path"],
-                        parent_name=row["parent_name"],
-                        resolved_parent_file_path=row["resolved_parent_file_path"],
-                        line_number=row.get("line_number", 0),
-                        confidence_label=row.get("confidence_label", "EXTRACTED"),
+                        **params,
                     )
                 except Exception as e:
                     if _is_binder_exception(e):
