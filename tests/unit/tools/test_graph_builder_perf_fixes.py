@@ -591,8 +591,8 @@ class TestAddFileToGraph:
         )
         assert "c.line_number = row.class_line" in class_fn_call["query"]
         assert class_fn_call["kwargs"]["batch"] == [
-            {"class_name": "Worker", "class_line": 2, "func_name": "run", "func_line": 3},
-            {"class_name": "Worker", "class_line": 7, "func_name": "run", "func_line": 8},
+            {"class_name": "Worker", "class_line": 2, "func_name": "run", "func_line": 3, "func_occ": 0},
+            {"class_name": "Worker", "class_line": 7, "func_name": "run", "func_line": 8, "func_occ": 0},
         ]
 
     def test_non_javascript_import_rows_are_schema_complete(self):
