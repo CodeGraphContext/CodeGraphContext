@@ -22,12 +22,12 @@ TREE = {
     "backend/app/__init__.py": "",
     "backend/app/database.py": "class Base:\n    pass\n",
     "backend/app/other_base.py": "class Base:\n    pass\n",
-    "backend/app/scheduler/__init__.py": "from .base import SchedulerJob\n",
-    "backend/app/scheduler/base.py": "class SchedulerJob:\n    pass\n",
+    "backend/app/tasks/__init__.py": "from .base import TaskBase\n",
+    "backend/app/tasks/base.py": "class TaskBase:\n    pass\n",
     "backend/app/jobs.py": (
-        "from app.scheduler.base import SchedulerJob\nfrom app.scheduler import SchedulerJob as Reexported\n"
+        "from app.tasks.base import TaskBase\nfrom app.tasks import TaskBase as Reexported\n"
         "from app.database import Base as DBBase\n\n"
-        "class P1(SchedulerJob):\n    pass\n\nclass P7(DBBase):\n    pass\n\nclass P8(Reexported):\n    pass\n"),
+        "class P1(TaskBase):\n    pass\n\nclass P7(DBBase):\n    pass\n\nclass P8(Reexported):\n    pass\n"),
     # a framework package re-exports its ORM's classes; the ORM's own file has a
     # function-local decoy `AbstractModel`; a plugin defines its own `Model`
     "backend/framework/__init__.py": "",
@@ -64,9 +64,9 @@ TREE = {
 
 #: child -> (parent label, parent name, parent path relative to the repo or None)
 EXPECTED = {
-    "P1": ("Class", "SchedulerJob", "backend/app/scheduler/base.py"),
+    "P1": ("Class", "TaskBase", "backend/app/tasks/base.py"),
     "P7": ("Class", "Base", "backend/app/database.py"),
-    "P8": ("Class", "SchedulerJob", "backend/app/scheduler/base.py"),
+    "P8": ("Class", "TaskBase", "backend/app/tasks/base.py"),
     "P12": ("Class", "Model", "backend/framework/orm/models.py"),
     "P13": ("Variable", "AbstractModel", "backend/framework/orm/models.py"),
     "P14": ("Variable", "AbstractModel", "backend/framework/orm/models.py"),
@@ -148,7 +148,7 @@ def test_import_bound_python_bases(tmp_path, backend, module):
     assert not [r for r in rows if r[4] == "backend/aaa_plugin/models/models.py"], rows
     # no ExternalClass is left for a name an import resolved
     ext = {r[3] for r in rows if r[2] == "ExternalClass"}
-    assert not ext & {"DBBase", "Base", "SchedulerJob", "Reexported", "Model", "AbstractModel", "NB"}, ext
+    assert not ext & {"DBBase", "Base", "TaskBase", "Reexported", "Model", "AbstractModel", "NB"}, ext
     # the module-level metaclass, not the nested namesake
     assert got["metaclass"] == [["M1", "Meta", "backend/app/meta.py", 1]], got["metaclass"]
     # two same-named children, each with its own pinned parent: both true edges exist

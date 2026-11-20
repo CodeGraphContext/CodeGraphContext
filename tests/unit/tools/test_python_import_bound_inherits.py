@@ -1,8 +1,8 @@
 """A Python class base bound by an import resolves through that import.
 
 INHERITS used to test whether the *imported name* occurred in a candidate's path
-(``from app.scheduler.base import SchedulerJob`` asked whether ``SchedulerJob`` is a
-substring of ``…/app/scheduler/base.py``: never), so an imported base resolved WORSE
+(``from app.tasks.base import TaskBase`` asked whether ``TaskBase`` is a
+substring of ``…/app/tasks/base.py``: never), so an imported base resolved WORSE
 than an unimported one and became an ExternalClass; a dotted ``models.Model`` took the
 first ``Model`` whose path contains ``models``; an alias (``Base as DBBase``) was
 written under the alias, which no node carries; an unbound ``Exception`` took any
@@ -34,26 +34,26 @@ FILES = {
     "backend/app/__init__.py": "",
     "backend/app/database.py": "class Base:\n    pass\n\ndef get_db():\n    return 1\n",
     "backend/app/other_base.py": "class Base:\n    pass\n",                 # a second same-named class
-    "backend/app/scheduler/__init__.py": "from .base import SchedulerJob\n",  # package re-export
-    "backend/app/scheduler/base.py": (
-        "class SchedulerJob:\n    def run(self):\n        return 1\n\n"
-        "class PerInstanceJob(SchedulerJob):\n    pass\n"),
-    "backend/app/scheduler/jobs/__init__.py": "",
-    "backend/app/scheduler/jobs/p1_from.py": (
-        "from app.scheduler.base import SchedulerJob\n\nclass P1(SchedulerJob):\n    pass\n"),
+    "backend/app/tasks/__init__.py": "from .base import TaskBase\n",  # package re-export
+    "backend/app/tasks/base.py": (
+        "class TaskBase:\n    def run(self):\n        return 1\n\n"
+        "class PerInstanceJob(TaskBase):\n    pass\n"),
+    "backend/app/tasks/jobs/__init__.py": "",
+    "backend/app/tasks/jobs/p1_from.py": (
+        "from app.tasks.base import TaskBase\n\nclass P1(TaskBase):\n    pass\n"),
     "backend/app/models/__init__.py": "",
     "backend/app/models/p2_base.py": "from app.database import Base\n\nclass P2(Base):\n    pass\n",
-    "backend/app/scheduler/jobs/p3_modfrom.py": (
-        "from app.scheduler import base\n\nclass P3(base.SchedulerJob):\n    pass\n"),
-    "backend/app/scheduler/jobs/p4_import.py": (
-        "import app.scheduler.base\n\nclass P4(app.scheduler.base.SchedulerJob):\n    pass\n"),
-    "backend/app/scheduler/jobs/p5_alias.py": "import app.scheduler.base as b\n\nclass P5(b.SchedulerJob):\n    pass\n",
-    "backend/app/scheduler/p6_rel.py": (
-        "from .base import SchedulerJob\nfrom . import base\n\n"
-        "class P6a(SchedulerJob):\n    pass\n\nclass P6b(base.SchedulerJob):\n    pass\n"),
+    "backend/app/tasks/jobs/p3_modfrom.py": (
+        "from app.tasks import base\n\nclass P3(base.TaskBase):\n    pass\n"),
+    "backend/app/tasks/jobs/p4_import.py": (
+        "import app.tasks.base\n\nclass P4(app.tasks.base.TaskBase):\n    pass\n"),
+    "backend/app/tasks/jobs/p5_alias.py": "import app.tasks.base as b\n\nclass P5(b.TaskBase):\n    pass\n",
+    "backend/app/tasks/p6_rel.py": (
+        "from .base import TaskBase\nfrom . import base\n\n"
+        "class P6a(TaskBase):\n    pass\n\nclass P6b(base.TaskBase):\n    pass\n"),
     "backend/app/models/p7_alias.py": "from app.database import Base as DBBase\n\nclass P7(DBBase):\n    pass\n",
-    "backend/app/scheduler/jobs/p8_reexport.py": (
-        "from app.scheduler import SchedulerJob\n\nclass P8(SchedulerJob):\n    pass\n"),
+    "backend/app/tasks/jobs/p8_reexport.py": (
+        "from app.tasks import TaskBase\n\nclass P8(TaskBase):\n    pass\n"),
     "backend/app/models/p9_ext.py": (
         "from sqlalchemy.orm import DeclarativeBase\nimport enum\n\n"
         "class P9(DeclarativeBase):\n    pass\n\nclass P10(enum.Enum):\n    A = 1\n"),
@@ -76,7 +76,7 @@ FILES = {
         "from framework import models\n\nclass P12(models.Model):\n    pass\n\nclass P13(models.AbstractModel):\n    pass\n"),
     # a star import; an unbound builtin with an unrelated in-repo namesake
     "backend/app/models/p14_star.py": (
-        "from app.scheduler.base import *\n\nclass P14(SchedulerJob):\n    pass\n\nclass P15(Exception):\n    pass\n"),
+        "from app.tasks.base import *\n\nclass P14(TaskBase):\n    pass\n\nclass P15(Exception):\n    pass\n"),
     "backend/app/models/shadow_exc.py": "class Exception:\n    pass\n",
     # METACLASS: an imported metaclass with a same-named decoy
     "backend/app/meta.py": "class Meta(type):\n    pass\n",
@@ -143,16 +143,16 @@ def _inherits(root: Path, rows) -> Dict[str, List[Tuple[str, str, Optional[str]]
 
 # child -> [(parent name, parent file or __external__, parent label)]
 EXPECTED = {
-    "PerInstanceJob": [("SchedulerJob", "backend/app/scheduler/base.py", "Class")],
-    "P1": [("SchedulerJob", "backend/app/scheduler/base.py", "Class")],
+    "PerInstanceJob": [("TaskBase", "backend/app/tasks/base.py", "Class")],
+    "P1": [("TaskBase", "backend/app/tasks/base.py", "Class")],
     "P2": [("Base", "backend/app/database.py", "Class")],
-    "P3": [("SchedulerJob", "backend/app/scheduler/base.py", "Class")],
-    "P4": [("SchedulerJob", "backend/app/scheduler/base.py", "Class")],
-    "P5": [("SchedulerJob", "backend/app/scheduler/base.py", "Class")],
-    "P6a": [("SchedulerJob", "backend/app/scheduler/base.py", "Class")],
-    "P6b": [("SchedulerJob", "backend/app/scheduler/base.py", "Class")],
+    "P3": [("TaskBase", "backend/app/tasks/base.py", "Class")],
+    "P4": [("TaskBase", "backend/app/tasks/base.py", "Class")],
+    "P5": [("TaskBase", "backend/app/tasks/base.py", "Class")],
+    "P6a": [("TaskBase", "backend/app/tasks/base.py", "Class")],
+    "P6b": [("TaskBase", "backend/app/tasks/base.py", "Class")],
     "P7": [("Base", "backend/app/database.py", "Class")],
-    "P8": [("SchedulerJob", "backend/app/scheduler/base.py", "Class")],
+    "P8": [("TaskBase", "backend/app/tasks/base.py", "Class")],
     "P9": [("DeclarativeBase", EXT_ROW, None)],
     "P10": [("Enum", EXT_ROW, None)],
     "P11": [("Missing", EXT_ROW, None)],
@@ -161,7 +161,7 @@ EXPECTED = {
     # the plugin's own Model: its base is the ORM's AbstractModel too; the ORM's Model
     # reaches the same-file Variable (unchanged)
     "Model": sorted([("AbstractModel", "backend/framework/orm/models.py", "Variable")] * 2, key=repr),
-    "P14": [("SchedulerJob", "backend/app/scheduler/base.py", "Class")],
+    "P14": [("TaskBase", "backend/app/tasks/base.py", "Class")],
     "P15": [("Exception", EXT_ROW, None)],
     "Error": [("Exception", EXT_ROW, None)],
     "Bar": [("Foo", "java/com/x/Foo.java", "Class")],
@@ -225,4 +225,4 @@ def test_a_parse_without_star_imports_keeps_every_other_target(tmp_path):
     for d in data:
         d.pop("py_star_imports", None)
     legacy = _inherits(root, build_inheritance_and_csharp_files(data, imports_map)[0])
-    assert legacy == dict(full, P14=[("SchedulerJob", EXT_ROW, None)])
+    assert legacy == dict(full, P14=[("TaskBase", EXT_ROW, None)])
