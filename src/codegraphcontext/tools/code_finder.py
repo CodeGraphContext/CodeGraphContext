@@ -115,6 +115,26 @@ _ANDROID_ENTRY_POINT_NAMES_CYPHER = "[" + ", ".join(
 ) + "]"
 _JVM_LANGS_CYPHER = "['kotlin', 'java']"
 
+def _markup_filter(alias: str) -> str:
+    """Return a Cypher expression that excludes markup-file Function nodes.
+
+    The CSS parser stores every selector (class/id/tag) as a Function node
+    (tools/languages/css.py).  Those selectors are never "called", so each one
+    becomes a false positive in find_dead_code without this filter.
+
+    Critically, the CSS parser does *not* set a per-item ``lang`` field — the
+    node gets ``lang = None`` rather than ``lang = 'css'``.  A lang-IN-list
+    check would silently exclude *every* null-lang node because Cypher evaluates
+    ``NOT (null IN ['css', 'html'])`` as ``null``, which is falsy in a WHERE
+    clause.  Path extension is the null-safe discriminator: every CSS node has
+    a path that ends in ``.css``.
+    """
+    return (
+        f"NOT ({alias}.path ENDS WITH '.css'"
+        f" OR {alias}.path ENDS WITH '.html'"
+        f" OR {alias}.path ENDS WITH '.htm')"
+    )
+
 # Annotations whose presence means "something other than project code calls
 # this": the Compose runtime, a test runner, the Hilt container, an annotation
 # processor, or tooling. Pass as exclude_decorated_with when analysing an
@@ -1061,6 +1081,7 @@ class CodeFinder:
             query = f"""
                 MATCH (func:Function)
                 WHERE func.is_dependency = false {repo_filter} {func_ignore}
+                  AND {_markup_filter('func')}
                   AND NOT toLower(func.name) IN {_ENTRY_POINT_NAMES_CYPHER}
                   AND NOT (
                         func.lang IN {_JVM_LANGS_CYPHER}
@@ -1122,6 +1143,7 @@ class CodeFinder:
                 low_query = f"""
                     MATCH (func:Function)
                     WHERE func.is_dependency = false {repo_filter} {func_ignore}
+                      AND {_markup_filter('func')}
                       AND func.name <> '<module>'
                       AND (
                             toLower(func.name) IN {_ENTRY_POINT_NAMES_CYPHER}
