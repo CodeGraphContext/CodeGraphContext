@@ -10,13 +10,15 @@ These three points are the most common sources of confusion in older docs and is
 
 ### Default database backend
 
-| Platform | What CGC uses by default |
-| :--- | :--- |
-| **Unix (Linux/macOS), Python 3.12+** | **FalkorDB Lite** when `falkordblite` is installed (`DEFAULT_DATABASE=falkordb`) |
-| **Windows**, or FalkorDB Lite unavailable | **KuzuDB** as the automatic fallback |
-| **Any platform** | Override anytime with `cgc config db <backend>` |
+An explicit `CGC_RUNTIME_DB_TYPE` override takes precedence over `DEFAULT_DATABASE` (`cgc config db`). Without either, CGC considers:
 
-KuzuDB is **not** the universal default—it is the cross-platform fallback when FalkorDB Lite cannot run.
+1. FalkorDB Remote when `FALKORDB_HOST` is configured.
+2. FalkorDB Lite when usable (Unix and Python 3.12+).
+3. KuzuDB when available.
+4. LadybugDB when available.
+5. Configured Neo4j, then configured Nornic.
+
+Python/platform dependency markers affect which drivers exist. In particular, CGC excludes Kuzu on macOS/Windows with Python 3.14+, so Ladybug can become the embedded fallback there. Some explicitly requested backends can also fall back when unavailable. Check diagnostics for the engine actually selected. See [Database Backends](../concepts/backends.md).
 
 ### Neo4j username key
 
@@ -102,10 +104,10 @@ cgc config set ALLOW_DB_DELETION false
 
 | Config Key | Default | Description |
 | :--- | :--- | :--- |
-| **`DEFAULT_DATABASE`** | `falkordb` | Active database engine. Options: `kuzudb`, `ladybugdb`, `falkordb`, `falkordb-remote`, `neo4j`. |
+| **`DEFAULT_DATABASE`** | `falkordb` | Active database engine. Options: `kuzudb`, `ladybugdb`, `falkordb`, `falkordb-remote`, `neo4j`, `nornic`. |
 | **`ENABLE_AUTO_WATCH`** | `false` | When `true`, indexing a project automatically initializes a directory watcher. |
 | **`PARALLEL_WORKERS`** | `4` | Max thread pool size for parsing code files concurrently. Shared by full indexing and the file watcher. Values above 32 are clamped. An empty or invalid value falls back to 10 for a full index and 4 for the watcher. |
-| **`CACHE_ENABLED`** | `true` | Caches file hashes to support fast incremental scans. |
+| **`CACHE_ENABLED`** | `true` | Compatibility setting; current indexing does not consume this flag. Watcher parse reuse is in memory; persistent parsing cache is tracked in [#1288](https://github.com/CodeGraphContext/CodeGraphContext/issues/1288). |
 
 ### Indexing Scope Configurations
 

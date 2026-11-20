@@ -56,13 +56,13 @@ cgc analyze chain main save_record
 
 ## 4. Enable Real-Time Watchers
 
-To keep your code graph updated as you write code, start a directory watcher in the background. The watcher monitors file writes and incrementally updates the graph database.
+To keep your code graph updated as you write code, start a directory watcher in the foreground. The watcher monitors file writes and incrementally updates the graph database.
 
 ```bash
 cgc watch
 ```
 
-To stop a watcher, use `cgc unwatch <path>`.
+Press **Ctrl+C in the terminal running `cgc watch`** to stop it. The separate `cgc unwatch` and `cgc watching` CLI commands are unsupported. For watchers owned by a running MCP server, use its `unwatch_directory` and `list_watched_paths` tools.
 
 ---
 

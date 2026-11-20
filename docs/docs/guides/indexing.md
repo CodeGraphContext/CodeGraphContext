@@ -58,7 +58,7 @@ C and C++ SCIP requires a `compile_commands.json` in the project (or under `buil
 
 ## 4. Real-Time Directory Watchers
 
-For active development, run a filesystem watcher in the background to capture file writes and incrementally sync the graph.
+For active development, run a foreground filesystem watcher to capture file writes and incrementally sync the graph.
 
 ```bash
 # Start watching the active workspace
@@ -82,14 +82,9 @@ sequenceDiagram
     Watch->>ParsingQueue: Queue updated file
 ```
 
-- **Listing Watchers**: View active file monitors with:
-  ```bash
-  cgc watching
-  ```
-- **Stopping Watchers**: Terminate directory monitoring using:
-  ```bash
-  cgc unwatch /path/to/project
-  ```
+`cgc watch` runs in the foreground. Press **Ctrl+C in its terminal** to stop monitoring and close the embedded database cleanly. Separate CLI processes cannot manage its watcher: `cgc watching` and `cgc unwatch` currently return an unsupported-operation error.
+
+For watchers owned by the MCP server, call `list_watched_paths` or `unwatch_directory` through that same running server.
 
 On startup, each watcher can **reconcile** the graph with disk: files present on disk but missing from the graph are indexed, and graph entries for deleted files are removed before live monitoring begins.
 

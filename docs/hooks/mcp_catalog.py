@@ -23,9 +23,18 @@ def render_catalog(tools, version):
     return "\n".join(lines)
 
 
+def project_version():
+    return re.search(r'^version\s*=\s*"([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.MULTILINE).group(1)
+
+
+def on_config(config, **kwargs):
+    config.setdefault("extra", {})["cgc_version"] = project_version()
+    return config
+
+
 def generate(docs_dir):
     tools = runpy.run_path(str(ROOT / "src/codegraphcontext/tool_definitions.py"))["TOOLS"]
-    version = re.search(r'^version\s*=\s*"([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.MULTILINE).group(1)
+    version = project_version()
     output = Path(docs_dir) / "reference/mcp-catalog.md"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(render_catalog(tools, version), encoding="utf-8")

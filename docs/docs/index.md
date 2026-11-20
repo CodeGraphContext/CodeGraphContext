@@ -2,9 +2,9 @@
 
 CodeGraphContext (CGC) is a high-performance, developer-focused **Code Intelligence Engine** that transforms source repositories into semantic, queryable property graphs. Tree-sitter and optional SCIP indexers extract symbols; CGC resolves calls, imports, and inheritance into a graph you can query from the CLI, MCP tools, or the HTTP API gateway.
 
-**Current release: 0.5.0**
+The version in the header identifies this documentation's source build. Run `cgc version` for your installed package, or check [PyPI](https://pypi.org/project/codegraphcontext/) and the [release notes](https://github.com/CodeGraphContext/CodeGraphContext/releases) for published releases.
 
-Recent improvements in the 0.5.0 line include cross-language call-graph resolution fixes (Perl, Ruby, Lua, Haskell, Rust, TypeScript, C#, Dart, C), structural edge persistence (`PARTIAL_OF`, `IMPLEMENTS`, `METACLASS`, etc.), and average CALLS audit accuracy rising from ~84% to ~98%.
+Relationship coverage depends on the language, indexer and source construct. Treat inferred links and dead-code results as evidence to verify against source and tests. See [MCP operating notes](reference/mcp-operating-notes.md) for practical limits.
 
 ---
 
@@ -12,7 +12,7 @@ Recent improvements in the 0.5.0 line include cross-language call-graph resoluti
 
 - **Semantic AST Extraction**: Utilizes tree-sitter for syntax analysis and SCIP (Sourcegraph Code Intelligence Protocol) for static symbol resolution across multiple directories.
 - **Model Context Protocol (MCP) Integration**: Built-in MCP server support allows AI models and IDE agents (Cursor, Claude, VS Code, Windsurf) to query the codebase context dynamically.
-- **Pluggable Database Architecture**: FalkorDB Lite on Unix (Python 3.12+), KuzuDB as the cross-platform fallback, plus LadybugDB, FalkorDB Remote, Nornic, and Neo4j. See [configuration defaults](reference/config.md#important-defaults-read-this-first).
+- **Pluggable Database Architecture**: FalkorDB Lite on Unix (Python 3.12+), then available KuzuDB or LadybugDB fallbacks, plus configured FalkorDB Remote, Nornic, and Neo4j servers. See [configuration defaults](reference/config.md#important-defaults-read-this-first).
 - **Filesystem Synchronization**: Integrated directory watchers monitor file updates and update the graph incrementally.
 - **Portable Code Graphs**: Supports exporting and importing serialized graph representations as `.cgc` bundles for offline sharing and registry integration.
 

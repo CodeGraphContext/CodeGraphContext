@@ -1,6 +1,6 @@
 # System Prerequisites
 
-CodeGraphContext (CGC) is designed as a client-server architecture. To ensure a successful installation, understand the primary roles and requirements of the environment.
+CodeGraphContext (CGC) can run locally with an embedded graph engine or connect to a graph server. To ensure a successful installation, understand the primary roles and requirements of the environment.
 
 ---
 
@@ -16,11 +16,11 @@ CodeGraphContext (CGC) is designed as a client-server architecture. To ensure a 
 
 ## Hardware & OS Requirements
 
-| Resource | Minimum Requirement | Notes |
+| Resource | Requirement | Notes |
 | :--- | :--- | :--- |
-| **Operating System** | Linux, macOS, or Windows | Windows WSL is supported but native installation works via KuzuDB. |
-| **Python Version** | Python 3.10 or higher | Python 3.10+ is required for the core package and KuzuDB. |
-| **Memory** | 4 GB RAM | Large repositories benefit from 8 GB+ memory during initial scans. |
+| **Operating system** | Linux, macOS, or Windows | Native engine and parser wheels must support your OS and architecture. |
+| **Python** | Python 3.10 or higher | Backend availability varies. FalkorDB Lite requires Unix and Python 3.12+; CGC excludes Kuzu on macOS/Windows with Python 3.14+. |
+| **Memory and disk** | Depend on repository size, queries and backend | The embedded buffer-pool setting does not cap total process RSS. See [operating notes](../reference/mcp-operating-notes.md#memory-response-limits-and-ownership). |
 
 ---
 
@@ -28,14 +28,7 @@ CodeGraphContext (CGC) is designed as a client-server architecture. To ensure a 
 
 CGC supports multiple database engines. You only need to set up the engine that fits your requirements.
 
-| Database Backend | Setup Type | Target Platform | Use Case |
-| :--- | :--- | :--- | :--- |
-| **FalkorDB Lite (Default)** | In-process (Embedded) | Unix (Linux/macOS), Python 3.12+ | Default when `falkordblite` is installed. In-memory, extremely low latency. |
-| **KuzuDB** | In-process (Embedded) | Cross-Platform (Linux/macOS/Windows) | Automatic fallback on Windows or when FalkorDB Lite is unavailable. Python 3.10+. |
-| **LadybugDB** | In-process (Embedded) | Cross-Platform | Alternative embedded engine; `pip install ladybug`. |
-| **FalkorDB Remote** | Networked Server | Cross-Platform Client | Connects to a remote FalkorDB/Redis-compatible server. |
-| **Neo4j** | Networked Server | Cross-Platform Client | Enterprise clustering, Neo4j Browser, AuraDB. |
-| **Nornic DB** | Embedded / Bolt client | Cross-Platform | Neo4j-compatible driver without a full Neo4j deployment. |
+Choose an embedded engine for local use or configure a server connection. [Database Backends](../concepts/backends.md) describes all six supported identifiers, platform constraints and the actual fallback order. Install CGC with its declared dependency constraints rather than upgrading native drivers independently.
 
 ---
 
