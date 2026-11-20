@@ -30,7 +30,7 @@ TOOLS = {
 
     "check_job_status": {
         "name": "check_job_status",
-        "description": "Check the status and progress of a background job.",
+        "description": "Check the status and progress of a background job. A completed index job carries its summary in job.result.index_summary: file / node / CALLS counts and per-phase timings (phase_seconds, total_seconds).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -45,7 +45,7 @@ TOOLS = {
 
     "list_jobs": {
         "name": "list_jobs",
-        "description": "List all background jobs and their current status.",
+        "description": "List all background jobs and their current status. A row's `result` only names what check_job_status returns for that job (e.g. an index job's index_summary).",
         "inputSchema": {
             "type": "object",
             "properties": {}

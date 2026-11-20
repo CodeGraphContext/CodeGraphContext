@@ -74,7 +74,7 @@ def test_index_summary_reports_parse_failures():
         parsers={".py": "python"},
         all_file_data=[{"path": "/repo/ok.py", "functions": [{}]}],
         resolved_call_groups=(),
-        serialization_seconds=0.0,
+        post_parse_seconds=0.0,
         parse_failures=failures,
     )
 
@@ -88,8 +88,10 @@ def test_index_summary_reports_zero_failures_for_a_clean_run():
         parsers={".py": "python"},
         all_file_data=[{"path": "/repo/ok.py", "functions": [{}]}],
         resolved_call_groups=(),
-        serialization_seconds=0.0,
+        post_parse_seconds=0.0,
     )
 
     assert summary["failed_files"] == 0
     assert summary["failed_file_details"] == []
+    # the deprecated key keeps the post-parse window for one release
+    assert summary["post_parse_seconds"] == summary["serialization_seconds"] == 0.0

@@ -33,3 +33,22 @@ def test_list_jobs_returns_json_serializable_updated_jobs(updated_job_manager):
 
     json.dumps(result)
     assert isinstance(result["jobs"][0]["last_update_time"], str)
+
+
+def test_list_jobs_points_at_a_jobs_result_instead_of_carrying_it():
+    """A finished index job's summary (counts, files_by_extension,
+    phase_seconds, failed_file_details) is check_job_status' answer; list_jobs rows keep
+    their shape with a compact pointer in `result`, so the list does not grow with every
+    finished index of a long-lived server."""
+    manager = JobManager()
+    plain = manager.create_job("/tmp/plain")
+    indexed = manager.create_job("/tmp/repo")
+    summary = {"phase_seconds": {"parse": 1.5}, "total_seconds": 2.0, "files_by_extension": {".py": 3},
+               "failed_file_details": [{"path": f"/tmp/repo/f{i}.py"} for i in range(5)]}
+    manager.update_job(indexed, result={"index_summary": summary})
+
+    rows = {row["job_id"]: row for row in list_jobs(manager)["jobs"]}
+    assert rows[plain]["result"] is None
+    assert rows[indexed]["result"] == {"keys": ["index_summary"], "see": "check_job_status"}
+    assert "phase_seconds" not in json.dumps(list_jobs(manager))
+    assert check_job_status(manager, job_id=indexed)["job"]["result"] == {"index_summary": summary}

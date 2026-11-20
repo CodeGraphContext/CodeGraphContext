@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import warnings
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ from .discovery import discover_files_to_index
 from .persistence.writer import GraphWriter
 from .pre_scan import pre_scan_for_imports
 from .operation import IndexingOperation
+from .phase_timings import SECONDS_DECIMALS, PhaseTimings, recording
 from .resolution.calls import build_function_call_groups
 from .resolution.inheritance import (
     build_binds_links,
@@ -85,15 +87,59 @@ def get_parallel_workers(default: int = DEFAULT_PARALLEL_WORKERS) -> int:
     return _clamp_parallel_workers(workers)
 
 
+def _seconds(value: Optional[float]) -> Optional[float]:
+    return None if value is None else round(float(value), SECONDS_DECIMALS)
+
+
+def index_timing_fields(
+    timings: Optional[PhaseTimings],
+    total_seconds: Optional[float],
+    post_parse_seconds: Optional[float],
+) -> Dict[str, Any]:
+    """The timing keys of an index summary (both pipelines).
+
+    ``phase_seconds``: the phases that ran (``PhaseTimings.as_dict``);
+    ``total_seconds``: the pipeline's wall time up to the summary;
+    ``post_parse_seconds``: everything after parsing, up to the summary — the
+    window ``serialization_seconds`` always measured, which it keeps as a
+    deprecated alias (to be removed one release later).
+    """
+    fields: Dict[str, Any] = {}
+    if timings is not None:
+        fields["phase_seconds"] = timings.as_dict()
+    if total_seconds is not None:
+        fields["total_seconds"] = _seconds(total_seconds)
+    if post_parse_seconds is not None:
+        fields["post_parse_seconds"] = _seconds(post_parse_seconds)
+        fields["serialization_seconds"] = fields["post_parse_seconds"]
+    return fields
+
+
 def build_index_summary(
     files: List[Path],
     parsers: Dict[str, str],
     all_file_data: List[Dict[str, Any]],
     resolved_call_groups: tuple,
-    serialization_seconds: float,
+    post_parse_seconds: Optional[float] = None,
     parse_failures: Optional[List[Dict[str, Any]]] = None,
+    *,
+    timings: Optional[PhaseTimings] = None,
+    total_seconds: Optional[float] = None,
+    serialization_seconds: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Build CLI-facing metrics for a completed Tree-sitter indexing run."""
+    """Build CLI-facing metrics for a completed Tree-sitter indexing run.
+
+    ``serialization_seconds`` is the deprecated name of ``post_parse_seconds``.
+    """
+    if serialization_seconds is not None:
+        warnings.warn(
+            "build_index_summary(serialization_seconds=...) is deprecated; pass "
+            "post_parse_seconds (the same window: everything after parsing)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if post_parse_seconds is None:
+            post_parse_seconds = serialization_seconds
     extension_counts = Counter()
     for file in files:
         extension = file.suffix or file.name
@@ -120,12 +166,28 @@ def build_index_summary(
         "function_nodes": function_nodes,
         "class_nodes": class_nodes,
         "call_edges": call_edges,
-        "serialization_seconds": serialization_seconds,
+        **index_timing_fields(timings, total_seconds, post_parse_seconds),
         # A run where files failed to parse used to be indistinguishable from a
         # clean one: the summary had no failure row at all.
         "failed_files": len(failed),
         "failed_file_details": failed,
     }
+
+
+def publish_index_summary(
+    summary: Dict[str, Any],
+    index_summary: Optional[Dict[str, Any]],
+    job_manager: JobManager,
+    job_id: Optional[str],
+) -> None:
+    """Hand a finished run's summary to the caller's dict (CLI: ``GraphBuilder.last_index_summary``)
+    and to the MCP job (``result.index_summary``, shown by ``check_job_status``). The job
+    keeps its own copy: the builder's dict is cleared by its next run."""
+    if index_summary is not None:
+        index_summary.clear()
+        index_summary.update(summary)
+    if job_id:
+        job_manager.update_job(job_id, result={"index_summary": dict(summary)})
 
 
 async def run_tree_sitter_index_async(
@@ -153,23 +215,52 @@ async def run_tree_sitter_index_async(
                 call_resolution_diagnostics, index_summary, _operation=operation,
             )
         )
+    # Per-phase wall time (summary["phase_seconds"]); published to the writer, which
+    # times its IMPORTS writes as their own phase inside write_nodes.
+    timings = PhaseTimings()
+    with recording(timings):
+        await _run_tree_sitter_phases(
+            path, is_dependency, job_id, cgcignore_path, writer, job_manager, parsers,
+            get_parser, parse_file, add_minimal_file_node, call_resolution_diagnostics,
+            index_summary, _operation, timings,
+        )
+
+
+async def _run_tree_sitter_phases(
+    path: Path,
+    is_dependency: bool,
+    job_id: Optional[str],
+    cgcignore_path: Optional[str],
+    writer: GraphWriter,
+    job_manager: JobManager,
+    parsers: Dict[str, str],
+    get_parser: Callable[[str], Any],
+    parse_file: Callable[[Path, Path, bool], Dict[str, Any]],
+    add_minimal_file_node: Callable[[Path, Path, bool], None],
+    call_resolution_diagnostics: Optional[List[Dict[str, Any]]],
+    index_summary: Optional[Dict[str, Any]],
+    _operation: IndexingOperation,
+    timings: PhaseTimings,
+) -> None:
     _operation.check_cancelled()
     if job_id:
         job_manager.update_job(job_id, status=JobStatus.RUNNING)
 
     repo_root = path if path.is_dir() else path.parent.resolve()
-    await _operation.run_in_thread(writer.add_repository_to_graph, repo_root, is_dependency)
-    repo_name = repo_root.name
+    with timings.phase("discover"):
+        await _operation.run_in_thread(writer.add_repository_to_graph, repo_root, is_dependency)
+        repo_name = repo_root.name
 
-    files, _ignore_root = await _operation.run_in_thread(
-        discover_files_to_index, path, cgcignore_path, supported_extensions=set(parsers.keys())
-    )
+        files, _ignore_root = await _operation.run_in_thread(
+            discover_files_to_index, path, cgcignore_path, supported_extensions=set(parsers.keys())
+        )
 
     if job_id:
         job_manager.update_job(job_id, total_files=len(files))
 
     debug_log("Starting pre-scan to build imports map...")
-    imports_map = await _operation.run_in_thread(pre_scan_for_imports, files, parsers.keys(), get_parser)
+    with timings.phase("pre_scan"):
+        imports_map = await _operation.run_in_thread(pre_scan_for_imports, files, parsers.keys(), get_parser)
     debug_log(f"Pre-scan complete. Found {len(imports_map)} definitions.")
 
     all_file_data: List[Dict[str, Any]] = []
@@ -204,26 +295,29 @@ async def run_tree_sitter_index_async(
             return None
 
     # Process all files in parallel with the semaphore limit
-    tasks = [asyncio.create_task(process_file(f)) for f in files]
-    try:
-        for coro in asyncio.as_completed(tasks):
-            file_data = await coro
-            if file_data:
-                all_file_data.append(file_data)
+    with timings.phase("parse"):
+        tasks = [asyncio.create_task(process_file(f)) for f in files]
+        try:
+            for coro in asyncio.as_completed(tasks):
+                file_data = await coro
+                if file_data:
+                    all_file_data.append(file_data)
 
-            processed_count += 1
-            if job_id:
-                job_manager.update_job(job_id, processed_files=processed_count)
+                processed_count += 1
+                if job_id:
+                    job_manager.update_job(job_id, processed_files=processed_count)
 
-            if processed_count % 50 == 0:
-                if os.environ.get("CGC_ACTIVE_PROGRESS_BAR") != "1":
-                    info_logger(f"Processed {processed_count}/{len(files)} files...")
-    finally:
-        # as_completed does not join siblings when one task raises. Queued
-        # parses must stop, and native workers must finish before finalization.
-        await _operation.drain(tasks)
+                if processed_count % 50 == 0:
+                    if os.environ.get("CGC_ACTIVE_PROGRESS_BAR") != "1":
+                        info_logger(f"Processed {processed_count}/{len(files)} files...")
+        finally:
+            # as_completed does not join siblings when one task raises. Queued
+            # parses must stop, and native workers must finish before finalization.
+            await _operation.drain(tasks)
 
-    serialization_start = time.time()
+    # Everything from here to the summary is the post-parse window (the window the
+    # deprecated serialization_seconds always measured).
+    post_parse_start = time.perf_counter()
 
     # Parsing remains concurrent, but graph writes are ordered so shared nodes
     # such as imported modules receive deterministic canonical metadata.
@@ -231,39 +325,13 @@ async def run_tree_sitter_index_async(
     # so an exception escaping this loop left a partially written graph with no
     # rollback and every remaining file silently unindexed.
     write_failures: List[Dict[str, Any]] = []
-    for file_data in sorted(all_file_data, key=lambda data: str(data.get("path") or "")):
-        repo_path = Path(file_data.pop("_index_repo_path"))
-        try:
-            if "error" not in file_data:
-                await _operation.run_in_thread(
-                    writer.add_file_to_graph,
-                    file_data,
-                    repo_name,
-                    imports_map,
-                    repo_path_str=resolved_repo_path_str,
-                )
-            elif not file_data.get("unsupported"):
-                await _operation.run_in_thread(
-                    add_minimal_file_node,
-                    Path(file_data["path"]),
-                    repo_path,
-                    is_dependency,
-                )
-        except Exception as exc:  # noqa: BLE001 - keep indexing the other files
-            _operation.check_cancelled(exc)
-            # Must not be named `path`: that is the function's repo-root Path
-            # parameter, still needed further down (`path.is_dir()`). Rebinding
-            # it to this file's path string turned a single recoverable write
-            # failure into an AttributeError that aborted the whole job.
-            failed_path = file_data.get("path")
-            # Retry once before giving up: writes are MERGE-idempotent, and a
-            # transient failure under runner load silently costs the graph the
-            # whole file's edges (observed as LadybugDB intermittently writing
-            # ~51 fewer CONTAINS edges in the parity run, #1612).
-            retried_ok = False
-            if "error" not in file_data:
-                try:
-                    await asyncio.sleep(0.2)
+    # IMPORTS edges are written inside add_file_to_graph and timed there as their
+    # own phase (write_imports), which write_nodes excludes.
+    with timings.phase("write_nodes"):
+        for file_data in sorted(all_file_data, key=lambda data: str(data.get("path") or "")):
+            repo_path = Path(file_data.pop("_index_repo_path"))
+            try:
+                if "error" not in file_data:
                     await _operation.run_in_thread(
                         writer.add_file_to_graph,
                         file_data,
@@ -271,18 +339,47 @@ async def run_tree_sitter_index_async(
                         imports_map,
                         repo_path_str=resolved_repo_path_str,
                     )
-                    retried_ok = True
-                    warning_logger(
-                        f"Write for {failed_path} succeeded on retry after: {exc}"
+                elif not file_data.get("unsupported"):
+                    await _operation.run_in_thread(
+                        add_minimal_file_node,
+                        Path(file_data["path"]),
+                        repo_path,
+                        is_dependency,
                     )
-                except Exception as retry_exc:  # noqa: BLE001
-                    _operation.check_cancelled(retry_exc)
-                    exc = retry_exc
-            if not retried_ok:
-                write_failures.append({"path": failed_path, "error": str(exc)})
-                error_logger(f"Failed to write {failed_path} to the graph: {exc}")
-                file_data["error"] = str(exc)
-                file_data["parse_failed"] = True
+            except Exception as exc:  # noqa: BLE001 - keep indexing the other files
+                _operation.check_cancelled(exc)
+                # Must not be named `path`: that is the function's repo-root Path
+                # parameter, still needed further down (`path.is_dir()`). Rebinding
+                # it to this file's path string turned a single recoverable write
+                # failure into an AttributeError that aborted the whole job.
+                failed_path = file_data.get("path")
+                # Retry once before giving up: writes are MERGE-idempotent, and a
+                # transient failure under runner load silently costs the graph the
+                # whole file's edges (observed as LadybugDB intermittently writing
+                # ~51 fewer CONTAINS edges in the parity run, #1612).
+                retried_ok = False
+                if "error" not in file_data:
+                    try:
+                        await asyncio.sleep(0.2)
+                        await _operation.run_in_thread(
+                            writer.add_file_to_graph,
+                            file_data,
+                            repo_name,
+                            imports_map,
+                            repo_path_str=resolved_repo_path_str,
+                        )
+                        retried_ok = True
+                        warning_logger(
+                            f"Write for {failed_path} succeeded on retry after: {exc}"
+                        )
+                    except Exception as retry_exc:  # noqa: BLE001
+                        _operation.check_cancelled(retry_exc)
+                        exc = retry_exc
+                if not retried_ok:
+                    write_failures.append({"path": failed_path, "error": str(exc)})
+                    error_logger(f"Failed to write {failed_path} to the graph: {exc}")
+                    file_data["error"] = str(exc)
+                    file_data["parse_failed"] = True
 
     if write_failures:
         warning_logger(
@@ -322,216 +419,229 @@ async def run_tree_sitter_index_async(
         f"Starting post-processing phase (inheritance + function calls)..."
     )
 
-    t0 = time.time()
     if job_id:
         job_manager.update_job(job_id, status_message="Resolving inheritance links...")
     info_logger(f"[INHERITS] Resolving inheritance links across {len(all_file_data)} files...")
-    inheritance_batch, csharp_files = await _operation.run_in_thread(
-        build_inheritance_and_csharp_files, all_file_data, imports_map
-    )
-    implements_batch = await _operation.run_in_thread(build_go_implements_links, all_file_data)
-    implements_batch.extend(await _operation.run_in_thread(build_haskell_implements_links, all_file_data))
-    implements_batch.extend(await _operation.run_in_thread(build_elixir_implements_links, all_file_data))
-    await _operation.run_in_thread(writer.write_inheritance_links, inheritance_batch, csharp_files, imports_map)
-    await _operation.run_in_thread(writer.write_implements_links, implements_batch)
+    with timings.phase("inheritance"):
+        inheritance_batch, csharp_files = await _operation.run_in_thread(
+            build_inheritance_and_csharp_files, all_file_data, imports_map
+        )
+        implements_batch = await _operation.run_in_thread(build_go_implements_links, all_file_data)
+        implements_batch.extend(await _operation.run_in_thread(build_haskell_implements_links, all_file_data))
+        implements_batch.extend(await _operation.run_in_thread(build_elixir_implements_links, all_file_data))
+        await _operation.run_in_thread(writer.write_inheritance_links, inheritance_batch, csharp_files, imports_map)
+        await _operation.run_in_thread(writer.write_implements_links, implements_batch)
     # Keep graph writes sequential. Each await yields to health/status requests
     # and prevents scheduling the next phase after coroutine cancellation.
-    for build_links, write_links in (
-        (build_embeds_links, writer.write_embeds_links),
-        (build_companion_of_links, writer.write_companion_of_links),
-        (build_partial_of_links, writer.write_partial_of_links),
-        (build_part_of_links, writer.write_part_of_links),
-    ):
-        links = await _operation.run_in_thread(build_links, all_file_data)
-        await _operation.run_in_thread(write_links, links)
+    with timings.phase("type_links"):
+        for build_links, write_links in (
+            (build_embeds_links, writer.write_embeds_links),
+            (build_companion_of_links, writer.write_companion_of_links),
+            (build_partial_of_links, writer.write_partial_of_links),
+            (build_part_of_links, writer.write_part_of_links),
+        ):
+            links = await _operation.run_in_thread(build_links, all_file_data)
+            await _operation.run_in_thread(write_links, links)
     for build_links, write_links in (
         (build_metaclass_links, writer.write_metaclass_links),
         (build_decorated_by_links, writer.write_decorated_by_links),
         (build_binds_links, writer.write_binds_links),
         (build_previews_links, writer.write_previews_links),
     ):
-        links = await _operation.run_in_thread(build_links, all_file_data, imports_map)
-        await _operation.run_in_thread(write_links, links)
-    t1 = time.time()
-    info_logger(f"Inheritance links created in {t1 - t0:.1f}s. Starting function calls...")
+        with timings.phase("decorated_by" if build_links is build_decorated_by_links else "type_links"):
+            links = await _operation.run_in_thread(build_links, all_file_data, imports_map)
+            await _operation.run_in_thread(write_links, links)
+    # The two post-processing lines report phase sums (same text and windows as before).
+    links_seconds = timings.seconds("inheritance", "type_links", "decorated_by")
+    info_logger(f"Inheritance links created in {links_seconds:.1f}s. Starting function calls...")
 
-    resolved_calls = await _operation.run_in_thread(
-        build_function_call_groups,
-        all_file_data,
-        imports_map,
-        None,
-        diagnostics=call_resolution_diagnostics,
-    )
+    with timings.phase("calls_resolve"):
+        resolved_calls = await _operation.run_in_thread(
+            build_function_call_groups,
+            all_file_data,
+            imports_map,
+            None,
+            diagnostics=call_resolution_diagnostics,
+        )
     if job_id:
         job_manager.update_job(job_id, status_message="Writing function CALLS edges...")
-    await _operation.run_in_thread(writer.write_function_call_groups, *resolved_calls)
-    t2 = time.time()
-    info_logger(f"Function calls created in {t2 - t1:.1f}s. Total post-processing: {t2 - t0:.1f}s")
+    with timings.phase("calls_write"):
+        await _operation.run_in_thread(writer.write_function_call_groups, *resolved_calls)
+    calls_seconds = timings.seconds("calls_resolve", "calls_write")
+    info_logger(
+        f"Function calls created in {calls_seconds:.1f}s. "
+        f"Total post-processing: {links_seconds + calls_seconds:.1f}s"
+    )
 
-    # ── C++: Class->Function edges (post-pass, after all files written) ───────
-    # C++ method definitions live in .cpp while the Class node lives in .h.
-    # The per-file write cannot create these edges reliably due to ordering;
-    # this single repo-scoped pass runs after every node is in the graph.
-    if job_id:
-        job_manager.update_job(job_id, status_message="Linking C++ class-function edges...")
-    info_logger("[CPP] Linking C++ out-of-line method definitions to their classes...")
-    await _operation.run_in_thread(writer.write_cpp_class_function_links, resolved_repo_path_str)
-
-    # ── File->CONTAINS invariant (empty-index race self-heal) ────────────────
-    if job_id:
-        job_manager.update_job(job_id, status_message="Verifying File->CONTAINS linking...")
-    repaired_contains = await _operation.run_in_thread(writer.repair_missing_contains_links, resolved_repo_path_str)
-    if repaired_contains:
-        warning_logger(
-            f"[INVARIANT] Back-filled File-[:CONTAINS] edges for: {repaired_contains}"
-        )
-
-    # ── Spring injection edges (#887) ─────────────────────────────────────────
-    if job_id:
-        job_manager.update_job(job_id, status_message="Processing Spring injection edges...")
-    spring_inject_batch = []
-    for fd in all_file_data:
-        injections = fd.get("spring_injections")
-        if injections:
-            spring_inject_batch.extend(injections)
-    if spring_inject_batch:
-        info_logger(f"[SPRING] Writing {len(spring_inject_batch)} Spring injection edges...")
-        await _operation.run_in_thread(writer.write_spring_inject_links, spring_inject_batch)
-
-    # Also collect Spring endpoint properties from functions and write them
-    endpoint_batch = []
-    for fd in all_file_data:
-        for fn in fd.get("functions", []):
-            if fn.get("http_method"):
-                endpoint_batch.append({
-                    "func_name": fn["name"],
-                    "path": fn["path"],
-                    "line_number": fn["line_number"],
-                    "http_method": fn.get("http_method"),
-                    "http_path": fn.get("http_path"),
-                })
-    if endpoint_batch:
-        await _operation.run_in_thread(writer.write_spring_endpoint_properties, endpoint_batch)
-
-    # ── Maven / Gradle build graph (#888) ────────────────────────────────────
-    if not is_dependency and path.is_dir():
+    # ── Framework post-passes: one phase (framework_links) ───────────────────
+    with timings.phase("framework_links"):
+        # ── C++: Class->Function edges (post-pass, after all files written) ───────
+        # C++ method definitions live in .cpp while the Class node lives in .h.
+        # The per-file write cannot create these edges reliably due to ordering;
+        # this single repo-scoped pass runs after every node is in the graph.
         if job_id:
-            job_manager.update_job(job_id, status_message="Processing Maven build graph...")
-        try:
-            from ...tools.languages.maven import parse_repo_maven
-            maven_data = await _operation.run_in_thread(parse_repo_maven, path.resolve())
-            if maven_data.get("modules"):
-                await _operation.run_in_thread(writer.write_maven_build_graph, maven_data, str(path.resolve()))
-        except Exception as _me:
-            info_logger(f"[MAVEN] Build graph failed (skipping): {_me}")
+            job_manager.update_job(job_id, status_message="Linking C++ class-function edges...")
+        info_logger("[CPP] Linking C++ out-of-line method definitions to their classes...")
+        await _operation.run_in_thread(writer.write_cpp_class_function_links, resolved_repo_path_str)
 
+        # ── File->CONTAINS invariant (empty-index race self-heal) ────────────────
         if job_id:
-            job_manager.update_job(job_id, status_message="Processing Gradle build graph...")
-        try:
-            from ...tools.languages.gradle import parse_repo_gradle
-            gradle_data = await _operation.run_in_thread(parse_repo_gradle, path.resolve())
-            if gradle_data.get("modules"):
-                await _operation.run_in_thread(writer.write_gradle_build_graph, gradle_data, str(path.resolve()))
-        except Exception as _ge:
-            info_logger(f"[GRADLE] Build graph failed (skipping): {_ge}")
+            job_manager.update_job(job_id, status_message="Verifying File->CONTAINS linking...")
+        repaired_contains = await _operation.run_in_thread(writer.repair_missing_contains_links, resolved_repo_path_str)
+        if repaired_contains:
+            warning_logger(
+                f"[INVARIANT] Back-filled File-[:CONTAINS] edges for: {repaired_contains}"
+            )
 
-    # ── ORM / datasource code linkage (#843) ─────────────────────────────────
-    if job_id:
-        job_manager.update_job(job_id, status_message="Processing ORM mappings...")
-    orm_batch = []
-    for fd in all_file_data:
-        orm_mappings = fd.get("orm_mappings")
-        if orm_mappings:
-            orm_batch.extend(orm_mappings)
-    if orm_batch:
-        class_table_count = sum(1 for r in orm_batch if r.get("kind") == "class_table")
-        query_count = sum(1 for r in orm_batch if r.get("kind") == "method_query")
-        info_logger(
-            f"[ORM] Writing {class_table_count} class→table mappings and {query_count} query links..."
-        )
-        await _operation.run_in_thread(writer.write_orm_mappings, orm_batch)
-        await _operation.run_in_thread(writer.write_query_links, orm_batch)
-        await _operation.run_in_thread(writer.write_spring_data_repo_links, orm_batch)
-
-    # ── MyBatis XML mapper READS / WRITES edges ───────────────────────────────
-    if not is_dependency and path.is_dir():
+        # ── Spring injection edges (#887) ─────────────────────────────────────────
         if job_id:
-            job_manager.update_job(job_id, status_message="Processing MyBatis XML mappers...")
-        try:
-            from ...tools.languages.mybatis import find_and_parse_mybatis_mappers
-            mybatis_batch = await _operation.run_in_thread(find_and_parse_mybatis_mappers, path.resolve(), all_file_data)
-            if mybatis_batch:
-                await _operation.run_in_thread(writer.write_mybatis_links, mybatis_batch)
-        except Exception as _me:
-            info_logger(f"[MYBATIS] Mapper parsing failed (skipping): {_me}")
+            job_manager.update_job(job_id, status_message="Processing Spring injection edges...")
+        spring_inject_batch = []
+        for fd in all_file_data:
+            injections = fd.get("spring_injections")
+            if injections:
+                spring_inject_batch.extend(injections)
+        if spring_inject_batch:
+            info_logger(f"[SPRING] Writing {len(spring_inject_batch)} Spring injection edges...")
+            await _operation.run_in_thread(writer.write_spring_inject_links, spring_inject_batch)
+
+        # Also collect Spring endpoint properties from functions and write them
+        endpoint_batch = []
+        for fd in all_file_data:
+            for fn in fd.get("functions", []):
+                if fn.get("http_method"):
+                    endpoint_batch.append({
+                        "func_name": fn["name"],
+                        "path": fn["path"],
+                        "line_number": fn["line_number"],
+                        "http_method": fn.get("http_method"),
+                        "http_path": fn.get("http_path"),
+                    })
+        if endpoint_batch:
+            await _operation.run_in_thread(writer.write_spring_endpoint_properties, endpoint_batch)
+
+        # ── Maven / Gradle build graph (#888) ────────────────────────────────────
+        if not is_dependency and path.is_dir():
+            if job_id:
+                job_manager.update_job(job_id, status_message="Processing Maven build graph...")
+            try:
+                from ...tools.languages.maven import parse_repo_maven
+                maven_data = await _operation.run_in_thread(parse_repo_maven, path.resolve())
+                if maven_data.get("modules"):
+                    await _operation.run_in_thread(writer.write_maven_build_graph, maven_data, str(path.resolve()))
+            except Exception as _me:
+                info_logger(f"[MAVEN] Build graph failed (skipping): {_me}")
+
+            if job_id:
+                job_manager.update_job(job_id, status_message="Processing Gradle build graph...")
+            try:
+                from ...tools.languages.gradle import parse_repo_gradle
+                gradle_data = await _operation.run_in_thread(parse_repo_gradle, path.resolve())
+                if gradle_data.get("modules"):
+                    await _operation.run_in_thread(writer.write_gradle_build_graph, gradle_data, str(path.resolve()))
+            except Exception as _ge:
+                info_logger(f"[GRADLE] Build graph failed (skipping): {_ge}")
+
+        # ── ORM / datasource code linkage (#843) ─────────────────────────────────
+        if job_id:
+            job_manager.update_job(job_id, status_message="Processing ORM mappings...")
+        orm_batch = []
+        for fd in all_file_data:
+            orm_mappings = fd.get("orm_mappings")
+            if orm_mappings:
+                orm_batch.extend(orm_mappings)
+        if orm_batch:
+            class_table_count = sum(1 for r in orm_batch if r.get("kind") == "class_table")
+            query_count = sum(1 for r in orm_batch if r.get("kind") == "method_query")
+            info_logger(
+                f"[ORM] Writing {class_table_count} class→table mappings and {query_count} query links..."
+            )
+            await _operation.run_in_thread(writer.write_orm_mappings, orm_batch)
+            await _operation.run_in_thread(writer.write_query_links, orm_batch)
+            await _operation.run_in_thread(writer.write_spring_data_repo_links, orm_batch)
+
+        # ── MyBatis XML mapper READS / WRITES edges ───────────────────────────────
+        if not is_dependency and path.is_dir():
+            if job_id:
+                job_manager.update_job(job_id, status_message="Processing MyBatis XML mappers...")
+            try:
+                from ...tools.languages.mybatis import find_and_parse_mybatis_mappers
+                mybatis_batch = await _operation.run_in_thread(find_and_parse_mybatis_mappers, path.resolve(), all_file_data)
+                if mybatis_batch:
+                    await _operation.run_in_thread(writer.write_mybatis_links, mybatis_batch)
+            except Exception as _me:
+                info_logger(f"[MYBATIS] Mapper parsing failed (skipping): {_me}")
 
     # ── Phase 4: embedding generation (optional, config-gated) ────────────────
     from ...cli.config_manager import get_config_value as _gcv
     embed_warning: Optional[str] = None
     if (_gcv("ENABLE_VECTOR_RESOLVE") or "false").lower() == "true":
-        # Probe first: with no backend installed the pipeline used to fail
-        # inside a swallowed except at a log level that is off by default,
-        # so 'vector resolve is working' and 'vector resolve has never run'
-        # were indistinguishable (#1597).
-        from .embeddings import probe_embedding_backend
-        _ok, _detail = await _operation.run_in_thread(probe_embedding_backend)
-        if not _ok:
-            embed_warning = f"ENABLE_VECTOR_RESOLVE=true but embeddings were NOT generated: {_detail}"
-            error_logger(f"[EMBED] {embed_warning}")
-        else:
-            if job_id:
-                job_manager.update_job(job_id, status_message="Generating embeddings...")
-            try:
-                from .embeddings import EmbeddingPipeline
-                repo_path_str = path.resolve().as_posix()
-                info_logger("[EMBED] Starting embedding pipeline...")
-                def generate_embeddings():
-                    EmbeddingPipeline(writer.driver).run(repo_path_str)
-
-                await _operation.run_in_thread(generate_embeddings)
-                info_logger("[EMBED] Embedding pipeline complete.")
-            except Exception as _ee:
-                embed_warning = f"ENABLE_VECTOR_RESOLVE=true but the embedding pipeline failed: {_ee}"
+        with timings.phase("embeddings"):
+            # Probe first: with no backend installed the pipeline used to fail
+            # inside a swallowed except at a log level that is off by default,
+            # so 'vector resolve is working' and 'vector resolve has never run'
+            # were indistinguishable (#1597).
+            from .embeddings import probe_embedding_backend
+            _ok, _detail = await _operation.run_in_thread(probe_embedding_backend)
+            if not _ok:
+                embed_warning = f"ENABLE_VECTOR_RESOLVE=true but embeddings were NOT generated: {_detail}"
                 error_logger(f"[EMBED] {embed_warning}")
+            else:
+                if job_id:
+                    job_manager.update_job(job_id, status_message="Generating embeddings...")
+                try:
+                    from .embeddings import EmbeddingPipeline
+                    repo_path_str = path.resolve().as_posix()
+                    info_logger("[EMBED] Starting embedding pipeline...")
+                    def generate_embeddings():
+                        EmbeddingPipeline(writer.driver).run(repo_path_str)
+
+                    await _operation.run_in_thread(generate_embeddings)
+                    info_logger("[EMBED] Embedding pipeline complete.")
+                except Exception as _ee:
+                    embed_warning = f"ENABLE_VECTOR_RESOLVE=true but the embedding pipeline failed: {_ee}"
+                    error_logger(f"[EMBED] {embed_warning}")
 
     # ── Phase 5: inheritance-aware re-resolution (optional, config-gated) ─────
     if (_gcv("ENABLE_INHERIT_RESOLVE") or "false").lower() == "true":
-        if job_id:
-            job_manager.update_job(job_id, status_message="Running inheritance re-resolution...")
-        try:
-            from .resolution.post_resolution import run_inheritance_reresolve
-            repo_path_str = path.resolve().as_posix()
+        with timings.phase("inherit_reresolve"):
+            if job_id:
+                job_manager.update_job(job_id, status_message="Running inheritance re-resolution...")
+            try:
+                from .resolution.post_resolution import run_inheritance_reresolve
+                repo_path_str = path.resolve().as_posix()
 
-            def reresolve_inheritance():
-                vector_resolver = None
-                if (_gcv("ENABLE_VECTOR_RESOLVE") or "false").lower() == "true":
-                    try:
-                        from .vector_resolver import VectorResolver
-                        vector_resolver = VectorResolver(writer.driver)
-                    except Exception as _ve:
-                        info_logger(f"[VECTOR] Resolver unavailable: {_ve}")
-                return run_inheritance_reresolve(writer.driver, repo_path_str, vector_resolver)
+                def reresolve_inheritance():
+                    vector_resolver = None
+                    if (_gcv("ENABLE_VECTOR_RESOLVE") or "false").lower() == "true":
+                        try:
+                            from .vector_resolver import VectorResolver
+                            vector_resolver = VectorResolver(writer.driver)
+                        except Exception as _ve:
+                            info_logger(f"[VECTOR] Resolver unavailable: {_ve}")
+                    return run_inheritance_reresolve(writer.driver, repo_path_str, vector_resolver)
 
-            improved = await _operation.run_in_thread(reresolve_inheritance)
-            info_logger(f"[INHERIT-RESOLVE] Post-resolution complete: {improved} edges improved")
-        except Exception as _ie:
-            info_logger(f"[INHERIT-RESOLVE] Post-resolution failed (skipping): {_ie}")
+                improved = await _operation.run_in_thread(reresolve_inheritance)
+                info_logger(f"[INHERIT-RESOLVE] Post-resolution complete: {improved} edges improved")
+            except Exception as _ie:
+                info_logger(f"[INHERIT-RESOLVE] Post-resolution failed (skipping): {_ie}")
 
-    if index_summary is not None:
-        index_summary.clear()
-        index_summary.update(
-            await _operation.run_in_thread(
-                build_index_summary,
-                files,
-                parsers,
-                all_file_data,
-                resolved_calls,
-                time.time() - serialization_start,
-                parse_failures=parse_failures,
-            )
+    if index_summary is not None or job_id:
+        post_parse_seconds = time.perf_counter() - post_parse_start
+        summary = await _operation.run_in_thread(
+            build_index_summary,
+            files,
+            parsers,
+            all_file_data,
+            resolved_calls,
+            post_parse_seconds,
+            parse_failures=parse_failures,
+            timings=timings,
+            total_seconds=timings.elapsed(),
         )
         if embed_warning:
-            index_summary.setdefault("warnings", []).append(embed_warning)
+            summary.setdefault("warnings", []).append(embed_warning)
+        publish_index_summary(summary, index_summary, job_manager, job_id)
 
     if job_id:
         job_manager.update_job(job_id, status=JobStatus.COMPLETED, end_time=datetime.now())

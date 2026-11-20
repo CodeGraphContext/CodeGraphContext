@@ -99,6 +99,30 @@ def _format_extension_counts(files_by_extension: Dict[str, int]) -> str:
     )
 
 
+def _print_index_phase_timings(phase_seconds: Optional[Dict[str, float]],
+                               total_seconds: Optional[float]) -> None:
+    """Where the index time went: one row per phase that ran, in pipeline order."""
+    if not phase_seconds:
+        return
+    from ..tools.indexing.phase_timings import INDEX_PHASES
+
+    order = {name: i for i, name in enumerate(INDEX_PHASES)}
+    table = Table(
+        title="Index phase timings",
+        show_header=True,
+        header_style="bold cyan",
+        box=box.ASCII,
+    )
+    table.add_column("Phase", style="cyan", no_wrap=True)
+    table.add_column("Seconds", style="green", justify="right")
+    table.add_column("% of total", style="green", justify="right")
+    for name in sorted(phase_seconds, key=lambda n: (order.get(n, len(order)), n)):
+        seconds = phase_seconds[name]
+        share = f"{100.0 * seconds / total_seconds:.1f}%" if total_seconds else "-"
+        table.add_row(name, f"{seconds:.2f}", share)
+    console.print(table)
+
+
 def _print_index_execution_summary(graph_builder: GraphBuilder) -> None:
     summary = getattr(graph_builder, "last_index_summary", None)
     if not summary:
@@ -123,11 +147,17 @@ def _print_index_execution_summary(graph_builder: GraphBuilder) -> None:
     table.add_row("Function nodes", str(summary.get("function_nodes", 0)))
     table.add_row("Class nodes", str(summary.get("class_nodes", 0)))
     table.add_row("CALLS edges", str(summary.get("call_edges", 0)))
-    table.add_row(
-        "Serialization seconds",
-        f"{summary.get('serialization_seconds', 0.0):.2f}",
-    )
+    total_seconds = summary.get("total_seconds")
+    if total_seconds is not None:
+        table.add_row("Index seconds (total)", f"{total_seconds:.2f}")
+    else:
+        # A summary from before per-phase timings: its only timing is the window
+        # after parsing (the deprecated serialization_seconds).
+        post_parse = summary.get("post_parse_seconds", summary.get("serialization_seconds"))
+        if post_parse is not None:
+            table.add_row("Post-parse seconds", f"{post_parse:.2f}")
     console.print(table)
+    _print_index_phase_timings(summary.get("phase_seconds"), total_seconds)
     # Always-visible warnings (#1597): these describe an explicitly enabled
     # feature that did NOT run — they must not depend on the log level.
     for warning in summary.get("warnings", []):

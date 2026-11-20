@@ -38,7 +38,7 @@ def test_index_summary_excludes_synthetic_module_frames():
         parsers={".py": "python"},
         all_file_data=all_file_data,
         resolved_call_groups=(),
-        serialization_seconds=0.0,
+        post_parse_seconds=0.0,
     )
 
     assert summary["function_nodes"] == 1
@@ -56,7 +56,7 @@ def test_index_summary_excludes_module_frames_without_the_marker():
         parsers={".py": "python"},
         all_file_data=all_file_data,
         resolved_call_groups=(),
-        serialization_seconds=0.0,
+        post_parse_seconds=0.0,
     )
 
     assert summary["function_nodes"] == 1

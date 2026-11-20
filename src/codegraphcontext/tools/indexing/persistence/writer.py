@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from ....utils.debug_log import info_logger, warning_logger
 from ....utils.git_utils import get_repo_commit_hash
+from ..phase_timings import active_phase
 from ..sanitize import sanitize_props as sanitize_props
 from ..sanitize import sanitize_props_with_secrets
 from ..sanitize import MAX_STR_LEN
@@ -897,18 +898,20 @@ class GraphWriter:
                 # Node-only then relationship-only batches (#1748); the combined
                 # query is the per-row fallback and LadybugDB's path. Rows sharing
                 # an edge key collapse to the last one, as the row-by-row combined
-                # SET leaves it.
-                _run_node_then_rel(
-                    session,
-                    IMPORTS_MODULE_QUERY,
-                    _module_node_rows(import_rows),
-                    IMPORTS_EDGE_QUERY,
-                    _last_row_per_key(import_rows, lambda r: (r["name"], r["line_number"], r["imported_name"])),
-                    IMPORTS_MERGE_QUERY,
-                    import_rows,
-                    split=backend != "ladybugdb",
-                    file_path=file_path_str,
-                )
+                # SET leaves it. Timed as its own index phase (a no-op outside a
+                # full index run).
+                with active_phase("write_imports"):
+                    _run_node_then_rel(
+                        session,
+                        IMPORTS_MODULE_QUERY,
+                        _module_node_rows(import_rows),
+                        IMPORTS_EDGE_QUERY,
+                        _last_row_per_key(import_rows, lambda r: (r["name"], r["line_number"], r["imported_name"])),
+                        IMPORTS_MERGE_QUERY,
+                        import_rows,
+                        split=backend != "ladybugdb",
+                        file_path=file_path_str,
+                    )
 
             inclusion_rows = build_module_inclusion_rows(file_data.get("module_inclusions", []))
             if inclusion_rows:
