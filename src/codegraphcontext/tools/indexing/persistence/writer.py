@@ -676,6 +676,7 @@ class GraphWriter:
                                     else -1,
                                     "func_name": item["name"],
                                     "func_line": item["line_number"],
+                                    "func_occ": occurrence_index,
                                 }
                             )
                         if item.get("context_type") in _FUNCTION_CONTEXT_TYPES:
@@ -701,6 +702,7 @@ class GraphWriter:
                                     "outer_line": outer_line,
                                     "inner_name": item["name"],
                                     "inner_line": item["line_number"],
+                                    "inner_occ": occurrence_index,
                                 }
                             )
 
@@ -868,7 +870,8 @@ class GraphWriter:
                             UNWIND $batch AS row
                             MATCH (c:{label} {{name: row.class_name, path: $file_path}})
                             MATCH (fn:Function {{name: row.func_name, path: $file_path, line_number: row.func_line}})
-                            WHERE row.class_line < 0 OR c.line_number = row.class_line
+                            WHERE coalesce(fn.occurrence_index, 0) = row.func_occ
+                              AND (row.class_line < 0 OR c.line_number = row.class_line)
                             MERGE (c)-[:CONTAINS]->(fn)
                             """,
                             batch=class_fn_batch,
@@ -887,6 +890,7 @@ class GraphWriter:
                     MATCH (outer:Function {name: row.outer, path: $file_path})
                     WHERE row.outer_line < 0 OR outer.line_number = row.outer_line
                     MATCH (inner:Function {name: row.inner_name, path: $file_path, line_number: row.inner_line})
+                    WHERE coalesce(inner.occurrence_index, 0) = row.inner_occ
                     MERGE (outer)-[:CONTAINS]->(inner)
                 """,
                     batch=nested_fn_batch,
