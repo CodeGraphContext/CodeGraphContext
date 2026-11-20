@@ -69,3 +69,45 @@ def test_who_calls_function_returns_callers_on_kuzu(tmp_path, with_path):
         assert results[0]["call_line_number"] == 5
     finally:
         manager.close_driver()
+
+
+@pytest.mark.parametrize("path_kind", ["relative", "absolute", "uncalled", "missing"])
+def test_explicit_caller_path_never_matches_another_definition(tmp_path, monkeypatch, path_kind):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    manager = KuzuDBManager(str(tmp_path / "db"))
+    driver = manager.get_driver()
+    try:
+        with driver.session() as session:
+            for filename, caller in [("billing.py", "send_invoice"), ("notifications.py", "remind"), ("unused.py", None)]:
+                path = (repo / filename).as_posix()
+                session.run(
+                    "CREATE (:Function {uid: $uid, name: 'send', path: $path, "
+                    "line_number: 1, is_dependency: false})",
+                    uid=f"send:{path}:1", path=path,
+                )
+                if caller:
+                    session.run(
+                        "CREATE (:Function {uid: $uid, name: $name, path: $path, "
+                        "line_number: 4, is_dependency: false})",
+                        uid=f"{caller}:{path}:4", name=caller, path=path,
+                    )
+                    session.run(
+                        "MATCH (a:Function {name: $caller}), (b:Function {name: 'send', path: $path}) "
+                        "CREATE (a)-[:CALLS {line_number: 5}]->(b)",
+                        caller=caller, path=path,
+                    )
+        finder = CodeFinder(_KuzuDBAdapter(driver))
+        path = {
+            "relative": "billing.py",
+            "absolute": str(repo / "billing.py"),
+            "uncalled": str(repo / "unused.py"),
+            "missing": str(repo / "missing.py"),
+        }[path_kind]
+        results = finder.who_calls_function("send", path=path)
+        expected = ["send_invoice"] if path_kind in ("relative", "absolute") else []
+        assert [row["caller_function"] for row in results] == expected
+        assert {row["caller_function"] for row in finder.who_calls_function("send")} == {"send_invoice", "remind"}
+    finally:
+        manager.close_driver()

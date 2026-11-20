@@ -114,7 +114,7 @@ def test_codefinder_driver_property_is_read_driver():
     tree = ast.parse(src)
     prop = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "driver")
     body = ast.unparse(prop)
-    assert "read_driver(self.db_manager, self._active_graph)" in body, body
+    assert "read_driver(self.db_manager, self._graph_context.get())" in body, body
 
 
 def test_the_scanner_sees_every_spelling():
