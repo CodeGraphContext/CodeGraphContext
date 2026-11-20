@@ -36,8 +36,15 @@ for order in ('small', 'forward', 'reverse'):
                     s.run("MATCH (a:Function {uid:$src}), (b:Function {uid:$dst}) "
                           "CREATE (a)-[:CALLS {line_number:$line,args_key:$args}]->(b)",
                           src=src,dst=dst,line=line,args=args)
+            # CALLS also supports Function -> File -> Function paths, e.g.
+            # module evaluation. Keep the real intermediate labels/endpoints.
+            s.run("CREATE (:File {path:'/repo/midfile',name:'midfile'})")
+            s.run("MATCH (a:Function {uid:'source'}), (f:File {path:'/repo/midfile'}), "
+                  "(b:Function {uid:'target'}) "
+                  "CREATE (a)-[:CALLS {line_number:11,args_key:'import'}]->(f) "
+                  "CREATE (f)-[:CALLS {line_number:12,args_key:'module'}]->(b)")
             rows = s.run(queries[0]).data()
-            observed.append([[r['n']['uid'], r['m']['uid'], r['rel']['line_number'],
+            observed.append([[r['n'].get('uid') or r['n']['name'], r['m'].get('uid') or r['m']['name'], r['rel']['line_number'],
                               r['rel']['args_key']] for r in rows])
             # A depth of one cannot include either hop of this two-hop chain.
             assert s.run(queries[1]).data() == []
@@ -64,10 +71,14 @@ def test_call_chain_exact_hops_and_stable_limit(tmp_path, monkeypatch, backend, 
     assert result.returncode == 0, result.stdout + result.stderr
     payload = next(line[7:] for line in result.stdout.splitlines() if line.startswith('RESULT '))
     small, forward, reverse = json.loads(payload)
-    assert small == [['source', 'mid000', 5, 'a'], ['mid000', 'target', 6, 'b']]
+    assert small == [
+        ['source', 'mid000', 5, 'a'], ['source', 'midfile', 11, 'import'],
+        ['mid000', 'target', 6, 'b'], ['midfile', 'target', 12, 'module'],
+    ]
     expected = [['source', f'mid{i:03d}', 5, 'a'] for i in range(130)]
     expected.extend([['source', 'mid000', 5, 'z'], ['source', 'mid000', 9, 'a']])
     expected.extend([[f'mid{i:03d}', 'target', 6, 'b'] for i in range(130)])
+    expected.extend([['source', 'midfile', 11, 'import'], ['midfile', 'target', 12, 'module']])
     expected.sort(key=lambda edge: (
         '/repo/000source' if edge[0] == 'source' else '/repo/' + edge[0],
         '/repo/zzz_target' if edge[1] == 'target' else '/repo/' + edge[1],

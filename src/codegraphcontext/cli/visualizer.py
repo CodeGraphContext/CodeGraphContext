@@ -150,7 +150,7 @@ def visualize_call_chain(
         f"MATCH p = (source:Function {start})-[:CALLS*1..{depth}]->(target:Function {target}) "
         "WITH relationships(p) AS edges "
         "UNWIND edges AS edge "
-        "MATCH (n:Function)-[rel:CALLS]->(m:Function) WHERE id(rel) = id(edge) "
+        "MATCH (n)-[rel:CALLS]->(m) WHERE id(rel) = id(edge) "
         "RETURN DISTINCT n, rel, m "
         "ORDER BY n.path, n.name, n.line_number, n.uid, "
         "m.path, m.name, m.line_number, m.uid, rel.line_number, rel.args_key "
