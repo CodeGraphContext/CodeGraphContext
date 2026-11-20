@@ -26,6 +26,25 @@ Since 0.6.9 (#1680), ignore patterns layer as **defaults → .gitignore →
 re-include a git-ignored path with a `!pattern` line, or exclude extra paths
 that git tracks.
 
+### `class_hierarchy` shows no children for an imported Python base
+A Python class whose base is imported from another file of the repository
+(`from app.database import Base; class User(Base)`, `from .base import Job`, an
+aliased `Base as DBBase`, a package `__init__.py` that re-exports the base, a
+`from m import *`) used to get an `ExternalClass` parent, so `class_hierarchy`
+listed no children for the in-repo class; a dotted base (`models.Model`) could
+reach an unrelated class whose path contained `models`; and a builtin base
+(`Exception`) a same-named class of the repository. The base now resolves through
+the file's imports — to the module's file, following package re-exports,
+module-level re-imports and `*` imports — or stays external when the module is
+not in the repository. Re-index (`cgc index . --force`) to move the INHERITS /
+METACLASS edges of an older graph.
+
+A base is deliberately an `ExternalClass` (never a guess) when the repository
+module the import names does not define it, and when the class's own file
+defines the name in two module-level `class` statements — version-conditional
+alternatives such as `if sys.version_info >= (3, 8): class _Base … else: class
+_Base …`, or a `try` / `except ImportError` fallback.
+
 ### .NET: generated files pollute the graph
 `obj/` is in the default ignore list since 0.6.1 (#1585). `bin/` is NOT
 ignored by default (some projects keep real scripts there) — add it to your
