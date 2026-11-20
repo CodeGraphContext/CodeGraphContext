@@ -1,6 +1,7 @@
 # src/codegraphcontext/tools/code_finder.py
 from __future__ import annotations
 import logging
+import re
 from collections import Counter
 
 from typing import Any, Dict, List, Literal, Optional, TYPE_CHECKING
@@ -16,6 +17,34 @@ from ..utils.tool_limits import get_tool_result_limit
 logger = logging.getLogger(__name__)
 
 _MAX_TRAVERSAL_DEPTH = 20
+
+_LUCENE_SPECIAL = frozenset('+-&|!(){}[]^"~*?:\\/')
+_LUCENE_OPERATOR = re.compile(r'(?<!\S)(AND|OR|NOT|TO)(?!\S)')
+
+
+def _escape_lucene(text: str) -> str:
+    escaped = ''.join('\\' + char if char in _LUCENE_SPECIAL else char for char in text)
+    return _LUCENE_OPERATOR.sub(lambda match: match.group().lower(), escaped)
+
+
+def _sanitize_edit_distance(value) -> int:
+    try:
+        return max(0, min(2, int(value)))
+    except (TypeError, ValueError, OverflowError):
+        return 2
+
+
+def _lucene_query(text: str, edit_distance: Optional[int] = None, field: str = '') -> str:
+    """Build Lucene syntax from literal code text, escaping before fuzzy suffixes."""
+    if not any(char.isalnum() for char in text):
+        return ''
+    if edit_distance is None:
+        return _escape_lucene(text)
+    edit_distance = _sanitize_edit_distance(edit_distance)
+    prefix = f'{field}:' if field else ''
+    return ' '.join(f'{prefix}{_escape_lucene(token)}~{edit_distance}'
+                    for token in text.split()
+                    if any(char.isalnum() for char in token))
 
 # Names that are entry points rather than dead code. Matched on the *whole*
 # name, lowercased. This used to be a substring test (`name CONTAINS 'main'`,
@@ -443,7 +472,9 @@ class CodeFinder:
                 "Function", search_term, edit_distance, repo_path
             )
 
-        formatted_search_term = f"name:{search_term}"
+        formatted_search_term = _lucene_query(search_term, edit_distance, field='name')
+        if not formatted_search_term:
+            return []
         with self.driver.session() as session:
             result = session.run(
                 self.format_query("Function", fuzzy_search, repo_path),
@@ -477,7 +508,9 @@ class CodeFinder:
                 "Class", search_term, edit_distance, repo_path
             )
 
-        formatted_search_term = f"name:{search_term}"
+        formatted_search_term = _lucene_query(search_term, edit_distance, field='name')
+        if not formatted_search_term:
+            return []
         with self.driver.session() as session:
             result = session.run(
                 self.format_query("Class", fuzzy_search, repo_path),
@@ -501,11 +534,15 @@ class CodeFinder:
             
             return result.data()
 
-    def find_by_content(self, search_term: str, repo_path: Optional[str] = None) -> List[Dict]:
+    def find_by_content(self, search_term: str, repo_path: Optional[str] = None,
+                        *, fuzzy_search: bool = False, edit_distance: int = 2) -> List[Dict]:
         """Find code by content matching in source or docstrings using the full-text index."""
         repo_path = repository_directory_prefix(repo_path)
         if self._lacks_native_fulltext:
             return self._find_by_content_falkordb(search_term, repo_path)
+        search_term = _lucene_query(search_term, edit_distance if fuzzy_search else None)
+        if not search_term:
+            return []
         with self.driver.session() as session:
             result = session.run(f"""
                 CALL db.index.fulltext.queryNodes("code_search_index", $search_term) YIELD node, score
@@ -587,25 +624,17 @@ class CodeFinder:
         self._active_graph = graph_name
         """Find code related to a query using multiple search strategies"""
         repo_path = self._normalize_repo_path_filter(repo_path)
-        # For Lucene backends: split snake_case/underscore tokens so Lucene sees
-        # individual words, then append the fuzzy modifier.
-        # For portable backends: keep user_query verbatim — _find_by_name_fuzzy_portable
-        # handles normalisation via _normalize_identifier.
+        edit_distance = _sanitize_edit_distance(edit_distance)
+        # The standard analyzer retains underscores inside identifiers. Escape
+        # each whitespace token before appending its fuzzy modifier.
         if fuzzy_search and not self._lacks_native_fulltext:
-            lucene_base = user_query.replace("_", " ").strip()
-            lucene_fuzzy_query = " ".join(f"{t}~{edit_distance}" for t in lucene_base.split())
+            lucene_fuzzy_query = _lucene_query(user_query, edit_distance)
         else:
             lucene_fuzzy_query = user_query
 
-        # For portable backends, always pass the *original* query to the fuzzy name
-        # matcher — _find_by_name_fuzzy_portable applies its own normalisation.
-        # For Lucene-capable backends, use the Lucene fuzzy token form.
-        if self._lacks_native_fulltext:
-            name_lookup_q = user_query
-        else:
-            name_lookup_q = lucene_fuzzy_query if fuzzy_search else user_query
-
-        content_lookup_q = lucene_fuzzy_query if (fuzzy_search and not self._lacks_native_fulltext) else user_query
+        # Each database boundary constructs its query from the original text.
+        name_lookup_q = user_query
+        content_lookup_q = user_query
 
         results: Dict[str, Any] = {
             "query": lucene_fuzzy_query if fuzzy_search else user_query,
@@ -616,8 +645,17 @@ class CodeFinder:
                 name_lookup_q, fuzzy_search, repo_path, edit_distance
             ),
             "variables_by_name": self.find_by_variable_name(user_query, repo_path),  # no fuzzy for variables as they are not using full-text index
-            "content_matches": self.find_by_content(content_lookup_q, repo_path),
+            "content_matches": [],
         }
+        try:
+            results["content_matches"] = self.find_by_content(
+                content_lookup_q, repo_path, fuzzy_search=fuzzy_search, edit_distance=edit_distance
+            )
+        except ReadQueryTimeout:
+            raise
+        except Exception as exc:
+            results["content_error"] = str(exc)
+            logger.warning("Content search failed; retaining name matches: %s", exc)
         
         all_results: List[Dict[str, Any]] = []
         
