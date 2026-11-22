@@ -1,5 +1,6 @@
 """Real CLI processes sharing a gateway-owned on-disk Ladybug database."""
 
+import importlib.util
 import os
 import re
 import socket
@@ -47,7 +48,11 @@ def _plain(output):
 @pytest.mark.skipif(os.name != "posix", reason="Gateway discovery uses POSIX owner-only state files")
 @pytest.mark.parametrize("with_data", [True, False])
 def test_cli_reads_while_real_gateway_owns_ladybug(tmp_path, with_data):
-    pytest.importorskip("ladybug")
+    # Check availability without importing: the CLI, seed and gateway all run
+    # in child processes, and importing ladybug here would load a second
+    # embedded native library into a pytest process that may already hold kuzu.
+    if importlib.util.find_spec("ladybug") is None:
+        pytest.skip("ladybug is not installed")
     config_home = tmp_path / "config-home"
     config_home.mkdir()
     repo = tmp_path / "fixture-repo"
