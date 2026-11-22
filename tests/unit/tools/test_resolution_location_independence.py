@@ -116,7 +116,9 @@ def test_placement_invariance(tmp_path):
 
 
 def test_import_path_match_ignores_the_checkout_location():
-    root = "/tmp/copy_tq1w2e3r/proj"
+    # Resolved, like the paths the indexer passes in: on macOS /tmp is a
+    # symlink to /private/tmp, and the root is resolved before the prefix test.
+    root = Path("/tmp/copy_tq1w2e3r/proj").resolve().as_posix()
     candidate = root + "/account_reports/static/src/controller.js"
     assert not import_path_in_candidate("_t", candidate, root)
     assert import_path_in_candidate("account_reports.static", candidate, root)
