@@ -5,7 +5,7 @@ import re
 from collections import Counter
 from contextvars import ContextVar
 
-from typing import Any, Dict, List, Literal, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Literal, Optional, Tuple, TYPE_CHECKING
 from pathlib import Path
 
 if TYPE_CHECKING:
@@ -296,28 +296,54 @@ class CodeFinder:
         """
         return read_driver(self.db_manager, self._graph_context.get())
 
-    def _normalize_repo_path_filter(self, repo_path: Optional[str]) -> Optional[str]:
-        """Resolve a caller-supplied repo_path to the absolute path stored on indexed
-        nodes, so that 'STARTS WITH $repo_path' filters actually match.
+    def _resolve_repo_scope(
+        self,
+        repo_path: Optional[str],
+        graph_name: Optional[str] = None,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Resolve a caller-supplied repo_path and report an ambiguous or unknown scope.
 
-        Callers naturally pass whatever list_indexed_repositories()/list_graphs() just
-        showed them — a bare repo name, or a relative path — but node.path is stored as
-        the absolute filesystem path used at indexing time. Without this, any non-exact
-        repo_path silently filters every result out with no error (see issue #1633).
+        Returns (resolved_path, warning_message). If the scope is valid or empty,
+        warning_message is None. If the scope matches no indexed repository or is
+        ambiguous, warning_message is populated and resolved_path remains unbroadened.
         """
         if not isinstance(repo_path, str):
-            return repo_path
+            return repo_path, None
 
         candidate = repo_path.strip()
-        if Path(candidate).is_absolute():
-            return Path(candidate).as_posix()
-        candidate = candidate.rstrip("/")
         if not candidate:
-            return None
+            return None, None
 
-        # Reuse the currently active graph so this lookup doesn't reset scoping.
-        repos = self.list_indexed_repositories(graph_name=self._graph_context.get())
-        norm = candidate.lower()
+        active_graph = graph_name if graph_name is not None else self._graph_context.get()
+        repos = self.list_indexed_repositories(graph_name=active_graph)
+        indexed_roots = [
+            str(repo.get("path", "")).strip().rstrip("/")
+            for repo in repos
+            if repo.get("path")
+        ]
+        indexed_names = sorted(
+            set(
+                str(repo.get("name") or Path(repo.get("path", "")).name)
+                for repo in repos
+                if repo.get("name") or repo.get("path")
+            )
+        )
+
+        if Path(candidate).is_absolute():
+            cand_posix = Path(candidate).as_posix().rstrip("/")
+            is_valid = any(
+                cand_posix == root
+                or cand_posix.startswith(root + "/")
+                or root.startswith(cand_posix + "/")
+                for root in indexed_roots
+            )
+            if is_valid:
+                return Path(candidate).as_posix(), None
+            warning = f"repo_path '{candidate}' did not match any indexed repository (indexed: {indexed_names})"
+            return Path(candidate).as_posix(), warning
+
+        candidate_clean = candidate.rstrip("/")
+        norm = candidate_clean.lower()
         matches: List[str] = []
         for repo in repos:
             raw_path = str(repo.get("path", "")).strip().rstrip("/")
@@ -336,25 +362,46 @@ class CodeFinder:
 
         unique_matches = sorted(set(matches))
         if len(unique_matches) == 1:
-            return unique_matches[0]
+            return unique_matches[0], None
+        elif len(unique_matches) > 1:
+            matched_names = []
+            for m in unique_matches:
+                for r in repos:
+                    if str(r.get("path", "")).strip().rstrip("/") == m:
+                        matched_names.append(r.get("name") or Path(m).name)
+                        break
+                else:
+                    matched_names.append(Path(m).name)
+            warning = f"repo_path '{candidate}' is ambiguous and matched multiple indexed repositories: {sorted(set(matched_names))}"
+            return candidate, warning
 
-        # Fall back to resolving relative to cwd, in case the caller passed a path
-        # that's valid on the machine running this process (e.g. CLI usage).
         try:
-            cwd_candidate = str((Path.cwd() / candidate).resolve()).rstrip("/")
+            cwd_candidate = str((Path.cwd() / candidate_clean).resolve()).rstrip("/")
         except Exception:
             cwd_candidate = None
 
         if cwd_candidate and any(
-            str(repo.get("path", "")).strip().rstrip("/") == cwd_candidate
-            or str(repo.get("path", "")).strip().rstrip("/").startswith(cwd_candidate + "/")
-            for repo in repos
+            root == cwd_candidate
+            or cwd_candidate.startswith(root + "/")
+            or root.startswith(cwd_candidate + "/")
+            for root in indexed_roots
         ):
-            return cwd_candidate
+            return cwd_candidate, None
 
-        # No confident match (zero or ambiguous multiple) — return unchanged rather
-        # than guess; the STARTS WITH filter will simply match nothing, same as today.
-        return candidate
+        warning = f"repo_path '{candidate}' did not match any indexed repository (indexed: {indexed_names})"
+        return candidate, warning
+
+    def _normalize_repo_path_filter(self, repo_path: Optional[str]) -> Optional[str]:
+        """Resolve a caller-supplied repo_path to the absolute path stored on indexed
+        nodes, so that 'STARTS WITH $repo_path' filters actually match.
+
+        Callers naturally pass whatever list_indexed_repositories()/list_graphs() just
+        showed them — a bare repo name, or a relative path — but node.path is stored as
+        the absolute filesystem path used at indexing time. Without this, any non-exact
+        repo_path silently filters every result out with no error (see issue #1633).
+        """
+        resolved, _ = self._resolve_repo_scope(repo_path)
+        return resolved
 
     def _repo_path_prefix(self, repo_path: Optional[str]) -> Optional[str]:
         return repository_directory_prefix(self._normalize_repo_path_filter(repo_path))
