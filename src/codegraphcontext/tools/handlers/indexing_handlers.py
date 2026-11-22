@@ -78,7 +78,10 @@ def add_code_to_graph(graph_builder, job_manager, loop, list_repos_func, **args)
                 }
         
         # Estimate time and create a job for the user to track.
-        total_files, estimated_time = graph_builder.estimate_processing_time(path_obj)
+        estimate = graph_builder.estimate_processing_time(path_obj)
+        if estimate is None:
+            return {"error": f"Could not estimate processing time for '{path}'."}
+        total_files, estimated_time = estimate
         job_id = job_manager.create_job(str(path_obj), is_dependency)
         job_manager.update_job(job_id, total_files=total_files, estimated_duration=estimated_time)
         
@@ -142,9 +145,12 @@ def add_package_to_graph(graph_builder, job_manager, loop, list_repos_func, **ar
             return {"error": f"Package path '{package_path}' does not exist"}
         
         path_obj = Path(package_path)
-        
-        total_files, estimated_time = graph_builder.estimate_processing_time(path_obj)
-        
+
+        estimate = graph_builder.estimate_processing_time(path_obj)
+        if estimate is None:
+            return {"error": f"Could not estimate processing time for package '{package_name}' at '{package_path}'."}
+        total_files, estimated_time = estimate
+
         job_id = job_manager.create_job(package_path, is_dependency)
         
         job_manager.update_job(job_id, total_files=total_files, estimated_duration=estimated_time)
