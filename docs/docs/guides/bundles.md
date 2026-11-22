@@ -60,6 +60,10 @@ numpy.cgc
 
 ## 🚀 Quick Start
 
+To copy an entire indexed graph into a different database, see
+[Migrate Between Backends](migrate-between-backends.md). The explicit migration
+command retains an export checkpoint and refuses a populated target.
+
 ### Creating Bundles
 
 ```bash

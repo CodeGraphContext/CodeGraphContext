@@ -169,6 +169,7 @@ cgc neo4j setup        # Neo4j connection wizard (shortcut: cgc n)
 cgc bundle export <output.cgc> [--repo PATH] [--no-stats] [--context NAME]
 cgc bundle import <file.cgc> [--clear] [--yes|-y] [--context NAME]
 cgc bundle load <name> [--clear] [--yes|-y]
+cgc bundle migrate <checkpoint.cgc> --from BACKEND --to BACKEND [--source-path PATH] [--target-path PATH]
 
 # Shortcuts
 cgc export my-project.cgc --repo /path/to/project
@@ -176,6 +177,12 @@ cgc load numpy
 ```
 
 Use `--yes` / `-y` with `--clear` to skip the destructive-import confirmation (required in CI/non-interactive shells).
+
+`bundle migrate` copies the entire indexed graph into an empty target and retains
+the export checkpoint. Embedded endpoints require explicit paths. Use
+`--source-python` when the source driver needs another interpreter. See
+[Migrate Between Backends](../guides/migrate-between-backends.md) for preparation,
+verification, and recovery.
 
 #### `registry`
 Browse and download pre-indexed bundles.

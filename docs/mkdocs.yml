@@ -39,6 +39,7 @@ nav:
     - Indexing Codebases: guides/indexing.md
     - Configuration Contexts: guides/contexts.md
     - Portable CGC Bundles: guides/bundles.md
+    - Migrate Between Backends: guides/migrate-between-backends.md
     - Interactive Visualization: guides/visualization.md
     - Datasource Indexing: guides/datasource-indexing.md
     - Developer Onboarding: guides/onboarding-codebase.md
