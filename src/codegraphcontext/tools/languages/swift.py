@@ -498,7 +498,9 @@ class SwiftTreeSitterParser:
 
         return imports
 
-    def _parse_calls(self, captures: list, source_code: str, path: Path, variables: list[Dict[str, Any]] = []) -> list[Dict[str, Any]]:
+    def _parse_calls(self, captures: list, source_code: str, path: Path, variables: Optional[list[Dict[str, Any]]] = None) -> list[Dict[str, Any]]:
+        if variables is None:
+            variables = []
         calls = []
         seen_calls = set()
         

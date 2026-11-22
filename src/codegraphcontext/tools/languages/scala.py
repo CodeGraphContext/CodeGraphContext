@@ -394,7 +394,9 @@ class ScalaTreeSitterParser:
                     })
         return imports
 
-    def _parse_calls(self, captures: list, source_code: str, path: Path, variables: List[Dict] = []) -> List[Dict]:
+    def _parse_calls(self, captures: list, source_code: str, path: Path, variables: Optional[List[Dict]] = None) -> List[Dict]:
+        if variables is None:
+            variables = []
         calls = []
         seen_calls = set()
         
