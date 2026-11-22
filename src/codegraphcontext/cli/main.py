@@ -712,6 +712,40 @@ def prompt_remove(
 bundle_app = typer.Typer(help="Create and load pre-indexed graph bundles")
 app.add_typer(bundle_app, name="bundle")
 
+@bundle_app.command("migrate")
+def bundle_migrate(
+    bundle_file: Path = typer.Argument(..., help="New .cgc file to retain as a migration checkpoint"),
+    source_backend: str = typer.Option(..., "--from", help="Source database backend"),
+    target_backend: str = typer.Option(..., "--to", help="Target database backend (must be empty)"),
+    source_path: Optional[Path] = typer.Option(None, "--source-path", help="Required for an embedded source"),
+    target_path: Optional[Path] = typer.Option(None, "--target-path", help="Required for an embedded target"),
+    source_python: Optional[str] = typer.Option(
+        None, "--source-python", help="Python executable with CGC and the source driver installed"
+    ),
+):
+    """Copy an indexed graph between backends through a retained .cgc bundle.
+
+    Stop writers to both databases first. This command preserves the source
+    graph and leaves the configured default backend unchanged.
+    """
+    from codegraphcontext.core.backend_migration import DatabaseLocation, MigrationError, migrate_graph
+
+    for backend in (source_backend, target_backend):
+        if backend not in config_manager.SUPPORTED_DATABASES:
+            raise typer.BadParameter(f"Unknown backend {backend!r}; choose from {config_manager.SUPPORTED_DATABASES}.")
+    _load_credentials()
+    try:
+        message = migrate_graph(
+            DatabaseLocation(source_backend, source_path),
+            DatabaseLocation(target_backend, target_path),
+            bundle_file,
+            source_python=source_python,
+        )
+    except MigrationError as exc:
+        console.print(f"Migration failed: {exc}", markup=False)
+        raise typer.Exit(code=1)
+    console.print(message, markup=False)
+
 @bundle_app.command("export")
 def bundle_export(
     output: str = typer.Argument(..., help="Output path for the .cgc bundle file"),
