@@ -813,6 +813,16 @@ class MCPServer:
         }
         handler = tool_map.get(tool_name)
         if handler:
+            repo_path_warning = None
+            raw_repo_path = args.get("repo_path")
+            if raw_repo_path and hasattr(self, "code_finder") and self.code_finder:
+                try:
+                    _, repo_path_warning = self.code_finder._resolve_repo_scope(
+                        raw_repo_path, graph_name=args.get("graph_name")
+                    )
+                except Exception:
+                    repo_path_warning = None
+
             # The read-query ceiling is per tool (core/read_timeout.py):
             # to_thread copies this context, so read_driver() in the handler's
             # thread sees the tool name. A read that timed out anywhere in the
@@ -828,6 +838,9 @@ class MCPServer:
                 result = timeout_error(timeouts[0], **extra)
             if isinstance(result, dict) and isinstance(result.get("results"), dict) and result["results"].get("error"):
                 result = {**result, "success": False, "error": result["results"]["error"]}
+
+            if repo_path_warning and isinstance(result, dict) and "error" not in result:
+                result["repo_path_warning"] = repo_path_warning
 
             if self._context_note_pending and tool_name not in (
                 "discover_codegraph_contexts", "switch_context"

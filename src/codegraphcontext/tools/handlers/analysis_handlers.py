@@ -6,6 +6,17 @@ from ...utils.debug_log import debug_log
 from ...utils.tool_limits import get_tool_result_limit
 
 
+def _attach_repo_path_warning(response: Dict[str, Any], code_finder: CodeFinder, repo_path: Any, graph_name: Any = None) -> Dict[str, Any]:
+    if repo_path and hasattr(code_finder, "_resolve_repo_scope") and isinstance(response, dict) and "error" not in response:
+        try:
+            _, warning = code_finder._resolve_repo_scope(str(repo_path), graph_name=graph_name)
+            if warning:
+                response["repo_path_warning"] = warning
+        except Exception:
+            pass
+    return response
+
+
 def find_dead_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
     """Tool to find potentially dead code across the entire project."""
     exclude_decorated_with = args.get("exclude_decorated_with", [])
@@ -26,12 +37,13 @@ def find_dead_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
             unused = unused[:limit]
             truncated = True
 
-        return {
+        response = {
             "success": True,
             "query_type": "dead_code",
             "results": {**results, "potentially_unused_functions": unused},
             **({"result_limit": limit, "truncated": truncated} if truncated else {}),
         }
+        return _attach_repo_path_warning(response, code_finder, repo_path, graph_name)
     except Exception as e:
         debug_log(f"Error finding dead code: {str(e)}")
         return {"error": f"Failed to find dead code: {str(e)}"}
@@ -56,7 +68,7 @@ def calculate_cyclomatic_complexity(code_finder: CodeFinder, **args) -> Dict[str
         if path:
             response["path"] = path
 
-        return response
+        return _attach_repo_path_warning(response, code_finder, repo_path, graph_name)
     except Exception as e:
         debug_log(f"Error calculating cyclomatic complexity: {str(e)}")
         return {"error": f"Failed to calculate cyclomatic complexity: {str(e)}"}
@@ -70,11 +82,12 @@ def find_most_complex_functions(code_finder: CodeFinder, **args) -> Dict[str, An
     try:
         debug_log(f"Finding the top {limit} most complex functions. repo_path={repo_path}")
         results = code_finder.find_most_complex_functions(limit, repo_path=repo_path, graph_name=graph_name)
-        return {
+        response = {
             "success": True,
             "limit": limit,
             "results": results
         }
+        return _attach_repo_path_warning(response, code_finder, repo_path, graph_name)
     except Exception as e:
         debug_log(f"Error finding most complex functions: {str(e)}")
         return {"error": f"Failed to find most complex functions: {str(e)}"}
@@ -118,7 +131,7 @@ def analyze_code_relationships(code_finder: CodeFinder, **args) -> Dict[str, Any
         if isinstance(results, dict) and "truncated" in results:
             response["truncated"] = results["truncated"]
             response["result_limit"] = results.get("result_limit")
-        return response
+        return _attach_repo_path_warning(response, code_finder, repo_path, graph_name)
 
     except ReadQueryTimeout as e:
         return timeout_error(e, query_type=query_type, target=target, context=context)
@@ -153,7 +166,7 @@ def find_code(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         if truncated:
             response["result_limit"] = limit
             response["truncated"] = True
-        return response
+        return _attach_repo_path_warning(response, code_finder, repo_path, graph_name)
 
     except Exception as e:
         debug_log(f"Error finding code: {str(e)}")
@@ -206,7 +219,7 @@ def find_java_spring_endpoints(code_finder: CodeFinder, **args) -> Dict[str, Any
         if len(rows) >= _SPRING_ROW_LIMIT:
             response["result_limit"] = _SPRING_ROW_LIMIT
             response["truncated"] = True
-        return response
+        return _attach_repo_path_warning(response, code_finder, repo_path)
     except Exception as exc:
         debug_log(f"Error finding Spring endpoints: {exc}")
         return {"error": str(exc)}
@@ -249,7 +262,7 @@ def find_java_spring_beans(code_finder: CodeFinder, **args) -> Dict[str, Any]:
         if len(rows) >= _SPRING_ROW_LIMIT:
             response["result_limit"] = _SPRING_ROW_LIMIT
             response["truncated"] = True
-        return response
+        return _attach_repo_path_warning(response, code_finder, repo_path)
     except Exception as exc:
         debug_log(f"Error finding Spring beans: {exc}")
         return {"error": str(exc)}
