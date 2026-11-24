@@ -11,6 +11,7 @@ def isolated_provider_keys(monkeypatch):
     for key in (
         "LITELLM_MODEL",
         "RUNCRATE_API_KEY",
+        "WORLDROUTER_API_KEY",
         "GEMINI_API_KEY",
         "OPENAI_API_KEY",
         "ATLASCLOUD_API_KEY",

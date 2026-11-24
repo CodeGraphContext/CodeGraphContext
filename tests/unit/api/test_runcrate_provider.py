@@ -18,6 +18,7 @@ def isolated_provider_keys(monkeypatch):
         "CHEAPER_INFERENCE_API_KEY",
         "API_ROUTE_API_KEY",
         "RUNCRATE_API_KEY",
+        "WORLDROUTER_API_KEY",
         "RUNCRATE_API_BASE",
         "RUNCRATE_MODEL",
     ):
