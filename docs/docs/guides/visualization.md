@@ -104,6 +104,29 @@ over all provider keys. Use only the Runcrate key and unset `LITELLM_MODEL` to s
 AI queries send the question, graph schema and query results to the selected
 provider to generate and explain read-only Cypher queries.
 
+### Natural-language graph queries with WorldRouter
+
+The AI query feature can also use [WorldRouter](https://www.worldrouter.ai/),
+an OpenAI-compatible gateway for Claude, GPT, Gemini, DeepSeek, Kimi and GLM models.
+Create a key at [worldrouter.ai/dashboard/api-keys](https://www.worldrouter.ai/dashboard/api-keys)
+and set it before starting the server:
+
+```bash
+export WORLDROUTER_API_KEY="your-worldrouter-key"
+cgc visualize
+```
+
+The default endpoint is `https://inference-api.worldrouter.ai/v1` and the default
+model is `deepseek-v4-flash`. Set `WORLDROUTER_API_BASE` or `WORLDROUTER_MODEL` to
+override them, for example `WORLDROUTER_MODEL=gemini-4-neon`. Model IDs have no
+vendor prefix; see the [model list](https://www.worldrouter.ai/models).
+
+Gemini, OpenAI, Atlas Cloud, Cheaper Inference, API Route, Standard Compute and
+Runcrate keep their priority over WorldRouter. An explicit `LITELLM_MODEL` takes
+precedence over all provider keys. Use only the WorldRouter key and unset
+`LITELLM_MODEL` to select it. AI queries send the question, graph schema and query
+results to the selected provider to generate and explain read-only Cypher queries.
+
 ---
 
 ## 3. Neo4j Browser Visualizations (Neo4j Backend Only)

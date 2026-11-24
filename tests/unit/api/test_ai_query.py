@@ -18,6 +18,7 @@ def test_ai_query_no_api_keys(monkeypatch):
     monkeypatch.delenv("STANDARDCOMPUTE_API_KEY", raising=False)
 
     monkeypatch.delenv("RUNCRATE_API_KEY", raising=False)
+    monkeypatch.delenv("WORLDROUTER_API_KEY", raising=False)
     
     # Mock db_manager
     mock_db = MagicMock()
