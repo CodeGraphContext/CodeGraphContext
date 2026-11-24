@@ -178,6 +178,13 @@ def resolve_function_call(
             is_rust_super = True
     base_obj = full_call.split(".")[0] if "." in full_call else None
     caller_package = call.get("package")
+    # Python's super(Cls, self).m() is a super call that walks Cls's bases
+    explicit_super_match = (
+        re.fullmatch(r"super\(\s*([A-Za-z_]\w*)\s*,[^()]*\)", base_obj)
+        if caller_lang == "python" and base_obj
+        else None
+    )
+    explicit_super_class = explicit_super_match.group(1) if explicit_super_match else None
 
     is_chained_call = full_call.count(".") > 1 if "." in full_call else False
     is_type_method_call = (
@@ -1413,8 +1420,10 @@ def resolve_function_call(
             if possible_paths:
                 resolved_path = possible_paths[0]
                 resolution_tier = 6
-    elif not resolved_path and (is_super_call or is_rust_super or base_obj in ("super", "super()")):
-        enclosing_class = call.get("enclosing_class")
+    elif not resolved_path and (
+        is_super_call or is_rust_super or explicit_super_class or base_obj in ("super", "super()")
+    ):
+        enclosing_class = explicit_super_class or call.get("enclosing_class")
         if not enclosing_class:
             class_context = call.get("class_context")
             if isinstance(class_context, tuple) and class_context:
@@ -1438,6 +1447,12 @@ def resolve_function_call(
                 resolved_called_context = simple_type_key(canonical_type(base_name))
                 resolution_tier = 4
                 break
+        if not resolved_path and not is_rust_super:
+            # The method lives in a base outside the repository or one the
+            # resolver could not bind. A same-named pick in the caller's file
+            # would be the calling method itself.
+            record_skip("super_base_unresolved", enclosing_class=enclosing_class)
+            return None
         if not resolved_path:
             resolved_path = caller_file_path
             resolution_tier = 1

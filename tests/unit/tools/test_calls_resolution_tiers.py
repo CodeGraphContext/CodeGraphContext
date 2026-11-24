@@ -99,10 +99,11 @@ class TestTier1SelfReceiver:
         result = resolve(_call("execute", full_name="this.execute"))
         assert result["confidence"] == _TIER_CONFIDENCE[1]
 
-    def test_super_receiver_resolves_to_caller(self):
+    def test_super_receiver_without_base_writes_no_edge(self):
+        # No base class to look in: the caller's file would only offer the
+        # calling method itself (#1938)
         result = resolve(_call("execute", full_name="super.execute"))
-        assert result["called_file_path"] == CALLER
-        assert result["resolution_tier"] == 1
+        assert result is None
 
 
 # ---------------------------------------------------------------------------

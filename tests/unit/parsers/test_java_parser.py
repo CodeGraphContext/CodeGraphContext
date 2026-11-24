@@ -296,8 +296,12 @@ class TestJavaCrossFileResolution:
                 )
 
 
-    def test_super_call_without_base_context_stays_in_caller_file(self):
-        """Non-Kotlin super.method() calls must not resolve to unrelated same-name symbols."""
+    def test_super_call_without_base_context_writes_no_edge(self):
+        """Non-Kotlin super.method() calls must not resolve to unrelated same-name symbols.
+
+        Nor to the caller's own file: with no base to look in, a same-name pick
+        there is the calling method itself (#1938).
+        """
         caller_path = "/tmp/Controller.java"
         external_path = "/tmp/Audit.java"
 
@@ -316,8 +320,7 @@ class TestJavaCrossFileResolution:
             skip_external=False,
         )
 
-        assert resolved is not None
-        assert resolved["called_file_path"] == caller_path
+        assert resolved is None
 
 
 # ---------------------------------------------------------------------------
