@@ -104,6 +104,26 @@ over all provider keys. Use only the Runcrate key and unset `LITELLM_MODEL` to s
 AI queries send the question, graph schema and query results to the selected
 provider to generate and explain read-only Cypher queries.
 
+### Natural-language graph queries with TeamoRouter
+
+The AI query feature can also use [TeamoRouter](https://teamorouter.com),
+an OpenAI-compatible gateway for GLM, Kimi, DeepSeek, Qwen, Claude, GPT and Gemini.
+Set your key before starting the server:
+
+```bash
+export TEAMOROUTER_API_KEY="your-teamorouter-key"
+cgc visualize
+```
+
+The default endpoint is `https://api.teamorouter.com/v1` and the default model is
+`deepseek-v4-flash`. Set `TEAMOROUTER_API_BASE` or `TEAMOROUTER_MODEL` to
+override them, for example `TEAMOROUTER_MODEL=glm-5.3`. Model ids have no vendor
+prefix; `GET https://api.teamorouter.com/v1/models/pricing` lists them without a key.
+
+Every other provider key keeps its priority over TeamoRouter. An explicit
+`LITELLM_MODEL` takes precedence over all provider keys. Use only the TeamoRouter
+key and unset `LITELLM_MODEL` to select it.
+
 ---
 
 ## 3. Neo4j Browser Visualizations (Neo4j Backend Only)
