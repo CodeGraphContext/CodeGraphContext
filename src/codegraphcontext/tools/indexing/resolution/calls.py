@@ -10,7 +10,15 @@ from ....cli.config_manager import get_config_value
 from ...type_utils import strip_type_modifiers
 from ....utils.debug_log import info_logger
 # the path helpers live in the Python import-target layer (standard library only)
-from .python_import_targets import _repo_relative_posix, _resolved_posix
+from .python_import_targets import (
+    UNBOUND,
+    External,
+    Found,
+    Module,
+    PythonImportTargets,
+    _repo_relative_posix,
+    _resolved_posix,
+)
 
 
 def import_path_in_candidate(import_name: str, candidate_path: str, repo_root: Optional[str] = None) -> bool:
@@ -138,12 +146,18 @@ def resolve_function_call(
     local_class_trait_methods: Optional[Dict[str, Dict[str, Tuple[str, str]]]] = None,
     diagnostics: Optional[List[Dict[str, Any]]] = None,
     repo_root: Optional[str] = None,
+    python_import_target: Any = None,
 ) -> Optional[Dict[str, Any]]:
     """Resolve a single function call to its target. Returns call params dict or None if skipped.
 
     *repo_root* is the caller's repository root (``file_data["repo_path"]``):
     path-substring heuristics test candidate paths relative to it, so the
     result does not depend on where the repository is checked out.
+
+    *python_import_target*: for a bare Python call whose name a from-import binds
+    in scope, what that import names (``_python_import_call_target``): a ``Found``
+    function or class is the target; anything else (the in-repository module
+    defines no such name, or several) makes no edge rather than a namesake.
     """
     caller_lang = detect_lang_from_path(caller_file_path)
     called_name = call["name"]
@@ -233,6 +247,19 @@ def resolve_function_call(
             "call_kind": call.get("call_kind", "call"),
             **details,
         })
+
+    if python_import_target is not None:
+        if isinstance(python_import_target, Found) and python_import_target.label in ("Function", "Class"):
+            resolved_path = python_import_target.path
+            resolved_called_name = python_import_target.name
+            resolved_called_line_number = python_import_target.line
+            resolution_tier = 6
+        else:
+            record_skip(
+                "python_import_target_unresolved",
+                imported_name=getattr(python_import_target, "name", called_name),
+            )
+            return None
 
     def canonical_type(type_name: Optional[str]) -> Optional[str]:
         if not type_name:
@@ -1680,6 +1707,62 @@ def _calls_the_name_itself(full_name: Optional[str], name: str) -> bool:
     return bool(re.match(r"^" + re.escape(name) + r"(?:\s*[(<!?]|\s*$)", text))
 
 
+def _python_name_rebound(file_data: Dict[str, Any], name: str, line: Any) -> bool:
+    """The Python file binds *name* itself where a call at *line* sees it: a module-level
+    ``def`` / ``class`` / assignment, or a ``def`` / ``class`` / assignment / parameter of a
+    function enclosing the call. An import of *name* is then not (provably) the binding
+    in scope."""
+    if not isinstance(line, int):
+        return True
+    enclosing = [
+        fn for fn in file_data.get("functions") or ()
+        if not fn.get("is_synthetic")
+        and isinstance(fn.get("line_number"), int)
+        and isinstance(fn.get("end_line"), int)
+        and fn["line_number"] <= line <= fn["end_line"]
+    ]
+    for fn in enclosing:
+        params = fn.get("args") or fn.get("parameters") or []
+        if any(isinstance(p, str) and p.lstrip("*") == name for p in params):
+            return True
+    for key in ("functions", "classes", "variables"):
+        for item in file_data.get(key) or ():
+            if item.get("name") != name:
+                continue
+            ctx = item.get("context")
+            if not ctx and not item.get("class_context"):
+                return True
+            item_line = item.get("line_number")
+            if isinstance(item_line, int) and any(
+                fn.get("name") == ctx and fn["line_number"] <= item_line <= fn["end_line"]
+                for fn in enclosing
+            ):
+                return True
+    return False
+
+
+def _python_import_call_target(
+    targets: PythonImportTargets, file_data: Dict[str, Any], call: Dict[str, Any]
+) -> Any:
+    """What a bare Python call ``name(…)`` reaches through the from-import binding
+    *name* in scope (``Found`` / ``Unresolved``), else None: not a bare call, no
+    from-import binds the name there, the file rebinds it, or the module is outside
+    the repository — those keep the general resolution."""
+    name = call.get("name")
+    if not name or (call.get("full_name") or name) != name or call.get("inferred_obj_type"):
+        return None
+    line = call.get("line_number")
+    binds = targets.bindings(file_data, name, line)
+    if not binds or any(imported is None for _module, imported in binds):
+        return None
+    if _python_name_rebound(file_data, name, line):
+        return None
+    got = targets.resolve(file_data, name, line)
+    if got is UNBOUND or isinstance(got, (External, Module)):
+        return None
+    return got
+
+
 def build_function_call_groups(
     all_file_data: List[Dict[str, Any]],
     imports_map: dict,
@@ -2221,6 +2304,10 @@ def build_function_call_groups(
                         callback_arg_targets[(callee_fp, callee_name, param)].append(
                             (target_fp, arg_text, target_fn.get("line_number"))
                         )
+
+    # Python from-import bindings resolve through the imported module's file; built
+    # on the first Python file, over every file of the run.
+    py_targets: Optional[PythonImportTargets] = None
 
     for idx, file_data in enumerate(all_file_data):
         caller_file_path = _resolved_posix(file_data["path"])
@@ -3041,6 +3128,12 @@ def build_function_call_groups(
                         })
                 continue
 
+            python_import_target = None
+            if caller_lang == "python":
+                if py_targets is None:
+                    py_targets = PythonImportTargets(all_file_data)
+                python_import_target = _python_import_call_target(py_targets, file_data, call_to_resolve)
+
             resolved = resolve_function_call(
                 call_to_resolve,
                 caller_file_path,
@@ -3061,6 +3154,7 @@ def build_function_call_groups(
                 local_class_trait_methods=local_class_trait_methods,
                 diagnostics=diagnostics,
                 repo_root=file_data.get("repo_path"),
+                python_import_target=python_import_target,
             )
             if not resolved:
                 continue
