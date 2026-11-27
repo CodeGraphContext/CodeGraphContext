@@ -150,6 +150,20 @@ def test_call_llm_with_cheaperinference_defaults(mock_post, monkeypatch):
     assert kwargs["json"]["model"] == "gpt-5.4-mini"
 
 
+@patch("requests.post")
+def test_call_llm_gemini_uses_served_model(mock_post, monkeypatch):
+    monkeypatch.delenv("LITELLM_MODEL", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-gemini-key")
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "candidates": [{"content": {"parts": [{"text": "ok"}]}}]
+    }
+    from codegraphcontext.viz.server import call_llm
+
+    assert call_llm("system", "user") == "ok"
+    assert "/models/gemini-3.6-flash:generateContent" in mock_post.call_args.args[0]
+
+
 @patch("codegraphcontext.viz.server.call_llm")
 def test_ai_query_success(mock_call_llm, monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "fake-gemini-key")
