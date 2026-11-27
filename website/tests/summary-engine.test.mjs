@@ -143,6 +143,19 @@ for (const provider of ['gemini', 'mistral']) {
   });
 }
 
+test('Gemini queries default to a served model and its supported parameters', async (t) => {
+  const fetch = mockResponse(t, { candidates: [{ content: { parts: [{ text: JSON.stringify(answer) }] } }] });
+  await executeClientAIQuery('Explain the graph', nodes, links, { ...config, provider: 'gemini' });
+
+  const [url, options] = fetch.mock.calls[0].arguments;
+  assert.match(url, /\/models\/gemini-3\.6-flash:generateContent/);
+  assert.deepEqual(JSON.parse(options.body).generationConfig, {
+    maxOutputTokens: 2000,
+    thinkingConfig: { thinkingLevel: 'minimal' },
+    responseMimeType: 'application/json',
+  });
+});
+
 test('Anthropic configuration persists and can be cleared', (t) => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   const values = new Map();

@@ -38,6 +38,7 @@ export interface NodeSummary {
 export type LLMProvider = 'gemini' | 'mistral' | 'anthropic' | 'none';
 
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
 
 export interface LLMConfig {
   provider: LLMProvider;
@@ -432,7 +433,7 @@ export async function executeClientAIQuery(
 
   // Minify the graph to save tokens
   // If the graph is insanely huge, a lightweight RAG can be applied here.
-  // For Gemini 2.0 Flash (1M tokens), up to ~5000 nodes is typically fine.
+  // For Gemini 3.6 Flash (1M tokens), up to ~5000 nodes is typically fine.
   const minifiedNodes = nodes.map(n => ({
     id: n.id,
     name: n.name,
@@ -499,7 +500,7 @@ JSON Format:
 
 
 async function callGemini(prompt: string, apiKey: string, model?: string, maxTokens: number = 200, jsonMode: boolean = false): Promise<string> {
-  const modelId = model || 'gemini-2.0-flash';
+  const modelId = model || DEFAULT_GEMINI_MODEL;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
   
   const res = await fetch(url, {
@@ -509,7 +510,8 @@ async function callGemini(prompt: string, apiKey: string, model?: string, maxTok
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         maxOutputTokens: maxTokens,
-        temperature: 0.3,
+        // Thought tokens count against maxOutputTokens, so keep thinking low.
+        ...(modelId === DEFAULT_GEMINI_MODEL ? { thinkingConfig: { thinkingLevel: 'minimal' } } : {}),
         ...(jsonMode ? { responseMimeType: "application/json" } : {})
       }
     }),
