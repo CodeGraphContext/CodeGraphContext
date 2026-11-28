@@ -259,3 +259,17 @@ def test_default_patterns_cover_terraform_generated_files(pattern):
     from codegraphcontext.cli.config_manager import DEFAULT_CGCIGNORE_PATTERNS
     assert pattern in DEFAULT_IGNORE_PATTERNS
     assert pattern in DEFAULT_CGCIGNORE_PATTERNS.splitlines()
+
+
+def test_find_cgcignore_honors_explicit_path_outside_git_repo(tmp_path: Path):
+    """Explicit .cgcignore path must still be resolved when ignore_root is not in a git repo."""
+    from codegraphcontext.core.cgcignore import find_cgcignore
+
+    repo = tmp_path / "non_git_repo"
+    repo.mkdir()
+    explicit = tmp_path / "shared" / "custom.cgcignore"
+    explicit.parent.mkdir(parents=True)
+    explicit.write_text("*.log\n", encoding="utf-8")
+
+    assert find_cgcignore(repo, explicit_path=str(explicit)) == explicit
+    assert find_cgcignore(repo, explicit_path=str(tmp_path / "missing.cgcignore")) is None

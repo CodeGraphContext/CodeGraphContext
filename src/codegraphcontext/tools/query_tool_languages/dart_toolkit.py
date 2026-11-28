@@ -1,6 +1,20 @@
 # src/codegraphcontext/tools/query_tool_languages/dart_toolkit.py
-class DartToolkit:
-    """Template placeholder for future implementation."""
+from .base_toolkit import BaseLanguageToolkit
 
-    def get_cypher_query(self, query: str) -> str:
-        raise NotImplementedError("AdvancedLanguageQuery is not implemented yet.")
+
+class DartToolkit(BaseLanguageToolkit):
+    """Cypher queries for Dart graph data."""
+
+    lang = "dart"
+    display_name = "Dart"
+    extensions = (".dart",)
+    supported_types = (
+        "Repository",
+        "Directory",
+        "File",
+        "Module",
+        "Function",
+        "Class",
+        "Enum",
+        "Variable",
+    )

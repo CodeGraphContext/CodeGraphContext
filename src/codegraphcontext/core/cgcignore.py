@@ -51,10 +51,7 @@ def find_cgcignore(ignore_root: Path, explicit_path: Optional[str] = None) -> Op
         if candidate.exists():
             return candidate
 
-        if git_root is None:
-            return None
-
-        if curr == git_root:
+        if git_root is None or curr == git_root:
             break
 
         curr = curr.parent

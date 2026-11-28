@@ -11,9 +11,10 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from ...utils.repo_path import repository_directory_prefix
+from .base_toolkit import BaseLanguageToolkit
 
 
-class JavaToolkit:
+class JavaToolkit(BaseLanguageToolkit):
     """Spring-aware Java analysis methods backed by CodeFinder / raw Cypher.
 
     Note: The generic ``advanced_language_query`` path calls this toolkit
@@ -21,6 +22,20 @@ class JavaToolkit:
     Spring-specific MCP tools (``find_java_spring_endpoints`` /
     ``find_java_spring_beans``) pass a ``code_finder`` via ``_init_with``.
     """
+
+    lang = "java"
+    display_name = "Java"
+    extensions = (".java",)
+    supported_types = (
+        "Repository",
+        "Directory",
+        "File",
+        "Module",
+        "Function",
+        "Class",
+        "Enum",
+        "Variable",
+    )
 
     def __init__(self) -> None:
         self._cf: Any = None
@@ -254,11 +269,4 @@ class JavaToolkit:
             LIMIT $limit
             """,
             **params,
-        )
-
-    # Legacy shim — keeps existing callers working
-    def get_cypher_query(self, query: str) -> str:
-        raise NotImplementedError(
-            "AdvancedLanguageQuery is not implemented yet for Java. "
-            "Use find_spring_endpoints(), find_beans_by_stereotype(), etc. instead."
         )

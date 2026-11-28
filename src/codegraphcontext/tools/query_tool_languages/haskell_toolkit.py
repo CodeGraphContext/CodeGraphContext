@@ -1,6 +1,10 @@
 # src/codegraphcontext/tools/query_tool_languages/haskell_toolkit.py
-class HaskellToolkit:
-    """Template placeholder for future implementation."""
+from .base_toolkit import BaseLanguageToolkit
 
-    def get_cypher_query(self, query: str) -> str:
-        raise NotImplementedError("AdvancedLanguageQuery is not implemented yet.")
+
+class HaskellToolkit(BaseLanguageToolkit):
+    """Cypher queries for Haskell graph data."""
+
+    lang = "haskell"
+    display_name = "Haskell"
+    extensions = (".hs",)

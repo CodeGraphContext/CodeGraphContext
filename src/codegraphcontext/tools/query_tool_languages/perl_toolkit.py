@@ -1,6 +1,10 @@
 # src/codegraphcontext/tools/query_tool_languages/perl_toolkit.py
-class PerlToolkit:
-    """Template placeholder for future implementation."""
+from .base_toolkit import BaseLanguageToolkit
 
-    def get_cypher_query(self, query: str) -> str:
-        raise NotImplementedError("AdvancedLanguageQuery is not implemented yet.")
+
+class PerlToolkit(BaseLanguageToolkit):
+    """Cypher queries for Perl graph data."""
+
+    lang = "perl"
+    display_name = "Perl"
+    extensions = (".pl", ".pm")
