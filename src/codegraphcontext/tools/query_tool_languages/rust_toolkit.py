@@ -1,6 +1,22 @@
 # src/codegraphcontext/tools/query_tool_languages/rust_toolkit.py
-class RustToolkit:
-    """Template placeholder for future implementation."""
+from .base_toolkit import BaseLanguageToolkit
 
-    def get_cypher_query(self, query: str) -> str:
-        raise NotImplementedError("AdvancedLanguageQuery is not implemented yet.")
+
+class RustToolkit(BaseLanguageToolkit):
+    """Cypher queries for Rust graph data."""
+
+    lang = "rust"
+    display_name = "Rust"
+    extensions = (".rs",)
+    supported_types = (
+        "Repository",
+        "Directory",
+        "File",
+        "Module",
+        "Function",
+        "Class",
+        "Struct",
+        "Enum",
+        "Macro",
+        "Variable",
+    )

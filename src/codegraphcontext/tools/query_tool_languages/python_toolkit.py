@@ -1,6 +1,10 @@
 # src/codegraphcontext/tools/query_tool_languages/python_toolkit.py
-class PythonToolkit:
-    """Template placeholder for future implementation."""
+from .base_toolkit import BaseLanguageToolkit
 
-    def get_cypher_query(self, query: str) -> str:
-        raise NotImplementedError("AdvancedLanguageQuery is not implemented yet.")
+
+class PythonToolkit(BaseLanguageToolkit):
+    """Cypher queries for Python graph data."""
+
+    lang = "python"
+    display_name = "Python"
+    extensions = (".py", ".ipynb")

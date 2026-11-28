@@ -1,6 +1,23 @@
 # src/codegraphcontext/tools/query_tool_languages/c_toolkit.py
-class CToolkit:
-    """Template placeholder for future implementation."""
+from .base_toolkit import BaseLanguageToolkit
 
-    def get_cypher_query(self, query: str) -> str:
-        raise NotImplementedError("AdvancedLanguageQuery is not implemented yet.")
+
+class CToolkit(BaseLanguageToolkit):
+    """Cypher queries for C graph data."""
+
+    lang = "c"
+    display_name = "C"
+    extensions = (".c",)
+    supported_types = (
+        "Repository",
+        "Directory",
+        "File",
+        "Module",
+        "Function",
+        "Class",
+        "Struct",
+        "Enum",
+        "Union",
+        "Macro",
+        "Variable",
+    )

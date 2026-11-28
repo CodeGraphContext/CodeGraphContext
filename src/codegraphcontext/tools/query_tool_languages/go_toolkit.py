@@ -1,6 +1,20 @@
 # src/codegraphcontext/tools/query_tool_languages/go_toolkit.py
-class GoToolkit:
-    """Template placeholder for future implementation."""
+from .base_toolkit import BaseLanguageToolkit
 
-    def get_cypher_query(self, query: str) -> str:
-        raise NotImplementedError("AdvancedLanguageQuery is not implemented yet.")
+
+class GoToolkit(BaseLanguageToolkit):
+    """Cypher queries for Go graph data."""
+
+    lang = "go"
+    display_name = "Go"
+    extensions = (".go",)
+    supported_types = (
+        "Repository",
+        "Directory",
+        "File",
+        "Module",
+        "Function",
+        "Class",
+        "Struct",
+        "Variable",
+    )

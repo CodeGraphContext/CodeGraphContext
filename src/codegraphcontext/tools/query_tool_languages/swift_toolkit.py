@@ -1,6 +1,21 @@
 # src/codegraphcontext/tools/query_tool_languages/swift_toolkit.py
-class SwiftToolkit:
-    """Template placeholder for future implementation."""
+from .base_toolkit import BaseLanguageToolkit
 
-    def get_cypher_query(self, query: str) -> str:
-        raise NotImplementedError("AdvancedLanguageQuery is not implemented yet.")
+
+class SwiftToolkit(BaseLanguageToolkit):
+    """Cypher queries for Swift graph data."""
+
+    lang = "swift"
+    display_name = "Swift"
+    extensions = (".swift",)
+    supported_types = (
+        "Repository",
+        "Directory",
+        "File",
+        "Module",
+        "Function",
+        "Class",
+        "Struct",
+        "Enum",
+        "Variable",
+    )

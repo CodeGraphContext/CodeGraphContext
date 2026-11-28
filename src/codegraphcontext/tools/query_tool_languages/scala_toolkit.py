@@ -1,6 +1,20 @@
 # src/codegraphcontext/tools/query_tool_languages/scala_toolkit.py
-class ScalaToolkit:
-    """Template placeholder for future implementation."""
+from .base_toolkit import BaseLanguageToolkit
 
-    def get_cypher_query(self, query: str) -> str:
-        raise NotImplementedError("AdvancedLanguageQuery is not implemented yet.")
+
+class ScalaToolkit(BaseLanguageToolkit):
+    """Cypher queries for Scala graph data."""
+
+    lang = "scala"
+    display_name = "Scala"
+    extensions = (".scala", ".sc")
+    supported_types = (
+        "Repository",
+        "Directory",
+        "File",
+        "Module",
+        "Function",
+        "Class",
+        "Enum",
+        "Variable",
+    )

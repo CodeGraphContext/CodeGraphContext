@@ -1,6 +1,10 @@
 # src/codegraphcontext/tools/query_tool_languages/ruby_toolkit.py
-class RubyToolkit:
-    """Template placeholder for future implementation."""
+from .base_toolkit import BaseLanguageToolkit
 
-    def get_cypher_query(self, query: str) -> str:
-        raise NotImplementedError("AdvancedLanguageQuery is not implemented yet.")
+
+class RubyToolkit(BaseLanguageToolkit):
+    """Cypher queries for Ruby graph data."""
+
+    lang = "ruby"
+    display_name = "Ruby"
+    extensions = (".rb",)

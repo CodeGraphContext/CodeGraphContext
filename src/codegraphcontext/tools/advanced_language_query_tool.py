@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from ..tools.query_tool_languages.c_toolkit import CToolkit
 from ..tools.query_tool_languages.cpp_toolkit import CppToolkit
 from ..tools.query_tool_languages.go_toolkit import GoToolkit
+from ..tools.query_tool_languages.haskell_toolkit import HaskellToolkit
 from ..tools.query_tool_languages.java_toolkit import JavaToolkit
 from ..tools.query_tool_languages.javascript_toolkit import JavascriptToolkit
 from ..tools.query_tool_languages.python_toolkit import PythonToolkit
@@ -40,6 +41,7 @@ class Advanced_language_query:
         "c": CToolkit,
         "cpp": CppToolkit,
         "go": GoToolkit,
+        "haskell": HaskellToolkit,
         "java": JavaToolkit,
         "javascript": JavascriptToolkit,
         "python": PythonToolkit,
