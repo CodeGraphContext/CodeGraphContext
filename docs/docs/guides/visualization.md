@@ -104,6 +104,30 @@ over all provider keys. Use only the Runcrate key and unset `LITELLM_MODEL` to s
 AI queries send the question, graph schema and query results to the selected
 provider to generate and explain read-only Cypher queries.
 
+### Natural-language graph queries with LLMTR
+
+The AI query feature can also use [LLMTR](https://llmtr.com), a prepaid
+OpenAI-compatible gateway. Create a key at
+[llmtr.com/dashboard/keys](https://llmtr.com/dashboard/keys) and set it before
+starting the server:
+
+```bash
+export LLMTR_API_KEY="your-llmtr-key"
+cgc visualize
+```
+
+The default endpoint is `https://llmtr.com/v1` and the default model is
+`qwen/qwen3.8-flash`. Set `LLMTR_API_BASE` or `LLMTR_MODEL` to override them;
+model ids use the `vendor/model` form and are listed by
+`GET https://llmtr.com/v1/models`. Pick a model that supports chat completions,
+since a few newer models only accept the Responses API.
+
+Every other provider key above keeps its priority over LLMTR. An explicit
+`LITELLM_MODEL` takes precedence over all provider keys. Use only the LLMTR key
+and unset `LITELLM_MODEL` to select it. AI queries send the question, graph
+schema and query results to the selected provider to generate and explain
+read-only Cypher queries.
+
 ---
 
 ## 3. Neo4j Browser Visualizations (Neo4j Backend Only)
